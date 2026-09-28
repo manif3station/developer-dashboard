@@ -36,8 +36,10 @@ Resolution checks the effective skill `config/config.json` aliases first, so
 an explicit config alias always wins over a same-named module method.
 
 If `Folder->__list__` exists, it must return alias names in list context, not
-an array reference. `d2 paths`, `d2 path list`, and `cdr` completion call the
-listed methods and merge their values into the output at runtime. This merge is
+an array reference. `d2 paths`, `d2 path list`, `cdr` completion, and
+`d2 <skill>.` completion call the listed methods and merge their values into
+the output at runtime. Completion loads only the named skill's `Folder.pm`.
+This merge is
 read-only: it does not copy module aliases into config or edit skill files.
 `d2 path add ch.workspace /some/path` persists an explicit override to
 `config/config.json`; subsequent resolution uses that configured value.

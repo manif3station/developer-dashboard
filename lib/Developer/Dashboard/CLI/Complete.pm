@@ -3,12 +3,13 @@ package Developer::Dashboard::CLI::Complete;
 use strict;
 use warnings;
 
-our $VERSION = '5.13';
+our $VERSION = '5.14';
 
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::CLI::TableHelpers qw(build_paths);
 use Developer::Dashboard::CLI::Suggest;
 use Developer::Dashboard::CLI::Ticket ();
 
@@ -28,9 +29,13 @@ sub complete {
 
     my @candidates;
     if ( $index <= 1 ) {
+        my @path_aliases = $current =~ /\A(.+)\./
+          ? _skill_path_alias_candidates($1)
+          : ();
         @candidates = (
             $suggest->top_level_candidates,
             $suggest->skill_commands,
+            @path_aliases,
         );
     }
     elsif ( ( $words[1] || '' ) eq 'workspace' && $index == 2 ) {
@@ -64,6 +69,31 @@ sub complete {
 
     my %seen;
     return grep { !$seen{$_}++ } grep { $current eq '' || index( $_, $current ) == 0 } @candidates;
+}
+
+# _skill_path_alias_candidates($skill_name)
+# Returns configured and Folder.pm aliases qualified by one skill name.
+# Input: exact installed skill name typed before the final dot.
+# Output: sorted fully qualified path-alias completion candidates.
+sub _skill_path_alias_candidates {
+    my ($skill_name) = @_;
+    return if !defined $skill_name || $skill_name eq '';
+
+    my $paths = build_paths();
+    my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
+    my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
+    my $configured = $config->path_aliases || {};
+
+    require Developer::Dashboard::CLI::Paths;
+    my $folder = Developer::Dashboard::CLI::Paths::_skill_folder_path_aliases(
+        paths      => $paths,
+        skill_name => $skill_name,
+    );
+
+    my $prefix = $skill_name . '.';
+    my %names = map { index( $_, $prefix ) == 0 ? ( $_ => 1 ) : () } keys %{$configured};
+    $names{$_} = 1 for keys %{$folder};
+    return sort keys %names;
 }
 
 # _subcommand_candidates($command)
@@ -150,7 +180,7 @@ Developer::Dashboard::CLI::Complete - shell completion candidates for dashboard
 =head1 DESCRIPTION
 
 Builds completion candidates for dashboard subcommands, built-in second-level
-actions, and dotted skill commands.
+actions, dotted skill commands, and skill-qualified path aliases.
 
 =for comment FULL-POD-DOC START
 
@@ -168,7 +198,8 @@ C<disable> after C<docker development>.
 It exists because shell completion should not hardcode command lists inside the
 generated shell snippets. Keeping completion discovery in Perl lets the shell
 bootstrap ask the live DD-OOP-LAYERS runtime what commands and skills are
-available.
+available. After a C<skill.> prefix it includes config aliases and alias names
+listed by that skill's C<Folder.pm>.
 
 =head1 WHEN TO USE
 

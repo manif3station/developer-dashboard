@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::TypedIR;
 
-our $VERSION = '5.13';
+our $VERSION = '5.14';
 
 use strict;
 use warnings;

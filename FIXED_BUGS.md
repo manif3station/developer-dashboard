@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 5.14
+
+- Fixed `d2 <skill>.` shell completion omitting skill path aliases. Completion
+  now merges configured aliases with names returned by that skill's
+  `Folder->__list__`, while loading only the specifically named skill module.
+
 ## 5.13
 
 - Fixed skill-owned path aliases being invisible to `cdr` and `d2 paths` when

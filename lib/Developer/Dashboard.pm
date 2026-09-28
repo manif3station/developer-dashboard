@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.13';
+our $VERSION = '5.14';
 
 our @EXPORT = ('d2');
 
@@ -66,7 +66,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.13
+5.14
 
 =head1 INTRODUCTION
 
@@ -1678,8 +1678,10 @@ C<cdr ch.workspace> checks the effective skill C<config/config.json> alias
 first, then loads C<Folder.pm> and calls C<Folder-E<gt>workspace> only when no
 configured alias exists. If the module implements C<Folder-E<gt>__list__>, its
 list-context alias names are merged into C<dashboard paths>, C<dashboard path
-list>, and C<cdr> completion. That runtime merge is read-only; C<dashboard path
-add> continues to write to config, and a config alias overrides a collision
+list>, C<cdr> completion, and C<d2 ch.> shell completion. Typing a skill name
+followed by a dot offers that skill's config aliases and listed module aliases;
+only the named skill's module is loaded for this completion. That runtime merge
+is read-only; C<dashboard path add> continues to write to config, and a config alias overrides a collision
 with a module method. When a project-local F<./.developer-dashboard> tree exists, alias
 writes go there first; otherwise they go to the home runtime. Under
 C<DD-OOP-LAYERS>, that write stays local to the deepest participating layer:

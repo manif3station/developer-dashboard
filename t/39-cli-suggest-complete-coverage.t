@@ -50,6 +50,36 @@ use Developer::Dashboard::CLI::Suggest ();
     );
 }
 
+{
+    my $completion_home = tempdir( CLEANUP => 1 );
+    my $skill_root = File::Spec->catdir( $completion_home, '.developer-dashboard', 'skills', 'completion-skill' );
+    my $config_dir = File::Spec->catdir( $skill_root, 'config' );
+    my $lib_dir = File::Spec->catdir( $skill_root, 'lib' );
+    make_path( $config_dir, $lib_dir );
+    _write_plain_file(
+        File::Spec->catfile( $config_dir, 'config.json' ),
+        '{"path_aliases":{"f":"/skill/f","g":"/skill/g"}}',
+    );
+    _write_plain_file(
+        File::Spec->catfile( $lib_dir, 'Folder.pm' ),
+        "package Folder;\n"
+          . join( "\n", map { "sub $_ { return '/skill/$_' }" } qw(a b c d e) ) . "\n"
+          . "sub __list__ { return ('a' .. 'e') }\n1;\n",
+    );
+
+    local $ENV{HOME} = $completion_home;
+    is_deeply(
+        [ Developer::Dashboard::CLI::Complete::complete( words => [ 'd2', 'completion-skill.' ], index => 1 ) ],
+        [ map { "completion-skill.$_" } qw(a b c d e f g) ],
+        'd2 completion after a skill prefix merges Folder->__list__ aliases with skill config aliases',
+    );
+    is_deeply(
+        [ Developer::Dashboard::CLI::Complete::complete( words => [ 'd2', 'completion-skill.c' ], index => 1 ) ],
+        ['completion-skill.c'],
+        'd2 skill path alias completion filters the module-provided aliases by the current prefix',
+    );
+}
+
 for my $case (
     [ skills    => [ qw(install enable disable uninstall list usage) ] ],
     [ skill     => [ qw(install enable disable uninstall list usage) ] ],
@@ -355,13 +385,16 @@ C<Developer::Dashboard::CLI::Complete> and
 C<Developer::Dashboard::CLI::Suggest> so the shell-completion and typo-guidance
 helpers stay fully covered.
 Docker assertions also pin the available subcommand list and nested
-development-action completion used when tabbing after C<d2 docker>.
+development-action completion used when tabbing after C<d2 docker>. Skill
+Folder.pm aliases and skill-config aliases are also pinned in the dotted
+C<d2 E<lt>skillE<gt>.> completion path.
 
 =head1 PURPOSE
 
 It exists to pin every branch in the new command-completion and command-
 suggestion modules, including disabled-skill guidance, no-suggestion paths,
-deduplication, nested skill discovery, and Docker's nested command completion.
+deduplication, nested skill discovery, Docker's nested command completion, and
+skill path alias completion.
 
 =head1 WHY IT EXISTS
 
@@ -371,8 +404,8 @@ This file closes that gap so the repo can keep the 100 percent coverage rule.
 
 =head1 WHEN TO USE
 
-Run this test after changing shell completion, typo guidance, or dotted skill
-command discovery.
+Run this test after changing shell completion, typo guidance, dotted skill
+command discovery, or completion of skill path aliases.
 
 =head1 HOW TO USE
 

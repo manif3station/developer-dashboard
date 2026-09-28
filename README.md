@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.13
+5.14
 
 # INTRODUCTION
 
@@ -1336,8 +1336,10 @@ sessions. Installed skills can also provide `lib/Folder.pm` with path methods:
 first, then loads `Folder.pm` and calls `Folder->workspace` only when no
 configured alias exists. If the module implements `Folder->__list__`, its
 list-context alias names are merged into `dashboard paths`, `dashboard path
-list`, and `cdr` completion. That runtime merge is read-only; `dashboard path
-add` continues to write to config, and a config alias overrides a collision
+list`, `cdr` completion, and `d2 ch.` shell completion. Typing a skill name
+followed by a dot offers that skill's config aliases and listed module aliases;
+only the named skill's module is loaded for this completion. That runtime merge
+is read-only; `dashboard path add` continues to write to config, and a config alias overrides a collision
 with a module method. When a project-local `./.developer-dashboard` tree exists, alias
 writes go there first; otherwise they go to the home runtime. Under
 `DD-OOP-LAYERS`, that write stays local to the deepest participating layer:

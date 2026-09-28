@@ -1,3 +1,9 @@
+5.14  2026-09-28
+
+  - Include each skill's configured and Folder.pm path aliases in d2 skill
+    command completion after the skill-qualified prefix, loading only that
+    skill's Folder.pm for the completion request.
+
 5.13  2026-09-28
 
   - Added skill-provided path aliases through lib/Folder.pm. cdr and path

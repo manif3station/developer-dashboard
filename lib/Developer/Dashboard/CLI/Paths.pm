@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Paths;
 use strict;
 use warnings;
 
-our $VERSION = '5.13';
+our $VERSION = '5.14';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(basename);
@@ -371,9 +371,11 @@ sub _resolve_path_alias {
 sub _skill_folder_path_aliases {
     my (%args) = @_;
     my $paths = $args{paths} || die "Missing paths registry\n";
+    my $skill_name = $args{skill_name};
     my %aliases;
 
     for my $entry ( _skill_folder_entries($paths) ) {
+        next if defined $skill_name && $entry->{name} ne $skill_name;
         next if !_load_skill_folder_module($entry);
         my $list = Folder->can('__list__') or next;
         my @names = $list->('Folder');
