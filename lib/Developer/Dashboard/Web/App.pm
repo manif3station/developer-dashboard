@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '5.14';
+our $VERSION = '5.17';
 
 use Capture::Tiny qw(capture);
 use Digest::SHA qw(sha256_hex);
@@ -1595,7 +1595,7 @@ function ddHighlightLine(line, state) {
 function ddHighlightSectionText(text, state) {
   const section = state.section || '';
   if (/^CODE\d+$/.test(section)) return ddHighlightPerlLine(text);
-  if (section === 'HTML') return ddHighlightHtmlLine(text, state);
+  if (section === 'HEAD' || section === 'HTML') return ddHighlightHtmlLine(text, state);
   if (section === 'STASH' || section === 'NOTE') return ddHighlightNoteLine(text);
   return ddEscapeHtml(text);
 }
@@ -2054,7 +2054,7 @@ sub _highlight_section_text {
     my ( $self, $text, $state ) = @_;
     my $section = $state->{section} || '';
     return $self->_highlight_perl_text($text) if $section =~ /^CODE\d+$/;
-    return $self->_highlight_html_text( $text, $state ) if $section eq 'HTML';
+    return $self->_highlight_html_text( $text, $state ) if $section eq 'HEAD' || $section eq 'HTML';
     return $self->_highlight_note_text($text) if $section eq 'STASH' || $section eq 'NOTE';
     return _escape_html($text);
 }

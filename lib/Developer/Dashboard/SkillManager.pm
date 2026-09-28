@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '5.14';
+our $VERSION = '5.17';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -26,8 +26,10 @@ use Developer::Dashboard::StreamDrain qw(_drain_ready_handle);
 # The home chain reads HOME, then the Windows USERPROFILE variable, and only
 # then the guarded passwd lookup, so a Windows session with no HOME resolves its
 # profile directory instead of aborting inside an unimplemented passwd function.
-# Input: none.
-# Output: SkillManager object.
+# Input: class name with optional paths, progress callback, skip_tests flag,
+# and remote clone_branch string.
+# Output: SkillManager object; optional clone_branch selects the branch for
+# remote skill installs and overrides an existing checkout's branch.
 sub new {
     my ( $class, %args ) = @_;
     my $paths = $args{paths};
@@ -45,6 +47,7 @@ sub new {
         paths      => $paths,
         progress   => $args{progress},
         skip_tests => $args{skip_tests} ? 1 : 0,
+        clone_branch => $args{clone_branch},
     }, $class;
 }
 
@@ -739,24 +742,92 @@ sub _copy_tree {
     return { success => 1 };
 }
 
-# _clone_skill_source($clone_source, $target_path)
-# Clones one remote skill checkout into the isolated installed skill root
-# using git clone and explicit captured stdout and stderr for error reporting.
-# Input: normalized remote clone source string and absolute target path.
+# _clone_skill_source($clone_source, $target_path, $branch)
+# Clones one remote skill checkout, selecting an explicit branch or trying
+# master then main in that order, with captured output for clear errors.
+# Input: normalized remote source, absolute target path, and optional branch.
 # Output: success hash ref or error hash ref.
 sub _clone_skill_source {
-    my ( $self, $clone_source, $target_path ) = @_;
+    my ( $self, $clone_source, $target_path, $branch ) = @_;
     return { error => 'Missing remote skill source' } if !$clone_source;
     return { error => 'Missing remote skill target path' } if !$target_path;
 
+    my @branches = defined $branch ? ($branch) : qw(master main);
+    my @errors;
+    for my $idx ( 0 .. $#branches ) {
+        my $result = $self->_clone_skill_branch( $clone_source, $target_path, $branches[$idx] );
+        return $result if !$result->{error};
+        push @errors, $result->{error};
+        next if $idx == $#branches;
+
+        my $cleanup = $self->_remove_existing_skill_path($target_path);
+        return { error => "Unable to retry skill clone after branch '$branches[$idx]' failed: $cleanup->{error}" }
+          if $cleanup->{error};
+    }
+
+    return { error => 'Failed to clone ' . $clone_source . ': ' . join( '; ', @errors ) };
+}
+
+# _clone_skill_branch($clone_source, $target_path, $branch)
+# Clones one remote skill branch with git and preserves stdout/stderr details.
+# Input: normalized remote source string, absolute target path, and branch name.
+# Output: success hash ref or branch-specific error hash ref.
+sub _clone_skill_branch {
+    my ( $self, $clone_source, $target_path, $branch ) = @_;
+    return { error => 'Missing remote skill branch' } if !defined $branch || $branch eq '';
+
+    local $?;    # DD-592: don't expose this subprocess status to the install caller.
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'git', 'clone', $clone_source, $target_path );
+        system( 'git', 'clone', '--single-branch', '--branch', $branch, $clone_source, $target_path );
     };
     return { success => 1 } if $exit == 0;
-
     my $message = $stderr || $stdout || 'git clone failed without output';
     chomp $message;
-    return { error => "Failed to clone $clone_source: $message" };
+    return { error => "branch '$branch': $message" };
+}
+
+# _current_installed_skill_branch($skill_path)
+# Reads the current named branch of an existing installed Git checkout before
+# reinstall replaces it. Detached HEAD checkouts return undef; git failures are
+# surfaced as an error hash instead of silently switching branches.
+# Input: installed skill directory path.
+# Output: current branch name, undef when there is no named Git branch, or an
+# error hash reference.
+sub _current_installed_skill_branch {
+    my ( $self, $skill_path ) = @_;
+    my $git_marker = File::Spec->catfile( $skill_path, '.git' );
+    return if !-e $git_marker;
+
+    local $?;    # DD-592: branch probing must not alter the caller's child status.
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'git', '-C', $skill_path, 'rev-parse', '--abbrev-ref', 'HEAD' );
+    };
+    if ( $exit != 0 ) {
+        my $message = $stderr || $stdout || 'git could not report the current branch';
+        chomp $message;
+        return { error => "Unable to detect current branch for installed skill at $skill_path: $message" };
+    }
+    chomp $stdout;
+    return if $stdout eq '' || $stdout eq 'HEAD';
+    return $stdout;
+}
+
+# _validate_skill_branch($branch)
+# Validates a user-selected Git branch name before an installer can replace
+# existing files, using git's authoritative ref-name parser.
+# Input: requested branch string.
+# Output: success hash reference or clear invalid-branch error hash reference.
+sub _validate_skill_branch {
+    my ( $self, $branch ) = @_;
+    return { error => 'Missing remote skill branch' } if !defined $branch || $branch eq '';
+    local $?;    # DD-592: ref validation must not alter the caller's child status.
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'git', 'check-ref-format', '--branch', $branch );
+    };
+    return { success => 1 } if $exit == 0;
+    my $message = $stderr || $stdout || 'git rejected the branch name';
+    chomp $message;
+    return { error => "Invalid skill branch '$branch': $message" };
 }
 
 # _local_checked_out_source($source)
@@ -850,6 +921,12 @@ sub _install_to_skills_root {
     return {
         error => "Refusing to install skill outside skills root: '$source' resolves to the unsafe skill name '$repo_name'"
     } if !_is_safe_skill_name($repo_name);
+    return { error => 'The -b/--branch option applies only to remote Git skill sources' }
+      if $local_source && defined $self->{clone_branch};
+    if ( defined $self->{clone_branch} ) {
+        my $branch_check = $self->_validate_skill_branch( $self->{clone_branch} );
+        return $branch_check if $branch_check->{error};
+    }
 
     $self->{paths}->ensure_dir($skills_root);
     my $skill_path = File::Spec->catdir( $skills_root, $repo_name );
@@ -858,6 +935,14 @@ sub _install_to_skills_root {
     } if !$self->_install_path_contained( $skill_path, $skills_root );
     my $had_existing = -e $skill_path ? 1 : 0;
     my $version_before = $self->_skill_env_version($skill_path);
+    my $clone_branch = $self->{clone_branch};
+    return { error => 'The -b/--branch option applies only to remote Git skill sources' }
+      if $local_source && defined $clone_branch;
+    if ( !$local_source && $had_existing && !defined $clone_branch ) {
+        my $current_branch = $self->_current_installed_skill_branch($skill_path);
+        return $current_branch if ref($current_branch) eq 'HASH';
+        $clone_branch = $current_branch if defined $current_branch;
+    }
     my $remove = $self->_remove_existing_skill_path($skill_path);
     return $remove if $remove->{error};
 
@@ -891,7 +976,7 @@ sub _install_to_skills_root {
                 label   => "Fetch skill source from $clone_source",
             }
         );
-        my $clone = $self->_clone_skill_source( $clone_source, $skill_path );
+        my $clone = $self->_clone_skill_source( $clone_source, $skill_path, $clone_branch );
         if ( $clone->{error} ) {
             remove_tree($skill_path) if -d $skill_path;
             $self->_progress_emit( { task_id => 'fetch_source', status => 'failed' } );
@@ -1173,6 +1258,7 @@ sub _dependency_progress_label {
     if ( ref($result) eq 'HASH' && $result->{skipped} ) {
         return "$label (skipped: $result->{skip_reason})"
           if defined $result->{skip_reason} && $result->{skip_reason} ne '';
+        return "$label (skipped: no dependency installs needed)" if -f $path;
         return "$label (skipped: $file not present)";
     }
     if ( ref($result) eq 'HASH' && defined $result->{error} && $result->{error} ne '' ) {
@@ -2622,7 +2708,7 @@ refusal instead of removing or writing outside the skills tree.
 
 =head1 PURPOSE
 
-This module installs, updates, removes, and lists dashboard skills. It manages the on-disk skill roots under the active C<DD-OOP-LAYERS> chain, clones or updates Git-backed skill repos, prepares the expected directory layout, and helps the rest of the runtime locate the effective skill for one repo name from deepest layer back to home.
+This module installs, updates, removes, and lists dashboard skills. It manages the on-disk skill roots under the active C<DD-OOP-LAYERS> chain, clones or updates Git-backed skill repos, prepares the expected directory layout, and helps the rest of the runtime locate the effective skill for one repo name from deepest layer back to home. Remote clones accept an optional branch; fresh installs try C<master> then C<main>, while reinstall keeps the currently checked-out named branch unless explicitly overridden.
 
 =head1 WHY IT EXISTS
 
@@ -2634,7 +2720,7 @@ Use this file when changing skill install/update/uninstall behavior, the expecte
 
 =head1 HOW TO USE
 
-Construct it with the active paths, then call the install/update/uninstall/list methods from the C<dashboard skills> helper or from tests. Leave command execution and hook handling to C<Developer::Dashboard::SkillDispatcher>.
+Construct it with the active paths and, optionally, C<clone_branch =E<gt> $branch>. Call the install/update/uninstall/list methods from the C<dashboard skills> helper or from tests. Leave command execution and hook handling to C<Developer::Dashboard::SkillDispatcher>.
 
 =head1 WHAT USES IT
 
@@ -2673,6 +2759,14 @@ Example 5:
 Drive an explicit manifest install from the current directory, where F<ddfile>
 targets the base home-layer F<~/.developer-dashboard/skills/> root and
 F<ddfile.local> targets the current directory's nested C<skills/> tree.
+
+Example 6:
+
+  dashboard skills install -b main git@github.com:user/example-skill.git
+
+Install one remote skill from the named branch. Without C<-b>, a fresh
+checkout tries C<master> then C<main>; reinstall preserves the installed
+checkout's current branch.
 
 
 =for comment FULL-POD-DOC END

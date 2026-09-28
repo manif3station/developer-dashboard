@@ -100,6 +100,7 @@ my $page = Developer::Dashboard::PageDocument->new(
     id     => 'welcome',
     title  => 'Welcome',
     layout => { body => 'hello from app [% stash.name %]' },
+    meta   => { head => '<meta name="x-bookmark" content="head-injected">' },
 );
 $store->save_page($page);
 
@@ -107,6 +108,8 @@ my $legacy_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE')
 TITLE: Legacy Welcome
 :--------------------------------------------------------------------------------:
 BOOKMARK: legacy-welcome
+:--------------------------------------------------------------------------------:
+HEAD: <meta name="x-bookmark" content="legacy-head-injected">
 :--------------------------------------------------------------------------------:
 STASH:
   name => 'World'
@@ -141,6 +144,7 @@ like($body1, qr/ddForm\.addEventListener\('focusout', function\(\) \{/s, 'root r
 like($body1, qr/function ddApplyDirectiveAssist\(editor\)/, 'root route editor script includes directive assist helper for one editor block');
 like($body1, qr/function ddSplitInstruction\(\w+\)/, 'root route editor script can split bookmark source into visible blocks');
 like($body1, qr/function ddComposeInstruction\(\)/, 'root route editor script recomposes visible blocks back into the hidden bookmark source');
+like($body1, qr/section === 'HEAD' \|\| section === 'HTML'/, 'editor syntax highlighter treats HEAD content as HTML');
 like($body1, qr/if \(priorDirective === 'TITLE'\) \{\s*if \(!directives\.BOOKMARK\) return 'BOOKMARK: ';\s*return directives\.HTML \? '' : 'HTML: ';/s, 'directive assist offers BOOKMARK before HTML when TITLE is the current block');
 like($body1, qr/if \(priorDirective === 'HTML' \|\| \/\^CODE\\d\+\$\/\.test\(priorDirective\)\) \{\s*return 'CODE' \+ \(ddHighestCodeDirective\(fullText\) \+ 1\) \+ ': ';/s, 'directive assist advances CODE directives from HTML and CODE sections');
 like($body1, qr/if \(event\.key !== 'Tab' \|\| event\.shiftKey \|\| event\.ctrlKey \|\| event\.altKey \|\| event\.metaKey\) return;/s, 'split editor reserves plain Tab to start a new section block');
@@ -596,6 +600,11 @@ like($demo_overlay, qr/<span class="tok-directive">HTML:<\/span>/, 'editor overl
 like($demo_overlay, qr/<span class="tok-tag">&lt;style<\/span>/, 'editor overlay highlights HTML tag names');
 like($demo_overlay, qr/<span class="tok-js">const<\/span> run = 1;/, 'editor overlay highlights JavaScript keywords');
 like($demo_overlay, qr/<span class="tok-note">\[% stash\.name %\]<\/span>/, 'editor overlay highlights TT placeholders inside HTML sections');
+like(
+    $app->_editor_overlay_html("HEAD: <script>const ready = true;</script>\n"),
+    qr/<span class="tok-js">const<\/span> ready = true;/,
+    'server-side editor overlay highlights JavaScript inside HEAD sections',
+);
 
 my $broken_editor_source = <<'BOOKMARK';
 BOOKMARK: test
@@ -670,6 +679,7 @@ is($code2, 200, 'saved page route ok');
 like($body2, qr/Welcome/, 'saved page rendered');
 unlike($body2, qr{<h1>\s*Welcome\s*</h1>}, 'page title is not injected into the page body');
 like($body2, qr{<title>Welcome</title>}, 'page title is still rendered in the head title element');
+like($body2, qr{<head>.*<meta name="x-bookmark" content="head-injected">.*</head>}s, 'saved bookmark HEAD content is injected inside the rendered document head');
 unlike($body2, qr/id="logout-url"/, 'admin route does not render logout link');
 
 my ($code2b, undef, $body2b) = @{ $app->handle(path => '/app/welcome', query => 'name=Michael', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
@@ -699,6 +709,7 @@ like($body3, qr/^TITLE:\s+Welcome/m, 'source mode returns canonical legacy instr
 my ($code4, $type4, $body4) = @{ $app->handle(path => '/app/legacy-welcome', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code4, 200, 'legacy saved page route ok');
 like($body4, qr/Hello World/, 'legacy placeholders render from stash state');
+like($body4, qr{<head>.*<meta name="x-bookmark" content="legacy-head-injected">.*</head>}s, 'legacy bookmark-file HEAD content reaches the rendered document head');
 like($body4, qr/Runtime/, 'trusted legacy code output is rendered on saved pages');
 like($body4, qr/Right Click Copy &amp; Share or Bookmark This Page/, 'legacy render includes top chrome share link');
 unlike($body4, qr/\{legacy-welcome:[^}]+\}/, 'top chrome does not dump shell prompt project context');
@@ -1235,7 +1246,9 @@ __END__
 
 =head1 DESCRIPTION
 
-This test verifies the local web app home, page, and transient source routes.
+This test verifies the local web app home, saved bookmark rendering (including
+raw C<HEAD> content in the document head), editor syntax highlighting, and
+transient source routes.
 
 =for comment FULL-POD-DOC START
 

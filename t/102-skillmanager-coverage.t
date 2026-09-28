@@ -356,6 +356,32 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     local $ENV{PATH} = "$bin2:$ENV{PATH}";
     my $failed = $manager->_clone_skill_source( 'file:///nope', File::Spec->catdir( tempdir( CLEANUP => 1 ), 'c' ) );
     like( $failed->{error}, qr/git clone failed without output/, 'clone reports a fallback message when git is silent' );
+
+    my @branch_attempts;
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::SkillManager::_clone_skill_branch = sub {
+            my ( $self, $source, $target, $branch ) = @_;
+            push @branch_attempts, $branch;
+            return $branch eq 'main' ? { success => 1 } : { error => "branch '$branch' is absent" };
+        };
+        my $default = $manager->_clone_skill_source( 'remote', 'target' );
+        ok( $default->{success}, 'default branch selection succeeds after its fallback clone' );
+    }
+    is_deeply( \@branch_attempts, [qw(master main)], 'new clone attempts master first and main second' );
+
+    @branch_attempts = ();
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::SkillManager::_clone_skill_branch = sub {
+            my ( $self, $source, $target, $branch ) = @_;
+            push @branch_attempts, $branch;
+            return { error => "branch '$branch' is absent" };
+        };
+        my $explicit = $manager->_clone_skill_source( 'remote', 'target', 'release-x' );
+        like( $explicit->{error}, qr/release-x/, 'an explicit branch reports its own clone failure' );
+    }
+    is_deeply( \@branch_attempts, ['release-x'], 'an explicit branch does not fall back to master or main' );
 }
 
 # ===========================================================================
@@ -526,13 +552,24 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     );
     is(
         $manager->_dependency_progress_label( 'install_ddfile', $skill, result => { skipped => 1 } ),
-        "Install ddfile dependencies (skipped: ddfile not present)",
-        'label reports a default skip reason',
+        'Install ddfile dependencies (skipped: no dependency installs needed)',
+        'label does not report a present ddfile as missing when no install was needed',
     );
     is(
         $manager->_dependency_progress_label( 'install_ddfile', $skill, result => { skipped => 1, skip_reason => '' } ),
-        "Install ddfile dependencies (skipped: ddfile not present)",
+        'Install ddfile dependencies (skipped: no dependency installs needed)',
         'label ignores an empty skip reason',
+    );
+    _spew( File::Spec->catfile( $skill, 'ddfile.local' ), "dep\n" );
+    is(
+        $manager->_dependency_progress_label( 'install_ddfile_local', $skill, result => { skipped => 1 } ),
+        'Install ddfile.local dependencies (skipped: no dependency installs needed)',
+        'label does not report a present ddfile.local as missing when no install was needed',
+    );
+    is(
+        $manager->_dependency_progress_label( 'install_ddfile', $absent, result => { skipped => 1 } ),
+        'Install ddfile dependencies (skipped: ddfile not present)',
+        'label reports a missing ddfile only when the file is actually absent',
     );
     like(
         $manager->_dependency_progress_label( 'install_ddfile', $skill, result => { error => 'boom' } ),
@@ -887,6 +924,85 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 # uninstall using a real local git repository and offline clone.
 # ===========================================================================
 my $repos = tempdir( CLEANUP => 1 );
+
+# New installs prefer master, then main; an explicit branch is used directly.
+{
+    my $main_repo = _make_git_skill( 'branch-main-only', version => '1.00' );
+    _run_or_die( 'git', '-C', $main_repo, 'branch', '-m', 'main' );
+    my $main_target = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'main-clone' );
+    my $main_clone = $manager->_clone_skill_source( $main_repo, $main_target );
+    ok( $main_clone->{success}, 'clone falls back from master to main when main is the available branch' );
+    is( $manager->_current_installed_skill_branch($main_target), 'main', 'the fallback clone checks out main' );
+    is( $manager->_current_installed_skill_branch( tempdir( CLEANUP => 1 ) ), undef, 'branch lookup returns undef for a non-Git skill directory' );
+
+    my $detached_target = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'detached-clone' );
+    my $detached_clone = $manager->_clone_skill_source( $main_repo, $detached_target );
+    ok( $detached_clone->{success}, 'clone can provide a checkout for detached-HEAD branch detection' );
+    _run_or_die( 'git', '-C', $detached_target, 'checkout', '--quiet', '--detach' );
+    is( $manager->_current_installed_skill_branch($detached_target), undef, 'branch lookup returns undef for a detached HEAD checkout' );
+
+    _run_or_die( 'git', '-C', $main_repo, 'branch', 'release-next' );
+    my $explicit_target = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'explicit-clone' );
+    my $explicit_clone = $manager->_clone_skill_source( $main_repo, $explicit_target, 'release-next' );
+    ok( $explicit_clone->{success}, 'clone accepts an explicitly selected branch' );
+    is( $manager->_current_installed_skill_branch($explicit_target), 'release-next', 'explicit clone checks out the requested branch' );
+    is( $manager->_validate_skill_branch('stable')->{success}, 1, 'git ref validation accepts a valid branch name' );
+    like( $manager->_validate_skill_branch('bad..branch')->{error}, qr/Invalid skill branch/, 'git ref validation rejects an invalid branch name' );
+
+    my $fake_git = tempdir( CLEANUP => 1 );
+    _spew( File::Spec->catfile( $fake_git, 'git' ), "#!/bin/sh\necho branch lookup failed >&2\nexit 1\n" );
+    chmod 0755, File::Spec->catfile( $fake_git, 'git' );
+    local $ENV{PATH} = "$fake_git:$ENV{PATH}";
+    like( $manager->_current_installed_skill_branch($main_target)->{error}, qr/Unable to detect current branch/, 'branch lookup reports git errors instead of silently changing branches' );
+}
+
+# Reinstall without -b preserves the branch already checked out in the skill directory.
+{
+    my $branch_home = tempdir( CLEANUP => 1 );
+    my $branch_paths = Developer::Dashboard::PathRegistry->new( home => $branch_home );
+    my $branch_manager = Developer::Dashboard::SkillManager->new( paths => $branch_paths );
+    my $source_repo = _make_git_skill( 'sticky-branch', version => '1.00' );
+    my $installed = File::Spec->catdir( $branch_paths->skills_root, 'sticky-branch' );
+    _run_or_die( 'git', 'clone', '--quiet', $source_repo, $installed );
+    _run_or_die( 'git', '-C', $installed, 'checkout', '--quiet', '-b', 'feature-line' );
+    my $selected;
+    no warnings 'redefine';
+    local *Developer::Dashboard::SkillManager::_clone_skill_source = sub {
+        my ( $self, $source, $target, $branch ) = @_;
+        $selected = $branch;
+        return { error => 'test clone interception' };
+    };
+    my $reinstall = $branch_manager->install('https://example.invalid/sticky-branch.git');
+    is( $selected, 'feature-line', 'reinstall reuses the installed checkout branch when -b is omitted' );
+    is( $reinstall->{error}, 'test clone interception', 'branch-preservation probe stops at the intercepted clone' );
+
+    my $override_manager = Developer::Dashboard::SkillManager->new( paths => $branch_paths, clone_branch => 'stable' );
+    _run_or_die( 'git', 'clone', '--quiet', $source_repo, $installed );
+    _run_or_die( 'git', '-C', $installed, 'checkout', '--quiet', '-b', 'feature-line' );
+    $override_manager->install('https://example.invalid/sticky-branch.git');
+    is( $selected, 'stable', 'explicit -b overrides the current installed checkout branch' );
+
+    my $local_dir = $installed;
+    make_path($local_dir);
+    _spew( File::Spec->catfile( $local_dir, 'canary' ), "keep\n" );
+    my $local_branch_manager = Developer::Dashboard::SkillManager->new( paths => $branch_paths, clone_branch => 'stable' );
+    is(
+        $local_branch_manager->install($source_repo)->{error},
+        'The -b/--branch option applies only to remote Git skill sources',
+        'explicit branch selection is rejected for local checked-out sources',
+    );
+    ok( -f File::Spec->catfile( $local_dir, 'canary' ), 'local branch rejection leaves the existing destination untouched' );
+
+    my $invalid_branch_manager = Developer::Dashboard::SkillManager->new( paths => $branch_paths, clone_branch => 'bad..branch' );
+    _spew( File::Spec->catfile( $installed, 'canary' ), "keep\n" );
+    like(
+        $invalid_branch_manager->install('https://example.invalid/sticky-branch.git')->{error},
+        qr/Invalid skill branch 'bad\.\.branch'/,
+        'invalid explicit branches are rejected before the existing install is replaced',
+    );
+    ok( -f File::Spec->catfile( $installed, 'canary' ), 'invalid branch rejection preserves installed skill files' );
+}
+
 {
     my $repo = _make_git_skill( 'rich-skill', version => '1.00', with_all => 1 );
 
@@ -2299,6 +2415,10 @@ t/102-skillmanager-coverage.t> while iterating. The test builds a hermetic HOME,
 prepends a stub PATH so no real package managers run, and constructs the manager
 against a temporary L<Developer::Dashboard::PathRegistry>. Keep it green under
 C<prove -lr t> and under the Devel::Cover gate before release.
+The clone tests also assert the branch contract: new remote checkouts try
+C<master> then C<main>, explicit branches override, and reinstall without an
+override keeps the named branch already checked out in the installed skill
+directory.
 
 =head1 WHAT USES IT
 

@@ -1,3 +1,21 @@
+5.17  2026-09-28
+
+  - Add bookmark HEAD content for raw metadata/script/style injection into the
+    rendered document head, with parsing, serialization, editor highlighting,
+    and explicit trusted-content documentation.
+
+5.16  2026-09-28
+
+  - Correct skill install progress labels when ddfile or ddfile.local exists
+    but no dependency install is needed; report a missing manifest only when
+    the file is actually absent.
+
+5.15  2026-09-28
+
+  - Add -b/--branch to remote skill installs. Fresh installs try master then
+    main by default; reinstalls keep the installed checkout's current named
+    branch unless an explicit branch overrides it.
+
 5.14  2026-09-28
 
   - Include each skill's configured and Folder.pm path aliases in d2 skill

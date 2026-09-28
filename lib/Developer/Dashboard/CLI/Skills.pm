@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Skills;
 use strict;
 use warnings;
 
-our $VERSION = '5.14';
+our $VERSION = '5.17';
 
 use Getopt::Long qw(GetOptionsFromArray);
 use Cwd qw(getcwd);
@@ -40,8 +40,8 @@ sub run_skills_command {
 }
 
 # _skills_action_install($argv)
-# Implements "dashboard skills install [--ddfile] [--notest] [-o json|table]
-# [<git-url-or-local-dir> ...]".
+# Implements "dashboard skills install [--ddfile] [--notest] [-b branch]
+# [-o json|table] [<git-url-or-local-dir> ...]".
 # Input: array reference of the arguments following the "install" action.
 # Output: prints the install result as JSON or a summary table; returns the
 # numeric exit code.
@@ -51,14 +51,26 @@ sub _skills_action_install {
     my $use_ddfile = 0;
     my $output = 'table';
     my $notest = 0;
-    GetOptionsFromArray( \@argv, 'ddfile' => \$use_ddfile, 'o|output=s' => \$output, 'notest' => \$notest );
+    my $branch;
+    for my $idx ( 0 .. $#argv ) {
+        next if $argv[$idx] ne '-b' && $argv[$idx] ne '--branch';
+        return _usage_error("Usage: dashboard skills install [--notest] [-b branch] [-o json|table] [<git-url-or-local-dir> ...]\n")
+          if !defined $argv[ $idx + 1 ] || $argv[ $idx + 1 ] =~ /\A-/;
+    }
+    my $options_ok = GetOptionsFromArray(
+        \@argv,
+        'ddfile'      => \$use_ddfile,
+        'o|output=s'  => \$output,
+        'notest'      => \$notest,
+        'b|branch=s'  => \$branch,
+    );
     return _usage_error("Usage: dashboard skills install [--notest] [-o json|table] [<git-url-or-local-dir> ...]\n")
       if $output ne 'json' && $output ne 'table';
     return _usage_error(
-        "Usage: dashboard skills install [--notest] [-o json|table] [<git-url-or-local-dir> ...]\n"
-          . "Usage: dashboard skill install [--notest] [-o json|table] [<git-url-or-local-dir> ...]\n"
+        "Usage: dashboard skills install [--notest] [-b branch] [-o json|table] [<git-url-or-local-dir> ...]\n"
+          . "Usage: dashboard skill install [--notest] [-b branch] [-o json|table] [<git-url-or-local-dir> ...]\n"
           . "Usage: dashboard skills install --ddfile [--notest] [-o json|table]\n"
-    ) if $use_ddfile && @argv;
+    ) if !$options_ok || ( defined $branch && ( $branch eq '' || $use_ddfile || !@argv ) ) || ( $use_ddfile && @argv );
     my $paths = _build_paths();
     my @progress_sources = @argv;
     if ( !$use_ddfile && !@progress_sources ) {
@@ -74,6 +86,7 @@ sub _skills_action_install {
         paths      => $paths,
         progress   => $progress ? $progress->callback : undef,
         skip_tests => $notest,
+        clone_branch => $branch,
     );
     my $result;
     my $error;
@@ -497,7 +510,7 @@ It exists because the skill lifecycle contract grew beyond a single inline branc
 
 =head1 WHEN TO USE
 
-Use this file when changing the public C<dashboard skills ...> verbs, the JSON payloads returned by C<list> or C<usage>, or the human-facing table output used for quick inspection in a terminal.
+Use this file when changing the public C<dashboard skills ...> verbs, the JSON payloads returned by C<list> or C<usage>, or the human-facing table output used for quick inspection in a terminal. Remote Git installs accept C<-b> or C<--branch>; a fresh install tries C<master> then C<main>, while reinstall keeps the currently checked-out named branch unless explicitly overridden.
 
 =head1 HOW TO USE
 
@@ -512,6 +525,7 @@ It is used by the staged C<skills> private helper, by dotted skill command dispa
   dashboard skills list
   dashboard skills list -o table
   dashboard skills install /absolute/path/to/example-skill
+  dashboard skills install -b main git@github.com:user/example-skill.git
   dashboard skills install browser foo/bar git@github.com:user/example-skill.git
   dashboard skill install browser
   dashboard skills install --ddfile

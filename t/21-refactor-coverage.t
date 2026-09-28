@@ -2810,8 +2810,8 @@ is_deeply(
             $label_skill,
             result => { success => 1, skipped => 1 },
         ),
-        'Install package.json dependencies (skipped: package.json not present)',
-        '_dependency_progress_label makes skipped package.json work explicit in the progress board',
+        'Install package.json dependencies (skipped: no dependency installs needed)',
+        '_dependency_progress_label does not call a present package.json manifest missing',
     );
     is(
         $manager->_dependency_progress_label(
@@ -2835,8 +2835,8 @@ is_deeply(
             $label_skill,
             result => { success => 1, skipped => 1 },
         ),
-        'Install requirements.txt dependencies (skipped: requirements.txt not present)',
-        '_dependency_progress_label makes skipped requirements.txt work explicit in the progress board',
+        'Install requirements.txt dependencies (skipped: no dependency installs needed)',
+        '_dependency_progress_label does not call a present requirements.txt manifest missing',
     );
     is(
         $manager->_dependency_progress_label(

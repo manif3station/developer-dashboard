@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.14';
+our $VERSION = '5.17';
 
 our @EXPORT = ('d2');
 
@@ -66,7 +66,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.14
+5.17
 
 =head1 INTRODUCTION
 
@@ -1979,7 +1979,9 @@ Run a page action:
   dashboard action run system-status paths
 
 Bookmark documents use the original separator-line format with directive
-headers such as C<TITLE:>, C<STASH:>, C<HTML:>, and C<CODE1:>.
+headers such as C<TITLE:>, C<STASH:>, C<HEAD:>, C<HTML:>, and C<CODE1:>.
+C<HEAD:> accepts trusted raw HTML and inserts it inside the rendered document's
+C<E<lt>headE<gt>> element; do not place untrusted or user-supplied text there.
 
 Posting a bookmark document with C<BOOKMARK: some-id> back through the root
 editor now saves it to the bookmark store so C</app/some-id> resolves it
@@ -3007,6 +3009,7 @@ repository:
   dashboard skills install https://github.com/user/example-skill.git
   dashboard skills install /absolute/path/to/example-skill
   dashboard skills install --notest browser
+  dashboard skills install -b main git@github.com:user/example-skill.git
   dashboard skills install browser foo/bar git@github.com:user/example-skill.git
   dashboard skills install --ddfile
   dashboard skill list
@@ -3019,6 +3022,17 @@ shorthand is expanded against GitHub too, so
 C<dashboard skills install foo/bar> clones C<https://github.com/foo/bar>.
 Full URLs such as C<https://github.com/user/example-skill.git> and
 C<git@github.com:user/example-skill.git> are used exactly as supplied.
+Use C<-b E<lt>branchE<gt>> or C<--branch E<lt>branchE<gt>> to select a remote
+Git branch explicitly. For a new checkout without this option, the installer
+tries C<master> first and C<main> second. On a reinstall, it keeps the named
+branch currently checked out in the installed skill directory unless an
+explicit C<-b> overrides it. A detached checkout has no named branch to keep,
+so the normal C<master> then C<main> selection is used. The branch option is
+for remote Git sources; it is rejected for local directory and C<--ddfile>
+installs rather than being silently ignored.
+When a skill contains C<ddfile> or C<ddfile.local> but no dependency install is
+needed, the progress label says so; it reports the manifest as missing only
+when that file is actually absent.
 Multiple explicit sources can be supplied to one install command. Developer
 Dashboard installs them in the order given, prints a progress rundown before
 work starts, and registers every source once.

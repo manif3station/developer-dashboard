@@ -1,5 +1,24 @@
 # Fixed Bugs
 
+## 5.17
+
+- Added bookmark `HEAD:` content and inject it into the rendered document's
+  `<head>`. Parsing, canonical serialization, web rendering, and editor HTML
+  highlighting support it; documentation warns that it is trusted raw HTML.
+
+## 5.16
+
+- Fixed skill-install progress falsely saying `ddfile` or `ddfile.local` was
+  absent when the manifest existed but had no dependency installs to perform.
+  A missing-file message is now used only when the manifest is actually absent.
+
+## 5.15
+
+- Fixed skill installs ignoring repository branch selection. Remote installs
+  now accept `-b`/`--branch`; fresh installs try `master` then `main`, while
+  reinstalls preserve the installed checkout's current branch unless explicitly
+  overridden. Invalid/local/DD-file uses are rejected before replacing files.
+
 ## 5.14
 
 - Fixed `d2 <skill>.` shell completion omitting skill path aliases. Completion

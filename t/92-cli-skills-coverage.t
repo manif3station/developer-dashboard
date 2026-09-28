@@ -372,18 +372,21 @@ like(
 my $next_result = { operations => [] };
 my $next_die;
 my @manager_calls;
+my @manager_branches;
 
 {
     no warnings 'redefine';
     local *Developer::Dashboard::SkillManager::install = sub {
         my ( $self, $source ) = @_;
         push @manager_calls, "install:$source";
+        push @manager_branches, $self->{clone_branch};
         die $next_die if defined $next_die;
         return $next_result;
     };
     local *Developer::Dashboard::SkillManager::install_many = sub {
         my ( $self, @sources ) = @_;
         push @manager_calls, 'install_many:' . join ',', @sources;
+        push @manager_branches, $self->{clone_branch};
         return $next_result;
     };
     local *Developer::Dashboard::SkillManager::install_from_ddfiles = sub {
@@ -417,6 +420,21 @@ my @manager_calls;
     is( $single->{exit}, 0, 'installing exactly one source succeeds' );
     is_deeply( \@manager_calls, ['install:alpha-skill'], 'a single source goes through the single-skill install' );
     like( $single->{stdout}, qr/^alpha-skill\s+alpha-skill\s+1\.0\s+1\.1\s+updated$/m, 'the single install summary table renders the version transition' );
+
+    @manager_branches = ();
+    my $branch_install = run_cli( 'install', '-b', 'release/next', 'alpha-skill' );
+    is( $branch_install->{exit}, 0, 'install accepts -b with a branch name' );
+    is_deeply( \@manager_branches, ['release/next'], 'install forwards the selected branch to SkillManager' );
+
+    @manager_branches = ();
+    my $branch_many = run_cli( 'install', 'alpha-skill', 'beta-skill', '-b', 'main' );
+    is( $branch_many->{exit}, 0, 'install accepts -b with multiple sources' );
+    is_deeply( \@manager_branches, ['main'], 'multi-install forwards the selected branch to SkillManager' );
+
+    is( run_cli( 'install', '-b', 'main' )->{exit}, 2, 'install rejects a branch option without an explicit source' );
+    is( run_cli( 'install', '--ddfile', '-b', 'main' )->{exit}, 2, 'install rejects combining -b with --ddfile' );
+    is( run_cli( 'install', '-b' )->{exit}, 2, 'install reports usage when -b has no branch argument' );
+    is( run_cli( 'install', '-b', '', 'alpha-skill' )->{exit}, 2, 'install reports usage when -b has an empty branch argument' );
 
     @manager_calls = ();
     $next_result = { results => [ { repo_name => 'alpha-skill', status => 'installed' }, { repo_name => 'beta-skill', status => 'skipped' } ] };
@@ -731,8 +749,10 @@ selection between an explicit path, several paths, the registered sources, and
 C<--ddfile>, the progress-board terminal detection, the install error and
 false-exception fallbacks, the lifecycle verbs against both a real installed
 skill and a missing one, and every payload shape the summary, list, usage, and
-table renderers accept. Read it to see the concrete inputs that reach each
-branch and condition rather than inferring them from the module source.
+table renderers accept. The branch-option cases pin C<-b> forwarding, rejection
+without a source or with C<--ddfile>, and support for one or many explicit
+sources. Read it to see the concrete inputs that reach each branch and
+condition rather than inferring them from the module source.
 
 =head1 WHY IT EXISTS
 

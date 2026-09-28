@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.14
+5.17
 
 # INTRODUCTION
 
@@ -1637,7 +1637,9 @@ Run a page action:
     dashboard action run system-status paths
 
 Bookmark documents use the original separator-line format with directive
-headers such as `TITLE:`, `STASH:`, `HTML:`, and `CODE1:`.
+headers such as `TITLE:`, `STASH:`, `HEAD:`, `HTML:`, and `CODE1:`.
+`HEAD:` accepts trusted raw HTML and inserts it inside the rendered document's
+`<head>` element; do not place untrusted or user-supplied text there.
 
 Posting a bookmark document with `BOOKMARK: some-id` back through the root
 editor now saves it to the bookmark store so `/app/some-id` resolves it
@@ -2523,6 +2525,7 @@ repository:
     dashboard skills install https://github.com/user/example-skill.git
     dashboard skills install /absolute/path/to/example-skill
     dashboard skills install --notest browser
+    dashboard skills install -b main git@github.com:user/example-skill.git
     dashboard skills install browser foo/bar git@github.com:user/example-skill.git
     dashboard skills install --ddfile
     dashboard skill list
@@ -2535,6 +2538,17 @@ shorthand is expanded against GitHub too, so
 `dashboard skills install foo/bar` clones `https://github.com/foo/bar`.
 Full URLs such as `https://github.com/user/example-skill.git` and
 `git@github.com:user/example-skill.git` are used exactly as supplied.
+Use `-b <branch>` or `--branch <branch>` to select a remote
+Git branch explicitly. For a new checkout without this option, the installer
+tries `master` first and `main` second. On a reinstall, it keeps the named
+branch currently checked out in the installed skill directory unless an
+explicit `-b` overrides it. A detached checkout has no named branch to keep,
+so the normal `master` then `main` selection is used. The branch option is
+for remote Git sources; it is rejected for local directory and `--ddfile`
+installs rather than being silently ignored.
+When a skill contains `ddfile` or `ddfile.local` but no dependency install is
+needed, the progress label says so; it reports the manifest as missing only
+when that file is actually absent.
 Multiple explicit sources can be supplied to one install command. Developer
 Dashboard installs them in the order given, prints a progress rundown before
 work starts, and registers every source once.

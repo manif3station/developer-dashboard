@@ -43,3 +43,17 @@ This merge is
 read-only: it does not copy module aliases into config or edit skill files.
 `d2 path add ch.workspace /some/path` persists an explicit override to
 `config/config.json`; subsequent resolution uses that configured value.
+
+## Installing from a Git branch
+
+Use `d2 skill install -b <branch> <git-url>` (or `--branch`) to select a branch
+for a remote skill repository. On a fresh install without `-b`, the installer
+tries `master` first and then `main`. On reinstall it keeps the named branch
+currently checked out in the installed skill folder; an explicit `-b` takes
+precedence. Detached checkouts fall back to the fresh-install order. `-b` is
+not accepted with local-directory or `--ddfile` installs.
+
+Install progress reports that `ddfile` or `ddfile.local` is missing only when
+the corresponding file is absent. If the file exists but no dependencies need
+installing, the progress row says so instead of claiming the manifest is
+missing.

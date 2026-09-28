@@ -56,7 +56,6 @@ my %SETTER_BASELINE = map { $_ => 1 } (
     'Developer/Dashboard/SkillDispatcher.pm::execute_hooks',
     'Developer/Dashboard/SkillManager.pm::update',
     'Developer/Dashboard/SkillManager.pm::_sync_local_skill_source',
-    'Developer/Dashboard/SkillManager.pm::_clone_skill_source',
     'Developer/Dashboard/SkillManager.pm::_terminate_streaming_command',
     'Developer/Dashboard/SkillManager.pm::_install_skill_dependency_manifest',
     'Developer/Dashboard/Web/Server.pm::_waitpid',

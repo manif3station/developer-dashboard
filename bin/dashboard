@@ -713,7 +713,7 @@ dashboard - thin command switchboard for Developer Dashboard
   dashboard collector stop <name>
   dashboard collector restart <name>
   dashboard housekeeper
-  dashboard skills install <git-url-or-local-dir>
+  dashboard skills install [-b branch] <git-url-or-local-dir>
   dashboard skills enable <repo-name>
   dashboard skills disable <repo-name>
   dashboard skills uninstall <repo-name>
