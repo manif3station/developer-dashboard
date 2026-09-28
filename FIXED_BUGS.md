@@ -1,5 +1,14 @@
 # Fixed Bugs
 
+## 5.18
+
+- Fixed skill Dancer2 before-hook response headers being overwritten by
+  dashboard defaults. Existing hook headers now override defaults and explicit
+  backend headers retain final precedence. Documented the required `hook before`
+  declaration and verified hook variables are readable from page and Ajax CODE.
+  Confirmed skill `Dashboard.pm` top-level code is loaded once at server startup,
+  while its request hooks run per request.
+
 ## 5.17
 
 - Added bookmark `HEAD:` content and inject it into the rendered document's

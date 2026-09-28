@@ -42,6 +42,7 @@ The integration run covers these command families:
 - web lifecycle: `dashboard serve`, `dashboard restart`, `dashboard stop`
 - browser checks: headless Chromium editor, saved fake-project bookmark page, outsider bootstrap DOM verification, and helper-login DOM verification after helper-user enablement
 - ajax streaming: installed long-running `/ajax/<file>` route timing, early-chunk verification, refresh-safe singleton replacement, `fetch_value()` / `stream_value()` DOM helper coverage, and browser pagehide cleanup coverage in unit tests
+- skill Dancer2 extensions: load each installed `lib/Dashboard.pm` once while the PSGI app starts; verify `hook before` variables are visible to `/app/<skill>/...` and `/ajax/<skill>/...` CODE, and that hook-set headers override dashboard defaults unless the backend explicitly returns that header
 - windows verification assets: `integration/windows/run-strawberry-smoke.ps1` and `integration/windows/run-qemu-windows-smoke.sh`
 - when the Windows checkout bootstrap changes, `integration/windows/run-strawberry-smoke.ps1` must be rerun with `-UseInstallBootstrap` so the guest exercises `install.ps1` through the streamed `Invoke-Expression` path
 

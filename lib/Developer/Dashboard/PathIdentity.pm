@@ -3,7 +3,7 @@ package Developer::Dashboard::PathIdentity;
 use strict;
 use warnings;
 
-our $VERSION = '5.17';
+our $VERSION = '5.18';
 
 use Exporter 'import';
 use Cwd qw(abs_path);

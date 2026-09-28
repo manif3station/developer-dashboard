@@ -1,3 +1,11 @@
+5.18  2026-09-28
+
+  - Preserve response headers set by skill Dancer2 before hooks when the
+    adapter applies default security headers; explicit backend response
+    headers retain final precedence. Document Dancer2 hook syntax and verify
+    that request-local hook variables are readable in page and Ajax CODE.
+    Confirm that skill Dashboard.pm code loads once at PSGI app startup.
+
 5.17  2026-09-28
 
   - Add bookmark HEAD content for raw metadata/script/style injection into the

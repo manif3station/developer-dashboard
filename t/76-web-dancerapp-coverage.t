@@ -14,6 +14,7 @@ use lib 'lib';
 use lib 't/lib';
 
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime ();
 use Developer::Dashboard::Web::DancerApp;
 use Local::PSGITest;
@@ -111,6 +112,18 @@ isa_ok( $paths, 'Developer::Dashboard::PathRegistry', 'path registry anchors the
     package Local::NoAuthBackend;
     sub new  { return bless {}, $_[0]; }
     sub root_response { return [ 200, 'text/plain; charset=utf-8', 'root-noauth', {} ]; }
+}
+
+{
+    package Local::CovHeaders;
+    sub new { return bless { values => $_[1] || {} }, $_[0]; }
+    sub header { return $_[0]->{values}{ lc $_[1] }; }
+}
+
+{
+    package Local::CovResponse;
+    sub new { return bless { headers => $_[1] || Local::CovHeaders->new }, $_[0]; }
+    sub headers { return $_[0]->{headers}; }
 }
 
 # ---------------------------------------------------------------------------
@@ -268,6 +281,30 @@ is( Developer::Dashboard::Web::DancerApp::_looks_like_disconnect_error(''),     
 is( Developer::Dashboard::Web::DancerApp::_looks_like_disconnect_error('client disconnected'), 1, 'disconnect check matches a known disconnect phrase' );
 is( Developer::Dashboard::Web::DancerApp::_looks_like_disconnect_error('totally unrelated'),  0, 'disconnect check returns 0 for an unrelated error' );
 
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::DancerApp::response = sub {
+        return Local::CovResponse->new( Local::CovHeaders->new( { 'content-security-policy' => 'hook-policy' } ) );
+    };
+    is_deeply(
+        Developer::Dashboard::Web::DancerApp::_response_header_overrides(
+            { 'Content-Security-Policy' => 'default-policy', 'X-Frame-Options' => 'DENY' }
+        ),
+        { 'Content-Security-Policy' => 'hook-policy' },
+        'response header overrides include only existing headers matching defaults',
+    );
+    is_deeply(
+        Developer::Dashboard::Web::DancerApp::_response_header_overrides({}),
+        {},
+        'response header override lookup does not need a request when there are no defaults',
+    );
+    is_deeply(
+        Developer::Dashboard::Web::DancerApp::_response_header_overrides([]),
+        {},
+        'response header override lookup rejects non-hash defaults',
+    );
+}
+
 # ---------------------------------------------------------------------------
 # _response_from_result: a hash body without a code stream is not streamed.
 # ---------------------------------------------------------------------------
@@ -294,6 +331,7 @@ is( Developer::Dashboard::Web::DancerApp::_looks_like_disconnect_error('totally 
     my @responder_arg;
     my @writer_returns;
     local *Developer::Dashboard::Web::DancerApp::delayed = sub (&) { return $_[0]->(); };
+    local *Developer::Dashboard::Web::DancerApp::response = sub { return Local::CovResponse->new; };
     local $Dancer2::Core::Route::RESPONDER = sub {
         my ($reply) = @_;
         @responder_arg = @{$reply};
@@ -449,6 +487,15 @@ is( run_authorized_body( Local::NoAuthBackend->new ), 'root-noauth',
         no warnings 'once';
         *Local::RealBackend::handle = sub {
             my ( $self, %args ) = @_;
+            if ( defined $self->{runtime_code} ) {
+                my $page = Developer::Dashboard::PageDocument->new(
+                    meta => { codes => [ { body => $self->{runtime_code} } ] },
+                );
+                my $result = Developer::Dashboard::PageRuntime->new( paths => $self->{paths} )
+                  ->run_code_blocks( page => $page, source => 'skill' );
+                my $body = join '', @{ $result->{outputs} || [] }, @{ $result->{errors} || [] };
+                return [ 200, 'text/plain; charset=utf-8', $body, $self->{runtime_response_headers} || {} ];
+            }
             return [ 200, 'text/plain; charset=utf-8', "real:$args{path}", { 'X-Real' => 'yes' } ];
         };
         *Local::RealBackend::authorize_request = sub {
@@ -471,10 +518,19 @@ is( run_authorized_body( Local::NoAuthBackend->new ), 'root-noauth',
     my $skill_lib = File::Spec->catdir( $paths->skills_root, 'dashboard-route-skill', 'lib' );
     make_path($skill_lib);
     my $dashboard_module = File::Spec->catfile( $skill_lib, 'Dashboard.pm' );
+    my $load_log = File::Spec->catfile( $home, 'skill-dashboard-load.log' );
+    local $ENV{SKILL_DASHBOARD_LOAD_LOG} = $load_log;
     open my $module_fh, '>', $dashboard_module or die "Unable to write $dashboard_module: $!";
     print {$module_fh} <<'PERL';
 package Local::DashboardRouteSkill;
 use Dancer2 appname => 'DeveloperDashboard';
+open my $load_log, '>>', $ENV{SKILL_DASHBOARD_LOAD_LOG} or die "cannot open skill load log: $!";
+print {$load_log} "loaded\n";
+close $load_log or die "cannot close skill load log: $!";
+hook before => sub {
+    var foo => 'bar';
+    response_header 'Content-Security-Policy' => "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+};
 set skill_setting => 'loaded';
 get '/skill-dashboard-hook' => sub { return 'skill-dashboard-loaded'; };
 1;
@@ -497,6 +553,7 @@ PERL
         app   => bless( { deny => 1 }, 'Local::RealBackend' ),
         paths => $paths,
     );
+    ok( -f $load_log, 'skill Dashboard.pm top-level code runs while the PSGI app starts' );
     my $res = Local::PSGITest::request( $psgi_app, GET 'http://127.0.0.1/skill-dashboard-hook' );
     is( $res->code, 403, 'skill Dashboard.pm routes pass through the dashboard authorization gate' );
     $Developer::Dashboard::Web::DancerApp::BACKEND_APP->{app}{deny} = 0;
@@ -507,6 +564,40 @@ PERL
     is( $second_res->content, 'second-skill-dashboard-loaded', 'Dancer2 loads Dashboard.pm from every installed skill' );
     my ($dancer_app) = grep { $_->name eq 'DeveloperDashboard' } @{ Dancer2->runner->apps };
     is( $dancer_app->config->{skill_setting}, 'loaded', 'a skill Dashboard.pm can modify the shared Dancer2 app settings' );
+
+    $Developer::Dashboard::Web::DancerApp::BACKEND_APP->{default_headers}{'Content-Security-Policy'} =
+      "script-src 'self' 'unsafe-inline'";
+    $Developer::Dashboard::Web::DancerApp::BACKEND_APP->{app} = bless(
+        {
+            paths        => $paths,
+            runtime_code => 'use Dancer2 appname => "DeveloperDashboard"; print var("foo");',
+        },
+        'Local::RealBackend'
+    );
+    for my $path ( '/app/dashboard-route-skill/test', '/ajax/dashboard-route-skill/test2' ) {
+        my $runtime_res = Local::PSGITest::request( $psgi_app, GET "http://127.0.0.1$path" );
+        is( $runtime_res->code, 200, "$path CODE request succeeds under the skill before hook" );
+        is( $runtime_res->content, 'bar', "$path CODE reads the value set by Dancer2 var() in the skill before hook" );
+        like( $runtime_res->header('Content-Security-Policy') || '', qr/unsafe-eval/, "$path response retains the skill before-hook CSP override" );
+    }
+    $Developer::Dashboard::Web::DancerApp::BACKEND_APP->{app}{runtime_response_headers} = {
+        'Content-Security-Policy' => 'script-src backend-only',
+    };
+    my $explicit_header_res = Local::PSGITest::request(
+        $psgi_app,
+        GET 'http://127.0.0.1/app/dashboard-route-skill/explicit-header'
+    );
+    is(
+        $explicit_header_res->header('Content-Security-Policy'),
+        'script-src backend-only',
+        'an explicit backend response header takes precedence over hook and default headers',
+    );
+    my $load_count = 0;
+    if ( open my $loaded_fh, '<', $load_log ) {
+        $load_count++ while <$loaded_fh>;
+        close $loaded_fh or die "Unable to close $load_log: $!";
+    }
+    is( $load_count, 1, 'skill Dashboard.pm top-level code loads once across app and Ajax requests' );
 }
 
 like(
@@ -548,6 +639,11 @@ those edges never run under ordinary route tests. This file reaches them with
 request and writer doubles plus overridden Dancer keywords, keeping the adapter
 at full branch and condition coverage and preventing a silent regression in the
 defensive paths.
+The skill-extension fixture reproduces startup and request behavior in one
+PSGI process: a load marker proves module initialization happens before the
+first request and only once, while `/app/...` and `/ajax/...` requests prove a
+Dancer2 before-hook variable reaches CODE and a hook-set CSP survives the
+adapter's default-header pass.
 
 =head1 WHEN TO USE
 
@@ -576,6 +672,13 @@ Example 1:
 Run the route-adapter branch and condition coverage checks by themselves.
 
 Example 2:
+
+  d2 docker compose --project-name problem19 -f .developer-dashboard/config/docker/d2/compose.yml -f .developer-dashboard/config/docker/d2/development.compose.yml exec dev prove -lv t/76-web-dancerapp-coverage.t
+
+Run the skill-hook reproduction and route-adapter regression inside the
+isolated Docker development container.
+
+Example 3:
 
   prove -lr t
 

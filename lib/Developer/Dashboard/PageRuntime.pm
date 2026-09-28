@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '5.17';
+our $VERSION = '5.18';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -1367,7 +1367,12 @@ values through their child environment. Skill C<lib/> directories are also
 scoped into C<@INC>, with the page-providing skill first.
 Each CODE block imports C<j> and C<je> from
 C<Developer::Dashboard::DataHelper> automatically, so saved code does not need
-to repeat that import.
+to repeat that import. Skill CODE can also read request-local Dancer2 app
+variables established by skill hooks by importing the existing app, for
+example C<use Dancer2 appname =E<gt> 'DeveloperDashboard'; print var('foo');>.
+The matching skill extension must register its hook with the Dancer2 form
+C<hook before =E<gt> sub { var foo =E<gt> 'bar' }>; a bare C<before =E<gt>
+sub { ... }> expression does not register a hook.
 
 =head1 METHODS
 
@@ -1377,7 +1382,9 @@ Construct the runtime, render bookmark templates, execute in-process CODE
 blocks, and stream saved Ajax files as real child processes. Skill page CODE
 receives the skill's layered env values and skill libraries for the duration
 of its execution only; saved skill Ajax workers receive the layered env values
-in their child process. On POSIX systems
+in their child process. Page and Ajax CODE runs execute within the active
+Dancer2 request context, so imported C<var()> can read values set by a skill's
+before hook. On POSIX systems
 each saved Ajax worker runs inside its own process group, and disconnect or
 stream-error cleanup signals that whole group so descendant processes forked by
 the worker terminate with it; Windows keeps direct child-process termination.

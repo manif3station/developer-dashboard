@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.17
+5.18
 
 # INTRODUCTION
 
@@ -469,7 +469,14 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     handles page rendering, login/logout, helper sessions, and the
     exact-loopback admin trust model. At web startup, active skills may contribute
     Dancer2 routes and settings through `skills/<name`/lib/Dashboard.pm>; these
-    trusted extension routes remain behind the dashboard authorization gate.
+    trusted extension routes remain behind the dashboard authorization gate. Each
+    skill `Dashboard.pm` is loaded while the PSGI app is built at web startup,
+    not on each request; registered Dancer2 hooks run per request. Use Dancer2's
+    `hook before => sub { ... }` form to populate app variables or response
+    headers. Bookmark CODE can read those variables by importing the same app with
+    `use Dancer2 appname => 'DeveloperDashboard'`. Existing hook response
+    headers override matching dashboard defaults, while explicit headers returned
+    by the backend take final precedence.
 
 - Open File Commands
 

@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::DancerApp;
 use strict;
 use warnings;
 
-our $VERSION = '5.17';
+our $VERSION = '5.18';
 
 use Dancer2 appname => 'DeveloperDashboard';
 use Dancer2::Core::Hook ();
@@ -197,16 +197,39 @@ sub _capture {
     return $parts[$index];
 }
 
+# _response_header_overrides($default_headers)
+# Reads response headers already set in the active Dancer2 request that match
+# configured defaults, preserving settings from skill before hooks.
+# Input: hash reference of default response headers.
+# Output: hash reference of existing headers whose names occur in defaults.
+sub _response_header_overrides {
+    my ($default_headers) = @_;
+    return {} if ref($default_headers) ne 'HASH' || !keys %{$default_headers};
+
+    my $headers = response->headers;
+    my %overrides;
+    for my $name ( keys %{$default_headers} ) {
+        my $value = $headers->header($name);
+        $overrides{$name} = $value if defined $value;
+    }
+    return \%overrides;
+}
+
 # _response_from_result($result)
 # Applies one backend response onto the active Dancer2 response object.
 # Input: backend response array reference.
-# Output: plain body or delayed streaming response suitable for Dancer2.
+# Output: plain body or delayed streaming response suitable for Dancer2;
+# existing before-hook headers override defaults and backend response headers
+# override both.
 sub _response_from_result {
     my ($result) = @_;
     my ( $code, $type, $body, $headers ) = @{$result};
     my $backend = _current_backend();
+    my $default_headers = $backend->{default_headers} || {};
+    my $hook_headers = _response_header_overrides($default_headers);
     my %merged_headers = (
-        %{ $backend->{default_headers} || {} },
+        %{$default_headers},
+        %{$hook_headers},
         %{ $headers || {} },
     );
 
@@ -410,7 +433,30 @@ This module owns the HTTP route table for the dashboard web UI under Dancer2.
 It loads active skill Dancer2 extensions before constructing the shared app,
 normalizes each request, enforces authorization for dashboard and skill routes, and
 delegates the page and action work to C<Developer::Dashboard::Web::App>. The
-route adapter intentionally hands the namespaced C</app>, C</ajax>, C</js>,
+skill C<lib/Dashboard.pm> modules load while the PSGI app is constructed at
+server startup, not once per request; their registered hooks still execute for
+each matching request. A C<hook before =E<gt> sub { ... }> may set Dancer2 app
+variables or response headers. The page CODE runtime can read a hook variable
+when it imports C<Dancer2 appname =E<gt> 'DeveloperDashboard'>. When a hook
+sets a header also present in the dashboard defaults, that existing hook value
+wins; an explicit header returned by the backend wins over both.
+
+For example, a skill extension can set a request-scoped value and a response
+policy:
+
+  use Dancer2 appname => 'DeveloperDashboard';
+  hook before => sub {
+      var foo => 'bar';
+      response_header 'Content-Security-Policy'
+          => "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+  };
+
+Skill bookmark CODE that needs the variable imports that same app:
+
+  use Dancer2 appname => 'DeveloperDashboard';
+  print var('foo');
+
+The route adapter intentionally hands the namespaced C</app>, C</ajax>, C</js>,
 C</css>, and C</others> surfaces back to the backend dispatcher so the
 installed PSGI server stays in lock-step with the backend smart router. The
 C</favicon.ico> route is deliberately registered without the authorization
@@ -427,7 +473,7 @@ on the cookie-less loopback-admin tier.
 
 =head1 METHODS
 
-=head2 build_psgi_app, _load_skill_dashboard_modules, _authorize_skill_dashboard_routes, _current_backend, _request_headers, _request_args, _response_from_result, _run_backend, _run_authorized
+=head2 build_psgi_app, _load_skill_dashboard_modules, _authorize_skill_dashboard_routes, _current_backend, _request_headers, _request_args, _response_header_overrides, _response_from_result, _run_backend, _run_authorized
 
 Build and serve the Dancer2 application around the dashboard route handlers.
 

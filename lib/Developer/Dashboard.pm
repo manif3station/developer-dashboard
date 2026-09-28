@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.17';
+our $VERSION = '5.18';
 
 our @EXPORT = ('d2');
 
@@ -66,7 +66,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.17
+5.18
 
 =head1 INTRODUCTION
 
@@ -700,7 +700,14 @@ C<7890>, with Dancer2 owning the HTTP route table while the web-app service
 handles page rendering, login/logout, helper sessions, and the
 exact-loopback admin trust model. At web startup, active skills may contribute
 Dancer2 routes and settings through C<skills/<name>/lib/Dashboard.pm>; these
-trusted extension routes remain behind the dashboard authorization gate.
+trusted extension routes remain behind the dashboard authorization gate. Each
+skill C<Dashboard.pm> is loaded while the PSGI app is built at web startup,
+not on each request; registered Dancer2 hooks run per request. Use Dancer2's
+C<hook before =E<gt> sub { ... }> form to populate app variables or response
+headers. Bookmark CODE can read those variables by importing the same app with
+C<use Dancer2 appname =E<gt> 'DeveloperDashboard'>. Existing hook response
+headers override matching dashboard defaults, while explicit headers returned
+by the backend take final precedence.
 
 =item * Open File Commands
 

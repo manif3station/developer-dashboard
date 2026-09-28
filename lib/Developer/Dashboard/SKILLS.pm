@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '5.17';
+our $VERSION = '5.18';
 
 1;
 
@@ -224,6 +224,35 @@ prefixes, for example
 C</app/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>>,
 C</ajax/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/E<lt>fileE<gt>>, and
 C</js/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/E<lt>fileE<gt>>.
+
+=head2 Dancer2 extensions
+
+A skill may provide F<lib/Dashboard.pm> to register routes, settings, and
+request hooks on the shared C<DeveloperDashboard> Dancer2 app. The module is
+loaded once while the web server constructs its PSGI app at startup; module
+top-level code is not re-evaluated for each request. Registered hooks such as
+C<before> still run for each request.
+
+Use Dancer2's C<hook> declaration (not a bare C<before =E<gt> sub { ... }>
+expression) to set app variables or response headers:
+
+  use Dancer2 appname => 'DeveloperDashboard';
+  hook before => sub {
+      var foo => 'bar';
+      response_header 'Content-Security-Policy'
+          => "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+  };
+
+Skill bookmark CODE can read the current request's variable by importing the
+same app:
+
+  use Dancer2 appname => 'DeveloperDashboard';
+  print var('foo');
+
+For headers also supplied by the dashboard defaults, the value set by the
+skill before hook takes precedence; a header explicitly returned by the
+backend takes precedence over both. Adding C<unsafe-eval> weakens the browser's
+script policy for that response, so only trusted skill code should request it.
 
 Developer Dashboard resolves the longest installed skill prefix first and, if
 the skill-local ajax or public asset file does not exist, falls back to the

@@ -57,3 +57,31 @@ Install progress reports that `ddfile` or `ddfile.local` is missing only when
 the corresponding file is absent. If the file exists but no dependencies need
 installing, the progress row says so instead of claiming the manifest is
 missing.
+
+## Skill Dancer2 extensions
+
+A skill may ship `lib/Dashboard.pm` to register routes, settings, and request
+hooks on the shared `DeveloperDashboard` app. The module loads once while the
+web server builds its PSGI app at startup; registered hooks still execute for
+each request. Declare a hook with Dancer2's `hook before => sub { ... }` form:
+
+```perl
+use Dancer2 appname => 'DeveloperDashboard';
+hook before => sub {
+    var foo => 'bar';
+    response_header 'Content-Security-Policy'
+        => "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+};
+```
+
+Bookmark CODE can read that request-local value by importing the same app:
+
+```perl
+use Dancer2 appname => 'DeveloperDashboard';
+print var('foo');
+```
+
+For response headers also supplied by the dashboard, the hook value overrides
+the default; an explicit backend response header has final precedence. Adding
+`unsafe-eval` weakens that response's script policy, so use it only for trusted
+skill code. A bare `before => sub { ... }` expression is not a Dancer2 hook.

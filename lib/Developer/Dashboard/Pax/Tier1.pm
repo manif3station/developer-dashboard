@@ -1,5 +1,5 @@
 package Developer::Dashboard::Pax::Tier1;
-our $VERSION = '5.17';
+our $VERSION = '5.18';
 
 use strict;
 use warnings;
