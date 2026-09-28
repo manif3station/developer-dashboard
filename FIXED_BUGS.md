@@ -1,5 +1,30 @@
 # Fixed Bugs
 
+## 5.13
+
+- Fixed skill-owned path aliases being invisible to `cdr` and `d2 paths` when
+  they were implemented as `lib/Folder.pm` methods instead of config entries.
+  Config aliases retain precedence, `Folder->__list__` contributes a
+  list-context inventory without writing to the skill, and `d2 path add`
+  continues to save overrides only in config.
+
+## 5.12
+
+- Fixed `d2 docker --help` and `dashboard docker --help` returning no output.
+  The Docker helper now documents its Compose and service-management commands,
+  recognizes `-h`, `help`, and a missing subcommand, and explicitly rejects
+  unknown subcommands. Docker completion now includes `development` and offers
+  `enable`/`disable` after it.
+
+## 5.11
+
+- Fixed skill dashboard CODE execution and saved skill Ajax subprocesses so the
+  skill root and inherited skill `.env`/`.env.pl` files apply to both paths,
+  not only CLI commands. Page values are scoped to the current render and Ajax
+  values to the child process; neither mutates the long-lived web worker
+  environment. Added direct PageRuntime and `/app/<skill>/<page>` and
+  `/ajax/<skill>/<file>` route regression coverage.
+
 ## 5.10
 
 - Fixed DD-1054: `dashboard serve --foreground` hung indefinitely with zero

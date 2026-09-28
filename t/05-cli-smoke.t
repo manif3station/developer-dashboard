@@ -541,6 +541,14 @@ like( $complete_top_alias, qr/^docker$/m, 'dashboard complete suggests docker fo
 like( $complete_top_alias, qr/^doctor$/m, 'dashboard complete suggests doctor for the d2 alias as well' );
 my $complete_sub = _run("$perl -I'$lib' '$dashboard' complete 2 dashboard docker co");
 is( $complete_sub, "compose\n", 'dashboard complete suggests docker subcommands' );
+my $complete_docker = _run("$perl -I'$lib' '$dashboard' complete 2 d2 docker ''");
+like( $complete_docker, qr/^development$/m, 'dashboard complete exposes the docker development subcommand after d2 docker' );
+my $complete_docker_development = _run("$perl -I'$lib' '$dashboard' complete 3 d2 docker development ''");
+is( $complete_docker_development, "enable\ndisable\n", 'dashboard complete exposes development enable and disable actions' );
+my $docker_help = _run("$perl -I'$lib' '$dashboard' docker --help");
+like( $docker_help, qr/^Usage: dashboard docker/m, 'docker --help prints Docker command usage' );
+like( $docker_help, qr/dashboard docker development enable <service>/, 'docker --help documents development overlays' );
+like( $docker_help, qr/<compose-args\.\.\./, 'docker --help documents Compose passthrough' );
 my $completion_skill_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'skills', 'completion-skill', 'cli' );
 make_path($completion_skill_root);
 my $completion_skill_command = File::Spec->catfile( $completion_skill_root, 'run-test' );
@@ -3698,13 +3706,14 @@ __END__
 This test verifies the main command-line entrypoints for Developer Dashboard.
 It also verifies Docker service base/development compose selection and the
 development marker commands through the staged helper without starting real
-containers.
+containers. Docker help text and the command/subcommand shell-completion paths
+are exercised through the same public CLI dispatch.
 
 =for comment FULL-POD-DOC START
 
 =head1 PURPOSE
 
-This test is the executable regression contract for the thin CLI, helper staging, low-level runtime contracts, and Docker service development overlays. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
+This test is the executable regression contract for the thin CLI, helper staging, low-level runtime contracts, Docker help and completion, and Docker service development overlays. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
 
 =head1 WHY IT EXISTS
 

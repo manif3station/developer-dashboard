@@ -3,7 +3,7 @@ package Developer::Dashboard::FileRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '5.10';
+our $VERSION = '5.13';
 
 use File::Spec;
 use File::Find ();

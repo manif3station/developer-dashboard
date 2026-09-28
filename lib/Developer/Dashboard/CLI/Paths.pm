@@ -3,10 +3,11 @@ package Developer::Dashboard::CLI::Paths;
 use strict;
 use warnings;
 
-our $VERSION = '5.10';
+our $VERSION = '5.13';
 
-use Cwd qw(cwd);
+use Cwd qw(abs_path cwd);
 use File::Basename qw(basename);
+use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
@@ -38,16 +39,28 @@ sub run_paths_command {
     my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
     my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
     my $aliases_loaded = 0;
+    my $folder_aliases_loaded = 0;
     my $load_configured_path_aliases = sub {
         return 1 if $aliases_loaded;    # uncoverable branch true every dispatch arm below loads the aliases at most once before returning, so the memoized re-entry never happens
         $paths->register_named_paths( $config->path_aliases );
         $aliases_loaded = 1;
         return 1;
     };
+    my $load_skill_folder_aliases = sub {
+        return 1 if $folder_aliases_loaded;
+        $load_configured_path_aliases->();
+        my $configured = $paths->named_paths;
+        my $folder_aliases = _skill_folder_path_aliases( paths => $paths );
+        my %extra = map { exists $configured->{$_} ? () : ( $_ => $folder_aliases->{$_} ) } keys %{$folder_aliases};
+        $paths->register_named_paths( \%extra );
+        $folder_aliases_loaded = 1;
+        return 1;
+    };
     my %ctx = (
-        paths       => $paths,
-        config      => $config,
-        load_paths  => $load_configured_path_aliases,
+        paths           => $paths,
+        config          => $config,
+        load_paths      => $load_configured_path_aliases,
+        load_folder_paths => $load_skill_folder_aliases,
     );
 
     if ( $command eq 'paths' ) {
@@ -75,12 +88,12 @@ sub run_paths_command {
 # Output: prints the full path inventory as JSON or a summary table; returns 1.
 sub _paths_action_paths {
     my (%args) = @_;
-    my ( $paths, $load_paths, $argv ) = @args{qw(paths load_paths argv)};
+    my ( $paths, $load_folder_paths, $argv ) = @args{qw(paths load_folder_paths argv)};
     my @argv = @{$argv};
     my $output = 'table';
     GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
     die "Usage: dashboard paths [-o json|table]\n" if @argv || ( $output ne 'json' && $output ne 'table' );
-    $load_paths->();
+    $load_folder_paths->();
     if ( $output eq 'json' ) {
         print json_encode( $paths->all_paths );
         return 1;
@@ -99,7 +112,8 @@ sub _paths_action_resolve {
     my ( $paths, $load_paths, $argv ) = @args{qw(paths load_paths argv)};
     $load_paths->();
     my $name = shift( @{$argv} ) || die "Usage: dashboard path resolve <name>\n";
-    print $paths->resolve_dir($name), "\n";
+    my $target = _resolve_path_alias( paths => $paths, name => $name );
+    print $target, "\n";
     return 1;
 }
 
@@ -133,7 +147,13 @@ sub _paths_action_cdr {
     my (%args) = @_;
     my ( $paths, $load_paths, $argv ) = @args{qw(paths load_paths argv)};
     $load_paths->();
-    print json_encode( _cdr_payload( paths => $paths, args => $argv ) );
+    print json_encode(
+        _cdr_payload(
+            paths                => $paths,
+            args                 => $argv,
+            folder_alias_resolver => sub { _skill_folder_alias_target( paths => $paths, name => $_[0] ) },
+        )
+    );
     return 1;
 }
 
@@ -144,8 +164,8 @@ sub _paths_action_cdr {
 # Output: prints newline-separated shell-completion candidates; returns 1.
 sub _paths_action_complete_cdr {
     my (%args) = @_;
-    my ( $paths, $load_paths, $argv ) = @args{qw(paths load_paths argv)};
-    $load_paths->();
+    my ( $paths, $load_folder_paths, $argv ) = @args{qw(paths load_folder_paths argv)};
+    $load_folder_paths->();
     my $index = shift( @{$argv} );
     $index = 0 if !defined $index || $index eq '';
     print join( "\n", _cdr_completion( paths => $paths, words => $argv, index => $index ) ), "\n";
@@ -257,12 +277,12 @@ sub _paths_action_project_root {
 # returns 1.
 sub _paths_action_list {
     my (%args) = @_;
-    my ( $paths, $load_paths, $argv ) = @args{qw(paths load_paths argv)};
+    my ( $paths, $load_folder_paths, $argv ) = @args{qw(paths load_folder_paths argv)};
     my @argv = @{$argv};
     my $output = 'table';
     GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
     die "Usage: dashboard path list [-o json|table]\n" if @argv || ( $output ne 'json' && $output ne 'table' );
-    $load_paths->();
+    $load_folder_paths->();
     if ( $output eq 'json' ) {
         print json_encode( $paths->all_path_aliases );
         return 1;
@@ -324,6 +344,153 @@ sub _normalize_delete_argument {
     return basename($cwd);
 }
 
+# _resolve_path_alias(%args)
+# Resolves a configured path alias first, then consults the matching installed
+# skill's lib/Folder.pm method when no config alias exists.
+# Input: path registry under "paths" and one qualified alias under "name".
+# Output: expanded path string, or the registry's unknown-alias error.
+sub _resolve_path_alias {
+    my (%args) = @_;
+    my $paths = $args{paths} || die "Missing paths registry\n";
+    my $name  = $args{name};
+    die 'Missing path name' if !defined $name || $name eq '';
+
+    my $configured = $paths->named_paths || {};
+    return $paths->resolve_dir($name) if exists $configured->{$name};
+
+    my $target = _skill_folder_alias_target( paths => $paths, name => $name );
+    return $paths->_expand_home($target) if defined $target;
+    return $paths->resolve_dir($name);
+}
+
+# _skill_folder_path_aliases(%args)
+# Reads listed path aliases from every installed skill Folder.pm without
+# changing config files; configured aliases remain authoritative on collision.
+# Input: path registry under "paths".
+# Output: hash reference of skill-qualified alias names to returned paths.
+sub _skill_folder_path_aliases {
+    my (%args) = @_;
+    my $paths = $args{paths} || die "Missing paths registry\n";
+    my %aliases;
+
+    for my $entry ( _skill_folder_entries($paths) ) {
+        next if !_load_skill_folder_module($entry);
+        my $list = Folder->can('__list__') or next;
+        my @names = $list->('Folder');
+        die "Folder->__list__ in '$entry->{file}' must return a list of alias names, not an array reference\n"
+          if @names == 1 && ref($names[0]) eq 'ARRAY';
+        for my $name (@names) {
+            die "Folder->__list__ in '$entry->{file}' returned an invalid alias name\n"
+              if !_valid_folder_method_name($name) || $name eq '__list__';
+            my $method = Folder->can($name)
+              or die "Folder->__list__ in '$entry->{file}' listed '$name' but Folder->$name is not available\n";
+            my $target = $method->('Folder');
+            die "Folder->$name in '$entry->{file}' must return a non-empty path string\n"
+              if !defined $target || ref($target) || $target eq '';
+            $aliases{ $entry->{name} . '.' . $name } = $paths->_expand_home($target);
+        }
+    }
+
+    return \%aliases;
+}
+
+# _skill_folder_alias_target(%args)
+# Loads one installed skill Folder.pm on demand and calls the method named by a
+# qualified alias, after config aliases have already had first refusal.
+# Input: path registry under "paths" and one dotted alias under "name".
+# Output: returned path string, or undef when no matching skill method exists.
+sub _skill_folder_alias_target {
+    my (%args) = @_;
+    my $paths = $args{paths} || die "Missing paths registry\n";
+    my $name  = $args{name};
+    return if !defined $name || ref($name) || $name =~ /[\x00-\x1F\x7F]/;
+
+    my @parts = split /\./, $name, -1;
+    return if @parts < 2 || grep { !defined $_ || $_ eq '' } @parts;
+    my $method_name = pop @parts;
+    return if !@parts || !_valid_folder_method_name($method_name) || $method_name eq '__list__';
+    my $skill_name = join '.', @parts;
+    my ($entry) = grep { $_->{name} eq $skill_name } _skill_folder_entries($paths);
+    return if !$entry || !_load_skill_folder_module($entry);
+
+    my $method = Folder->can($method_name) or return;
+    my $target = $method->('Folder');
+    die "Folder->$method_name in '$entry->{file}' must return a non-empty path string\n"
+      if !defined $target || ref($target) || $target eq '';
+    return $paths->_expand_home($target);
+}
+
+# _skill_folder_entries($paths)
+# Enumerates installed top-level and nested skill roots with their dotted names
+# and optional Folder.pm file locations.
+# Input: path registry object.
+# Output: list of hash references containing name, dir, and file.
+sub _skill_folder_entries {
+    my ($paths) = @_;
+    die "Missing paths registry\n" if !$paths;
+    return map {
+        my $dir = $_->{dir};
+        my $lib = File::Spec->catdir( $dir, 'lib' );
+        {
+            name => join( '.', @{ $_->{segments} || [] } ),
+            dir  => $dir,
+            file => File::Spec->catfile( $lib, 'Folder.pm' ),
+            lib  => $lib,
+        }
+    } $paths->nested_skill_entries;
+}
+
+# _load_skill_folder_module($entry)
+# Loads one skill's Folder.pm with its lib directory first in @INC and clears
+# the reserved Folder package between skills so identical method names from
+# separate skills cannot bleed into one another.
+# Input: skill entry hash reference from _skill_folder_entries.
+# Output: true if a module was loaded, false when Folder.pm is absent.
+sub _load_skill_folder_module {
+    my ($entry) = @_;
+    die "Missing skill Folder entry\n" if ref($entry) ne 'HASH';
+    my $file = $entry->{file} || die "Missing skill Folder.pm path\n";
+    return 0 if !-f $file;
+
+    my $real_skill = abs_path( $entry->{dir} );
+    my $real_lib   = abs_path( $entry->{lib} );
+    my $real_file  = abs_path($file);
+    die "Unable to resolve skill Folder.pm '$file'\n"
+      if !defined $real_skill || !defined $real_lib || !defined $real_file;
+    my @lib_parts = File::Spec->splitdir( File::Spec->abs2rel( $real_lib, $real_skill ) );
+    die "Skill Folder.pm lib directory '$entry->{lib}' resolves outside its skill root\n"
+      if !@lib_parts || $lib_parts[0] eq File::Spec->updir();
+    my @relative_parts = File::Spec->splitdir( File::Spec->abs2rel( $real_file, $real_lib ) );
+    die "Skill Folder.pm '$file' resolves outside its skill lib directory\n"
+      if !@relative_parts || $relative_parts[0] eq File::Spec->updir();
+
+    {
+        no strict 'refs';
+        %Folder:: = ();
+    }
+    local @INC = ( $entry->{lib}, @INC );
+    my $loaded = do $file;
+    if ( !defined $loaded ) {
+        die "Unable to load skill Folder.pm '$file': $@" if $@;
+        die "Unable to load skill Folder.pm '$file': $!\n" if $!;
+        die "Skill Folder.pm '$file' did not return a true value\n";
+    }
+    die "Skill Folder.pm '$file' did not return a true value\n" if !$loaded;
+    return 1;
+}
+
+# _valid_folder_method_name($name)
+# Accepts a plain Perl identifier for a Folder.pm method while excluding
+# inherited UNIVERSAL methods that are not path aliases.
+# Input: candidate alias/method name.
+# Output: boolean true when it is a safe method identifier.
+sub _valid_folder_method_name {
+    my ($name) = @_;
+    return 0 if !defined $name || ref($name) || $name !~ /\A[A-Za-z_]\w*\z/;
+    return 0 if $name =~ /\A(?:can|isa|DOES|VERSION|DESTROY)\z/;
+    return 1;
+}
+
 # _cdr_payload(%args)
 # Resolves the shell helper target for cdr/which_dir without pushing fuzzy
 # search logic into shell code.
@@ -340,7 +507,11 @@ sub _cdr_payload {
     return { target => '', matches => [] } if !@terms;
 
     my $first = $terms[0];
+    my $configured_aliases = $paths->named_paths || {};
     my $alias_target = eval { $paths->resolve_dir($first) };
+    if ( !defined $alias_target && !exists $configured_aliases->{$first} && ref( $args{folder_alias_resolver} ) eq 'CODE' ) {
+        $alias_target = $args{folder_alias_resolver}->($first);
+    }
     if ( defined $alias_target && $alias_target ne '' ) {
         shift @terms;
         return { target => $alias_target, matches => [] } if !@terms;
@@ -484,6 +655,9 @@ the public entrypoint can hand off path-related work to an extracted helper
 script under F<~/.developer-dashboard/cli/>. That includes the shared
 target-selection logic used by shell helpers such as C<cdr> and
 C<which_dir>.
+Installed skills may also expose path methods from C<lib/Folder.pm>: config
+aliases take precedence, while a skill's optional C<Folder-E<gt>__list__>
+provides additional aliases for lookup, completion, and path inventories.
 
 =head1 FUNCTIONS
 
@@ -523,6 +697,15 @@ C<dashboard path complete-cdr>, pass the shell completion index followed by the
 raw shell words, for example C<cdr foobar alp>; the helper returns newline
 delimited completion candidates for aliases or matching directory basenames.
 
+An installed skill can define C<lib/Folder.pm> with C<package Folder;> and
+methods that return path strings. C<cdr E<lt>skillE<gt>.E<lt>aliasE<gt>> and
+C<dashboard path resolve> consult the effective C<config/config.json> path
+alias first, then call the matching method from C<Folder.pm>. If the module
+implements C<__list__>, its list-context alias names are called and merged
+into C<dashboard paths>, C<dashboard path list>, and completion output. This
+is a read-only merge: C<dashboard path add> continues to write aliases only
+to config, where a configured value overrides a same-named module method.
+
 =head1 WHAT USES IT
 
 It is used by the staged path helpers, by the shell bootstrap generated from
@@ -535,6 +718,8 @@ output.
   dashboard paths
   dashboard path resolve bookmarks
   dashboard path cdr project alpha ".*service"
+  cdr ch.workspace
+  d2 paths -o json
   dashboard path complete-cdr 2 cdr project alp
   dashboard path add work ~/projects/work
   dashboard path add .

@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Complete;
 use strict;
 use warnings;
 
-our $VERSION = '5.10';
+our $VERSION = '5.13';
 
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::Config;
@@ -55,6 +55,9 @@ sub complete {
         my $provider = $args{collector_names} || \&_collector_names;
         @candidates = $provider->();
     }
+    elsif ( ( $words[1] || '' ) eq 'docker' && ( $words[2] || '' ) eq 'development' && $index == 3 ) {
+        @candidates = qw(enable disable);
+    }
     else {
         @candidates = _subcommand_candidates( $words[1] || '' );
     }
@@ -71,7 +74,7 @@ sub complete {
 sub _subcommand_candidates {
     my ($command) = @_;
     return qw(install enable disable uninstall list usage) if $command eq 'skills' || $command eq 'skill';
-    return qw(compose list enable disable) if $command eq 'docker';
+    return qw(compose list enable disable development) if $command eq 'docker';
     return qw(list resolve add del locate project-root) if $command eq 'path';
     return qw(web collector) if $command eq 'restart' || $command eq 'stop' || $command eq 'log' || $command eq 'logs';
     return qw(set list refresh-core) if $command eq 'indicator';
@@ -156,7 +159,9 @@ actions, and dotted skill commands.
 This module centralizes shell-completion candidate generation for C<dashboard>
 and the C<d2> shortcut. It exposes top-level built-ins, layered custom
 commands, dotted installed skill commands, and selected built-in second-level
-subcommands through one reusable API.
+subcommands through one reusable API. Docker completion lists C<compose>,
+C<list>, C<enable>, C<disable>, and C<development>, then offers C<enable> and
+C<disable> after C<docker development>.
 
 =head1 WHY IT EXISTS
 
@@ -198,11 +203,17 @@ Preview second-level completion candidates for one built-in command.
 
 Example 3:
 
+  perl -Ilib -MDeveloper::Dashboard::CLI::Complete -e 'print join qq(\n), Developer::Dashboard::CLI::Complete::complete(words => [qw(d2 docker development)], index => 3)'
+
+Preview the nested Docker development actions.
+
+Example 4:
+
   prove -lv t/05-cli-smoke.t
 
 Run the focused shell-completion regression tests.
 
-Example 4:
+Example 5:
 
   prove -lr t
 

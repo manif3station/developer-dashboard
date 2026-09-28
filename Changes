@@ -1,3 +1,26 @@
+5.13  2026-09-28
+
+  - Added skill-provided path aliases through lib/Folder.pm. cdr and path
+    resolve now check skill config aliases first, then call the matching
+    Folder method. d2 paths, path list, and cdr completion merge names from
+    Folder->__list__ without modifying skill files; path add continues to
+    persist only in config/config.json.
+
+5.12  2026-09-28
+
+  - Added useful help output to d2 docker --help, dashboard docker --help,
+    and the related -h/help/no-subcommand forms. Docker command completion now
+    includes the development subcommand and its enable/disable actions, so the
+    available nested commands can be explored interactively.
+
+5.11  2026-09-28
+
+  - Fixed skill dashboard CODE blocks and saved skill Ajax handlers so the
+    active skill's ordered .env and .env.pl files are loaded into a scoped
+    environment. Values now reach both page rendering and Ajax subprocesses
+    without leaking into the web worker or other requests. Added PageRuntime
+    and installed-skill route regressions for the documented FOO=BAR case.
+
 5.10  2026-09-27
 
   - Fixed a `dashboard serve --foreground` startup hang for any skill

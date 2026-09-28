@@ -35,15 +35,25 @@ use Developer::Dashboard::CLI::Suggest ();
     );
     is_deeply(
         [ Developer::Dashboard::CLI::Complete::complete( words => [ 'dashboard', 'docker' ], index => 3 ) ],
-        [ qw(compose list enable disable) ],
+        [ qw(compose list enable disable development) ],
         'complete treats an out-of-range completion index as an empty current token for second-level built-ins',
+    );
+    is_deeply(
+        [ Developer::Dashboard::CLI::Complete::complete( words => [ 'd2', 'docker', '', '' ], index => 2 ) ],
+        [ qw(compose list enable disable development) ],
+        'complete lists every Docker subcommand when the current word is empty after docker',
+    );
+    is_deeply(
+        [ Developer::Dashboard::CLI::Complete::complete( words => [ 'd2', 'docker', 'development', '' ], index => 3 ) ],
+        [ qw(enable disable) ],
+        'complete lists development actions after docker development',
     );
 }
 
 for my $case (
     [ skills    => [ qw(install enable disable uninstall list usage) ] ],
     [ skill     => [ qw(install enable disable uninstall list usage) ] ],
-    [ docker    => [ qw(compose list enable disable) ] ],
+    [ docker    => [ qw(compose list enable disable development) ] ],
     [ path      => [ qw(list resolve add del locate project-root) ] ],
     [ restart   => [ qw(web collector) ] ],
     [ stop      => [ qw(web collector) ] ],
@@ -344,12 +354,14 @@ This test file exercises the pure-Perl branch logic in
 C<Developer::Dashboard::CLI::Complete> and
 C<Developer::Dashboard::CLI::Suggest> so the shell-completion and typo-guidance
 helpers stay fully covered.
+Docker assertions also pin the available subcommand list and nested
+development-action completion used when tabbing after C<d2 docker>.
 
 =head1 PURPOSE
 
 It exists to pin every branch in the new command-completion and command-
 suggestion modules, including disabled-skill guidance, no-suggestion paths,
-deduplication, and nested skill discovery.
+deduplication, nested skill discovery, and Docker's nested command completion.
 
 =head1 WHY IT EXISTS
 

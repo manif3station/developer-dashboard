@@ -219,6 +219,31 @@ sub fail_first_template_new {
 }
 
 {
+    my $skill_root = File::Spec->catdir( $home, 'skill-env-root' );
+    local $ENV{FOO};
+    delete $ENV{FOO};
+    make_path( File::Spec->catdir( $skill_root, 'dashboards' ) );
+    open my $env_fh, '>', File::Spec->catfile( $skill_root, '.env' )
+      or die "Unable to write skill .env: $!";
+    print {$env_fh} "FOO=BAR\n";
+    close $env_fh or die "Unable to close skill .env: $!";
+
+    my $page = Developer::Dashboard::PageDocument->new(
+        id   => 'skill-code-env',
+        meta => {
+            codes        => [ { body => 'print ">> FOO: $ENV{FOO}";' } ],
+            skill_path   => $skill_root,
+            skill_layers => [$skill_root],
+        },
+        layout => { body => 'body' },
+    );
+    my $result = $runtime->run_code_blocks( page => $page, source => 'skill' );
+    is_deeply( $result->{errors}, [], 'skill dashboard CODE reads its skill .env without errors' );
+    is_deeply( $result->{outputs}, ['>> FOO: BAR'], 'skill dashboard CODE sees variables from the skill .env' );
+    ok( !exists $ENV{FOO}, 'skill dashboard environment values do not leak into later requests' );
+}
+
+{
     my $page_skill_root = File::Spec->catdir( $home, 'skill-page-layer' );
     my $newer_skill_root = File::Spec->catdir( $home, 'skill-newer-layer' );
     make_path( File::Spec->catdir( $page_skill_root, 'lib' ) );
@@ -257,6 +282,8 @@ C<Developer::Dashboard::PageRuntime> that the rest of the suite never reaches:
 the template-engine construction fallback chain, the process-group ownership
 condition used when cancelling a saved-Ajax worker, the wait loop that finds the
 worker already gone, and the launcher's failed-exec report.
+It also guards skill CODE execution against regressions in skill-local module
+lookup and request-scoped loading of skill C<.env> values.
 
 =head1 WHY IT EXISTS
 

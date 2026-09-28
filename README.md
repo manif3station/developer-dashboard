@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.09
+5.13
 
 # INTRODUCTION
 
@@ -1331,7 +1331,14 @@ Inspect resolved paths:
 
 Custom path aliases are stored in the effective dashboard config root so shell
 helpers such as `cdr foobar` and `which_dir foobar` keep working across
-sessions. When a project-local `./.developer-dashboard` tree exists, alias
+sessions. Installed skills can also provide `lib/Folder.pm` with path methods:
+`cdr ch.workspace` checks the effective skill `config/config.json` alias
+first, then loads `Folder.pm` and calls `Folder->workspace` only when no
+configured alias exists. If the module implements `Folder->__list__`, its
+list-context alias names are merged into `dashboard paths`, `dashboard path
+list`, and `cdr` completion. That runtime merge is read-only; `dashboard path
+add` continues to write to config, and a config alias overrides a collision
+with a module method. When a project-local `./.developer-dashboard` tree exists, alias
 writes go there first; otherwise they go to the home runtime. Under
 `DD-OOP-LAYERS`, that write stays local to the deepest participating layer:
 adding one child-layer alias does not copy inherited parent `config.json`
@@ -1872,6 +1879,15 @@ without stopping a second healthy collector from staying green in
 `dashboard indicator list`, `dashboard ps1`, and `/system/status`.
 
 ## Docker Compose
+
+Show the Docker command reference without starting or inspecting containers:
+
+    d2 docker --help
+
+Both `dashboard docker --help` and `d2 docker --help` print the available
+Compose and service-management commands. The shell completion list includes
+`compose`, `list`, `enable`, `disable`, and `development`; after
+`docker development`, completion offers `enable` and `disable`.
 
 Inspect the resolved compose stack without running Docker:
 
@@ -3055,6 +3071,13 @@ the same-install-level dependency target used by skill-local `ddfile.local`,
 skill docker layering, and when to use dashboard-wide custom CLI hook folders such as
 `~/.developer-dashboard/cli/<command>.d` instead of a skill-local
 hook tree.
+
+Skill dashboard CODE blocks and saved skill Ajax handlers load the active
+skill's root-to-leaf `.env` and `.env.pl` files. For example,
+`print $ENV{FOO}` in either path can read `FOO=BAR` from that skill's
+`.env`. Page values are request-local and saved Ajax values are passed only to
+the child process; neither leaks into the long-lived web worker or other
+requests.
 
 For operators rather than authors, `dashboard skills list`,
 `dashboard skills usage <repo-name>`,

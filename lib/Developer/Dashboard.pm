@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.10';
+our $VERSION = '5.13';
 
 our @EXPORT = ('d2');
 
@@ -66,7 +66,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.10
+5.13
 
 =head1 INTRODUCTION
 
@@ -1673,7 +1673,14 @@ Inspect resolved paths:
 
 Custom path aliases are stored in the effective dashboard config root so shell
 helpers such as C<cdr foobar> and C<which_dir foobar> keep working across
-sessions. When a project-local F<./.developer-dashboard> tree exists, alias
+sessions. Installed skills can also provide C<lib/Folder.pm> with path methods:
+C<cdr ch.workspace> checks the effective skill C<config/config.json> alias
+first, then loads C<Folder.pm> and calls C<Folder-E<gt>workspace> only when no
+configured alias exists. If the module implements C<Folder-E<gt>__list__>, its
+list-context alias names are merged into C<dashboard paths>, C<dashboard path
+list>, and C<cdr> completion. That runtime merge is read-only; C<dashboard path
+add> continues to write to config, and a config alias overrides a collision
+with a module method. When a project-local F<./.developer-dashboard> tree exists, alias
 writes go there first; otherwise they go to the home runtime. Under
 C<DD-OOP-LAYERS>, that write stays local to the deepest participating layer:
 adding one child-layer alias does not copy inherited parent C<config.json>
@@ -2247,6 +2254,15 @@ without stopping a second healthy collector from staying green in
 C<dashboard indicator list>, C<dashboard ps1>, and C</system/status>.
 
 =head2 Docker Compose
+
+Show the Docker command reference without starting or inspecting containers:
+
+  d2 docker --help
+
+Both C<dashboard docker --help> and C<d2 docker --help> print the available
+Compose and service-management commands. The shell completion list includes
+C<compose>, C<list>, C<enable>, C<disable>, and C<development>; after
+C<docker development>, completion offers C<enable> and C<disable>.
 
 Inspect the resolved compose stack without running Docker:
 
@@ -3729,6 +3745,13 @@ the same-install-level dependency target used by skill-local F<ddfile.local>,
 skill docker layering, and when to use dashboard-wide custom CLI hook folders such as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a skill-local
 hook tree.
+
+Skill dashboard CODE blocks and saved skill Ajax handlers load the active
+skill's root-to-leaf C<.env> and C<.env.pl> files. For example,
+C<print $ENV{FOO}> in either path can read C<FOO=BAR> from that skill's
+C<.env>. Page values are request-local and saved Ajax values are passed only to
+the child process; neither leaks into the long-lived web worker or other
+requests.
 
 For operators rather than authors, C<dashboard skills list>,
 C<dashboard skills usage E<lt>repo-nameE<gt>>,

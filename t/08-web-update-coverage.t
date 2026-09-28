@@ -259,6 +259,10 @@ like( $source_body, qr/^TITLE:\s+Sample/m, 'source route returns canonical instr
 my ( $saved_edit_code, undef, $saved_edit_body ) = @{ $app->handle( path => '/app/sample/edit', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $saved_edit_code, 200, 'saved edit route responds with success' );
 like( $saved_edit_body, qr/Right Click Copy &amp; Share or Bookmark This Page/, 'saved edit route includes top chrome links' );
+my $saved_edit_chrome_count = () = $saved_edit_body =~ /class="dd-top-chrome"/g;
+is( $saved_edit_chrome_count, 1, 'regular dashboard page without skill pages renders top chrome once' );
+my $saved_edit_indicator_count = () = $saved_edit_body =~ /id="status-on-top"/g;
+is( $saved_edit_indicator_count, 1, 'regular dashboard page without skill pages renders top indicators once' );
 like( $saved_edit_body, qr{<form method="post" action="/app/sample/edit" id="instruction-form">}, 'saved edit route posts back to the named bookmark edit path' );
 like( $saved_edit_body, qr{<button type="button" class="chrome-button" id="play-button" data-play-url="/app/sample">Play</button>}, 'saved edit route exposes a saved-page play button that submits the split editor source into render mode' );
 my ( $saved_edit_post_without_instruction_code, undef, $saved_edit_post_without_instruction_body ) = @{ $app->handle(

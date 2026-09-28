@@ -952,6 +952,7 @@ subtest 'CLI::Paths covers table defaults and output guards' => sub {
     };
     local *TestCLIPathRegistry::current_working_directory = sub { return $cwd; };
     local *TestCLIPathRegistry::current_project_root = sub { return $project_root; };
+    local *TestCLIPathRegistry::nested_skill_entries = sub { return (); };
 
     my ( $stdout_paths ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command( command => 'paths', args => [] );

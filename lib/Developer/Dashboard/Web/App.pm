@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '5.10';
+our $VERSION = '5.13';
 
 use Capture::Tiny qw(capture);
 use Digest::SHA qw(sha256_hex);
@@ -797,7 +797,8 @@ sub legacy_ajax_file_response {
 
 # skill_ajax_file_response(%args)
 # Executes one `/ajax/<skill>/<file>` route against a layered skill-local ajax file.
-# Input: skill name, ajax file name, and normalized request metadata.
+# Input: skill name, ajax file name, and normalized request metadata; the
+#       resolved skill layers provide the child process's environment files.
 # Output: response array reference.
 sub skill_ajax_file_response {
     my ( $self, %args ) = @_;
@@ -815,10 +816,14 @@ sub skill_ajax_file_response {
     if ( !exists $request_params{type} && ( $args{default_type} || '' ) ne '' ) {
         $request_params{type} = $args{default_type};
     }
+    my $dispatcher = $self->_skill_dispatcher;
+    my $skill_spec = $dispatcher->resolve_route_segments( [ grep { $_ ne '' } split m{/+}, $skill_name ] );
+    my $skill_layers = $skill_spec ? ( $skill_spec->{skill_layers} || [] ) : [];
     return _transient_url_forbidden_response() if !$self->_legacy_ajax_allowed( \%request_params );
     return $self->_legacy_ajax_response(
         params          => \%request_params,
         saved_ajax_path => $saved_ajax_path,
+        skill_layers    => $skill_layers,
     );
 }
 
@@ -2746,7 +2751,7 @@ sub _build_query {
 
 # _legacy_ajax_response(%args)
 # Decodes and executes an older /ajax token payload.
-# Input: request params and metadata.
+# Input: request params and metadata, including optional skill layer roots.
 # Output: response array reference.
 sub _legacy_ajax_response {
     my ( $self, %args ) = @_;
@@ -2792,6 +2797,7 @@ sub _legacy_ajax_response {
                         page          => $params->{page} || '',
                         type          => $type,
                         params        => $params,
+                        skill_layers  => $args{skill_layers},
                         stdout_writer => $writer,
                         stderr_writer => $writer,
                     );

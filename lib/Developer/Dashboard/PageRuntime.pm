@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '5.10';
+our $VERSION = '5.13';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -17,6 +17,7 @@ use Time::HiRes ();
 use Developer::Dashboard::PageRuntime::StreamHandle;
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::PerlEnv ();
+use Developer::Dashboard::EnvLoader ();
 use Developer::Dashboard::Platform qw(command_argv_for_path command_in_path is_windows);
 use Developer::Dashboard::RuntimeManager ();
 use Developer::Dashboard::Folder ();
@@ -334,6 +335,38 @@ sub _code_inc_roots {
     return @roots;
 }
 
+# _skill_env_overlay($skill_layers)
+# Loads ordered skill env files without changing the web worker's environment.
+# Input: array reference of skill roots in environment inheritance order.
+# Output: hash reference of environment keys added or overridden by skill files.
+sub _skill_env_overlay {
+    my ( $self, $skill_layers ) = @_;
+    return {} if ref($skill_layers) ne 'ARRAY' || !@$skill_layers;
+    my $loaded = Developer::Dashboard::EnvLoader->load_skill_layers_into_hash(
+        skill_layers => $skill_layers,
+        base_env     => \%ENV,
+    );
+    return $loaded->{env} || {};
+}
+
+# _code_env_overlay($page)
+# Loads the ordered skill environment for a dashboard page without changing the
+# web worker's process environment.
+# Input: page document carrying skill_layers or skill_path metadata.
+# Output: hash reference of environment keys added or overridden by skill env files.
+sub _code_env_overlay {
+    my ( $self, $page ) = @_;
+    return {} if !ref($page) || ref( $page->{meta} ) ne 'HASH';
+
+    my @layers = ref( $page->{meta}{skill_layers} ) eq 'ARRAY'
+      ? @{ $page->{meta}{skill_layers} }
+      : ();
+    if ( !@layers && defined $page->{meta}{skill_path} && $page->{meta}{skill_path} ne '' ) {
+        push @layers, $page->{meta}{skill_path};
+    }
+    return $self->_skill_env_overlay( \@layers );
+}
+
 # _system_context(%args)
 # Builds the generic SYSTEM hash exposed to bookmark Template Toolkit rendering.
 # Input: runtime context hash.
@@ -376,6 +409,7 @@ sub _run_single_block {
     my $package = $sandpit->{package} || die 'Missing sandpit package';
     my $wrapped_code = $self->_code_header($state) . $code;
     my @returns;
+    my $skill_env = $self->_code_env_overlay( $args{page} );
     local $Developer::Dashboard::Zipper::AJAX_CONTEXT = {
         allow_transient_urls => (
             defined $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS}
@@ -403,6 +437,7 @@ sub _run_single_block {
         source       => $args{source} || '',
     };
     my ( $stdout, $stderr, $exit_code ) = capture {
+        local %ENV = ( %ENV, %{$skill_env} );
         local @INC = ( $self->_code_inc_roots( $args{page} ), @INC );
         @returns = $package->__run_code($wrapped_code);
         return $?;
@@ -450,6 +485,7 @@ sub stream_code_block {
     my $package = $sandpit->{package} || die 'Missing sandpit package';
     my $wrapped_code = $self->_code_header($state) . $code;
     my @returns;
+    my $skill_env = $self->_code_env_overlay( $args{page} );
     local $Developer::Dashboard::Zipper::AJAX_CONTEXT = {
         allow_transient_urls => (
             defined $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS}
@@ -468,6 +504,7 @@ sub stream_code_block {
     $| = 1;
     select $old_stderr;
     {
+        local %ENV = ( %ENV, %{$skill_env} );
         local @INC = ( $self->_code_inc_roots( $args{page} ), @INC );
         @returns = $package->__run_code($wrapped_code);
     }
@@ -495,7 +532,8 @@ sub stream_code_block {
 
 # stream_saved_ajax_file(%args)
 # Executes one saved Ajax file as a real process and streams stdout/stderr chunks through callbacks.
-# Input: saved file path, request params hash, optional singleton name, page/source metadata, and writer callbacks.
+# Input: saved file path, request params hash, optional singleton name, skill
+#       layer roots, page/source metadata, and writer callbacks.
 # Output: hash reference with exit_code and process status word.
 sub stream_saved_ajax_file {
     my ( $self, %args ) = @_;
@@ -519,6 +557,7 @@ sub stream_saved_ajax_file {
         type      => $args{type} || '',
         params    => $params,
         singleton => $singleton,
+        skill_layers => $args{skill_layers},
     );
     my @temp_files = grep { defined $_ && $_ ne '' }
       @env{qw(DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE DEVELOPER_DASHBOARD_AJAX_QUERY_STRING_FILE)};
@@ -842,7 +881,8 @@ sub _saved_ajax_command {
 
 # _saved_ajax_env(%args)
 # Builds the environment variables exposed to one saved Ajax process run.
-# Input: saved file path, page id, type, optional singleton name, and request params hash.
+# Input: saved file path, page id, type, optional singleton name, request params
+#       hash, and skill layer roots whose env files apply to this worker.
 # Output: hash of environment key/value pairs.
 sub _saved_ajax_env {
     my ( $self, %args ) = @_;
@@ -880,6 +920,8 @@ sub _saved_ajax_env {
         my %runtime_env = $self->_runtime_local_perl_env;
         @env{ keys %runtime_env } = values %runtime_env;
     }
+    my $skill_env = $self->_skill_env_overlay( $args{skill_layers} );
+    @env{ keys %{$skill_env} } = values %{$skill_env};
     return %env;
 }
 
@@ -1318,6 +1360,11 @@ Developer::Dashboard::PageRuntime - older bookmark renderer and CODE executor
 
 This module applies Template Toolkit rendering to bookmark HTML and executes
 older C<CODE*> blocks while capturing STDOUT and STDERR for in-page display.
+For skill pages, it loads the ordered skill C<.env> and C<.env.pl> files into
+a request-local environment overlay while CODE executes, without changing the
+web worker environment. Saved skill Ajax processes receive the same layered
+values through their child environment. Skill C<lib/> directories are also
+scoped into C<@INC>, with the page-providing skill first.
 Each CODE block imports C<j> and C<je> from
 C<Developer::Dashboard::DataHelper> automatically, so saved code does not need
 to repeat that import.
@@ -1327,7 +1374,10 @@ to repeat that import.
 =head2 new, prepare_page, run_code_blocks, stream_code_block, stream_saved_ajax_file
 
 Construct the runtime, render bookmark templates, execute in-process CODE
-blocks, and stream saved Ajax files as real child processes. On POSIX systems
+blocks, and stream saved Ajax files as real child processes. Skill page CODE
+receives the skill's layered env values and skill libraries for the duration
+of its execution only; saved skill Ajax workers receive the layered env values
+in their child process. On POSIX systems
 each saved Ajax worker runs inside its own process group, and disconnect or
 stream-error cleanup signals that whole group so descendant processes forked by
 the worker terminate with it; Windows keeps direct child-process termination.

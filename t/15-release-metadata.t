@@ -52,6 +52,7 @@ my @doc_paths = grep { -e $_ } (
     _repo_path('TEST_PLAN.md'),
     _repo_path( 'doc', 'architecture.md' ),
     _repo_path( 'doc', 'command-suggestions.md' ),
+    _repo_path( 'doc', 'docker-cli.md' ),
     _repo_path( 'doc', 'docker-service-toggle.md' ),
     _repo_path( 'doc', 'housekeeper-rotation.md' ),
     _repo_path( 'doc', 'install-bootstrap.md' ),
@@ -85,7 +86,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '5.10', 'repo version bumped for the CollectorRunner ps-fallback fix (DD-1054)' );
+is( $version, '5.13', 'repo version bumped for skill Folder path aliases' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;

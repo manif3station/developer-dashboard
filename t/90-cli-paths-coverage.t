@@ -16,6 +16,7 @@ use lib 'lib';
 
 use Developer::Dashboard::CLI::Paths ();
 use Developer::Dashboard::CLI::TableHelpers ();
+use Developer::Dashboard::JSON qw(json_decode);
 use Developer::Dashboard::PathRegistry;
 
 # Warnings are fatal in this repository: collect any that escape and assert the
@@ -309,6 +310,92 @@ subtest '_cdr_payload treats a blank alias target as no alias' => sub {
     );
 };
 
+subtest 'skill Folder aliases resolve after config aliases and appear in paths without being persisted' => sub {
+    my $skill_root = File::Spec->catdir( $home, '.developer-dashboard', 'skills', 'folder-skill' );
+    my $skill_config_dir = File::Spec->catdir( $skill_root, 'config' );
+    my $skill_lib_dir = File::Spec->catdir( $skill_root, 'lib' );
+    my $skill_helper_dir = File::Spec->catdir( $skill_lib_dir, 'Skill' );
+    make_path( $skill_config_dir, $skill_helper_dir );
+
+    my $skill_config_file = File::Spec->catfile( $skill_config_dir, 'config.json' );
+    open my $config_fh, '>', $skill_config_file or die "Unable to write $skill_config_file: $!";
+    print {$config_fh} '{"path_aliases":{"docs":"/configured/docs"}}';
+    close $config_fh or die "Unable to close $skill_config_file: $!";
+
+    my $helper_file = File::Spec->catfile( $skill_helper_dir, 'Helper.pm' );
+    open my $helper_fh, '>', $helper_file or die "Unable to write $helper_file: $!";
+    print {$helper_fh} "package Skill::Helper; sub path { return '/module/only' } 1;\n";
+    close $helper_fh or die "Unable to close $helper_file: $!";
+
+    my $folder_file = File::Spec->catfile( $skill_lib_dir, 'Folder.pm' );
+    open my $folder_fh, '>', $folder_file or die "Unable to write $folder_file: $!";
+    print {$folder_fh} <<'FOLDER_MODULE';
+package Folder;
+use Skill::Helper;
+sub docs { return '/module/docs' }
+sub module_only { return Skill::Helper::path() }
+sub __list__ { return ('docs', 'module_only') }
+1;
+FOLDER_MODULE
+    close $folder_fh or die "Unable to close $folder_file: $!";
+
+    my ( $config_cdr, $config_cdr_err ) = capture {
+        $run->( command => 'path', args => [ 'cdr', 'folder-skill.docs' ] );
+    };
+    is( $config_cdr_err, '', 'a configured skill alias resolves without a Folder.pm error' );
+    is( json_decode($config_cdr)->{target}, '/configured/docs', 'config/config.json takes precedence over a colliding Folder.pm method' );
+
+    my ( $folder_cdr, $folder_cdr_err ) = capture {
+        $run->( command => 'path', args => [ 'cdr', 'folder-skill.module_only' ] );
+    };
+    is( $folder_cdr_err, '', 'a Folder.pm-only skill alias resolves without diagnostics' );
+    is( json_decode($folder_cdr)->{target}, '/module/only', 'cdr resolves an alias from the skill Folder.pm method' );
+
+    my ( $resolved_output, $resolved_err ) = capture {
+        $run->( command => 'path', args => [ 'resolve', 'folder-skill.module_only' ] );
+    };
+    is( $resolved_err, '', 'path resolve handles Folder.pm aliases without diagnostics' );
+    is( $resolved_output, "/module/only\n", 'path resolve consults Folder.pm after configured aliases' );
+
+    my ( $paths_json, $paths_err ) = capture {
+        $run->( command => 'paths', args => [ '-o', 'json' ] );
+    };
+    is( $paths_err, '', 'paths lists Folder.pm aliases without diagnostics' );
+    my $listed_paths = json_decode($paths_json);
+    is( $listed_paths->{'folder-skill.docs'}, '/configured/docs', 'paths keeps the config alias value when a Folder.pm alias collides' );
+    is( $listed_paths->{'folder-skill.module_only'}, '/module/only', 'paths merges aliases returned by Folder->__list__ and Folder methods' );
+
+    my ( $path_list_json, $path_list_err ) = capture {
+        $run->( command => 'path', args => [ 'list', '-o', 'json' ] );
+    };
+    is( $path_list_err, '', 'path list includes Folder.pm aliases without diagnostics' );
+    is( json_decode($path_list_json)->{'folder-skill.module_only'}, '/module/only', 'path list merges the listed Folder.pm aliases without persisting them' );
+
+    my ( $completion, $completion_err ) = capture {
+        $run->( command => 'path', args => [ 'complete-cdr', 1, 'cdr', 'folder-skill.m' ] );
+    };
+    is( $completion_err, '', 'cdr completion includes Folder.pm aliases without diagnostics' );
+    like( $completion, qr/^folder-skill\.module_only$/m, 'cdr completion suggests the qualified Folder.pm alias' );
+
+    my ( $add_output, $add_err ) = capture {
+        $run->( command => 'path', args => [ 'add', 'folder-skill.added', '/configured/added', '-o', 'json' ] );
+    };
+    is( $add_err, '', 'path add writes a skill-qualified config alias without diagnostics' );
+    like( $add_output, qr/folder-skill\.added/, 'path add reports the added qualified alias' );
+
+    open my $saved_skill_config_fh, '<', $skill_config_file or die "Unable to read $skill_config_file: $!";
+    local $/;
+    my $saved_skill_config = json_decode( <$saved_skill_config_fh> );
+    close $saved_skill_config_fh;
+    is_deeply( $saved_skill_config->{path_aliases}, { docs => '/configured/docs' }, 'path add does not rewrite the skill-owned Folder.pm or config defaults' );
+
+    my $global_config_file = File::Spec->catfile( $home, '.developer-dashboard', 'config', 'config.json' );
+    open my $global_config_fh, '<', $global_config_file or die "Unable to read $global_config_file: $!";
+    my $global_config = json_decode( do { local $/; <$global_config_fh> } );
+    close $global_config_fh;
+    is( $global_config->{skills}{'folder-skill'}{path_aliases}{added}, '/configured/added', 'path add persists the override in config/config.json' );
+};
+
 subtest '_cdr_completion guards its injected arguments' => sub {
     my $paths = Developer::Dashboard::PathRegistry->new( home => $home, cwd => $home );
 
@@ -457,8 +544,9 @@ C<Developer::Dashboard::CLI::Paths> that the behavioural suites never reach: the
 dispatch argument guards, the usage errors for each C<dashboard path> verb, the
 current-directory delete shorthand when alias targets are missing, blank, or
 unexpandable, the C<cdr> payload and completion helpers when an alias resolves
-to a blank target or the completion index runs past the supplied words, and the
-table renderers when headers, rows, or cells are absent.
+to a blank target or the completion index runs past the supplied words,
+skill-provided C<Folder.pm> path aliases, and the table renderers when headers,
+rows, or cells are absent.
 
 =head1 WHY IT EXISTS
 
@@ -473,8 +561,9 @@ shell, so they need executable coverage rather than an annotation.
 =head1 WHEN TO USE
 
 Use this file when changing the argument validation, usage messages, alias
-loading, current-directory shorthand, C<cdr> target selection, shell-completion
-candidates, or table rendering inside the path CLI runtime.
+loading, current-directory shorthand, C<cdr> target selection, skill-provided
+C<Folder.pm> aliases, shell-completion candidates, or table rendering inside
+the path CLI runtime.
 
 =head1 HOW TO USE
 
@@ -493,7 +582,9 @@ columns for the path CLI module.
 
 The repository test suite, the Devel::Cover gate, and developers changing the
 path CLI runtime use this file to keep the defensive edges of C<dashboard path>
-and C<dashboard paths> behaving as documented.
+and C<dashboard paths> behaving as documented. Its skill fixture also pins
+config-first resolution, list-context C<Folder-E<gt>__list__> discovery, and
+the rule that C<path add> writes config without editing an installed skill.
 
 =head1 EXAMPLES
 

@@ -872,7 +872,28 @@ elsif ( $cmd eq 'action' ) {
 elsif ( $cmd eq 'docker' ) {
     _load_configured_path_aliases();
     my $sub = shift @ARGV || '';
-    if ( $sub eq 'compose' ) {
+    if ( $sub eq '' || $sub eq 'help' || $sub eq '-h' || $sub eq '--help' ) {
+        print <<'DOCKER_USAGE';
+Usage: dashboard docker <subcommand> [arguments]
+
+Docker Compose:
+  dashboard docker compose [--addon NAME] [--mode NAME] [--service NAME]
+                           [--project DIR] [--dry-run] <compose-args...>
+  Resolve layered Compose files and pass remaining arguments to Docker Compose.
+
+Service management:
+  dashboard docker list [--enabled|--disabled]
+  dashboard docker enable <service> [service...]
+  dashboard docker disable <service> [service...]
+  dashboard docker development enable <service> [service...]
+  dashboard docker development disable <service> [service...]
+
+Use 'dashboard docker compose --help' for Docker Compose options, or
+'dashboard help' for the complete command reference.
+DOCKER_USAGE
+        exit 0;
+    }
+    elsif ( $sub eq 'compose' ) {
         my @addons;
         my @modes;
         my @services;
@@ -965,6 +986,7 @@ elsif ( $cmd eq 'docker' ) {
         );
         exit 0;
     }
+    die "Unknown docker subcommand '$sub'. Run 'dashboard docker --help' for usage.\n";
 }
 elsif ( $cmd eq 'serve' ) {
     _load_configured_path_aliases();
@@ -1876,7 +1898,10 @@ C<dashboard docker development enable E<lt>serviceE<gt>> and
 C<dashboard docker development disable E<lt>serviceE<gt>> here. These commands
 write or remove the service folder's C<develop.yml> marker; the Compose
 resolver then loads C<compose.yml> first and an existing
-C<development.compose.yml> after it.
+C<development.compose.yml> after it. The Docker helper's C<--help>, C<-h>,
+C<help>, and no-subcommand forms print its usage without starting Docker.
+Completion offers the Docker service subcommands and the nested development
+actions.
 
 =head1 WHAT USES IT
 

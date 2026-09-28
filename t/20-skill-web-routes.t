@@ -69,6 +69,12 @@ is( $index->[0], 200, 'installed skill index route returns success' );
 like( $index->[2], qr/Skill Route Index/, 'installed skill index route renders the skill index bookmark' );
 like( $index->[2], qr/Skill Route Nav/, 'installed skill index route renders skill nav fragments' );
 like( $index->[2], qr/Other Skill Nav/, 'installed skill index route also renders nav fragments from other installed skills' );
+my $skill_index_chrome_count = () = $index->[2] =~ /class="dd-top-chrome"/g;
+is( $skill_index_chrome_count, 1, 'skill index page renders top chrome once' );
+my $skill_index_indicator_count = () = $index->[2] =~ /id="status-on-top"/g;
+is( $skill_index_indicator_count, 1, 'skill index page renders top indicators once' );
+my $skill_index_nav_count = () = $index->[2] =~ /class="dashboard-nav-items"/g;
+is( $skill_index_nav_count, 1, 'skill index page renders one nav container for all skill links' );
 like( $index->[2], qr{href="/app/route-skill/edit" id="view-source-url"}, 'installed skill index render exposes the smart-routed edit link' );
 
 my $index_edit = $app->handle(
@@ -122,6 +128,58 @@ is( $render->[0], 200, 'installed skill page route returns success' );
 like( $render->[2], qr/Skill Route Foo/, 'skill page route renders the requested skill bookmark html' );
 like( $render->[2], qr/Skill Route Nav/, 'installed skill page route renders skill nav fragments' );
 like( $render->[2], qr/Other Skill Nav/, 'installed skill page route renders nav contributed by other installed skills too' );
+my $skill_page_chrome_count = () = $render->[2] =~ /class="dd-top-chrome"/g;
+is( $skill_page_chrome_count, 1, 'skill page renders top chrome once' );
+my $skill_page_indicator_count = () = $render->[2] =~ /id="status-on-top"/g;
+is( $skill_page_indicator_count, 1, 'skill page renders top indicators once' );
+my $skill_page_nav_count = () = $render->[2] =~ /class="dashboard-nav-items"/g;
+is( $skill_page_nav_count, 1, 'skill page renders one nav container for all skill links' );
+
+{
+    my $skill_path = $manager->get_skill_path('route-skill');
+    _write_file( File::Spec->catfile( $skill_path, '.env' ), "FOO=BAR\n", 0644 );
+    _write_file(
+        File::Spec->catfile( $skill_path, 'dashboards', 'env-check' ),
+        q{TITLE: Skill Environment Check
+:--------------------------------------------------------------------------------:
+BOOKMARK: env-check
+:--------------------------------------------------------------------------------:
+HTML:
+Environment:
+:--------------------------------------------------------------------------------:
+CODE1: print "FOO=$ENV{FOO}";
+},
+        0644,
+    );
+
+    local $ENV{FOO};
+    delete $ENV{FOO};
+    my $env_page = $app->handle(
+        path        => '/app/route-skill/env-check',
+        method      => 'GET',
+        headers     => { host => '127.0.0.1' },
+        remote_addr => '127.0.0.1',
+    );
+    is( $env_page->[0], 200, 'skill dashboard CODE environment route returns successfully' );
+    like( $env_page->[2], qr/FOO=BAR/, 'skill dashboard route executes CODE with values from its .env file' );
+    ok( !exists $ENV{FOO}, 'skill dashboard route does not leak its .env values into the web process' );
+
+    _write_file(
+        File::Spec->catfile( $skill_path, 'dashboards', 'ajax', 'env-check' ),
+        'print "FOO: $ENV{FOO}";',
+        0700,
+    );
+    delete $ENV{FOO};
+    my $ajax_env = $app->handle(
+        path        => '/ajax/route-skill/env-check',
+        method      => 'GET',
+        headers     => { host => '127.0.0.1' },
+        remote_addr => '127.0.0.1',
+    );
+    is( $ajax_env->[0], 200, 'skill saved Ajax environment route returns successfully' );
+    is( _drain_stream_body( $ajax_env->[2] ), 'FOO: BAR', 'skill saved Ajax subprocess receives values from its skill .env file' );
+    ok( !exists $ENV{FOO}, 'skill saved Ajax environment does not leak into the web process' );
+}
 
 my $custom_index = $app->handle(
     path        => '/apps/route-skill/home',
@@ -864,6 +922,9 @@ This test is part of Developer Dashboard.
 =head1 PURPOSE
 
 This test is the executable regression contract for the isolated skill installation and routing stack. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
+It also verifies that rendered skill dashboard CODE and saved skill Ajax
+subprocesses receive their skill-local environment file while keeping those
+values out of the web process.
 
 =head1 WHY IT EXISTS
 

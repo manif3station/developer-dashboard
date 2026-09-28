@@ -22,6 +22,10 @@ docker - private built-in command wrapper for Developer Dashboard
 
 =head1 SYNOPSIS
 
+  dashboard docker --help
+  dashboard docker compose [options] <compose-args...>
+  dashboard docker list [--enabled|--disabled]
+  dashboard docker development {enable|disable} <service> [service...]
   dashboard docker ...
 
 =head1 DESCRIPTION
@@ -38,7 +42,8 @@ and the isolated service toggle commands C<dashboard docker enable> and
 C<dashboard docker disable>, plus C<dashboard docker development
 {enable|disable}>. It is the command surface for dashboard-specific Compose
 discovery, addon/mode handling, dry-run output, service-state reporting, and
-local C<disabled.yml> and C<develop.yml> marker management.
+local C<disabled.yml> and C<develop.yml> marker management. C<--help>, C<-h>,
+C<help>, or no subcommand prints the command reference without invoking Docker.
 
 =head1 WHY IT EXISTS
 
@@ -60,7 +65,9 @@ isolated services, or creates or removes the deepest-layer service marker for
 one or more services in one invocation. A bad name among good ones does not
 stop the others from being toggled, and is reported per service. C<disabled.yml>
 excludes a service; separate C<develop.yml> opts it into loading
-C<development.compose.yml> after its base C<compose.yml>.
+C<development.compose.yml> after its base C<compose.yml>. C<dashboard docker
+--help> prints the built-in command reference; shell completion lists all five
+Docker subcommands and offers C<enable>/C<disable> below C<development>.
 
 =head1 WHAT USES IT
 
