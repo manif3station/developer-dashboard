@@ -683,10 +683,14 @@ sub _absolute_output {
 }
 
 sub _abs_existing {
+    # Purpose: canonicalize an ordered list of paths that exist on disk.
+    # Input: an array reference of possibly undefined or nonexistent paths.
+    # Output: unique absolute paths, preserving their first-seen order.
     my ($paths) = @_;
     my @abs;
     my %seen;
     for my $path (@$paths) {
+        next if !defined $path || $path eq '' || !-e $path;
         my $abs = abs_path($path);
         next if !defined $abs || $seen{$abs}++;
         push @abs, $abs;
@@ -2419,13 +2423,8 @@ sub _runtime_manifest {
         # every such dependency directly and unconditionally from its own
         # known source_path, rather than depending on that second lookup to
         # independently rediscover it.
-        # uncoverable branch false
-        # @force_runtime_source_files always contains at least the 4
-        # runtime-helper module files (StandaloneRuntime.pm and friends),
-        # resolved by _pax_runtime_helper_module_files() from this very
-        # file's own location - which always exists, because this code
-        # is executing from it. The list can never be empty in a real
-        # invocation.
+        # The helper list is present in production; keeping the empty case
+        # explicit makes malformed or partially packaged runtime inputs safe.
         if (@force_runtime_source_files) {
             my %already_bundled = map { (abs_path($_->{source_path} // '') || '') => 1 }
                 grep { ($_->{unit_kind} // '') eq 'runtime_inc' } @payloads;
@@ -2433,14 +2432,8 @@ sub _runtime_manifest {
                 my $abs = abs_path($_) || $_;
                 -f $abs && !$already_bundled{$abs}++
             } @force_runtime_source_files;
-            # uncoverable branch false
-            # @force_runtime_source_files always includes the 4 runtime-helper
-            # module files, which live under $PAX_OWN_LIB_ROOT exactly like a
-            # real hybrid_compiled_pcu_v1 dependency does - so, structurally,
-            # they can never already be in %already_bundled (that only ever
-            # gets populated from the normal by-@inc_dirs selection, which
-            # deliberately excludes $PAX_OWN_LIB_ROOT). @missing can therefore
-            # never be empty in a real invocation.
+            # A helper can already have been selected through an explicit
+            # include directory; in that case do not emit a duplicate copy.
             if (@missing) {
                 my $prefix = sprintf('inc/%03d', $index++);
                 push @bundled_inc_roots, $prefix;
@@ -2848,12 +2841,7 @@ sub _locate_module_runtime_file {
     return if !$module;
     if ( $known_source_paths && ref($known_source_paths) eq 'HASH' ) {
         my $known = $known_source_paths->{$module};
-        # DD-1049: $known is guaranteed truthy here by the preceding
-        # "if $known && -f $known" guard on this same statement, so
-        # "abs_path($known) fails AND $known is falsy" cannot occur -
-        # the only two reachable states are abs_path succeeding, or
-        # abs_path failing while $known (truthy) is returned instead.
-        # uncoverable condition false
+        # Preserve the caller's valid path if canonicalization cannot resolve it.
         return abs_path($known) || $known if $known && -f $known;
     }
     my $rel = $module;

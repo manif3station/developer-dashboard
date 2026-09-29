@@ -325,14 +325,17 @@ sub _check_tiered_backend_architecture {
 }
 
 sub _check_performance_observability_fields {
+    # Validate benchmark memory metadata and recorded OSR counters. Input is the
+    # Gatekeeper instance; output is one passed/blocked evidence record.
     my ($self) = @_;
     my @missing;
     my $bench = eval {
         Developer::Dashboard::Pax::Benchmark->new(pax_bin => "$self->{root}/bin/pax", iterations => 1)
             ->run_runtime_benchmark("$self->{root}/t/fixtures/simple.pl");
     };
-    push @missing, 'benchmark_memory_impact' if $@ || !$bench || ref($bench->{memory_impact}) ne 'HASH';
-    push @missing, 'benchmark_memory_delta' if !$bench || !exists $bench->{memory_impact}{delta_rss_kb};
+    my $memory_impact = $bench && ref($bench) eq 'HASH' ? $bench->{memory_impact} : undef;
+    push @missing, 'benchmark_memory_impact' if $@ || ref($memory_impact) ne 'HASH';
+    push @missing, 'benchmark_memory_delta' if ref($memory_impact) ne 'HASH' || !exists $memory_impact->{delta_rss_kb};
 
     my $store = Developer::Dashboard::Pax::ProfileStore->new(threshold => 1);
     $store->record_dispatch({ region_name => 'gate', status => 'native', osr_event => 'promote' });

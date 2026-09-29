@@ -174,6 +174,76 @@ my $pidfile = $runner->_pidfile($name);
 ok( -f $pidfile, 'the first start left a pidfile' );
 unlink $pidfile or die "Unable to remove $pidfile: $!";
 
+# The process-title scan is the fallback for a lost pidfile, but a just-forked
+# supervisor can still be in the short interval before it adopts that title.
+# The parent has already written authoritative starting-state metadata before
+# returning from start_loop, so that state must also prevent a duplicate start.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return; };
+    my $adopted_from_state = $runner->_adopt_existing_loop_if_running(
+        pidfile       => $pidfile,
+        name          => $name,
+        title         => $runner->_process_title($name),
+        interval      => 3600,
+        schedule_mode => 'interval',
+    );
+    is( $adopted_from_state, $first,
+        'missing pidfile adoption uses the parent-written state when process-title discovery misses the new supervisor' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return; };
+    my $absent_name = "$name-never-started";
+    my $absent = $runner->_adopt_existing_loop_if_running(
+        pidfile       => $runner->_pidfile($absent_name),
+        name          => $absent_name,
+        title         => $runner->_process_title($absent_name),
+        interval      => 3600,
+        schedule_mode => 'interval',
+    );
+    is( $absent, undef, 'state discovery leaves an unknown collector absent when it has no state record' );
+}
+{
+    no warnings 'redefine';
+    my $unsafe_name = "$name-invalid-state-pid";
+    my $confirmation_calls = 0;
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return; };
+    local *Developer::Dashboard::CollectorRunner::loop_state = sub { return { pid => -$$, name => $unsafe_name }; };
+    local *Developer::Dashboard::CollectorRunner::_state_confirms_managed_loop = sub { $confirmation_calls++; return 1; };
+    my $adopted = $runner->_adopt_existing_loop_if_running(
+        pidfile       => $runner->_pidfile($unsafe_name),
+        name          => $unsafe_name,
+        title         => $runner->_process_title($unsafe_name),
+        interval      => 3600,
+        schedule_mode => 'interval',
+    );
+    is( $adopted, undef, 'state fallback rejects a negative process identifier' );
+    is( $confirmation_calls, 0, 'invalid process identifiers never reach process liveness checks' );
+}
+{
+    no warnings 'redefine';
+    my $mismatched_name = "$name-mismatched-state";
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return; };
+    local *Developer::Dashboard::CollectorRunner::loop_state = sub {
+        return {
+            pid          => $$,
+            name         => $mismatched_name,
+            process_name => 'unrelated process title',
+            status       => 'running',
+        };
+    };
+    my $adopted = $runner->_adopt_existing_loop_if_running(
+        pidfile       => $runner->_pidfile($mismatched_name),
+        name          => $mismatched_name,
+        title         => $runner->_process_title($mismatched_name),
+        interval      => 3600,
+        schedule_mode => 'interval',
+    );
+    is( $adopted, undef, 'state fallback rejects a live PID whose recorded process identity does not match' );
+}
+unlink $pidfile or die "Unable to remove repaired $pidfile: $!" if -f $pidfile;
+
 # DD-803: the door-check this comment used to describe read the title once,
 # before start_loop, and skipped the WHOLE FILE (plan skip_all) on that one
 # reading - a check that could pass at that instant and still be stale by the
@@ -515,6 +585,12 @@ All three symptoms have one cause: start, stop and status treat the pidfile as
 the authority on what is running, when the process table is. Once that file is
 gone, every start adds a loop nothing can see, stop, or count.
 
+There is also a short startup race: the parent writes the loop-state record
+before returning from C<start_loop>, while the child adopts its process title
+afterward. During that interval process-title discovery can miss a live loop.
+When the pidfile is absent, the duplicate guard must therefore consult the
+parent-written state before forking.
+
 Removing the pidfile is therefore not a contrived fixture. It is the state the
 real failure was found in, and so it is the state the fix has to survive.
 
@@ -525,7 +601,10 @@ is changed.
 
 =head1 HOW TO USE
 
-    PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/153-collector-loop-accumulation.t
+    d2 docker compose --project-name problem20 \
+      -f .developer-dashboard/config/docker/d2/compose.yml \
+      -f .developer-dashboard/config/docker/d2/development.compose.yml \
+      exec -T dev prove -lv t/153-collector-loop-accumulation.t
 
 =head1 WHAT USES IT
 
@@ -537,5 +616,8 @@ The assertion that matters reads as the invariant it protects:
 
     starting a singleton collector whose pidfile has been lost
     does not add a second supervisor
+
+The test also forces process-table discovery to miss a live supervisor and
+checks that the parent-written state still identifies and adopts it.
 
 =cut

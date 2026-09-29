@@ -75,7 +75,7 @@ sub _scan_source_features {
         overload => $source =~ /\buse\s+overload\b/ ? 1 : 0,
         typeglob => $source =~ /\*[A-Za-z_][A-Za-z0-9_:]*/ ? 1 : 0,
         xs_loader => $source =~ /\b(?:XSLoader|DynaLoader)\b/ ? 1 : 0,
-        local_dynamic => $source =~ /\blocal\s+[$@%*]/ ? 1 : 0,
+        local_dynamic => $source =~ /\blocal\s+[\x24\x40%*]/ ? 1 : 0,
     };
 }
 
@@ -88,11 +88,23 @@ sub _run_perl_probe {
     close $in;
 
     local $/;
-    my $stdout = <$out> // '';
-    my $stderr = <$err> // '';
+    my $stdout = _read_probe_stream( $out, 'stdout' );
+    my $stderr = _read_probe_stream( $err, 'stderr' );
     waitpid($pid, 0);
     my $exit = $? >> 8;
     return ($stdout, $stderr, $exit);
+}
+
+# Read one probe pipe to EOF, normalizing clean EOF to an empty string and
+# reporting a genuine read failure instead of silently treating it as empty.
+# Input: an open filehandle and the stream label used in an error message.
+# Output: the complete stream contents, or a fatal error if reading failed.
+sub _read_probe_stream {
+    my ( $fh, $stream ) = @_;
+    my $content = <$fh>;
+    return $content if defined $content;
+    return '' if eof($fh);
+    die "cannot read $stream from reference Perl probe: $!";
 }
 
 sub _decode_probe_output {

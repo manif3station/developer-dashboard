@@ -12,9 +12,10 @@ use Developer::Dashboard::Pax::Manifest;
 
 sub new {
     my ($class, %args) = @_;
+    my $perl = defined $args{perl} ? $args{perl} : $^X;
     return bless {
         manifest_path => $args{manifest_path},
-        perl => $args{perl} // $^X,
+        perl => $perl,
     }, $class;
 }
 
@@ -104,16 +105,25 @@ sub _load_manifest {
 }
 
 sub _run {
+    # Run a child command, capture both output streams, and return its exit code.
+    # Arguments are the command and argv list; output is stdout, stderr, status.
     local $?;    # DD-882 (vendored-in from PAX): guard $? so this sub's own subprocess call never leaks a mutated exit status to whatever runs in the caller after it returns.
     my (@cmd) = @_;
     my $err = gensym;
     my $pid = open3(my $in, my $out, $err, @cmd);
     close $in;
     local $/;
-    my $stdout = <$out> // '';
-    my $stderr = <$err> // '';
+    my $stdout = _stream_text(<$out>);
+    my $stderr = _stream_text(<$err>);
     waitpid($pid, 0);
     return ($stdout, $stderr, $? >> 8);
+}
+
+sub _stream_text {
+    # Normalize one possibly absent pipe read to text.
+    # Argument is a scalar returned by readline; output is that scalar or ''.
+    my ($value) = @_;
+    return defined $value ? $value : '';
 }
 
 sub _trim {

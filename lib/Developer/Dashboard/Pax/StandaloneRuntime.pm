@@ -281,7 +281,7 @@ sub _app_entry_command {
     my $fallback = $args{sub_fallback};
     $fallback = $app->{entrypoint_fallback} if !defined $fallback || $fallback eq '';
     $fallback = $app->{command} if !defined $fallback || $fallback eq '';
-    return $fallback ne '' ? $fallback : 'pax';
+    return defined $fallback && $fallback ne '' ? $fallback : 'pax';
 }
 
 sub _install_require_hook {

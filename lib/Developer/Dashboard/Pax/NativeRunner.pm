@@ -29,9 +29,14 @@ sub run_i64_binary {
     my $err = gensym;
     my $pid = open3(my $in, my $out, $err, $path, $left, $right);
     close $in;
-    local $/;
-    my $stdout = <$out> // '';
-    my $stderr = <$err> // '';
+    my ( $stdout, $stderr );
+    {
+        # Read each child pipe to EOF, then restore the normal record separator
+        # so the stdout chomp below removes the child's final line ending.
+        local $/;
+        $stdout = <$out>;
+        $stderr = <$err>;
+    }
     waitpid($pid, 0);
     chomp $stdout;
 

@@ -38,22 +38,16 @@ sub run_paths_command {
     my $paths = build_paths();
     my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
     my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
-    my $aliases_loaded = 0;
-    my $folder_aliases_loaded = 0;
     my $load_configured_path_aliases = sub {
-        return 1 if $aliases_loaded;    # uncoverable branch true every dispatch arm below loads the aliases at most once before returning, so the memoized re-entry never happens
         $paths->register_named_paths( $config->path_aliases );
-        $aliases_loaded = 1;
         return 1;
     };
     my $load_skill_folder_aliases = sub {
-        return 1 if $folder_aliases_loaded;
         $load_configured_path_aliases->();
         my $configured = $paths->named_paths;
         my $folder_aliases = _skill_folder_path_aliases( paths => $paths );
         my %extra = map { exists $configured->{$_} ? () : ( $_ => $folder_aliases->{$_} ) } keys %{$folder_aliases};
         $paths->register_named_paths( \%extra );
-        $folder_aliases_loaded = 1;
         return 1;
     };
     my %ctx = (
@@ -594,7 +588,7 @@ sub _cdr_initial_candidates {
     ) for grep { defined && $_ ne '' && -d $_ } @{$roots};
 
     my %seen;
-    return sort grep { defined && $_ ne '' && !$seen{$_}++ } @candidates;    # uncoverable condition left candidates only ever come from hash keys and basenames, so an undefined entry cannot occur
+    return sort grep { $_ ne '' && !$seen{$_}++ } @candidates;
 }
 
 # _cdr_directory_candidates(%args)
@@ -618,7 +612,7 @@ sub _cdr_directory_candidates {
     for my $path (@matches) {
         next if !defined $path || $path eq '' || $path eq $root;
         my $name = basename($path);
-        next if $name eq '';    # uncoverable branch true basename never returns an empty string for the non-empty paths this loop reaches
+        next if $name eq '';
         next if $prefix ne '' && index( $name, $prefix ) != 0;
         next if $seen{$name}++;
         push @candidates, $name;

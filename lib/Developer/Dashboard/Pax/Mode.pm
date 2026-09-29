@@ -28,7 +28,7 @@ sub policy {
             telemetry => 'low_overhead',
         },
     );
-    return $policies{$mode} // $policies{dev};
+    return exists $policies{$mode} ? $policies{$mode} : $policies{dev};
 }
 
 1;

@@ -2238,6 +2238,10 @@ keep the final table or JSON summary on `stdout`, and use numeric POSIX
 shutdown signals so minimal Alpine/iSH Perl builds that reject `TERM` by
 name still terminate managed web and collector processes correctly
 - web shutdown and duplicate detection do not trust pid files alone; they validate managed processes by environment marker or process title and use a `pkill`-style scan fallback when needed
+- When a collector pid file is missing, duplicate detection checks both the
+process table and the parent-written loop state. That state closes the short
+startup interval before a newly forked supervisor adopts its process title, so
+a concurrent start does not fork a second loop.
 
 ## Environment Customization
 

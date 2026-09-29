@@ -43,11 +43,10 @@ sub resolve {
     my $pax_bin = $self->_pax_bin;
     return undef if !defined $pax_bin;
 
-    # Cascades from _source_md5's own open() failure, itself annotated
-    # uncoverable (root bypasses permission checks on the test host, so a
-    # file that just passed -f above cannot fail open).
+    # The source can disappear or become unreadable between the initial
+    # regular-file check and opening it for its digest.
     my $md5 = $self->_source_md5($source_path);
-    return undef if !defined $md5;    # uncoverable branch true
+    return undef if !defined $md5;
 
     my $key       = $self->_cache_key($source_path);
     my $cache_dir = $self->_cache_dir;
@@ -113,7 +112,7 @@ sub _pax_bin {
 # Output: hex digest string, or undef if the file cannot be read.
 sub _source_md5 {
     my ( $self, $source_path ) = @_;
-    open my $fh, '<:raw', $source_path or return undef;    # uncoverable branch true
+    open my $fh, '<:raw', $source_path or return undef;
     my $md5 = Digest::MD5->new;
     $md5->addfile($fh);
     close $fh;
@@ -198,11 +197,10 @@ sub _maybe_spawn_compile {
 sub _lock_is_stale {
     my ( $self, $lock_file ) = @_;
     return 0 if !-f $lock_file;
-    # $pid undef only happens if _read_file's own open() fails, which is
-    # itself annotated uncoverable (root bypasses permission checks on the
-    # test host, so a file that just passed -f above cannot fail open).
+    # An unreadable lock, or one whose contents are not a PID, cannot be
+    # trusted as a live compile owner and is reclaimed as stale.
     my $pid = $self->_read_file($lock_file);
-    return 1 if !defined $pid || $pid !~ /^\d+\z/;    # uncoverable condition left
+    return 1 if !defined $pid || $pid !~ /^\d+\z/;
     return kill( 0, $pid ) ? 0 : 1;
 }
 

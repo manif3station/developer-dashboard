@@ -1759,11 +1759,12 @@ ok( !defined $runner->stop_loop('stop.missing'), 'stop_loop returns undef with n
     my @CALLS;
     sub new { return bless {}, shift }
     sub calls { return @CALLS }
+    sub reset { @CALLS = () }
     sub named_paths { push @CALLS, 'named_paths'; return {} }
 }
 
 {
-    @DDCollectorRunnerCwdSpy::CALLS = ();
+    DDCollectorRunnerCwdSpy::reset();
     my $spy_paths  = DDCollectorRunnerCwdSpy->new;
     my $spy_runner = Developer::Dashboard::CollectorRunner->new(
         collectors => $collector_store,

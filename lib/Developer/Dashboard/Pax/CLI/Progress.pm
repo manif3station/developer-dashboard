@@ -5,6 +5,10 @@ our $VERSION = '5.18';
 use strict;
 use warnings;
 
+# new($class, %args)
+# Creates and immediately renders an ordered progress board.
+# Input: class name plus optional title, task array, output stream, dynamic flag, and color flag.
+# Output: a blessed progress-board object, or a validation error for malformed tasks.
 sub new {
     my ( $class, %args ) = @_;
     my $tasks = $args{tasks} || [];
@@ -13,9 +17,11 @@ sub new {
     my %task_lookup = map {
         my $task = $_;
         my $id   = $task->{id} || die 'Progress task missing id';
+        my $label = $task->{label};
+        $label = $id if !defined $label || $label eq '' || $label eq '0';
         $id => {
             id     => $id,
-            label  => $task->{label} || $id,
+            label  => $label,
             status => 'pending',
         };
     } @{$tasks};

@@ -18,6 +18,9 @@ sub new {
     }, $class;
 }
 
+# Persist one artifact and its derived metadata atomically. Input is the cache
+# object plus manifest/artifact hash references; output is the ID, path, and
+# metadata, or a visible exception if the write/rename fails.
 sub write_artifact {
     my ($self, %args) = @_;
     my $manifest = $args{manifest} // die 'manifest required';
@@ -36,14 +39,12 @@ sub write_artifact {
     # reader can only ever see the complete previous content or the
     # complete new content.
     my $tmp = "$path.tmp.$$";
-    # uncoverable branch false
     open my $fh, '>', $tmp or die "cannot write $tmp: $!";
     print {$fh} json_encode_with_options( {
         metadata => $metadata,
         artifact => $artifact,
     }, pretty => 1 );
     close $fh;
-    # uncoverable branch false
     rename $tmp, $path or die "cannot rename $tmp to $path: $!";
     return {
         id => $id,

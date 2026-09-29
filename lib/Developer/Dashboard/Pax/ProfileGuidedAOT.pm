@@ -24,6 +24,8 @@ sub plan {
 
     for my $unit (@$ssa_units) {
         my $name = $unit->{region_name} // $unit->{region_id};
+        die 'PAX AOT planning: SSA unit must provide region_name or region_id'
+            if !defined $name;
         my $stats = $profile->{$name} // {};
         next if ($stats->{dispatches} // 0) < $self->{threshold};
         next if !$unit->{native_shape} && !$unit->{source}{native_shape};

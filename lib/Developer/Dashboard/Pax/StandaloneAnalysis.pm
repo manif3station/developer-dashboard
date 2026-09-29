@@ -68,7 +68,7 @@ sub dependencies {
             used_in_code => $modules{$module}{used_in_code} ? JSON::XS::true() : JSON::XS::false(),
         );
         if (my $packaged = $packaged{$module}) {
-            if (($packaged->{unit_kind} // '') eq 'dependency') {
+            if ($packaged->{unit_kind} eq 'dependency') {
                 $item{class} = 'compiled_dependency';
                 $item{provider} = 'pax_compiler';
                 $summary{compiled_dependency}++;
@@ -114,12 +114,12 @@ sub _analysis_source {
 sub _source_module_refs {
     my ($source) = @_;
     my @modules;
-    while ($source =~ /^\s*use\s+([A-Z][A-Za-z0-9_:]*)\b/gm) {
+    while ($source =~ /^\s*use\s+([A-Za-z][A-Za-z0-9_:]*)\b/gm) {
         my $module = $1;
         next if !_is_dependency_candidate($module);
         push @modules, $module;
     }
-    while ($source =~ /^\s*require\s+([A-Z][A-Za-z0-9_:]*)\b/gm) {
+    while ($source =~ /^\s*require\s+([A-Za-z][A-Za-z0-9_:]*)\b/gm) {
         my $module = $1;
         next if !_is_dependency_candidate($module);
         push @modules, $module;
@@ -176,7 +176,7 @@ sub native_artifacts {
             message => "$@",
         }],
         runtime_epochs => undef,
-    } if !$capture || $@;
+    } if !$capture;
     return { items => [], summary => { native_ready => 0, fallback_only => 0, total => 0 } }
         if ($capture->{status} ne 'ok');
 
@@ -261,11 +261,14 @@ sub _static_native_units_from_code_units {
             next if ref($sub) ne 'HASH';
             my $shape = $sub->{native_shape};
             next if ref($shape) ne 'HASH' || !%$shape;
-            my $full_name = $sub->{full_name} // do {
-                my $package = $record->{package} // 'main';
-                my $name = $sub->{name} // next;
-                $package . '::' . $name;
-            };
+            my $full_name = $sub->{full_name};
+            if (!defined $full_name) {
+                my $package = $record->{package};
+                $package = 'main' if !defined $package;
+                my $name = $sub->{name};
+                next if !defined $name;
+                $full_name = $package . '::' . $name;
+            }
             push @units, {
                 region_id => sprintf('static-region-%04d', ++$index),
                 region_name => $full_name,
@@ -321,7 +324,7 @@ sub _native_probe_worthwhile {
     for my $path (@$paths) {
         next if !$path || !-f $path;
         my $source = _slurp($path);
-        next if !defined $source || $source eq '';
+        next if $source eq '';
         return 1 if _source_has_native_candidate($source);
     }
     return 0;
@@ -338,10 +341,12 @@ sub _source_has_native_candidate {
 sub _module_name_from_path {
     my ($path) = @_;
     return undef if !$path || $path !~ /\.pm$/;
-    my $abs = abs_path($path) || $path;
+    my $resolved_path = abs_path($path);
+    my $abs = defined $resolved_path ? $resolved_path : $path;
     for my $inc (@INC) {
         next if ref $inc;
-        my $inc_abs = abs_path($inc) || $inc;
+        my $resolved_inc = abs_path($inc);
+        my $inc_abs = defined $resolved_inc ? $resolved_inc : $inc;
         next if index($abs, $inc_abs . '/') != 0;
         my $rel = substr($abs, length($inc_abs) + 1);
         $rel =~ s/\.pm$//;
@@ -350,8 +355,9 @@ sub _module_name_from_path {
     }
     my @parts = File::Spec->splitdir($abs);
     for my $i (0 .. $#parts) {
-        if ($parts[$i] eq 'lib' && $i < $#parts) {
-            my @tail = @parts[$i + 1 .. $#parts];
+        if ($parts[$i] eq 'lib') {
+            my @tail = @parts;
+            splice @tail, 0, $i + 1;
             my $name = join('::', @tail);
             $name =~ s/\.pm$//;
             return $name if $name ne '';
@@ -370,7 +376,10 @@ sub _locate_module {
     for my $inc (@INC) {
         next if ref $inc;
         my $path = File::Spec->catfile($inc, $rel);
-        return abs_path($path) || $path if -f $path;
+        if (-f $path) {
+            my $resolved_path = abs_path($path);
+            return defined $resolved_path ? $resolved_path : $path;
+        }
     }
     return;
 }
@@ -389,9 +398,11 @@ sub _module_uses_xs {
 
 sub _slurp {
     my ($path) = @_;
+    return '' if !defined $path || $path eq '';
     open my $fh, '<', $path or return '';
     local $/;
-    return <$fh> // '';
+    my $content = <$fh>;
+    return defined $content ? $content : '';
 }
 
 1;

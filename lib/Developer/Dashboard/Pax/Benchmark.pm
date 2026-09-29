@@ -144,8 +144,13 @@ sub _summarise {
     };
 }
 
+# Read VmRSS from a Linux process-status file for benchmark memory accounting.
+# Input: an optional status-file path; omitted paths use /proc/self/status.
+# Output: RSS in KiB, or undef when the file is unavailable or has no VmRSS row.
 sub _current_rss_kb {
-    open my $fh, '<', '/proc/self/status' or return undef;
+    my ($status_path) = @_;
+    $status_path = '/proc/self/status' if !defined $status_path || $status_path eq '';
+    open my $fh, '<', $status_path or return undef;
     while (my $line = <$fh>) {
         return 0 + $1 if $line =~ /^VmRSS:\s+(\d+)\s+kB/;
     }

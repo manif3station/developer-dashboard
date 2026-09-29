@@ -5,8 +5,11 @@ our $VERSION = '5.18';
 use strict;
 use warnings;
 use IO::Socket::UNIX;
+use IO::Select;
+use IPC::Open3;
 use JSON::XS qw(decode_json);
 use POSIX qw(setsid);
+use Symbol qw(gensym);
 use Developer::Dashboard::Pax::AppImage;
 use Developer::Dashboard::JSON qw(json_encode_with_options);
 
@@ -27,16 +30,17 @@ sub run_client {
     my ($class, %args) = @_;
     my $image = $args{image} // die 'image required';
     my $argv = $args{argv} // [];
+    my $cwd = defined $args{cwd} ? $args{cwd} : _cwd();
     my $socket = IO::Socket::UNIX->new(
         Type => SOCK_STREAM,
         Peer => $image->{socket_path},
     );
     if (!$socket) {
-        return _direct_exec($image, $argv);
+        return _direct_exec($image, $argv, $cwd);
     }
     my $request = json_encode_with_options( {
         argv => $argv,
-        cwd => $args{cwd} // _cwd(),
+        cwd => $cwd,
     }, ascii => 1 );
     print {$socket} "$request\n";
     my $exit = 0;
@@ -59,8 +63,10 @@ sub stop {
         Peer => $image->{socket_path},
     ) or return 1;
     print {$socket} "{\"control\":\"stop\"}\n";
+    $socket->shutdown(1);
+    my $response = <$socket>;
     close $socket;
-    return 0;
+    return defined $response && $response =~ /^__PAX_EXIT__:0\r?\n\z/ ? 0 : 1;
 }
 
 sub _serve {
@@ -100,7 +106,7 @@ sub _serve {
 
 sub _daemonize {
     my ($self) = @_;
-    my $pid = fork();
+    my $pid = _fork_process();
     die "fork failed: $!" if !defined $pid;
     return 0 if $pid;
     setsid();
@@ -112,30 +118,33 @@ sub _daemonize {
 }
 
 sub _run_request {
-    local $?;    # DD-882 (vendored-in from PAX): guard $? so this sub's own subprocess call never leaks a mutated exit status to whatever runs in the caller after it returns.
+    # Run one image request and return its Perl exit status to the socket client.
+    # Inputs are image metadata, a connected client handle, and request hash; output is no direct return value.
+    local $?;    # DD-882: localize the system status while retaining its value for the protocol response.
     my ($image, $client, $request) = @_;
-    my $pid = fork();
-    if (!defined $pid) {
-        print {$client} "fork failed: $!\n__PAX_EXIT__:111\n";
-        return;
-    }
-    if ($pid == 0) {
-        open STDOUT, '>&', $client;
-        open STDERR, '>&', $client;
-        my $cwd = $request->{cwd} // '.';
-        chdir $cwd if -d $cwd;
-        local @ARGV = @{ $request->{argv} // [] };
-        local $0 = $image->{entrypoint};
-        $ENV{PAX_APP_IMAGE} = $image->{name};
-        my $ok = do $image->{entrypoint};
-        if (!$ok) {
-            print STDERR defined $@ && length $@ ? $@ : "failed to run $image->{entrypoint}: $!\n";
-            exit 111;
+    my $argv = $request->{argv} // [];
+    my $cwd = $request->{cwd} // '.';
+    my @command = _entrypoint_command( $image, $argv, $cwd );
+    my $err = gensym;
+    my $pid = open3( my $input, my $output, $err, @command );
+    close $input;
+    binmode $output;
+    binmode $err;
+    my $select = IO::Select->new( $output, $err );
+    while ( my @ready = $select->can_read ) {
+        for my $handle (@ready) {
+            my ( $bytes, $chunk ) = _read_output_chunk($handle);
+            if ( !$bytes ) {
+                $select->remove($handle);
+                close $handle;
+                next;
+            }
+            _forward_output( $client, $chunk );
         }
-        exit 0;
     }
-    waitpid($pid, 0);
-    my $exit = $? >> 8;
+    waitpid( $pid, 0 );
+    my $status = $?;
+    my $exit = _exit_code($status);
     print {$client} "__PAX_EXIT__:$exit\n";
 }
 
@@ -145,7 +154,7 @@ sub _prepare_runtime {
     unshift @INC, grep { -d $_ && !_in_inc($_) } @libs;
     if (@libs) {
         require Config;
-        my $sep = $Config::Config{path_sep} || ':';
+        my $sep = $Config::Config{path_sep};
         my @existing = grep { length } split /\Q$sep\E/, ($ENV{PERL5LIB} // '');
         $ENV{PERL5LIB} = join $sep, @libs, @existing;
     }
@@ -163,20 +172,69 @@ sub _preload_modules {
 }
 
 sub _direct_exec {
-    local $?;    # DD-882 (vendored-in from PAX): guard $? so this sub's own subprocess call never leaks a mutated exit status to whatever runs in the caller after it returns.
-    my ($image, $argv) = @_;
+    # Execute the image directly when no application server is listening.
+    # Inputs are image metadata, argv arrayref, and requested cwd; output is child exit status.
+    local $?;    # DD-882: localize system status while preserving the caller's prior value.
+    my ( $image, $argv, $cwd ) = @_;
     _prepare_runtime($image);
-    my $pid = fork();
-    die "fork failed: $!" if !defined $pid;
-    if ($pid == 0) {
-        my @cmd = ($^X, $image->{entrypoint}, @$argv);
-        no warnings 'exec';
-        exec { $cmd[0] } @cmd;
-        print STDERR "exec failed: $!\n";
-        exit 111;
+    if ( !-x $^X ) {
+        print STDERR "exec failed: Perl interpreter '$^X' is not executable\n";
+        return 111;
     }
-    waitpid($pid, 0);
-    return $? >> 8;
+    my @command = _entrypoint_command( $image, $argv, $cwd );
+    system { $command[0] } @command;
+    my $status = $?;
+    return _exit_code($status);
+}
+
+sub _read_output_chunk {
+    # Read one bounded block from a child output handle and return its byte count and content.
+    # Input is an open readable filehandle; output is (byte count, content), with read failures fatal.
+    my ($handle) = @_;
+    my $bytes = sysread( $handle, my $chunk, 8192 );
+    die "cannot read app-image output: $!" if !defined $bytes;
+    return ( $bytes, $chunk );
+}
+
+sub _forward_output {
+    # Forward one child output block to the connected client and fail on a broken client socket.
+    # Inputs are a writable client handle and a byte string; output is true after a successful write.
+    my ( $client, $chunk ) = @_;
+    print {$client} $chunk or die "cannot forward app-image output: $!";
+    return 1;
+}
+
+sub _exit_code {
+    # Convert wait status to the CLI exit code, using 111 when process execution failed.
+    # Input is Perl's wait status; output is a numeric exit code.
+    my ($status) = @_;
+    return $status == -1 ? 111 : $status >> 8;
+}
+
+sub _entrypoint_command {
+    # Build a shell-free Perl command preserving do-file behavior and request context.
+    # Inputs are image metadata, argv arrayref, and cwd; output is a list-form command.
+    my ( $image, $argv, $cwd ) = @_;
+    my $wrapper = <<'PERL';
+my ( $entrypoint, $cwd, $image_name, @argv ) = @ARGV;
+chdir $cwd if defined $cwd && -d $cwd;
+@ARGV = @argv;
+$0 = $entrypoint;
+$ENV{PAX_APP_IMAGE} = $image_name;
+my $ok = do $entrypoint;
+if (!$ok) {
+    print STDERR length($@) ? $@ : "failed to run $entrypoint: $!\n";
+    exit 111;
+}
+exit 0;
+PERL
+    return ( $^X, '-e', $wrapper, $image->{entrypoint}, (defined $cwd ? $cwd : '.'), $image->{name}, @{$argv} );
+}
+
+sub _fork_process {
+    # Fork the current process for one app-image worker.
+    # Input is none; output is the child PID, zero in the child, or undef on failure.
+    return fork();
 }
 
 sub _in_inc {

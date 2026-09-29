@@ -2717,6 +2717,13 @@ name still terminate managed web and collector processes correctly
 
 web shutdown and duplicate detection do not trust pid files alone; they validate managed processes by environment marker or process title and use a C<pkill>-style scan fallback when needed
 
+=item *
+
+When a collector pid file is missing, duplicate detection checks both the
+process table and the parent-written loop state. That state closes the short
+startup interval before a newly forked supervisor adopts its process title, so
+a concurrent start does not fork a second loop.
+
 =back
 
 =head2 Environment Customization

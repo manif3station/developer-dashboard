@@ -444,16 +444,33 @@ sub _adopt_existing_loop_if_running {
     # cleanup, a /tmp sweep - every start forked another loop that nothing could
     # see, stop or count, and each one went on spawning work every interval.
     #
-    # So if the record is missing, ask the process table before forking. A loop
-    # already running for this collector is adopted and its record rewritten,
-    # which is both the correct outcome and the repair of the missing file.
+    # So if the record is missing, ask the process table before forking, then
+    # consult the parent's state record if process-title matching has not caught
+    # a newly forked child yet. An existing loop is adopted and its record
+    # rewritten, which is both the correct outcome and the repair of the missing
+    # file.
     my $existing = -f $pidfile ? do { my $recorded = slurp_file($pidfile); chomp $recorded; $recorded } : undef;
-    $existing = $self->_find_running_loop($name) if !$existing;
+    if (!$existing) {
+        $existing = $self->_find_running_loop($name);
+        if (!$existing) {
+            # The parent records the forked pid and its intended title before
+            # returning from start_loop. A concurrent start can therefore see a
+            # valid state record while the child is still adopting that title,
+            # which makes process-table matching temporarily miss it. Consult
+            # that parent-written state before deciding to fork another loop.
+            my $state = $self->loop_state($name);
+            my $state_pid = ref($state) eq 'HASH' ? $state->{pid} : undef;
+            $existing = $state_pid
+              if defined $state_pid
+              && "$state_pid" =~ /\A[1-9][0-9]*\z/
+              && $self->_state_confirms_managed_loop( $name, $state_pid );
+        }
+    }
 
     # Truthy rather than merely defined, and that is the guarantee the line above
     # already gives: an empty or zero pidfile leaves $existing false, and that case
-    # is REPLACED by _find_running_loop, which returns a real pid or undef. So a
-    # false-but-defined $existing cannot arrive here.
+    # is replaced by process-table and state discovery, each of which returns a
+    # live pid or undef. So a false-but-defined $existing cannot arrive here.
     #
     # This read `defined $existing` with a further `$pid &&` inside, and that inner
     # test was the last genuinely uncovered condition in lib (DD-532): unreachable

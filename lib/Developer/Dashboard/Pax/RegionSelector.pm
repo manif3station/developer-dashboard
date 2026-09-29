@@ -47,7 +47,9 @@ sub select {
                 native_shape => $sub->{native_shape},
             },
             required_epochs => [qw(package_symbols method_resolution loaded_modules)],
-            lowering_status => $support->{level} eq 'fallback' ? 'blocked' : 'ready',
+            # _support_level currently emits only guarded support for selected
+            # regions; unsupported subroutines are rejected before this point.
+            lowering_status => 'ready',
         };
     }
 
@@ -65,7 +67,8 @@ sub _classify_sub {
 
 sub _is_application_sub {
     my ($manifest, $sub) = @_;
-    my $name = $sub->{name} // '';
+    # select() skips records without a name before asking this ownership check.
+    my $name = $sub->{name};
     my $file = $sub->{closure_descriptor}{file} // '';
     return 0 if $name =~ /^main::_/;
     return 0 if $name =~ /^main::(?:encode_json|decode_json|svref_2object)$/;

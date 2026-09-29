@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
+use File::Path qw(make_path);
 use Test::More;
 use File::Temp qw(tempdir);
 use File::Spec;
@@ -30,6 +31,7 @@ sub minimal_manifest {
 
 my $cache_root = tempdir( CLEANUP => 1 );
 my $cache = Developer::Dashboard::Pax::ArtifactCache->new( root => $cache_root );
+is( Developer::Dashboard::Pax::ArtifactCache->new->{root}, '.pax/cache', 'new uses the documented cache root when no root is supplied' );
 my $manifest = minimal_manifest();
 my $artifact = { region_id => 'region-1' };
 
@@ -37,6 +39,13 @@ my $metadata = $cache->metadata_for( $manifest, $artifact );
 my $id = $metadata->{artifact_id};
 my $dir = File::Spec->catdir( $cache_root, substr( $id, 0, 2 ) );
 my $path = File::Spec->catfile( $dir, "$id.json" );
+
+my $live_manifest = minimal_manifest();
+$live_manifest->{capture}{mode} = 'live';
+is( $cache->metadata_for( $live_manifest, {} )->{environment_bound}, JSON::XS::true(), 'metadata marks live captures as environment-bound' );
+my $sparse_metadata = $cache->metadata_for( { module_graph => {}, runtime => {}, capture => {} }, {} );
+is( $sparse_metadata->{cpu_target}, "$^O-unknown", 'metadata uses unknown architecture when the manifest omits it' );
+is( $sparse_metadata->{module_graph_hash}, Digest::SHA::sha256_hex(''), 'metadata hashes an empty module graph when it is absent' );
 
 # --------------------------------------------------------------------------
 # RED (reproduces the DD-1009 bug class, DD-989/DD-1003's own established
@@ -93,6 +102,80 @@ my $path = File::Spec->catfile( $dir, "$id.json" );
     my $decoded = decode_json($content);
     is( $decoded->{metadata}{artifact_id}, $id, 'the written JSON round-trips with the correct artifact_id' );
     is_deeply( $decoded->{artifact}, $artifact, 'the written JSON round-trips the artifact data unchanged' );
+    is_deeply( $cache->read_artifact( $result->{path} ), $decoded, 'read_artifact decodes the persisted cache record' );
+}
+
+my $read_error = eval { $cache->read_artifact( File::Spec->catfile( $cache_root, 'missing.json' ) ); 1 };
+ok( !$read_error, 'read_artifact rejects a missing record' );
+like( $@, qr/cannot read .*missing\.json/, 'read_artifact reports the path that could not be opened' );
+
+my $valid_metadata = $cache->validate_metadata( manifest => $manifest, metadata => $metadata );
+ok( $valid_metadata->{valid}, 'validate_metadata accepts metadata generated from the same manifest' );
+is_deeply( $valid_metadata->{errors}, [], 'valid metadata has no mismatch codes' );
+my $invalid_metadata = $cache->validate_metadata(
+    manifest => $manifest,
+    metadata => {
+        perl_version => 'different',
+        perl_abi_stamp => 'different',
+        snapshot_schema_version => -1,
+        capture_mode => 'different',
+    },
+);
+ok( !$invalid_metadata->{valid}, 'validate_metadata rejects each independently mismatched compatibility field' );
+is_deeply(
+    $invalid_metadata->{errors},
+    [qw(perl_version_mismatch abi_stamp_mismatch snapshot_schema_mismatch capture_mode_mismatch)],
+    'validate_metadata returns one explicit error code for every mismatch',
+);
+my $missing_field_metadata = $cache->validate_metadata(
+    manifest => { runtime => {}, schema_version => undef, capture => {} },
+    metadata => {},
+);
+ok( !$missing_field_metadata->{valid}, 'validate_metadata rejects absent metadata fields using its documented comparison defaults' );
+is_deeply( $missing_field_metadata->{errors}, ['snapshot_schema_mismatch'], 'defaulted absent fields compare consistently and report only the schema mismatch' );
+for my $arguments ( { metadata => $metadata }, { manifest => $manifest } ) {
+    my $valid = eval { $cache->validate_metadata(%$arguments); 1 };
+    ok( !$valid, 'validate_metadata rejects a missing required argument' );
+    like( $@, qr/(?:manifest|metadata) required/, 'missing metadata input produces an explicit argument error' );
+}
+for my $arguments ( { metadata => $metadata }, { artifact => $artifact }, { manifest => $manifest, artifact => undef } ) {
+    my $valid = eval { $cache->write_artifact(%$arguments); 1 };
+    ok( !$valid, 'write_artifact rejects a missing required argument' );
+    like( $@, qr/(?:manifest|artifact) required/, 'missing write input produces an explicit argument error' );
+}
+
+# Exercise real filesystem failures at each side of the atomic replacement.
+# Separate artifact IDs keep these deliberate failure fixtures independent of
+# the successful round-trip above.
+{
+    my $failed_artifact = { region_id => 'open-failure' };
+    my $failed_id = $cache->metadata_for( $manifest, $failed_artifact )->{artifact_id};
+    my $failed_dir = File::Spec->catdir( $cache_root, substr( $failed_id, 0, 2 ) );
+    my $failed_path = File::Spec->catfile( $failed_dir, "$failed_id.json" );
+    my $tmp_path = "$failed_path.tmp.$$";
+    make_path($failed_dir);
+    mkdir $tmp_path or die "cannot create open-failure fixture $tmp_path: $!";
+
+    my $written = eval { $cache->write_artifact( manifest => $manifest, artifact => $failed_artifact ); 1 };
+    ok( !$written, 'write_artifact fails when the temporary path cannot be opened as a file' );
+    like( $@, qr/cannot write \Q$tmp_path\E/, 'temporary-file open failure identifies the attempted path' );
+    rmdir $tmp_path or die "cannot remove open-failure fixture $tmp_path: $!";
+}
+
+{
+    my $failed_artifact = { region_id => 'rename-failure' };
+    my $failed_id = $cache->metadata_for( $manifest, $failed_artifact )->{artifact_id};
+    my $failed_dir = File::Spec->catdir( $cache_root, substr( $failed_id, 0, 2 ) );
+    my $failed_path = File::Spec->catfile( $failed_dir, "$failed_id.json" );
+    my $tmp_path = "$failed_path.tmp.$$";
+    make_path($failed_dir);
+    mkdir $failed_path or die "cannot create rename-failure fixture $failed_path: $!";
+
+    my $written = eval { $cache->write_artifact( manifest => $manifest, artifact => $failed_artifact ); 1 };
+    ok( !$written, 'write_artifact fails when atomic rename cannot replace a directory' );
+    like( $@, qr/cannot rename \Q$tmp_path\E to \Q$failed_path\E/, 'rename failure identifies both source and destination paths' );
+    unlink $tmp_path or die "cannot remove failed temporary artifact $tmp_path: $!";
+    rmdir $failed_path or die "cannot remove rename-failure fixture $failed_path: $!";
 }
 
 # --------------------------------------------------------------------------
@@ -154,5 +237,10 @@ The defect this file guards against, in its original (fixed) form:
 
 Fixed by writing to C<"$path.tmp.$$"> first, then C<rename()>ing onto
 C<$path> - matching C<PaxCache.pm>'s own already-established pattern.
+
+The test also forces temporary-file open and final rename failures with
+isolated filesystem fixtures, ensuring both error branches remain measured and
+their diagnostic paths stay explicit. It round-trips the public reader and
+validates matching, mismatching, and missing metadata inputs.
 
 =cut

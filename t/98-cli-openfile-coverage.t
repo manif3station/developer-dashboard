@@ -523,11 +523,17 @@ like( $@, qr/Missing path registry/, '_java_source_archive_roots requires paths'
     local $ENV{JAVA_HOME} = $home;      # defined + existing directory
     local $ENV{JDK_HOME};
     delete $ENV{JDK_HOME};              # undefined -> defined guard false side
-    my @r = oc(
-        '_java_source_archive_roots',
-        paths => $reg,
-        roots => [ undef, '', catdir( $home, 'nope-xyz' ), $wsdir, $wsdir ],
-    );
+    my @warnings;
+    my @r;
+    {
+        local $SIG{__WARN__} = sub { push @warnings, @_ };
+        @r = oc(
+            '_java_source_archive_roots',
+            paths => $reg,
+            roots => [ undef, '', catdir( $home, 'nope-xyz' ), $wsdir, $wsdir ],
+        );
+    }
+    is_deeply( \@warnings, [], 'undefined candidate roots are ignored without warnings' );
     ok( ( grep { $_ eq $wsdir } @r ), 'existing archive root retained' );
     ok( ( grep { $_ eq $home } @r ),  'JAVA_HOME contributes an archive root' );
 }

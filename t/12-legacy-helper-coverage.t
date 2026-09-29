@@ -11,7 +11,7 @@ use File::Temp qw(tempdir tempfile);
 use POSIX qw(:sys_wait_h);
 use Test::More;
 use Time::HiRes qw(time);
-use URI::Escape qw(uri_escape);
+use URI::Escape qw(uri_escape uri_unescape);
 
 use lib 'lib';
 
@@ -142,10 +142,6 @@ my ( $ajax_stdout, undef, $ajax_result ) = capture {
 };
 like( $ajax_stdout, qr/set_chain_value/, 'Ajax prints the legacy config-binding script' );
 is( $ajax_result, 'HIDE-THIS', 'Ajax returns the legacy hide marker' );
-my $templated_ajax_expected_url = acmdx(
-    type => 'text',
-    code => 'my $foobar = 123;',
-)->{url}{tokenised};
 my ( $templated_ajax_stdout, undef, $templated_ajax_result ) = capture {
     return Ajax(
         jvar => 'configs.coverage.template',
@@ -153,9 +149,11 @@ my ( $templated_ajax_stdout, undef, $templated_ajax_result ) = capture {
         code => 'my $foobar = [% args %];',
     );
 };
-like(
-    $templated_ajax_stdout,
-    qr/\Q$templated_ajax_expected_url\E/,
+my ($templated_ajax_token) = $templated_ajax_stdout =~ /[?&]token=([^&']+)/;
+ok( defined $templated_ajax_token, 'templated Ajax emits a transient payload token' );
+is(
+    unzip( uri_unescape($templated_ajax_token) ),
+    'my $foobar = 123;',
     'Ajax templates its Perl code using data before encoding the transient URL payload',
 );
 is( $templated_ajax_result, 'HIDE-THIS', 'templated Ajax code still returns the legacy hide marker' );

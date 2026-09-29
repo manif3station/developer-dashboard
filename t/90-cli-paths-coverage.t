@@ -38,6 +38,9 @@ my $preferred = basename($cwd);
 my $run              = \&Developer::Dashboard::CLI::Paths::run_paths_command;
 my $build_paths      = \&Developer::Dashboard::CLI::TableHelpers::build_paths;
 my $normalize_delete = \&Developer::Dashboard::CLI::Paths::_normalize_delete_argument;
+my $resolve_alias    = \&Developer::Dashboard::CLI::Paths::_resolve_path_alias;
+my $folder_aliases   = \&Developer::Dashboard::CLI::Paths::_skill_folder_path_aliases;
+my $folder_target    = \&Developer::Dashboard::CLI::Paths::_skill_folder_alias_target;
 my $cdr_payload      = \&Developer::Dashboard::CLI::Paths::_cdr_payload;
 my $cdr_completion   = \&Developer::Dashboard::CLI::Paths::_cdr_completion;
 my $initial          = \&Developer::Dashboard::CLI::Paths::_cdr_initial_candidates;
@@ -273,6 +276,41 @@ subtest '_build_paths tolerates an empty home environment' => sub {
     my $built = eval { $build_paths->() };
     is( $built, undef, 'an empty HOME leaves no resolvable home directory' );
     like( $@, qr/Missing home directory/, 'the unresolvable home directory is reported' );
+};
+
+subtest '_resolve_path_alias validates its inputs and reports unknown aliases' => sub {
+    my $paths = Developer::Dashboard::PathRegistry->new( home => $home, cwd => $home );
+
+    my $missing_paths = eval { $resolve_alias->( name => 'missing' ); 1 };
+    is( $missing_paths, undef, 'a missing registry aborts alias resolution' );
+    like( $@, qr/^Missing paths registry$/m, 'the missing registry has a direct diagnostic' );
+
+    my $missing_name = eval { $resolve_alias->( paths => $paths ); 1 };
+    is( $missing_name, undef, 'a missing alias name aborts resolution' );
+    like( $@, qr/Missing path name/, 'the missing alias name has a direct diagnostic' );
+
+    my $empty_name = eval { $resolve_alias->( paths => $paths, name => '' ); 1 };
+    is( $empty_name, undef, 'an empty alias name aborts resolution' );
+    like( $@, qr/Missing path name/, 'the empty alias name has a direct diagnostic' );
+
+    my $unknown = eval { $resolve_alias->( paths => $paths, name => 'unknown.alias' ); 1 };
+    is( $unknown, undef, 'an alias absent from config and installed skills is rejected' );
+    like( $@, qr/unknown\.alias/, 'the registry reports which unknown alias failed resolution' );
+};
+
+subtest 'Folder alias discovery validates registries and safely skips invalid candidates' => sub {
+    my $paths = Developer::Dashboard::PathRegistry->new( home => $home, cwd => $home );
+
+    my $missing_registry = eval { $folder_aliases->(); 1 };
+    is( $missing_registry, undef, 'Folder alias enumeration requires a registry' );
+    like( $@, qr/^Missing paths registry$/m, 'Folder alias enumeration reports a missing registry' );
+
+    is_deeply( $folder_aliases->( paths => $paths ), {}, 'Folder alias enumeration is empty when no skills are installed' );
+
+    for my $invalid ( undef, [], "bad\nname", 'unqualified', 'skill..alias', 'skill.__list__', 'skill.can' ) {
+        ok( !defined $folder_target->( paths => $paths, name => $invalid ), 'invalid or reserved Folder alias target is rejected before lookup' );
+    }
+    ok( !defined $folder_target->( paths => $paths, name => 'missing-skill.alias' ), 'a qualified alias with no installed skill resolves to undef' );
 };
 
 subtest '_cdr_payload guards its arguments and empty term lists' => sub {

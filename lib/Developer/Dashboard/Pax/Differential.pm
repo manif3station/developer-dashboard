@@ -17,6 +17,8 @@ sub new {
 }
 
 sub compare_capture {
+    # Compare stock execution with the Capture API result. Input is one Perl
+    # entrypoint path; output includes both outcomes, parity, and diagnostics.
     my ($self, $entrypoint) = @_;
     my $stock = _run($^X, $entrypoint);
     my $capture = eval { Developer::Dashboard::Pax::Capture->new(mode => 'live')->capture($entrypoint) };
@@ -24,7 +26,7 @@ sub compare_capture {
         command => ['Developer::Dashboard::Pax::Capture', $entrypoint],
         exit => ($@ || !$capture || ($capture->{status} // '') ne 'ok') ? 1 : 0,
         stdout => '',
-        stderr => $@ // '',
+        stderr => $@,
     };
 
     return {
@@ -42,14 +44,17 @@ sub compare_capture {
 }
 
 sub _run {
+    # Execute one argv list without a shell and collect its streams and status.
+    # Input is the command and arguments; output is a result hash that preserves
+    # stdout/stderr as separate strings plus the wait status.
     local $?;    # DD-882 (vendored-in from PAX): guard $? so this sub's own subprocess call never leaks a mutated exit status to whatever runs in the caller after it returns.
     my (@cmd) = @_;
     my $err = gensym;
     my $pid = open3(my $in, my $out, $err, @cmd);
     close $in;
     local $/;
-    my $stdout = <$out> // '';
-    my $stderr = <$err> // '';
+    my $stdout = <$out>;
+    my $stderr = <$err>;
     waitpid($pid, 0);
     return {
         command => \@cmd,

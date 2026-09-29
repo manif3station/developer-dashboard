@@ -286,7 +286,7 @@ sub _capture_with_timeout {
     my $error;
     return _capture_live_unit($abs_path) if !_capture_timeout_supported();
     eval {
-        local $SIG{ALRM} = sub { die "capture timeout\n" };
+        local $SIG{ALRM} = \&_capture_timeout_signal;
         alarm($timeout);
         $capture = _capture_live_unit($abs_path);
         alarm(0);
@@ -304,10 +304,17 @@ sub _capture_with_timeout {
     return $capture;
 }
 
+# Purpose: abort the live compiler probe when its alarm deadline expires.
+# Input:   no explicit arguments; Perl invokes it as the local C<SIGALRM> handler.
+# Output:  never returns; dies with the timeout diagnostic caught by the probe.
+sub _capture_timeout_signal {
+    die "capture timeout\n";
+}
+
 sub _capture_timeout_supported {
     return 0 if !exists $SIG{ALRM};
     my $ok = eval {
-        local $SIG{ALRM} = sub { die "capture timeout\n" };
+        local $SIG{ALRM} = \&_capture_timeout_signal;
         1;
     };
     return $ok ? 1 : 0;

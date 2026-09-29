@@ -557,6 +557,7 @@ subtest 'nova default ua and default model, when neither is passed explicitly' =
                                 # re-defines request() during this dynamic scope
                                 # and silently overwrites the patch below.
     my @seen_requests;
+    my $original_request = \&LWP::UserAgent::request;
     local *LWP::UserAgent::request = sub {
         my ( $self, $req ) = @_;
         push @seen_requests, $req;
@@ -564,6 +565,7 @@ subtest 'nova default ua and default model, when neither is passed explicitly' =
         $r->content( json_encode( { choices => [ { message => { content => 'default-ua-path' } } ] } ) );
         return $r;
     };
+    ok( ref($original_request) eq 'CODE', 'default LWP request method is loaded before the scoped test replacement' );
     my $answer = $M->can('_ask_nova')->(
         env => { NOVA_API_KEY => 'k' }, images => [], history => [], text_files => [], prompt => 'x',
     );

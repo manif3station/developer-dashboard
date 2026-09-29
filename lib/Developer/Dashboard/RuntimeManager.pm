@@ -2248,7 +2248,8 @@ sub _tail_text {
 }
 
 # _follow_log_file(%args)
-# Streams appended content from one log file until interrupted.
+# Streams appended content from one log file until interrupted, installing
+# termination handlers before any filesystem setup so an early signal is clean.
 # Input: file path plus optional poll interval seconds and start byte offset.
 # Output: never returns under normal command use; prints new log chunks to STDOUT.
 sub _follow_log_file {
@@ -2256,6 +2257,9 @@ sub _follow_log_file {
     my $file = $args{file} || die 'Missing log file';
     my $interval = defined $args{interval} ? $args{interval} : 0.1;
     my $start_pos = $args{start_pos};
+    local $SIG{TERM} = sub { POSIX::_exit(0) };
+    local $SIG{INT}  = sub { POSIX::_exit(0) };
+    local $SIG{HUP}  = sub { POSIX::_exit(0) };
     my $fh;
     if ( !open( $fh, '<', $file ) ) {
         open my $create_fh, '>>', $file or die "Unable to create $file: $!";    # uncoverable branch true the log's parent directory exists and is writable on the test host
@@ -2269,9 +2273,6 @@ sub _follow_log_file {
     else {
         seek $fh, 0, 2 or die "Unable to seek $file: $!";    # uncoverable branch true seeking to end of the just-opened file does not fail on the test host
     }
-    local $SIG{TERM} = sub { POSIX::_exit(0) };
-    local $SIG{INT}  = sub { POSIX::_exit(0) };
-    local $SIG{HUP}  = sub { POSIX::_exit(0) };
     while (1) {
         my $chunk = '';
         my $read = sysread( $fh, $chunk, 8192 );

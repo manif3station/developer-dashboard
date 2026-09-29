@@ -40,7 +40,9 @@ sub _extract_explicit_annotations {
             for my $item (split /\s*,\s*/, $spec) {
                 next if !length $item;
                 my ($name, $type) = split /\s*:\s*/, $item, 2;
-                next if !defined $name || !defined $type;
+                # split always supplies its first field (possibly the empty
+                # string); only the type can be absent for a non-empty item.
+                next if !defined $type;
                 push @params, {
                     name => $name,
                     type => $type,
@@ -68,7 +70,9 @@ sub _extract_explicit_annotations {
 # point even when source annotations are absent.
 sub _infer_from_native_shape {
     my ($self) = @_;
-    my $shape = $self->{native_shape} // {};
+    # new() guarantees this is a hash reference; keep the default at the
+    # construction boundary rather than retaining an unreachable fallback.
+    my $shape = $self->{native_shape};
     my $kind = $shape->{kind} // '';
 
     if ($kind eq 'i64_sum_loop' || $kind eq 'i64_masked_mix_accum_loop') {

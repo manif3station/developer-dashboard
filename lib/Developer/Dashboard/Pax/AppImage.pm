@@ -32,10 +32,11 @@ sub new {
 sub build {
     my ($self, %args) = @_;
     my $entrypoint = $args{entrypoint} // die 'entrypoint required';
-    my $name = $args{name} // _default_name($entrypoint);
+    my $name = defined $args{name} ? $args{name} : _default_name($entrypoint);
     my @lib_dirs = map { abs_path($_) || $_ } @{ $args{lib_dirs} // [] };
     my $assets = _asset_manifest($args{assets} // [], $args{asset_dirs} // []);
-    my $abs_entrypoint = abs_path($entrypoint) || die "entrypoint not found: $entrypoint";
+    my $abs_entrypoint = -f $entrypoint ? abs_path($entrypoint) : undef;
+    die "entrypoint not found: $entrypoint" if !defined $abs_entrypoint;
     my $app_dir = File::Spec->catdir($self->{root}, $name);
     make_path($app_dir);
 
@@ -137,10 +138,11 @@ sub _perl_files {
     for my $dir (@$lib_dirs) {
         next if !-d $dir;
         File::Find::find({
-            wanted => sub {
-                return if !-f $_;
-                return if $_ !~ /\.(?:pm|pl)$/ && $_ !~ /^[A-Za-z0-9_.-]+$/;
-                push @files, $File::Find::name;
+        wanted => sub {
+            return if !-f $_;
+            my ( undef, undef, $file ) = File::Spec->splitpath($_);
+            return if $file !~ /\.(?:pm|pl)$/ && $file !~ /^[A-Za-z0-9_-]+$/;
+            push @files, $File::Find::name;
             },
             no_chdir => 1,
         }, $dir);
@@ -318,7 +320,8 @@ sub _asset_manifest {
     my ($assets, $asset_dirs) = @_;
     my @paths = map { [$_, _logical_name($_)] } @$assets;
     for my $dir (@$asset_dirs) {
-        my $abs_dir = abs_path($dir) || next;
+        my $abs_dir = abs_path($dir);
+        next if !defined $abs_dir || !-d $abs_dir;
         File::Find::find({
             wanted => sub {
                 return if !-f $_;
@@ -333,7 +336,8 @@ sub _asset_manifest {
     my %seen;
     for my $pair (@paths) {
         my ($path, $logical) = @$pair;
-        my $abs = abs_path($path) || next;
+        my $abs = abs_path($path);
+        next if !defined $abs || !-f $abs;
         next if $seen{$logical}++;
         my $bytes = _slurp_bytes($abs);
         push @manifest, {
@@ -431,23 +435,23 @@ sub _write_json {
 # Reads a text file completely when source scanning needs the original Perl
 # text.
 # Input: file path.
-# Output: text string, or an empty string when the file cannot be read.
+# Output: text string, or an empty string when the file cannot be opened.
 sub _slurp {
     my ($path) = @_;
     open my $fh, '<', $path or return '';
     local $/;
-    return <$fh> // '';
+    return <$fh>;
 }
 
 # _slurp_bytes($path)
 # Reads a binary file completely when embedding launcher asset payloads.
 # Input: file path.
-# Output: byte string, or an empty string when the file cannot be read.
+# Output: byte string, or an empty string when the file cannot be opened.
 sub _slurp_bytes {
     my ($path) = @_;
     open my $fh, '<:raw', $path or return '';
     local $/;
-    return <$fh> // '';
+    return <$fh>;
 }
 
 # _which($cmd)

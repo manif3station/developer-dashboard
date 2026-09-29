@@ -38,6 +38,16 @@ chdir $home or die "Unable to chdir to $home: $!";
 local $ENV{DD_PAX} = 'on';
 
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
+my $cache_helpers = Developer::Dashboard::PaxCache->new( paths => $paths );
+is( $cache_helpers->_source_md5( File::Spec->catfile( $home, 'missing-source.pl' ) ), undef,
+    '_source_md5 reports an open failure for a source file that disappears before it is read' );
+{
+    my $source = source_file_with_content("print 'removed between checks';\n");
+    no warnings 'redefine';
+    local *Developer::Dashboard::PaxCache::_source_md5 = sub { return undef };
+    is( $cache_helpers->resolve($source), undef,
+        'resolve falls back to interpreted execution if the source becomes unreadable after its file check' );
+}
 
 # A fake PATH containing a stub 'pax' script that just records its argv and
 # writes a fixed-content "binary" - lets us test the cache mechanics without
@@ -450,6 +460,20 @@ sub source_file_with_content {
         $waited++;
     }
     ok( -e $log_file, 'a malformed lock was treated as stale and a new compile was spawned' );
+}
+
+# An existing lock whose contents cannot be read is stale too. Force only the
+# file read result while retaining a real lock file, so this path is independent
+# of root's permission-bypass behavior.
+{
+    my $lock_file = File::Spec->catfile( $home, 'unreadable-content.compiling' );
+    open my $lock_fh, '>', $lock_file or die "Unable to create lock fixture: $!";
+    print {$lock_fh} '12345';
+    close $lock_fh or die "Unable to close lock fixture: $!";
+
+    no warnings 'redefine';
+    local *Developer::Dashboard::PaxCache::_read_file = sub { return undef };
+    ok( $cache_helpers->_lock_is_stale($lock_file), '_lock_is_stale treats an unreadable existing lock as stale' );
 }
 
 # --------------------------------------------------------------------------

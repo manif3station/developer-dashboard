@@ -118,7 +118,7 @@ sub _java_source_archive_roots {
     my $roots = $args{roots} || [];
     my %is_inc = map { $_ => 1 } @INC;
     my @candidates = (
-        ( grep { !$is_inc{$_} } @$roots ),
+        ( grep { defined($_) && !$is_inc{$_} } @$roots ),
         File::Spec->catdir( $paths->home, '.m2', 'repository' ),
         File::Spec->catdir( $paths->home, '.gradle', 'caches' ),
         grep { defined && $_ ne '' } ( $ENV{JAVA_HOME}, $ENV{JDK_HOME} ),

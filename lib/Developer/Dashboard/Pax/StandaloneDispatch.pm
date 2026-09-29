@@ -14,11 +14,19 @@ use Developer::Dashboard::Pax::GuardManager;
 use Developer::Dashboard::Pax::NativeRunner;
 use Developer::Dashboard::Pax::StandaloneImage;
 
+# Construct a dispatcher with supplied collaborators or their default
+# implementations.
+# Input: a class name and optional image_store/native_runner objects.
+# Output: a dispatcher instance holding both collaborators.
 sub new {
     my ($class, %args) = @_;
+    my $image_store = $args{image_store};
+    $image_store = Developer::Dashboard::Pax::StandaloneImage->new if !defined $image_store;
+    my $native_runner = $args{native_runner};
+    $native_runner = Developer::Dashboard::Pax::NativeRunner->new if !defined $native_runner;
     return bless {
-        image_store => $args{image_store} // Developer::Dashboard::Pax::StandaloneImage->new,
-        native_runner => $args{native_runner} // Developer::Dashboard::Pax::NativeRunner->new,
+        image_store => $image_store,
+        native_runner => $native_runner,
     }, $class;
 }
 
@@ -127,9 +135,21 @@ sub _extract_image {
     close $in;
     local $/;
     <$out>;
-    my $stderr = <$err> // '';
+    my $stderr = _read_process_output( $err, 'stderr' );
     waitpid($pid, 0);
     die "standalone extraction failed for $image->{output_path}: $stderr\n" if ($? >> 8) != 0;
+}
+
+# Read a child-process pipe to EOF, returning an empty string only for a clean
+# EOF and exposing genuine read failures to the caller.
+# Input: an open child-process filehandle and a stream name for diagnostics.
+# Output: the stream contents, or a fatal error when the pipe cannot be read.
+sub _read_process_output {
+    my ( $fh, $stream ) = @_;
+    my $content = <$fh>;
+    return $content if defined $content;
+    return '' if eof($fh);
+    die "cannot read $stream from standalone child process: $!";
 }
 
 sub _runtime_paths {
@@ -142,8 +162,10 @@ sub _runtime_paths {
         ? File::Spec->catfile($runtime_root, split m{/}, ($image->{runtime}{perl_binary_logical_path} // 'bin/perl'))
         : 'perl';
 
-    my @lib_roots = map { File::Spec->catdir($code_root, split m{/}) } @{ $image->{lib_dirs} // [] };
-    my @runtime_roots = map { File::Spec->catdir($runtime_root, split m{/}) } @{ $image->{runtime}{bundled_inc_roots} // [] };
+    my @lib_roots = map { File::Spec->catdir($code_root, split m{/}) }
+        grep { defined && length } @{ $image->{lib_dirs} // [] };
+    my @runtime_roots = map { File::Spec->catdir($runtime_root, split m{/}) }
+        grep { defined && length } @{ $image->{runtime}{bundled_inc_roots} // [] };
     return {
         extract_dir => $extract_dir,
         code_root => $code_root,
@@ -152,7 +174,7 @@ sub _runtime_paths {
         entrypoint => $entrypoint,
         manifest_path => File::Spec->catfile($image->{standalone_dir}, 'manifest.json'),
         perl_exec => $perl_exec,
-        perl5lib => join(':', grep { defined && length } (@lib_roots, @runtime_roots)),
+        perl5lib => join(':', @lib_roots, @runtime_roots),
     };
 }
 
@@ -190,8 +212,8 @@ print defined $value ? $value : q{};
     my $pid = open3(my $in, my $out, $err, $perl, '-e', $script, $paths->{entrypoint}, $region->{region_name}, $args{left}, $args{right});
     close $in;
     local $/;
-    my $stdout = <$out> // '';
-    my $stderr = <$err> // '';
+    my $stdout = _read_process_output( $out, 'stdout' );
+    my $stderr = _read_process_output( $err, 'stderr' );
     waitpid($pid, 0);
     chomp $stdout;
 
