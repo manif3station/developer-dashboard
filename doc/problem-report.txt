@@ -1,10 +1,156 @@
 Codename: problem-report
 
+Historical numbered-problem audit (current source regression status checked
+2026-09-30 in the project dev container with `prove -lr t`; 204 files,
+19,197 tests passed). Release references below are from `Changes`. The original
+red-test transcripts were not retained, so a detached pre-fix snapshot was
+reconstructed for the 5.00 dashboard/skill batch: commit `37a5bd77` (parent of
+`2a09c53b`), with the regression-test changes from `2a09c53b` applied, ran in
+the project `dev` container. This verifies pre-fix failures independently of
+the current-green full suite, but is not a substitute for the original logs.
+For Problems 12–14, pre-fix commit `2a09c53b` was tested with assertions from
+`7b0974e6` applied in a separate container worktree. Problems 15 and 16 were
+reconstructed from `f1bdabe1` (parent of `b5e7ac4a`) and `e8d5d54f` (parent of
+`11aaaa1f`) respectively; Problems 17–18 from `76df976d` (parent of
+`6dcbfe35`); Problem 19 from `6dcbfe35` (parent of `874d8df6`).
+
+Pre-fix reconstruction results for Problems 1–11:
+- Red reproduced: Problem 1 (`t/03-web-app.t`, `t/104-skilldispatcher-coverage.t`: saved URL 404/no redirect or merged query); Problem 2 (`t/08-web-update-coverage.t`: skill INCLUDE not found); Problem 3 (`t/85-zipper-coverage.t`: `[% args %]` remained literal); Problem 5 (`t/104`, `t/87`: skill/CLI env layer absent or precedence wrong); Problem 6 (`t/104`: skill library module not found); Problem 7 (`t/39`: completion exposed `foo.__init__`); Problem 9 (`t/69`: `ticket` still completed as workspace).
+- Not red at the 4.90 snapshot: Problem 4 already staged helpers privately there; the underlying flat-path defect was reproduced at the pre-fix 1.97 snapshot (see below). Problem 8's cwd assertions were masked by an earlier unrelated missing CLI-layer method, then reproduced in an isolated focused run (see below). Problem 10's valid four-segment nested command passed before and after the 5.00 batch; the supplied directory listing omits the `c` skill directory implied by command `a.b.c.d`, so the literal example is inconsistent and is not counted as a reproduced bug. Problem 11's cwd-overrides-skill assertions did fail in `t/05` and `t/19`.
+- Current verification: the same named regression tests passed in the full current suite (204 files, 19,197 tests). The full suite did not run the separate Problem 20 aggregate coverage gate.
+- Problems 12–14 red reproduced: `t/91` failed to resolve the skill workspace alias; `t/76` and `t/99` failed the automatic DataHelper import assertions; `t/76` showed skill Dashboard routes bypassing authorization and not loading into Dancer2.
+- Problem 15 red reproduced in `t/94-dockercompose-coverage.t`: base/overlay selection assertions failed and the development enable method was absent.
+- Problem 16 red reproduced in `t/90-cli-paths-coverage.t`: the Folder.pm alias returned no target and could not be listed through the path registry.
+- Problems 17–18 red reproduced: `t/102-skillmanager-coverage.t` reported present `ddfile`/`ddfile.local` manifests as missing; `t/72-pagedocument-coverage.t` failed HEAD parsing, serialization, and rendered-head assertions.
+- Problem 19 red reproduced in `t/76-web-dancerapp-coverage.t`: after isolating the new helper-unit block that aborts before integration assertions on old code, both `/app/...` and `/ajax/...` returned only the default CSP instead of the skill hook's `unsafe-eval` policy. The variable, startup load, and once-only expectations did not fail in that run.
+
+Problem 1: Forward saved bookmark URLs and merge request query parameters (2a09c53b)
+(4.92, 4.94–4.95; t/03-web-app.t, t/104-skilldispatcher-coverage.t, t/131-bookmark-url-encoding.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: redirect saved external URLs while preserving saved parameters, overriding matching keys from the request, appending new keys, and honoring selected array values.
+Root cause: saved URL files were passed through the instruction-page parser and the legacy forwarding path did not merge request keys over the saved query.
+
+Problem 2: Resolve skill-aware Template Toolkit includes (2a09c53b)
+(4.92; t/08-web-update-coverage.t, t/20-skill-web-routes.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: skill bookmark templates include both local dashboard fragments and explicit skill dashboard paths.
+Root cause: the template include allow-list contained runtime/dashboard roots but omitted the owning skill's dashboard root and explicit `skills/<name>/dashboards/...` form.
+
+Problem 3: Render supplied data in saved Ajax code templates (2a09c53b)
+(4.92; t/12-legacy-helper-coverage.t, t/85-zipper-coverage.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: process the code template with its data before storing/executing the generated handler.
+Root cause: saved Ajax handlers persisted the raw `code` source instead of rendering it with the supplied Template Toolkit `data` first.
+
+Problem 4: Keep dashboard-owned init helpers private (f561a7e0; regression guard 2a09c53b)
+(1.98 implementation, 4.92 regression test; t/30-dashboard-loader.t)
+(status: historical red/current green)
+Expected: init stages built-in helpers only under `cli/dd` and preserves user files in `cli`.
+Root cause: the helper destination was the shared user `cli/` root rather than the reserved `cli/dd/` namespace.
+Historical red/fix check: at pre-fix commit `c65a3d21` (1.97), the relevant helper staging call reported `cli/dd/jq=0 cli/jq=1`; at current source in the Docker `dev` container it reported `cli/dd/jq=1 cli/jq=0`. The broad legacy `t/30` attempt at 1.97 also encountered missing `TOML::Tiny` and an injected lazy-loader sentinel before reaching clean init, so those unrelated failures are excluded from the reproduction claim. Current `t/30-dashboard-loader.t` passed in Docker.
+
+Problem 5: Inherit nested skill CLI environment and runtime layers (2a09c53b)
+(4.92; t/19-skill-system.t, t/87-envloader-coverage.t, t/104-skilldispatcher-coverage.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: parent-to-leaf skill `.env`/`.env.pl` and DD-OOP runtime layers reach the leaf command.
+Root cause: dispatch built its environment from the command-provider layer only and omitted ancestor skill and skill-CLI env files.
+
+Problem 6: Add the owning skill `lib/` to `@INC` for CLI and dashboard CODE (2a09c53b, bc516b29)
+(4.97, 5.06; t/20-skill-web-routes.t, t/76-web-dancerapp-coverage.t, t/104-skilldispatcher-coverage.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: the executing skill's library is first in `@INC` for both runtimes.
+Root cause: runtime setup prepended application libraries but never added the active skill's `lib/` directory to CLI `PERL5LIB` or dashboard CODE `@INC`.
+
+Problem 7: Complete `cli/__init__` by the bare skill name (2a09c53b)
+(4.97; t/39-cli-suggest-complete-coverage.t, t/104-skilldispatcher-coverage.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: completion shows `foo`, not `foo.__init__`.
+Root cause: completion treated the internal `__init__` entrypoint as a literal command token rather than the skill's default command.
+
+Problem 8: Load invocation-directory env files outside home/project roots (2a09c53b)
+(4.97; t/06-env-overrides.t, t/87-envloader-coverage.t, t/79-perlenv-coverage.t)
+(status: pre-fix red reproduced in Docker; current regression verified)
+Expected: `d2` loads the current directory's `.env`/`.env.pl` independently of home/project ancestry.
+Root cause: `_plain_directory_layers` returned no layers unless cwd was beneath the home or detected project root.
+Pre-fix reproduction: at detached snapshot `37a5bd77`, applied only the P8 regression assertions and ran `d2 docker compose exec dev prove -l t/87-envloader-coverage.t`; tests 78–79 failed because `_plain_directory_layers` returned no invocation-cwd layer (`/x/y/z`) when outside home/project roots. The unrelated missing CLI-layer assertions were omitted from this focused scratch run so they could not abort before P8 was reached.
+
+Problem 9: Remove the confusing `d2 ticket` alias (2a09c53b)
+(4.97; t/39-cli-suggest-complete-coverage.t, t/69-cli-complete-coverage.t, t/91-cli-ticket-coverage.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: use `d2 workspace`; `ticket` is not exposed as a competing command.
+Root cause: the compatibility alias and staged helper still exposed `ticket` alongside the canonical `workspace` command.
+
+Problem 10: Resolve arbitrarily nested skill CLI names (no implementation commit identified; regression guard 2a09c53b)
+(4.97 test record; t/104-skilldispatcher-coverage.t, t/19-skill-system.t)
+(status: current valid nested-command regression verified; historical reported path remains ambiguous)
+Expected: a command such as `a.b.c.d` resolves through each nested `skills/` directory.
+Reproduction audit: the Docker `dev` test `t/104-skilldispatcher-coverage.t` includes an equivalent four-segment route (`runner.child.grand.deep`) and passed at both pre-fix-batch commit `37a5bd77` and current source. The supplied path `a/skills/b/skills/cli/d.pl` contains no `c` directory, although command `a.b.c.d` requires `c` as a nested skill; with the intended `a/skills/b/skills/c/cli/d.pl` shape, the equivalent regression test resolves. Therefore no root-cause/fix cycle is attributed to this report until the exact missing directory or intended command is clarified; the existing dispatcher behavior is tested and working.
+
+Problem 11: Let invocation cwd env override skill defaults (2a09c53b)
+(4.97; t/20-skill-web-routes.t, t/06-env-overrides.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: apply cwd `.env` last, so its values override inherited skill values.
+Root cause: the dispatcher loaded the skill `.env` after runtime/cwd env, giving skill defaults the final overwrite.
+
+Problem 12: Resolve skill-qualified workspace aliases (7b0974e6)
+(5.01; t/91-cli-ticket-coverage.t, t/205-skill-depth-alias.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: `d2 workspace bar.foo` resolves the alias without requiring `-c`.
+Root cause: workspace execution resolved the registered alias only inside the explicit `-c` branch, so a valid skill-qualified alias such as `bar.foo` did not change the session's working directory by default.
+
+Problem 13: Import DataHelper in saved-page CODE automatically (7b0974e6)
+(5.01; t/76-web-dancerapp-coverage.t, t/99-pageruntime-coverage.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: CODE blocks can use DataHelper functions without repeating an import.
+Root cause: CODE evaluation did not install the standard `Developer::Dashboard::DataHelper` imports into each execution package.
+
+Problem 14: Load skill Dashboard extensions at web startup (7b0974e6; refined 874d8df6)
+(5.01, refined by 5.18; t/20-skill-web-routes.t, t/30-dashboard-loader.t, t/76-web-dancerapp-coverage.t)
+(status: pre-fix red reconstructed; current regression verified; see Problem 19 for hook behavior)
+Expected: active skills' `lib/Dashboard.pm` routes/settings join the Dancer app at startup behind dashboard authorization.
+Root cause: startup composition did not discover and load active skill extensions into the shared Dancer2 application and apply its authorization gate.
+
+Problem 15: Support opt-in Docker development compose overlays (b5e7ac4a)
+(5.07; t/05-cli-smoke.t, t/10-extension-action-docker.t, t/94-dockercompose-coverage.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: base `compose.yml` always loads; `development.compose.yml` overlays only when enabled; disable markers exclude a service.
+Root cause: the resolver lacked a persistent development opt-in marker and did not layer the base and development files by service state.
+
+Problem 16: Merge Folder.pm aliases into path lookup and completion (11aaaa1f)
+(5.13–5.14; t/90-cli-paths-coverage.t, t/97-pathregistry-coverage.t, t/205-skill-depth-alias.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: skill Folder methods and `__list__` supply read-only aliases while configured aliases remain writable and take precedence.
+Root cause: `d2 paths`/`cdr` and completion only merged JSON-configured aliases, ignoring the active skill's `Folder.pm` providers.
+
+Problem 17: Report present-but-empty skill dependency manifests accurately (6dcbfe35)
+(5.16; t/19-skill-system.t, t/102-skillmanager-coverage.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: say “no dependency installs needed” for an existing empty/effectively empty manifest; say “missing” only when absent.
+Root cause: manifest detection conflated a present zero-length file with a missing file.
+
+Problem 18: Inject bookmark HEAD content into the document head (6dcbfe35)
+(5.17; t/72-pagedocument-coverage.t)
+(status: pre-fix red reconstructed; current regression verified)
+Expected: parse, serialize, and render the bookmark's trusted `HEAD:` content inside `<head>`.
+Root cause: the page-document section parser and renderer had no `HEAD` field or serialization path.
+
+Problem 19: Preserve skill Dancer hooks, variables, and startup loading (874d8df6)
+(5.18; t/20-skill-web-routes.t, t/30-dashboard-loader.t, t/76-web-dancerapp-coverage.t)
+(status: pre-fix CSP override red reconstructed; current regression verified)
+Expected: hook variables are visible to page/Ajax CODE, hook headers survive defaults, and each skill Dashboard.pm is loaded once at startup.
+Root cause: the web adapter applied its default security headers after skill `before` hooks, overwriting an explicit hook response header. The env-variable and once-per-startup behaviors already passed in the reconstructed pre-fix integration run and are not claimed as red in Problem 19.
+
+Audit status for Problems 1–19: current regression tests pass in the full suite,
+and release/change records exist. Their historical Docker reproduction logs,
+red-before-fix outputs, and per-problem release/security checklists are not
+present in the tracked problem report; therefore full historical SDLC-v2
+compliance is not claimed from this retrospective audit.
+
 Problem 24: Require patched Pod::Text for CLI help rendering (status: done in 5.34)
 Expected outcome: clean dependency installation resolves `podlators`/`Pod::Text` 6.1.1 or later, and the isolated dependency audit no longer fails on CVE-2026-82560.
 Reproduction: CI run 36698409996 failed step 7, `Audit isolated dependency root`, after `cpanm --installdeps --notest -L local .`; the audit named `podlators (have v6.0.2)` and exit status 5. CLI help is rendered through `Pod::Usage` in `bin/dashboard`, which uses `Pod::Text`.
 Root cause: Pod::Text had no explicit secure minimum in the runtime dependency manifests, so a clean install could select the vulnerable podlators release. The workflow's “environmental - NOT a release blocker” label was inaccurate for a distribution installed in the isolated project dependency root.
-Red-first regression: `t/181-podlators-security-floor.t` failed the three manifest assertions in Docker before implementation; its seven packaged-source assertions now pass. `t/108` rejects a synthetic 6.0.2 module before scanning, and all 150 assertions pass with CPAN::Audit installed. A fresh Docker dependency install resolved 6.1.1; the guarded isolated audit exited 0 with no in-scope distribution advisories. The first no-`--notest` tarball attempt exposed a packaging defect: `t/181` required `.github/workflows/test.yml`, intentionally excluded from releases. Moved that CI-only assertion into checkout-only `t/108`. Version 5.33 was already built, so ran `dzil clean`, bumped all 74 modules and metadata to 5.34, and rebuilt. The 5.34 archive passes CPANTS kwalitee 7/7 and POD syntax (292 assertions). Blank-container `cpanm` without `--notest` installed 116 distributions and passed the packaged test harness; `dashboard version` reported 5.34. The full blank-environment integration runner passed, including startup, browser checks, CLI/runtime flows, and shutdown. `d2 docker.images.build` succeeded, and a fresh run of the built `d2` image reported 5.34. A separate 5.33 source-suite run once hit a timing-sensitive `t/153` failure; its isolated rerun passed all 34 assertions and the 5.34 packaged test harness passed. Problem 20 aggregate coverage remains paused and is not claimed.
+Red-first regression: `t/181-podlators-security-floor.t` failed the three manifest assertions in Docker before implementation; its seven packaged-source assertions now pass. `t/108` rejects a synthetic 6.0.2 module before scanning, and all 150 assertions pass with CPAN::Audit installed. A fresh Docker dependency install resolved 6.1.1; the guarded isolated audit exited 0 with no in-scope distribution advisories. The first no-`--notest` tarball attempt exposed a packaging defect: `t/181` required `.github/workflows/test.yml`, intentionally excluded from releases. Moved that CI-only assertion into checkout-only `t/108`. Version 5.33 was already built, so ran `dzil clean`, bumped all 74 modules and metadata to 5.34, and rebuilt. The 5.34 archive passes CPANTS kwalitee 7/7 and POD syntax (292 assertions). Blank-container `cpanm` without `--notest` installed 116 distributions and passed the packaged test harness; `dashboard version` reported 5.34. The full blank-environment integration runner passed, including startup, browser checks, CLI/runtime flows, and shutdown. `d2 docker.images.build` succeeded, and a fresh run of the built `d2` image reported 5.34. A later isolated `d2 docker compose -f .audit-problem2122-compose.yml run --rm --no-deps d2 d2 version` also reported 5.34 without disturbing the long-running service; the 5.34 build helper refused a duplicate same-version build as designed. The already-running `d2-d2-1` service remains an older 5.12 container (created two days earlier) and was not recreated because its ephemeral filesystem may hold user state. A separate 5.33 source-suite run once hit a timing-sensitive `t/153` failure; its isolated rerun passed all 34 assertions and the 5.34 packaged test harness passed. Problem 20 aggregate coverage remains paused and is not claimed.
 
 Problem 24 delivery checklist:
 [x] Reproduced CI advisory failure, documented expected outcome/root cause, and wrote red-first dependency-floor regression tests.
@@ -22,12 +168,14 @@ Expected outcome: `.d2` and `.developer-dashboard` roots at every home/project d
 Reproduction: In the isolated Docker fixture, place commands, config, Docker files, dashboards, skills, and environment files under both root names at home and project depths; run the corresponding dashboard/d2 commands and inspect resolved paths. Before the fix, the `.d2` tree was ignored whenever `.developer-dashboard` existed.
 Root cause: path discovery treated the two supported root names as mutually exclusive instead of independent roots at each layer.
 Regression: the red-first Docker test failed 11 assertions; after implementation the focused suite passed. The integration plan and path-registry tests cover lookup, writes, and ecosystem consumers. Aggregate coverage is deferred to Problem 20 by user instruction and is not claimed.
+Re-run evidence: applying only the Problem 21 test changes from commit `23981132` to pre-fix parent `948225e0` and running `d2 docker compose exec dev prove -l t/25-d2-alias.t` reproduced missing `.d2` layers, ownership, CLI/config/dashboard lookup, and skill precedence (7 explicit failures before the legacy test's unrelated command-not-found exit). Current source passed `t/25-d2-alias.t` in Docker.
 
 Problem 22: Keep `ddfile.local` dependencies private to their owning skill (23981132) (status: done in 5.25; verified in 5.30)
 Expected outcome: dependencies declared by an installed skill's `ddfile.local` are installed beneath that skill's own `skills/` directory, never the runtime-global skill directory.
 Reproduction: In Docker, create an owner skill with a local manifest naming a dependency, install the owner, then inspect both the owner's nested `skills/` tree and the runtime-wide `skills/` tree. Before the fix, local dependencies could be placed in the shared runtime location.
 Root cause: local manifests reused the runtime-wide install destination rather than deriving a contained destination from the owning skill.
 Regression: Docker tests cover successful nested installation and reject traversal, symlink escape, invalid names, and recursion hazards. Focused tests and the 5.25 blank-container package install passed. Aggregate coverage is deferred to Problem 20 and is not claimed.
+Re-run evidence: applying the Problem 22 assertions from commit `23981132` to pre-fix parent `948225e0` and running `d2 docker compose exec dev prove -l t/102-skillmanager-coverage.t` produced 4 expected failures: dependency not installed under owner, invalid name not rejected, dependency symlink escape not rejected, and symlinked skills root not rejected. Current source passed the same test in Docker. The combined current P21/P22 run passed 467 tests across both files.
 
 Problem 23: Remove PAX from Developer Dashboard (bb14a6fe) (status: done in 5.29; verified in 5.30; coverage remains deferred to Problem 20)
 Description: Expected outcome: d2/dashboard commands execute through Perl without a compiler cache, no PAX CLI/helper/modules or PAX-specific release job are shipped, stale compiled artifacts stay out of the archive, and standard commands continue working. Reproduction: in Docker, `dashboard pax build --compact -o /tmp/problem23-dashboard /usr/local/bin/dashboard` compiled 117 application files and 2,596 payloads in about 41 seconds; a fresh-home dashboard invocation also staged the PAX helper. Root cause: the vendored compiler and self-compile cache added a parallel command/runtime/release surface to normal dashboard use. Steps: run the build command; inspect staged helper and module paths; run dashboard and d2 version; inspect the built archive; invoke `t/264-pax-removal-contract.t`. The red-first Docker test initially failed because compiler/cache/helper/workflow artifacts existed; after removal all 12 assertions pass. Archive inspection also exposed stale `pax-output/` files, now excluded by a regression guard. The blank-environment browser gate exposed a Chromium-version difference: HTTP 401 can appear as a generic error page or `ERR_HTTP_RESPONSE_CODE_FAILURE`; both are checked while requiring no bootstrap/login content leakage. Aggregate coverage is expressly deferred to Problem 20 and is not claimed.
@@ -45,7 +193,7 @@ Delivery checklist for Problems 21-22:
 [x] Commit recorded as 23981132 with a problem-numbered subject and structured bullet summary.
 [x] Commit 6b9f5faf was pushed to origin/master; post-push Scorecard was run using the required interactive-shell command.
 [ ] Scorecard is 8.0/10, not a pass. Branch-Protection is 0/10 because branch protection is disabled; CII-Best-Practices is 0/10 because no badge effort is detected; Code-Review is 0/10 (0/30 approved changesets); Contributors is 0/10 (no contributing organizations). CI-Tests is unknown because there is no pull request to evaluate. Other reported checks are 10/10.
-[ ] Follow-up requires repository-admin action to enable branch protection and a genuine PR review process, external participation to earn the OpenSSF Best Practices badge and build organization contributions, then rerun Scorecard. This environment's `gh auth status` reports no GitHub CLI authentication; do not claim these checks passed.
+[ ] Follow-up requires repository-admin action to enable branch protection and a genuine PR review process, external participation to earn the OpenSSF Best Practices badge and build organization contributions, then rerun Scorecard. The available interactive token can read repository/user data but its branch-protection API request returns 403; it has no administrator permission. Do not claim these checks passed.
 
 Problem 23 delivery checklist:
 [x] Docker reproduction, root-cause analysis, and red-first regression test.
@@ -64,4 +212,4 @@ Problem 23 delivery checklist:
 Problem 20: Bring repository-wide Perl coverage to 100% (status: paused by user; resume later)
 Description: Coverage work and its aggregate gate are intentionally excluded from this delivery. No 100% coverage claim is made. Problems 21–23 were validated with focused and full non-coverage tests as recorded above; return to Problem 20 in a separate cycle.
 
-Scorecard gate (2026-09-30, after commit 1e93111d): status incomplete, 8.0/10. Live output is from `bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"`. Technical checks are 10/10. Remaining results: Branch-Protection 0/10 (protection is disabled); CII-Best-Practices 0/10 (no badge effort detected); Code-Review 0/10 (0/30 approved changesets); Contributors 0/10 (0 contributing organizations); CI-Tests unknown (no pull request found). `bash -ic 'gh auth status'` reports no logged-in GitHub host. Required follow-ups need repository-admin branch-protection settings, actual approved PR history, OpenSSF Best Practices enrollment, contributor organizations, and a PR for CI-Tests. These are not fixable by changing project source alone; do not claim the overall goal is complete until the actionable scorecard requirements are addressed and the final state is rescanned.
+Scorecard gate (2026-09-30, after commit 46a1339e): status incomplete, 8.0/10. Live output is from `bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"`. Technical checks are 10/10. Remaining results: Branch-Protection 0/10; CII-Best-Practices 0/10; Code-Review 0/30 approved changesets; Contributors 0/10 (0 contributing organizations); CI-Tests unknown (no pull request found). Read-only GitHub API verification found 6 merged PRs and no approval reviews; the branch-protection endpoint returned HTTP 403 `Resource not accessible by personal access token`. The interactive shell's `GITHUB_AUTH_TOKEN` authenticates API reads as `manif3station`, although `gh auth status` itself says no host login because that environment token is not configured as a `gh` login. Remaining work requires an administrator-capable token and repo-owner decisions on branch protection, OpenSSF Best Practices enrollment, and inviting independent review/contributor organizations; the 6 merged PRs cannot be retroactively turned into honest approvals. These are not fixable by source edits alone; do not claim the overall goal is complete until actionable Scorecard requirements are satisfied and rescanned.
