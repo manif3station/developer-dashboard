@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.32';
+our $VERSION = '5.34';
 
 our @EXPORT = ('d2');
 
@@ -66,7 +66,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.32
+5.34
 
 =head1 INTRODUCTION
 
@@ -1545,6 +1545,13 @@ Useful bootstrap examples:
 Install from CPAN with:
 
   cpanm --no-wget --notest Developer::Dashboard
+
+The CLI renders its usage and help output through C<Pod::Usage> and
+C<Pod::Text>. The distribution requires C<Pod::Text> 6.1.1 or later because
+older C<podlators> releases are vulnerable to CPU and memory exhaustion when
+formatting deeply nested POD (CVE-2026-82560). The minimum is declared in
+C<cpanfile>, C<Makefile.PL>, and C<dist.ini>, and regression tests keep the
+three dependency sources aligned.
 
 Or install from a checkout with:
 

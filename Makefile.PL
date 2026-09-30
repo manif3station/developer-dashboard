@@ -71,6 +71,7 @@ WriteMakefile(
         'IO::Uncompress::Gunzip'=> '2.220',
         'Dancer2'               => '2.2.0',
         'Plack'                 => '1.0054',
+        'Pod::Text'             => '6.1.1',
         'Socket'                => '2.041',
         'Starman'               => '0.4018',
         'Storable'              => '3.41',

@@ -1,5 +1,22 @@
 Codename: problem-report
 
+Problem 24: Require patched Pod::Text for CLI help rendering (status: done in 5.34)
+Expected outcome: clean dependency installation resolves `podlators`/`Pod::Text` 6.1.1 or later, and the isolated dependency audit no longer fails on CVE-2026-82560.
+Reproduction: CI run 36698409996 failed step 7, `Audit isolated dependency root`, after `cpanm --installdeps --notest -L local .`; the audit named `podlators (have v6.0.2)` and exit status 5. CLI help is rendered through `Pod::Usage` in `bin/dashboard`, which uses `Pod::Text`.
+Root cause: Pod::Text had no explicit secure minimum in the runtime dependency manifests, so a clean install could select the vulnerable podlators release. The workflow's “environmental - NOT a release blocker” label was inaccurate for a distribution installed in the isolated project dependency root.
+Red-first regression: `t/181-podlators-security-floor.t` failed the three manifest assertions in Docker before implementation; its seven packaged-source assertions now pass. `t/108` rejects a synthetic 6.0.2 module before scanning, and all 150 assertions pass with CPAN::Audit installed. A fresh Docker dependency install resolved 6.1.1; the guarded isolated audit exited 0 with no in-scope distribution advisories. The first no-`--notest` tarball attempt exposed a packaging defect: `t/181` required `.github/workflows/test.yml`, intentionally excluded from releases. Moved that CI-only assertion into checkout-only `t/108`. Version 5.33 was already built, so ran `dzil clean`, bumped all 74 modules and metadata to 5.34, and rebuilt. The 5.34 archive passes CPANTS kwalitee 7/7 and POD syntax (292 assertions). Blank-container `cpanm` without `--notest` installed 116 distributions and passed the packaged test harness; `dashboard version` reported 5.34. The full blank-environment integration runner passed, including startup, browser checks, CLI/runtime flows, and shutdown. `d2 docker.images.build` succeeded, and a fresh run of the built `d2` image reported 5.34. A separate 5.33 source-suite run once hit a timing-sensitive `t/153` failure; its isolated rerun passed all 34 assertions and the 5.34 packaged test harness passed. Problem 20 aggregate coverage remains paused and is not claimed.
+
+Problem 24 delivery checklist:
+[x] Reproduced CI advisory failure, documented expected outcome/root cause, and wrote red-first dependency-floor regression tests.
+[x] Required Pod::Text 6.1.1 in cpanfile, Makefile.PL, and dist.ini; verified the scanned-root module path/version before applying the exact advisory disposition.
+[x] Classified the isolated dependency audit as a CI release gate and kept the workflow-only assertion in the checkout-only metadata test so packaged tests do not depend on `.github`.
+[x] Updated security docs, main POD/README synchronization, Changes, FIXED_BUGS, and this problem report.
+[x] Ran `dzil clean`; aligned dist.ini, all 74 Perl modules, and POD versions at 5.34; `dzil build` produced one archive without `cover_db`.
+[x] Focused security suite passed (459 web/security assertions); dependency advisory suite passed (150 assertions); release metadata/regression suite passed (5,072 assertions); CPANTS 7/7 and POD syntax 292 assertions passed.
+[x] Blank Docker installation with `cpanm` and no `--notest` passed; the installed version was 5.34. Full blank-environment integration passed.
+[x] `d2 docker.images.build` completed; a one-off run of the built `d2` image reported version 5.34.
+[ ] Commit and push Problem 24, then rerun Scorecard. The repository-wide Scorecard remains 8.0/10 pending external governance actions listed below; do not claim the overall goal is complete until that gate is satisfied.
+
 Problem 21: Discover both runtime roots together (23981132) (status: done in 5.25; verified in 5.30)
 Expected outcome: `.d2` and `.developer-dashboard` roots at every home/project depth both participate, with documented same-depth lookup/write precedence.
 Reproduction: In the isolated Docker fixture, place commands, config, Docker files, dashboards, skills, and environment files under both root names at home and project depths; run the corresponding dashboard/d2 commands and inspect resolved paths. Before the fix, the `.d2` tree was ignored whenever `.developer-dashboard` existed.

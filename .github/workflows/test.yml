@@ -50,7 +50,7 @@ jobs:
           cpanm --notest -L audit-local CPAN::Audit
           echo "$GITHUB_WORKSPACE/audit-local/bin" >> "$GITHUB_PATH"
 
-      - name: Audit isolated dependency root (environmental - NOT a release blocker)
+      - name: Audit isolated dependency root (RELEASE GATE)
         env:
           PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5
         run: script/cpan-audit-project local/lib/perl5

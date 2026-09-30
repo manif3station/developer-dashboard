@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::TableHelpers;
 use strict;
 use warnings;
 
-our $VERSION = '5.32';
+our $VERSION = '5.34';
 
 use Cwd qw(cwd);
 use Exporter 'import';

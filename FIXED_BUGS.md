@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 5.34
+
+- Completed Problem 24's Pod::Text security floor and isolated audit guard.
+  Kept the CI workflow assertion in the checkout-only test so packaged tests
+  do not expect the unshipped `.github` tree.
+
+## 5.33
+
+- Fixed the isolated CPAN audit's Pod::Text security failure. Runtime metadata
+  now requires podlators 6.1.1+, and the audit verifies that the fixed module is
+  loaded from the scanned root before applying the exact advisory disposition.
+
 ## 5.32
 
 - Corrected the Problem 21–23 report's historical release labels and recorded

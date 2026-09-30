@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.32
+5.34
 
 # INTRODUCTION
 
@@ -1203,6 +1203,13 @@ Useful bootstrap examples:
 Install from CPAN with:
 
     cpanm --no-wget --notest Developer::Dashboard
+
+The CLI renders its usage and help output through `Pod::Usage` and
+`Pod::Text`. The distribution requires `Pod::Text` 6.1.1 or later because
+older `podlators` releases are vulnerable to CPU and memory exhaustion when
+formatting deeply nested POD (CVE-2026-82560). The minimum is declared in
+`cpanfile`, `Makefile.PL`, and `dist.ini`, and regression tests keep the
+three dependency sources aligned.
 
 Or install from a checkout with:
 

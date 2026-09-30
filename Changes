@@ -1,3 +1,19 @@
+5.34  2026-09-30
+
+  - Complete Problem 24's Pod::Text 6.1.1 security floor and fail-closed
+    isolated dependency audit guard. Keep the workflow release-gate assertion
+    in the checkout-only metadata test so the packaged test suite does not
+    require the intentionally unshipped .github tree. Problem 20 aggregate
+    coverage remains paused.
+
+5.33  2026-09-30
+
+  - Problem 24: Require Pod::Text 6.1.1 or later for CLI help rendering and
+    enforce the fixed module path/version in the isolated dependency audit.
+    Correct the CI audit step classification and guard the exact CPANSA
+    podlators advisory against CPAN::Audit's independent Pod::Man version
+    mapping. Keep Problem 20's aggregate coverage work paused.
+
 5.32  2026-09-30
 
   - Correct Problem 21–23 report release labels and preserve the actual
