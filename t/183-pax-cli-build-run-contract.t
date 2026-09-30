@@ -5,7 +5,7 @@ use Cwd qw(abs_path getcwd);
 use File::Path qw(make_path remove_tree);
 use File::Spec;
 use FindBin;
-use JSON::PP qw(decode_json);
+use Developer::Dashboard::JSON qw(json_decode);
 
 my $repo = abs_path("$FindBin::Bin/..");
 my $pax = "$repo/share/private-cli/pax";
@@ -94,7 +94,7 @@ unlike($old_cli, qr/\bpax standalone-build\b|\bpax app-build\b/, 'removed comman
 
 my $build_json = `$^X $pax build --compact --paxfile t/fixtures/paxfile.yml`;
 is($? >> 8, 0, 'pax build exits successfully using paxfile defaults');
-my $build = decode_json($build_json);
+my $build = json_decode($build_json);
 my $paxfile_binary = File::Spec->rel2abs("$repo/t/tmp-sow03/fixture-app");
 is($build->{status}, 'built', 'build command creates standalone binary');
 is($build->{standalone}{output_path}, $paxfile_binary, 'build command honors paxfile output');
@@ -107,7 +107,7 @@ is($run_output, "slowload-ready\n", 'run command executes the built standalone b
 my $override_binary = File::Spec->rel2abs("$sow03_root/override-binary");
 my $override_build_json = `$^X $pax build --compact --paxfile t/fixtures/paxfile.yml -o $override_binary`;
 is($? >> 8, 0, 'pax build accepts -o output override');
-my $override_build = decode_json($override_build_json);
+my $override_build = json_decode($override_build_json);
 is($override_build->{standalone}{output_path}, $override_binary, 'build command records overridden output path');
 ok(-x $override_binary, 'overridden build output is executable');
 
@@ -141,7 +141,7 @@ like($progress_text, qr/\[OK\] Compile standalone launcher/, 'pax build progress
 open my $progress_json_fh, '<', $progress_json or die "cannot read progress json: $!";
 my $progress_payload = do { local $/; <$progress_json_fh> };
 close $progress_json_fh;
-my $progress_build = decode_json($progress_payload);
+my $progress_build = json_decode($progress_payload);
 is($progress_build->{status}, 'built', 'pax build keeps machine-readable payload on stdout while progress prints on stderr');
 
 my $quiet_json = "$sow03_root/quiet-build.json";
@@ -175,7 +175,7 @@ print {$pfh} join("\n",
 close $pfh or die "cannot close test paxfile: $!";
 my $no_arg_build_json = `cd $workdir && $^X $pax build --compact`;
 is($? >> 8, 0, 'pax build with no arguments reads local paxfile.yml');
-my $no_arg_build = decode_json($no_arg_build_json);
+my $no_arg_build = json_decode($no_arg_build_json);
 is($no_arg_build->{standalone}{output_path}, $no_arg_binary, 'no-argument build honors paxfile output');
 ok(-x $no_arg_binary, 'no-argument build output is executable');
 my $no_arg_run_output = `cd $workdir && $^X $pax run -- status`;
@@ -219,9 +219,9 @@ ok(-x $self_run_binary, 'pax run self-build writes requested binary');
 
 my $isolated_json = `cd $repo && $^X $pax build --compact -o $sow03_root/isolated-app t/fixtures/app_entry.pl`;
 is($? >> 8, 0, 'explicit entrypoint build ignores ambient repo paxfile defaults');
-my $isolated_build = decode_json($isolated_json);
+my $isolated_build = json_decode($isolated_json);
 is($isolated_build->{standalone}{asset_count}, 0, 'explicit entrypoint build does not inherit repo paxfile assets');
-is(($isolated_build->{standalone}{build_plan}{paxfile_applied} // JSON::PP::false), JSON::PP::false, 'explicit entrypoint build records paxfile as unapplied');
+ok(!$isolated_build->{standalone}{build_plan}{paxfile_applied}, 'explicit entrypoint build records paxfile as unapplied');
 
 my $inline_lib_root = "$sow03_root/inline-lib";
 my $inline_module_dir = "$inline_lib_root/Local";
@@ -250,10 +250,10 @@ close $inline_module_fh or die "cannot close inline fixture module: $!";
 my $inline_binary = "$sow03_root/inline-app";
 my $inline_build_json = `cd $repo && $^X $pax build --compact -o $inline_binary -I $inline_lib_root -MLocal::InlineDemo=alpha,beta -e 'print Local::InlineDemo->render'`;
 is($? >> 8, 0, 'pax build accepts -I, -M, and -e without an entrypoint file');
-my $inline_build = decode_json($inline_build_json);
+my $inline_build = json_decode($inline_build_json);
 is($inline_build->{status}, 'built', 'inline build reports success');
 ok(-x $inline_binary, 'inline build writes an executable binary');
-is(($inline_build->{standalone}{build_plan}{paxfile_applied} // JSON::PP::false), JSON::PP::false, 'inline build does not inherit ambient repo paxfile defaults');
+ok(!$inline_build->{standalone}{build_plan}{paxfile_applied}, 'inline build does not inherit ambient repo paxfile defaults');
 my $inline_output = `env -i PATH=/nonexistent TMPDIR=/tmp $inline_binary`;
 is($? >> 8, 0, 'inline standalone binary executes successfully');
 is($inline_output, 'inline:alpha|beta', 'inline standalone binary honors imported module arguments');
@@ -293,7 +293,7 @@ print {$nested_pfh} join("\n",
 close $nested_pfh or die "cannot close nested paxfile: $!";
 my $nested_build_json = `cd $nested_workdir && env -i PATH=/nonexistent TMPDIR=/tmp $self_binary build --compact`;
 is($? >> 8, 0, 'self-built pax can build another standalone binary from paxfile defaults');
-my $nested_build = decode_json($nested_build_json);
+my $nested_build = json_decode($nested_build_json);
 is($nested_build->{status}, 'built', 'self-built pax reports successful nested build');
 ok(-x $nested_binary, 'self-built pax writes nested standalone binary');
 my $nested_status = `env -i PATH=/nonexistent TMPDIR=/tmp $nested_binary status`;
@@ -309,7 +309,7 @@ my $standalone_blank = "$sow03_root/standalone-input-work";
 make_path($standalone_blank);
 my $standalone_input_build_json = `cd $standalone_blank && env -i PATH=/nonexistent TMPDIR=/tmp PAX_PROGRESS=0 $self_binary build --compact -o $standalone_input_binary $self_binary`;
 is($? >> 8, 0, 'self-built pax can rebuild from a standalone pax binary input');
-my $standalone_input_build = decode_json($standalone_input_build_json);
+my $standalone_input_build = json_decode($standalone_input_build_json);
 is($standalone_input_build->{status}, 'built', 'standalone pax input rebuild reports success');
 ok(-x $standalone_input_binary, 'standalone pax input rebuild writes an executable');
 my $standalone_input_help = `env -i PATH=/nonexistent TMPDIR=/tmp $standalone_input_binary help`;

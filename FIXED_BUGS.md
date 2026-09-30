@@ -1,5 +1,55 @@
 # Fixed Bugs
 
+## 5.25
+
+- Fixed standalone runtime-family expansion and payload mapping when modules
+  have duplicate paths, compiled/excluded sources, or a PAX-owned `lib/` root.
+  Eligible known paths stay authoritative, unexcluded copies remain available,
+  and the launcher receives importable module paths. Docker regressions cover
+  all three cases.
+- Completed Problems 21 and 22 package validation after blank-container tests
+  exposed the module-family and nested `lib/` payload defects.
+
+## 5.23
+
+- Fixed standalone runtime-family expansion re-adding a stale duplicate of a
+  dependency after `_locate_module_runtime_file` had selected its known source
+  path. Expansion now keeps the already-selected module path authoritative;
+  Docker regression coverage exercises two copies at real module-relative
+  paths. The blank-container test later exposed and prompted a follow-up fix
+  for bundled PAX module paths in 5.25.
+
+## 5.22
+
+- Completed Problems 21 and 22 delivery verification. Both `.d2` and
+  `.developer-dashboard` runtime roots participate together, and
+  `ddfile.local` dependencies remain private to their owning skill. Stabilized
+  the standalone-image source-path regression with a unique fixture namespace
+  after a full packaged run exposed an unrelated module-family collision.
+- Updated packaged-test compatibility for the current Chromium headless SSL
+  diagnostic, and ran the release install/test gate in an init-enabled blank
+  Docker container.
+
+## 5.21
+
+- Completed Problems 21 and 22 delivery regressions. The blank-container suite
+  now runs with an init process so process-tree tests can verify orphan cleanup,
+  and Chromium SSL checks accept the current headless certificate diagnostic as
+  well as interstitial HTML. Packaged CI-trigger checks now skip explicitly
+  because GitHub workflow files are not part of the distribution.
+
+## 5.20
+
+- Fixed mixed `.d2` and `.developer-dashboard` runtime roots masking each other.
+  Both existing roots now participate at each home/project depth; the
+  canonical `.developer-dashboard` root keeps same-depth lookup and write
+  precedence. Regression coverage checks CLI, config, Docker, dashboard, skill,
+  environment, and security-root discovery.
+- Fixed installed-skill `ddfile.local` dependencies being sent through the
+  runtime-wide installer and landing beside the owning skill. They now install
+  into `<skill>/skills/<repo-name>/`, with traversal containment checks and
+  recursion guards; ordinary `ddfile` dependencies remain runtime-wide.
+
 ## 5.18
 
 - Fixed skill Dancer2 before-hook response headers being overwritten by

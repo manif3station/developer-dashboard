@@ -201,6 +201,16 @@ my $paths = Developer::Dashboard::PathRegistry->new( home => $ENV{HOME} );
 my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $paths );
 
+my $dep_beta_repo = _create_skill_repo( 'dep-beta', with_cpanfile => 0 );
+_write_file( File::Spec->catfile( $dep_beta_repo, '.env' ), "VERSION=1.00\n", 0644 );
+{
+    my $cwd = getcwd();
+    chdir $dep_beta_repo or die "Unable to chdir to $dep_beta_repo: $!";
+    _run_or_die(qw(git add .));
+    _run_or_die( 'git', 'commit', '-m', 'Add dependency version' );
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+}
+
 my $alpha_repo = _create_skill_repo(
     'alpha-skill',
     command_body => <<'PL',
@@ -216,7 +226,7 @@ use warnings;
 print "hook-alpha\n";
 PL
     ddfile_body => "dep-alpha\n",
-    ddfile_local_body => "dep-beta\n",
+    ddfile_local_body => "file://$dep_beta_repo\n",
     aptfile_body => "git\ncurl\n",
     apkfile_body => "procps-dev\n",
     dnfile_body => "git-core\njq\n",
@@ -264,15 +274,15 @@ open my $dependency_log_fh, '<', $dependency_log or die "Unable to read $depende
 my @dependency_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dependency_log_fh>;
 close $dependency_log_fh;
 is_deeply(
-    [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|PYTHON|CPANM):/)[0] } @dependency_steps ],
+    [ map { (/^(DDFILE|APT|BREW|NPM|PYTHON|CPANM):/)[0] } @dependency_steps ],
 
     # DD-824: requirements.txt now attempts venv creation (python -m venv)
     # before the pip install itself, so the PYTHON step now logs twice - the
     # venv-creation attempt, then the install (which falls back to the
     # previous global --user path here, since the python stub does not
     # actually create a real venv for the fallback check to find).
-    [ 'APT', 'NPM', 'PYTHON', 'PYTHON', 'CPANM', 'CPANM', 'DDFILE', 'DDFILE_LOCAL' ],
-    'skill install processes aptfile, package.json, requirements.txt, cpanfile, cpanfile.local, ddfile, and ddfile.local in policy order on Debian-like hosts while leaving apkfile, wingetfile, dnfile, and brewfile inactive',
+    [ 'APT', 'NPM', 'PYTHON', 'PYTHON', 'CPANM', 'CPANM', 'DDFILE' ],
+    'skill install processes aptfile, package.json, requirements.txt, cpanfile, cpanfile.local, and runtime-wide ddfile in policy order while ddfile.local dependencies stay private',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
@@ -312,7 +322,8 @@ open my $dashboard_log_fh, '<', $dashboard_log or die "Unable to read $dashboard
 my @dashboard_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dashboard_log_fh>;
 close $dashboard_log_fh;
 is( $dashboard_steps[0], 'skills install dep-alpha', 'deferred ddfile installs dependent skills through dashboard skills install' );
-is( $dashboard_steps[1], 'skills install dep-beta', 'deferred ddfile.local installs dependent skills through dashboard skills install at the current skill level' );
+is( scalar @dashboard_steps, 1, 'private ddfile.local dependencies do not invoke the runtime-wide dashboard installer' );
+ok( -d File::Spec->catdir( $install->{path}, 'skills', 'dep-beta' ), 'ddfile.local dependencies install beneath the owning skill' );
 {
     local $ENV{DD_TEST_OS} = 'MSWin32';
     unlink $winget_log;
@@ -1330,7 +1341,8 @@ sub _create_skill_repo {
     }
     _write_file( File::Spec->catfile( 'config', 'config.json' ), $args{config_body} || qq|{"skill_name":"$name"}\n|, 0644 );
     _write_file( File::Spec->catfile( 'config', 'docker', 'postgres', 'compose.yml' ), "services: {}\n", 0644 );
-    _write_file( 'cpanfile', $args{cpanfile_body} || "requires 'JSON::XS';\n", 0644 );
+    _write_file( 'cpanfile', $args{cpanfile_body} || "requires 'JSON::XS';\n", 0644 )
+      if !exists $args{with_cpanfile} || $args{with_cpanfile};
     if ( defined $args{ddfile_body} ) {
         _write_file( 'ddfile', $args{ddfile_body}, 0644 );
     }

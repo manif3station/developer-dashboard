@@ -10,7 +10,6 @@ use File::Spec;
 use Cwd qw(abs_path getcwd);
 use FindBin;
 use Capture::Tiny qw(capture);
-use JSON::PP qw(decode_json);
 
 use Developer::Dashboard::Pax::CoverageSelect qw(
   pax_binary_source_hash

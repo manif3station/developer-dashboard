@@ -86,7 +86,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '5.18', 'repo version bumped for skill hook response precedence' );
+is( $version, '5.25', 'release version follows the current Problems 21-22 package fixes' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
@@ -138,6 +138,8 @@ is(
 );
 if ( $dist ne '' ) {
     like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^prune_directory = \^\\\.developer-dashboard\$$/m,
+        'dist.ini prunes the local runtime tree before gathering files for a distribution build' );
     like( $dist, qr/^license = MIT$/m, 'dist.ini declares the canonical MIT distribution license' );
     {
         my $fixture = tempdir( CLEANUP => 1 );

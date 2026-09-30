@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '5.18';
+our $VERSION = '5.25';
 
 1;
 
@@ -225,6 +225,8 @@ C</app/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>>,
 C</ajax/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/E<lt>fileE<gt>>, and
 C</js/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/E<lt>fileE<gt>>.
 
+=back
+
 =head2 Dancer2 extensions
 
 A skill may provide F<lib/Dashboard.pm> to register routes, settings, and
@@ -271,6 +273,8 @@ C</others/...> routes still stay the parent resolvers, custom paths are
 fallback-only after smart route lookup misses, and a total miss still returns
 the normal C<404>. Ajax custom routes default to C<json> unless an explicit
 C<type> such as C<html>, C<text>, or a raw mime type string is supplied.
+
+=over 4
 
 =item B<dashboards/nav/>
 

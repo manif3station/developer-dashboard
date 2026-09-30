@@ -1216,6 +1216,67 @@ my $repos = tempdir( CLEANUP => 1 );
 
     my $repo = _make_git_skill( 'ddfile-skill', version => '1.00' );
 
+    # An installed skill's ddfile.local installs private dependencies beneath
+    # that skill rather than at the runtime-wide skills root.
+    my $local_dependency = _make_git_skill( 'problem22-local-dep', version => '1.00' );
+    my $owner_skill      = _make_git_skill( 'problem22-owner',     version => '1.00' );
+    _write_skill_manifest_and_commit(
+        $owner_skill,
+        'ddfile.local',
+        "file://$local_dependency\n",
+    );
+    local $ENV{DEVELOPER_DASHBOARD_SKIP_SKILL_REGISTRY} = 1;
+    my $owner_install = $manager->install("file://$owner_skill");
+    ok( $owner_install->{success}, 'installing a skill with a local skill manifest succeeds' )
+      or diag $owner_install->{error};
+    ok(
+        -d File::Spec->catdir( $paths->home_runtime_root, 'skills', 'problem22-owner', 'skills', 'problem22-local-dep' ),
+        'an installed skill ddfile.local dependency is installed beneath its owning skill',
+    );
+    ok(
+        !-d File::Spec->catdir( $paths->home_runtime_root, 'skills', 'problem22-local-dep' ),
+        'an installed skill ddfile.local dependency is not leaked into the shared runtime skills root',
+    );
+    my $installed_owner = File::Spec->catdir( $paths->home_runtime_root, 'skills', 'problem22-owner' );
+    ok(
+        $manager->_install_skill_ddfile_local($installed_owner)->{skipped},
+        'reprocessing an installed local dependency is idempotent and reports the no-op',
+    );
+
+    my $unsafe_owner = File::Spec->catdir( $repos, 'problem22-unsafe-owner' );
+    make_path($unsafe_owner);
+    _spew( File::Spec->catfile( $unsafe_owner, 'ddfile.local' ), "owner/..\n" );
+    like(
+        $manager->_install_skill_ddfile_local($unsafe_owner)->{error},
+        qr/Unable to extract dependency skill name/,
+        'local dependency manifests reject unsafe repository names before joining paths',
+    );
+
+    my $outside_dependency_root = File::Spec->catdir( $repos, 'problem22-outside-dependency' );
+    my $symlink_owner = File::Spec->catdir( $repos, 'problem22-symlink-owner' );
+    make_path( $outside_dependency_root, File::Spec->catdir( $symlink_owner, 'skills' ) );
+    _spew( File::Spec->catfile( $symlink_owner, 'ddfile.local' ), "file://$local_dependency\n" );
+    my $unsafe_target = File::Spec->catdir( $symlink_owner, 'skills', 'problem22-local-dep' );
+    symlink $outside_dependency_root, $unsafe_target or die "Unable to create test symlink $unsafe_target: $!";
+    like(
+        $manager->_install_skill_ddfile_local($symlink_owner)->{error},
+        qr/Refusing to use dependency skill outside its owning skill/,
+        'local dependency manifests refuse an existing dependency symlink outside the skill',
+    );
+
+    my $root_symlink_owner = File::Spec->catdir( $repos, 'problem22-root-symlink-owner' );
+    my $external_skills_root = File::Spec->catdir( $repos, 'problem22-external-skills-root' );
+    make_path($root_symlink_owner);
+    _spew( File::Spec->catfile( $root_symlink_owner, 'ddfile.local' ), "file://$local_dependency\n" );
+    symlink $external_skills_root, File::Spec->catdir( $root_symlink_owner, 'skills' )
+      or die "Unable to create test skills-root symlink: $!";
+    like(
+        $manager->_install_skill_ddfile_local($root_symlink_owner)->{error},
+        qr/Refusing to use a symlinked skill-local skills root/,
+        'local dependency installation refuses an owning-skill skills/ symlink',
+    );
+    ok( !-e $external_skills_root, 'refusing a skill-local skills/ symlink leaves its external target untouched' );
+
     # A base with a ddfile (global manifest) installs into the home skills root.
     my $global_base = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'global-base' );
     make_path($global_base);
@@ -2349,6 +2410,21 @@ sub _make_git_skill {
     _run_or_die( 'git', 'commit', '--quiet', '-m', "Initial $name" );
     chdir $cwd or die "Unable to chdir back to $cwd: $!";
     return $repo;
+}
+
+# _write_skill_manifest_and_commit($repo, $name, $content): adds one manifest
+# to a local skill repository and commits it so the installer can clone it.
+# Input: repository path, manifest basename, and complete manifest contents.
+# Output: true value after the Git commit succeeds.
+sub _write_skill_manifest_and_commit {
+    my ( $repo, $name, $content ) = @_;
+    my $cwd = getcwd();
+    chdir $repo or die "Unable to chdir to $repo: $!";
+    _spew( $name, $content );
+    _run_or_die(qw(git add -A));
+    _run_or_die( 'git', 'commit', '--quiet', '-m', "Add $name" );
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+    return 1;
 }
 
 # _bump_git_skill_version($repo, $version): rewrites .env and commits.

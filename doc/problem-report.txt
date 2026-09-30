@@ -1,0 +1,21 @@
+Problem 21: Discover .d2 and .developer-dashboard roots together (no git ref) (status: implementation and Docker verification complete; 5.25 packaged)
+Description: Both runtime roots participate at every home/project depth. Same-depth precedence remains .developer-dashboard for lookup and writes. Red-first Docker regression failed 11 assertions; focused suite now passes. 100% coverage is explicitly deferred to Problem 20 and is not claimed.
+
+Problem 22: Keep ddfile.local dependencies private to their owning skill (no git ref) (status: implementation and Docker verification complete; 5.25 packaged)
+Description: Local dependencies now install beneath the owning skill's skills/ directory, with containment, symlink, name, and recursion protections. Focused Docker tests verify nested install and no runtime-global install.
+
+Problem 23: Remove PAX from Developer Dashboard (no git ref) (status: pending)
+Description: User reports slow iteration and unreliable d2/dashboard compilation. Expected behavior and compatibility strategy remain for a separate problem cycle; no implementation has started.
+
+Delivery checklist for Problems 21-22:
+[x] Docker reproduction, root cause, red tests, implementation, and focused regression verification.
+[x] Documentation, Changes, FIXED_BUGS, README/POD alignment, and problem report updated.
+[x] Coverage recorded and 100% gate deferred to Problem 20 by user instruction; no 100% coverage claim.
+[x] 5.24 package failure reproduced; PAX module import-root defect fixed red-first; t/229 (10 assertions) and t/183 (71 assertions) pass in Docker.
+[x] Required security scans and security-test trio pass after the final fix (459 tests).
+[x] dzil clean run before bumping all 117 modules and dist.ini to 5.25.
+[x] dzil build produced Developer-Dashboard-5.25.tar.gz; embedded module says 5.25, only current tarball remains, no cover_db included.
+[x] Fresh blank-container cpanm install with no --notest: 265 files / 16,160 tests passed; CPANTS kwalitee 7/7, 100% in Docker.
+[x] d2 docker.images.build completed; scoped D2 Compose runtime reports image version 5.25.
+[ ] Commit with Problem 21-22 title and bullet-point body.
+[ ] Push and live Scorecard are not run absent a push request.

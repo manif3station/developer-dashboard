@@ -21,6 +21,7 @@ Use it when you need:
 - app-style skill routes such as `/app/<repo-name>` and `/app/<repo-name>/<page>`
 - underscored config merge keys such as `_<repo-name>`
 - dependency manifest processing order: C<aptfile>, C<apkfile>, C<dnfile>, C<wingetfile>, C<brewfile>, C<package.json>, C<cpanfile>, C<cpanfile.local>, C<Makefile>, C<dockerfile>, then C<ddfile>
+- an installed skill's `ddfile` dependencies use the runtime-wide skill root, while its `ddfile.local` dependencies are private under `<skill>/skills/<repo-name>/`
 - skill Docker layering and automatic C<dockerfile> builds during installation
 - current limitations of skill bookmark routes versus normal saved runtime bookmarks
 

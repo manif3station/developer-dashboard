@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.18
+5.25
 
 # INTRODUCTION
 
@@ -799,13 +799,16 @@ summary. The same guidance also applies to dotted skill commands, so
 command instead of only dumping generic help.
 
 `DD-OOP-LAYERS` is now the runtime contract for the whole local ecosystem.
-Starting at `~/.developer-dashboard` and walking down through every parent
-directory until the current working directory, every existing
-`.developer-dashboard/` layer participates. The deepest layer stays the write
-target and the first lookup hit, but bookmarks, `nav/*.tt`, config,
+Starting at the home directory and walking down through every parent directory
+until the current working directory, every existing `.developer-dashboard/`
+and `.d2/` runtime directory participates. When both names exist at the same
+depth, both are searched independently; `.developer-dashboard/` has priority
+over `.d2/` at that depth and remains the write target. The deepest available
+runtime root is the write target, but bookmarks, `nav/*.tt`, config,
 collectors, indicators, auth/session state lookups, runtime
-`local/lib/perl5`, and custom CLI hooks are all inherited across the full
-chain instead of only a single project-or-home split.
+`local/lib/perl5`, Docker Compose service folders, skills, and custom CLI
+hooks are inherited across the full chain instead of only a single
+project-or-home split.
 
 Per-command hook files can live under either
 `./.developer-dashboard/cli/<command>` or
@@ -859,8 +862,8 @@ That ordered runtime pass loads, when present:
 - `<root>/.env.pl`
 - each deeper ancestor directory `.env`
 - each deeper ancestor directory `.env.pl`
-- each participating `.developer-dashboard/.env`
-- each participating `.developer-dashboard/.env.pl`
+- each participating `.developer-dashboard/.env` and `.d2/.env`
+- each participating `.developer-dashboard/.env.pl` and `.d2/.env.pl`
 
 Deeper files win because later layers overwrite earlier keys. Plain `.env`
 files must contain explicit `KEY=VALUE` lines, and the load order at one
@@ -2827,8 +2830,9 @@ with:
 
 - **ddfile.local**
 
-    Optional local dependent skill list installed after `ddfile` into the same
-    skills root as the current skill install target
+    Optional skill-private dependent skill list installed after `ddfile` into the
+    owning skill's `skills/<repo-name>/` tree, separate from the runtime-wide
+    skill inventory
 
 - **aptfile**
 
@@ -3002,10 +3006,9 @@ language dependency manifests through
 `dashboard skills install <dependency>` while already-installed or
 in-flight skills are skipped to avoid loops
 - if a `ddfile.local` exists under an installed skill, each listed dependency
-is then installed through `dashboard skills install <dependency>`
-into the same skills root that owns the current installed skill, so
-child-layer skill installs stay in that child layer and home-layer installs
-stay in the home layer
+is then installed into that owning skill's private
+`skills/<repo-name>/` tree, separate from the runtime-wide skills
+inventory
 - if an operator runs `dashboard skills install --ddfile` inside a directory
 that contains `ddfile`, every listed source is reinstalled or refreshed into
 the base `~/.developer-dashboard/skills/` root
@@ -3094,7 +3097,8 @@ the deferred `ddfile -` ddfile.local> pass, the shared `~/perl5` versus skill-lo
 `perl5/` split, the `$HOME/node_modules` Node install target used by
 `package.json`, the `python -m pip install --user` path used by
 `requirements.txt`, the optional `Makefile` command chain and `--notest` skip,
-the same-install-level dependency target used by skill-local `ddfile.local`,
+the skill-private `skills/<repo-name>/` target used by installed-skill
+`ddfile.local`,
 skill docker layering, and when to use dashboard-wide custom CLI hook folders such as
 `~/.developer-dashboard/cli/<command>.d` instead of a skill-local
 hook tree.

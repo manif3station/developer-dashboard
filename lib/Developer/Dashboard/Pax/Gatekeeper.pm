@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::Gatekeeper;
 
-our $VERSION = '5.18';
+our $VERSION = '5.25';
 
 use strict;
 use warnings;

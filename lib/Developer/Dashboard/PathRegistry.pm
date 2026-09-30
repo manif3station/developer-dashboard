@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '5.18';
+our $VERSION = '5.25';
 
 use Digest::MD5 qw(md5_hex);
 use Cwd qw(getcwd);
@@ -169,8 +169,21 @@ sub _layer_dir_for {
     return $primary;
 }
 
+# _existing_layer_dirs_for($parent)
+# Returns both existing runtime directory names at one filesystem level in
+# canonical-first order; runtime_layers preserves alias-before-canonical
+# lookup order so the canonical directory remains the effective write target.
+# Input: parent directory path string.
+# Output: existing .developer-dashboard and/or .d2 directory paths.
+sub _existing_layer_dirs_for {
+    my ( $self, $parent ) = @_;
+    my $primary = File::Spec->catdir( $parent, '.developer-dashboard' );
+    my $alias   = File::Spec->catdir( $parent, '.d2' );
+    return grep { -d $_ } ( $primary, $alias );
+}
+
 # home_runtime_path()
-# Returns the canonical home-backed runtime root path without creating it.
+# Returns the selected home-backed runtime root path without creating it.
 # Input: none.
 # Output: home runtime directory path string.
 sub home_runtime_path {
@@ -221,7 +234,7 @@ sub alias_cache_key {
 
 # runtime_layers()
 # Returns the effective runtime roots in inheritance order from home to the
-# current working directory layer.
+# current working directory, including both sibling names when both exist.
 # Input: none.
 # Output: ordered list of runtime root directory path strings from home to deepest layer.
 sub runtime_layers {
@@ -232,7 +245,9 @@ sub runtime_layers {
             $cache_key => sub {
                 my @roots;
                 my %seen;
-                for my $root ( $self->_runtime_layers_from_env, $self->home_runtime_root, $self->_ancestor_runtime_layers ) {
+                my @home_layers = $self->_existing_layer_dirs_for( $self->home );
+                @home_layers = reverse @home_layers;
+                for my $root ( $self->_runtime_layers_from_env, @home_layers, $self->home_runtime_root, $self->_ancestor_runtime_layers ) {
                     next if $root eq '';    # uncoverable branch true
                     my $identity = $self->_path_identity($root);
                     next if $seen{$identity}++;
@@ -1215,11 +1230,15 @@ sub ensure_dir {
 # is_home_runtime_path($path)
 # Checks whether one path lives under the home runtime tree.
 # Input: file or directory path string.
-# Output: boolean true when the path is inside ~/.developer-dashboard.
+# Output: boolean true when the path is inside either home runtime directory.
 sub is_home_runtime_path {
     my ( $self, $path ) = @_;
     return 0 if !defined $path || $path eq '';
-    return $self->_same_or_descendant_path( $path, $self->home_runtime_path ) ? 1 : 0;
+    my @roots = ( $self->_existing_layer_dirs_for( $self->home ), $self->home_runtime_path );
+    for my $root (@roots) {
+        return 1 if $self->_same_or_descendant_path( $path, $root );
+    }
+    return 0;
 }
 
 # runtime_layer_root_for($path)
@@ -1248,12 +1267,14 @@ sub is_home_runtime_path {
 # recursion that hangs any process touching a runtime path. Measured: the
 # config suite went from under a second to a hard timeout the moment this used
 # the ensuring accessor. Build the candidate list from the non-creating sources
-# instead: home_runtime_PATH is a pure path computation, and the env and
-# ancestor layer helpers create nothing.
+# instead: home_runtime_PATH and _existing_layer_dirs_for are pure path
+# computations, and the env and ancestor layer helpers create nothing.
 sub runtime_layer_root_for {
     my ( $self, $path ) = @_;
     return '' if !defined $path || $path eq '';
-    for my $root ( $self->_runtime_layers_from_env, $self->home_runtime_path, $self->_ancestor_runtime_layers ) {
+    my @home_layers = reverse $self->_existing_layer_dirs_for( $self->home );
+    push @home_layers, $self->home_runtime_path;
+    for my $root ( $self->_runtime_layers_from_env, @home_layers, $self->_ancestor_runtime_layers ) {
         # None of the three sources above can yield undef or empty in
         # production - the env reader filters blanks itself, home_runtime_path
         # is a pure File::Spec->catdir on an always-set home, and the ancestor
@@ -1454,18 +1475,19 @@ sub _expand_home {
 }
 
 # _ancestor_runtime_layers()
-# Discovers every existing .developer-dashboard layer between the current
-# working directory and the configured home directory, excluding the home
-# runtime root itself.
+# Discovers every existing .developer-dashboard and .d2 runtime directory
+# between the current working directory and the configured home directory,
+# excluding both home-level runtime roots.
 # Input: none.
-# Output: ordered list of runtime root directory path strings from parentmost
-# child layer to the deepest current layer.
+# Output: ordered list of runtime root paths from home toward the deepest
+# current layer; .d2 precedes .developer-dashboard at the same depth.
 sub _ancestor_runtime_layers {
     my ($self) = @_;
     my $cwd = $self->current_working_directory;
     return () if !defined $cwd || $cwd eq '';
     my $home = $self->home;
-    my $home_runtime = $self->home_runtime_path;
+    my %home_runtime = map { $self->_path_identity($_) => 1 }
+      ( $self->home_runtime_path, $self->_existing_layer_dirs_for($home) );
     my $project_root = eval { $self->current_project_root } || '';
     my $stop_dir = '';
     if ( $self->_same_or_descendant_path( $cwd, $home ) ) {
@@ -1481,15 +1503,17 @@ sub _ancestor_runtime_layers {
     my @layers;
     my $dir = $cwd;
     while ($dir) {
-        my $candidate = $self->_layer_dir_for($dir);
-        my $visible_candidate = $self->_display_path($candidate);
-        push @layers, $visible_candidate if -d $candidate && $self->_path_identity($candidate) ne $self->_path_identity($home_runtime);
+        for my $candidate ( $self->_existing_layer_dirs_for($dir) ) {
+            next if $home_runtime{ $self->_path_identity($candidate) };
+            my $visible_candidate = $self->_display_path($candidate);
+            unshift @layers, $visible_candidate;
+        }
         last if $self->_path_identity($dir) eq $self->_path_identity($stop_dir);
         my $parent = dirname($dir);
         last if $parent eq $dir;
         $dir = $parent;
     }
-    return reverse @layers;
+    return @layers;
 }
 
 # _path_identity($path)
@@ -1646,7 +1670,7 @@ every skill-namespaced route, ajax, and static asset path.
 
 =head2 runtime_root, cache_root, home_runtime_root, home_cache_root
 
-Report the layered runtime directories. C<runtime_root> and C<cache_root> follow the deepest discovered layer, which is the write target for layered runtime state. C<home_runtime_root> and C<home_cache_root> stay pinned to the home layer, for per-user artifacts that a fixed external consumer reads from one well-known path - the generated shell-startup caches a login profile dot-sources are the motivating case, because a project-layer copy of those would be a cache no refresh ever rewrites.
+Report the layered runtime directories. C<runtime_root> and C<cache_root> follow the deepest discovered layer, which is the write target for layered runtime state. At each depth, both existing C<.d2/> and C<.developer-dashboard/> roots are independently discoverable; C<.developer-dashboard/> wins same-depth lookup precedence and remains the write target when both exist. C<home_runtime_root> and C<home_cache_root> stay pinned to the selected home write root, for per-user artifacts that a fixed external consumer reads from one well-known path.
 
 =for comment FULL-POD-DOC START
 
@@ -1661,11 +1685,11 @@ its own identical copy of the computation.
 
 =head1 PURPOSE
 
-This module is the authoritative path model for the runtime. It discovers the layered runtime roots from home to the current project, resolves standard runtime directories, manages named path aliases, and performs project and directory searches such as the regex-based narrowing used by C<cdr>.
+This module is the authoritative path model for the runtime. It discovers both supported runtime directory names from home to the current project, resolves standard runtime directories, manages named path aliases, and performs project and directory searches such as the regex-based narrowing used by C<cdr>.
 
 =head1 WHY IT EXISTS
 
-It exists because C<DD-OOP-LAYERS> is a cross-runtime contract, not a convenience helper. One path registry has to own how home and project runtimes participate, which layer is writable, and how named paths and directory searches behave on top of that model.
+It exists because C<DD-OOP-LAYERS> is a cross-runtime contract, not a convenience helper. One path registry has to own how home and project runtimes participate, how parallel C<.d2/> and C<.developer-dashboard/> roots are ordered, which layer is writable, and how named paths and directory searches behave on top of that model.
 
 =head1 WHEN TO USE
 

@@ -1,3 +1,43 @@
+5.25  2026-09-30
+
+  - Preserve eligible module source paths across standalone runtime-family
+    expansion and payload mapping. Excluded compiled modules no longer mask
+    runtime copies, duplicate modules are not re-added, and PAX-owned modules
+    are packaged relative to their actual import root. Add Docker regressions
+    for each collision/layout case and complete Problems 21 and 22 validation.
+
+5.23  2026-09-30
+
+  - Preserve known dependency source paths while expanding Perl package-family
+    files, preventing a stale duplicate from being re-added to standalone
+    runtime manifests. Add a Docker regression using matching module-relative
+    paths.
+
+5.22  2026-09-29
+
+  - Complete Problems 21 and 22 delivery: verify both runtime roots
+    participate together and keep ddfile.local dependencies private to their
+    owning skill. Stabilize the standalone-image source-path regression with a
+    unique fixture namespace. Confirm package tests in an init-enabled blank
+    Docker container and update the Chromium headless SSL diagnostic checks.
+
+5.21  2026-09-29
+
+  - Complete delivery fixes for Problems 21 and 22: verify both runtime roots
+    participate together and keep ddfile.local dependencies private to their
+    owning skill. Update Docker regressions and packaged-test compatibility for
+    newer Chromium headless certificate diagnostics.
+
+5.20  2026-09-29
+
+  - Discover both .d2 and .developer-dashboard runtime directories at each
+    home and project depth, preserving canonical lookup/write precedence while
+    allowing commands, config, Docker, dashboards, skills, and environment
+    files from both roots to participate.
+  - Install dependencies from an installed skill's ddfile.local into that
+    skill's private skills/ tree instead of the runtime-wide skills root.
+    Add Docker-run regressions for dual runtime roots and private dependencies.
+
 5.18  2026-09-28
 
   - Preserve response headers set by skill Dancer2 before hooks when the

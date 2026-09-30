@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::StandaloneImage;
 
-our $VERSION = '5.18';
+our $VERSION = '5.25';
 
 use strict;
 use warnings;
@@ -2373,10 +2373,22 @@ sub _runtime_manifest {
         );
         if (@selected) {
             my %by_dir;
+            my @own_lib_selected;
             for my $path (@selected) {
+                my $abs_path = abs_path($path) || $path;
+                if ( index( $abs_path, $PAX_OWN_LIB_ROOT . '/' ) == 0 ) {
+                    push @own_lib_selected, $abs_path;
+                    next;
+                }
                 my $root = _inc_root_for_file($path, \@inc_dirs) or next;
                 push @{ $by_dir{$root} }, $path;
             }
+            # The project library root is intentionally absent from @inc_dirs.
+            # If a broader ancestor is also present in @INC, mapping one of
+            # its module files there would preserve a leading "lib/" segment
+            # that the standalone launcher's @INC roots cannot resolve. Route
+            # these selected files through the exact-root force-include pass.
+            push @force_runtime_source_files, @own_lib_selected;
             for my $dir (@inc_dirs) {
                 my $files = $by_dir{$dir} or next;
                 my $prefix = sprintf('inc/%03d', $index++);
@@ -2750,8 +2762,9 @@ sub _runtime_selected_files {
         push @loaded, $path;
     }
     my %selected = map { $_ => 1 } _expand_runtime_module_files(
-        inc_dirs => $args{inc_dirs} // [],
-        seed_files => [ @loaded, @helper_module_files ],
+        inc_dirs      => $args{inc_dirs} // [],
+        seed_files    => [ @loaded, @helper_module_files ],
+        exclude_files => $args{exclude_files} // [],
     );
 
     for my $dep (@{ $args{dependencies} // [] }) {
@@ -2773,16 +2786,35 @@ sub _runtime_selected_files {
     return sort keys %selected;
 }
 
+# Expand Perl modules reachable from seed files, including family siblings,
+# without replacing eligible selected modules with excluded or duplicate paths.
+# Input: a hash with `seed_files`, optional `inc_dirs` and `exclude_files` array
+# references.
+# Output: a sorted list of canonical source file paths selected for packaging.
 sub _expand_runtime_module_files {
     my (%args) = @_;
     my @queue = grep { -f $_ } @{ $args{seed_files} // [] };
     my %selected;
+    my %excluded = map { ( abs_path($_) || $_ ) => 1 }
+        grep { defined $_ && $_ ne '' } @{ $args{exclude_files} // [] };
+    my %selected_module;
+    for my $path (@queue) {
+        my $abs = abs_path($path) || $path;
+        next if $excluded{$abs};
+        my $module = _module_name_from_source_path($path) or next;
+        $selected_module{$module} //= $abs;
+    }
     while (my $path = shift @queue) {
         my $abs = abs_path($path) || $path;
         next if $selected{$abs}++;
+        my $module = _module_name_from_source_path($abs);
+        $selected_module{$module} //= $abs if $module && !$excluded{$abs};
         for my $family_file (_runtime_family_files_for($abs)) {
             my $fam_abs = abs_path($family_file) || $family_file;
             next if $selected{$fam_abs};
+            my $family_module = _module_name_from_source_path($fam_abs);
+            next if $family_module && $selected_module{$family_module};
+            $selected_module{$family_module} = $fam_abs if $family_module && !$excluded{$fam_abs};
             push @queue, $fam_abs;
         }
         for my $related (_related_xs_files_for_source($abs, $args{inc_dirs} // [])) {
@@ -3272,7 +3304,9 @@ This module packages an entrypoint, compiled code units, runtime helpers,
 dependency payloads, native artifacts, and assets into one executable. Runtime
 helper discovery is independent of the current working directory, so C<pax build
 -o output bin/pax> can be launched from a directory with no local C<lib/>
-directory.
+directory. Files selected from the PAX library itself are placed relative to
+that library root, even when a broader parent directory is also on C<@INC>, so
+the launcher's bundled include roots remain importable.
 
 =head1 METHODS
 

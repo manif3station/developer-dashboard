@@ -3090,6 +3090,20 @@ my $dep_repo = _create_skill_repo(
     with_requirements_txt => 1,
     with_cpanfile_local => 1,
 );
+my $local_dependency_repo = _create_skill_repo( $test_repos, 'shared-local-skill', with_cpanfile => 0 );
+_write_file( File::Spec->catfile( $local_dependency_repo, '.env' ), "VERSION=1.00\n" );
+_write_file( File::Spec->catfile( $dep_repo, 'ddfile.local' ), "file://$local_dependency_repo\n" );
+{
+    my $cwd = getcwd();
+    chdir $local_dependency_repo or die "Unable to chdir to $local_dependency_repo: $!";
+    _run_or_die(qw(git add -A));
+    _run_or_die( 'git', 'commit', '-m', 'Add local dependency version' );
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+    chdir $dep_repo or die "Unable to chdir to $dep_repo: $!";
+    _run_or_die(qw(git add -A));
+    _run_or_die( 'git', 'commit', '-m', 'Use local dependency repository' );
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+}
 my $install = $manager->install( 'file://' . $dep_repo );
 ok( !$install->{error}, 'skill manager installs a skill with a cpanfile' ) or diag $install->{error};
 my $dep_skill_root = $manager->get_skill_path('dep-skill');
@@ -3127,9 +3141,13 @@ close $dependency_log_fh;
 # before the pip install itself, so the PYTHON step logs twice - widen the
 # trailing slice by one and expect the extra PYTHON entry.
 is_deeply(
-    [ map { (/^(DDFILE_LOCAL|DDFILE|DOCKER|APT|BREW|NPM|PYTHON|CPANM|MAKE):/)[0] } @dependency_steps[-13 .. -1] ],
-    [ 'APT', 'NPM', 'PYTHON', 'PYTHON', 'CPANM', 'CPANM', 'MAKE', 'MAKE', 'MAKE', 'MAKE', 'DOCKER', 'DDFILE', 'DDFILE_LOCAL' ],
-    '_install_skill_dependencies follows the documented aptfile -> apkfile -> dnfile -> brewfile -> package.json -> requirements.txt -> cpanfile -> cpanfile.local -> Makefile -> dockerfile -> ddfile -> ddfile.local order on Debian-like hosts while leaving apkfile, dnfile, and brewfile inactive',
+    [ map { (/^(DDFILE|DOCKER|APT|BREW|NPM|PYTHON|CPANM|MAKE):/)[0] } @dependency_steps[-12 .. -1] ],
+    [ 'APT', 'NPM', 'PYTHON', 'PYTHON', 'CPANM', 'CPANM', 'MAKE', 'MAKE', 'MAKE', 'MAKE', 'DOCKER', 'DDFILE' ],
+    '_install_skill_dependencies follows the documented aptfile -> apkfile -> dnfile -> brewfile -> package.json -> requirements.txt -> cpanfile -> cpanfile.local -> Makefile -> dockerfile -> ddfile -> ddfile.local order on Debian-like hosts while keeping ddfile.local installs private',
+);
+ok(
+    -d File::Spec->catdir( $dep_skill_root, 'skills', 'shared-local-skill' ),
+    'skill ddfile.local dependencies are installed into the owning skill private skills tree',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
@@ -3685,22 +3703,16 @@ SH
 }
 {
     my $local_repo = File::Spec->catdir( $test_repos, 'stacked-dd-local-skill' );
-    my $skills_root = File::Spec->catdir( $test_repos, 'stacked-dd-local-root', 'skills' );
-    make_path($skills_root);
+    my $local_dependency = _create_skill_repo( $test_repos, 'fresh-local-skill', with_cpanfile => 0 );
     make_path($local_repo);
-    _write_file( File::Spec->catfile( $local_repo, 'ddfile.local' ), "fresh-local-skill\n" );
+    _write_file( File::Spec->catfile( $local_repo, 'ddfile.local' ), "file://$local_dependency\n" );
 
-    unlink $dashboard_log;
-    my $cwd = getcwd();
-    chdir $skills_root or die "Unable to chdir to $skills_root: $!";
     my $local_install = $manager->_install_skill_ddfile_local($local_repo);
-    chdir $cwd or die "Unable to chdir back to $cwd: $!";
-    ok( !$local_install->{error}, '_install_skill_ddfile_local installs dependencies at the current skills root level' ) or diag $local_install->{error};
-
-    open my $local_dashboard_log_fh, '<', $dashboard_log or die "Unable to read $dashboard_log after ddfile.local install: $!";
-    my @local_dashboard_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$local_dashboard_log_fh>;
-    close $local_dashboard_log_fh;
-    is_deeply( \@local_dashboard_steps, ['skills install fresh-local-skill'], '_install_skill_ddfile_local invokes dashboard install for local-only dependencies' );
+    ok( !$local_install->{error}, '_install_skill_ddfile_local installs dependencies successfully' ) or diag $local_install->{error};
+    ok(
+        -d File::Spec->catdir( $local_repo, 'skills', 'fresh-local-skill' ),
+        '_install_skill_ddfile_local installs local dependencies beneath the owning skill',
+    );
 }
 {
     my $manifest_root = File::Spec->catdir( $test_repos, 'manifest-ddfile-root' );

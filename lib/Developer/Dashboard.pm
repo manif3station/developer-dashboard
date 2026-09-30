@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.18';
+our $VERSION = '5.25';
 
 our @EXPORT = ('d2');
 
@@ -66,7 +66,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.18
+5.25
 
 =head1 INTRODUCTION
 
@@ -1042,13 +1042,16 @@ C<dashboard alpha-skill.run-tset> suggests the nearest installed dotted skill
 command instead of only dumping generic help.
 
 C<DD-OOP-LAYERS> is now the runtime contract for the whole local ecosystem.
-Starting at F<~/.developer-dashboard> and walking down through every parent
-directory until the current working directory, every existing
-F<.developer-dashboard/> layer participates. The deepest layer stays the write
-target and the first lookup hit, but bookmarks, C<nav/*.tt>, config,
+Starting at the home directory and walking down through every parent directory
+until the current working directory, every existing F<.developer-dashboard/>
+and F<.d2/> runtime directory participates. When both names exist at the same
+depth, both are searched independently; F<.developer-dashboard/> has priority
+over F<.d2/> at that depth and remains the write target. The deepest available
+runtime root is the write target, but bookmarks, C<nav/*.tt>, config,
 collectors, indicators, auth/session state lookups, runtime
-F<local/lib/perl5>, and custom CLI hooks are all inherited across the full
-chain instead of only a single project-or-home split.
+F<local/lib/perl5>, Docker Compose service folders, skills, and custom CLI
+hooks are inherited across the full chain instead of only a single
+project-or-home split.
 
 Per-command hook files can live under either
 F<./.developer-dashboard/cli/E<lt>commandE<gt>> or
@@ -1118,11 +1121,11 @@ each deeper ancestor directory F<.env.pl>
 
 =item *
 
-each participating F<.developer-dashboard/.env>
+each participating F<.developer-dashboard/.env> and F<.d2/.env>
 
 =item *
 
-each participating F<.developer-dashboard/.env.pl>
+each participating F<.developer-dashboard/.env.pl> and F<.d2/.env.pl>
 
 =back
 
@@ -3367,8 +3370,9 @@ Optional dependent skill list installed after package managers run
 
 =item B<ddfile.local>
 
-Optional local dependent skill list installed after C<ddfile> into the same
-skills root as the current skill install target
+Optional skill-private dependent skill list installed after C<ddfile> into the
+owning skill's C<skills/E<lt>repo-nameE<gt>/> tree, separate from the runtime-wide
+skill inventory
 
 =item B<aptfile>
 
@@ -3635,10 +3639,9 @@ in-flight skills are skipped to avoid loops
 =item *
 
 if a C<ddfile.local> exists under an installed skill, each listed dependency
-is then installed through C<dashboard skills install E<lt>dependencyE<gt>>
-into the same skills root that owns the current installed skill, so
-child-layer skill installs stay in that child layer and home-layer installs
-stay in the home layer
+is then installed into that owning skill's private
+F<skills/E<lt>repo-nameE<gt>/> tree, separate from the runtime-wide skills
+inventory
 
 =item *
 
@@ -3771,7 +3774,8 @@ the deferred C<ddfile -> ddfile.local> pass, the shared C<~/perl5> versus skill-
 C<perl5/> split, the C<$HOME/node_modules> Node install target used by
 C<package.json>, the C<python -m pip install --user> path used by
 C<requirements.txt>, the optional C<Makefile> command chain and C<--notest> skip,
-the same-install-level dependency target used by skill-local F<ddfile.local>,
+the skill-private F<skills/E<lt>repo-nameE<gt>/> target used by installed-skill
+F<ddfile.local>,
 skill docker layering, and when to use dashboard-wide custom CLI hook folders such as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a skill-local
 hook tree.

@@ -9,6 +9,9 @@ use YAML::XS ();
 
 my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 
+plan skip_all => 'workflow YAML files are excluded from the built distribution'
+  if !-d File::Spec->catdir( $ROOT, '.github', 'workflows' );
+
 # _slurp($path)
 # Purpose: read a whole text file into one string.
 # Input: a filesystem path.
@@ -109,7 +112,7 @@ t/227-skills-md-ci-triggers.t - the project's skills guide describes CI triggers
 
 =head1 PURPOSE
 
-This test is the executable regression contract for the claim the top-level project skills guide makes about which events trigger C<.github/workflows/*.yml>. Read it when you need to understand what each workflow's real C<on:> block contains and what that guide is required to say about it, instead of trusting either source from memory.
+This test is the executable regression contract for the claim the top-level project skills guide makes about which events trigger C<.github/workflows/*.yml>. It runs in a source checkout and skips in a built distribution, which intentionally excludes GitHub workflow files. Read it when you need to understand what each workflow's real C<on:> block contains and what that guide is required to say about it, instead of trusting either source from memory.
 
 =head1 WHY IT EXISTS
 
@@ -117,7 +120,7 @@ DD-1001 found that the skills guide's single sentence ("runs Test, CodeQL, Packa
 
 =head1 WHEN TO USE
 
-Use this file whenever a C<.github/workflows/*.yml> trigger block changes, when the skills guide's CI description is edited, or when a focused CI failure points here.
+Use this file in a repository checkout whenever a C<.github/workflows/*.yml> trigger block changes, when the skills guide's CI description is edited, or when a focused CI failure points here. In a packaged installation the workflow directory is absent, so the test reports a documented skip.
 
 =head1 HOW TO USE
 

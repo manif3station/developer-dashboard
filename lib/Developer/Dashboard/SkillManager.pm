@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '5.18';
+our $VERSION = '5.25';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -1652,8 +1652,8 @@ sub _install_skill_ddfile {
 }
 
 # _install_skill_ddfile_local($skill_path)
-# Installs dependent skills listed in ddfile.local into the same skills root as
-# the current installed skill.
+# Installs dependent skills listed in ddfile.local into the owning skill's
+# private skills/ directory, separate from the runtime-wide skill inventory.
 # Input: absolute skill root directory path.
 # Output: result hash reference with success or error state.
 sub _install_skill_ddfile_local {
@@ -1662,8 +1662,8 @@ sub _install_skill_ddfile_local {
 }
 
 # _install_skill_dependency_manifest($skill_path, $manifest_name)
-# Installs dependent skills listed in one manifest while keeping every
-# dependency at the current installed skill level.
+# Installs ddfile dependencies into the runtime skills root and ddfile.local
+# dependencies into the owning skill's private skills/ directory.
 # Input: absolute skill root directory path and manifest filename.
 # Output: result hash reference with success or error state.
 sub _install_skill_dependency_manifest {
@@ -1671,6 +1671,9 @@ sub _install_skill_dependency_manifest {
     my $manifest = File::Spec->catfile( $skill_path, $manifest_name );
     my @skills = $self->_dependency_file_lines($manifest);
     return { success => 1, skipped => 1 } if !@skills;
+
+    return $self->_install_skill_nested_dependency_manifest( $skill_path, $manifest, @skills )
+      if $manifest_name eq 'ddfile.local';
 
     my $skills_root = $self->_skill_install_root($skill_path);
     my %seen = map { $_ => 1 } grep { $_ ne '' } split /:/, ( $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} || '' );
@@ -1716,6 +1719,60 @@ sub _install_skill_dependency_manifest {
         success => 1,
         stdout  => join( '', @stdout ),
         stderr  => join( '', @stderr ),
+    };
+}
+
+# _install_skill_nested_dependency_manifest($skill_path, $manifest, @sources)
+# Installs ddfile.local sources into the owning skill's private skills/ tree.
+# Input: installed skill root, manifest path, and ordered dependency sources.
+# Output: success hash reference or an explicit installation error.
+sub _install_skill_nested_dependency_manifest {
+    my ( $self, $skill_path, $manifest, @sources ) = @_;
+    my $skills_root = File::Spec->catdir( $skill_path, 'skills' );
+    my $owner_root = $self->_skill_install_root($skill_path);
+    return { error => "Refusing to use an owning skill outside its skills root: '$skill_path'" }
+      if !$self->_install_path_contained( $skill_path, $owner_root );
+    return { error => "Refusing to use a symlinked skill-local skills root: '$skills_root'" }
+      if -l $skills_root;
+    $self->{paths}->ensure_dir($skills_root);
+    return { error => "Refusing to use a skill-local skills root outside its owner: '$skills_root'" }
+      if !$self->_install_path_contained( $skills_root, $skill_path );
+    my %seen = map { $_ => 1 } grep { $_ ne '' } split /:/, ( $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} || '' );
+    my $owner_name = basename($skill_path);
+    $seen{$owner_name} = 1;
+    my $installed = 0;
+
+    for my $source (@sources) {
+        my $normalized_source = $self->_normalize_install_source($source);
+        my $repo_name = _extract_repo_name($normalized_source);
+        return { error => "Unable to extract dependency skill name from $source in $manifest" }
+          if !_is_safe_skill_name($repo_name);
+        next if $seen{$repo_name};
+
+        my $target = File::Spec->catdir( $skills_root, $repo_name );
+        if ( -e $target ) {
+            return { error => "Refusing to use dependency skill outside its owning skill: '$target'" }
+              if !$self->_install_path_contained( $target, $skills_root );
+            next;
+        }
+
+        my $install_stack = join ':', grep { defined && $_ ne '' } sort keys %{{ %seen, $repo_name => 1 }};
+        my $result;
+        {
+            local $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} = $install_stack;
+            local $ENV{DEVELOPER_DASHBOARD_SKIP_SKILL_REGISTRY} = 1;
+            $result = $self->_install_to_skills_root( $source, $skills_root );
+        }
+        return $result if $result->{error};
+        $seen{$repo_name} = 1;
+        $installed++;
+    }
+
+    return {
+        success    => 1,
+        skipped    => $installed ? 0 : 1,
+        manifest   => $manifest,
+        skills_root => $skills_root,
     };
 }
 

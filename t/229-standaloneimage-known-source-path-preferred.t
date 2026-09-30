@@ -5,9 +5,12 @@ use warnings;
 use utf8;
 
 use Test::More;
+use File::Basename qw(dirname);
 use File::Spec;
 use File::Path qw(make_path remove_tree);
+use File::Temp qw(tempdir);
 use Cwd qw(abs_path);
+use FindBin qw($Bin);
 
 use lib 'lib';
 use Developer::Dashboard::Pax::StandaloneImage;
@@ -25,47 +28,42 @@ use Developer::Dashboard::Pax::StandaloneImage;
 
 # Build two real, distinguishable fixture files for the SAME module name:
 # one under a synthetic @INC entry placed FIRST (the "stale/duplicate" copy),
-# one at the real project-tree location the dependency scan already knows
-# about (the "REAL copy"). Both written under a tempdir-like scratch area,
-# removed at the end - never left behind, never git-tracked.
-my $standaloneimage_pm = abs_path( $INC{'Developer/Dashboard/Pax/StandaloneImage.pm'} );
-my $lib_root = $standaloneimage_pm;
-$lib_root =~ s{/Developer/Dashboard/Pax/StandaloneImage\.pm\z}{};
-
-my $real_dir  = File::Spec->catdir( $lib_root, qw(Fixture DD1049 Real) );
-my $stale_dir = File::Spec->catdir( $lib_root, qw(Fixture DD1049 Stale) );
+# one under a second @INC root that the dependency scan already knows about
+# (the "REAL copy"). Both use a genuine module-relative path so package-family
+# expansion sees the same module identity for both copies.
+# Keep this a unique module family so an unrelated installed Foo::Bar (or a
+# previous family-cache lookup for Foo) cannot influence the integration case.
+my $fixture_root = tempdir( 'dd1049-known-source-path-XXXXXX', DIR => File::Spec->tmpdir, CLEANUP => 1 );
+my $real_dir  = File::Spec->catdir( $fixture_root, 'real' );
+my $stale_dir = File::Spec->catdir( $fixture_root, 'stale' );
 make_path($real_dir);
 make_path($stale_dir);
 
-my $real_path  = File::Spec->catfile( $real_dir,  qw(Foo Bar.pm) );
-my $stale_path = File::Spec->catfile( $stale_dir, qw(Foo Bar.pm) );
-make_path( File::Spec->catdir( $real_dir,  'Foo' ) );
-make_path( File::Spec->catdir( $stale_dir, 'Foo' ) );
+my $real_path  = File::Spec->catfile( $real_dir,  qw(DD1049 KnownSource Widget.pm) );
+my $stale_path = File::Spec->catfile( $stale_dir, qw(DD1049 KnownSource Widget.pm) );
+make_path( File::Spec->catdir( $real_dir,  qw(DD1049 KnownSource) ) );
+make_path( File::Spec->catdir( $stale_dir, qw(DD1049 KnownSource) ) );
 
 open my $real_fh, '>', $real_path or die "cannot write fixture: $!";
-print {$real_fh} "package Foo::Bar;\nour \$VERSION = '0.01';\nsub which { 'real' }\n1;\n";
+print {$real_fh} "package DD1049::KnownSource::Widget;\nour \$VERSION = '0.01';\nsub which { 'real' }\n1;\n";
 close $real_fh;
 
 open my $stale_fh, '>', $stale_path or die "cannot write fixture: $!";
-print {$stale_fh} "package Foo::Bar;\nour \$VERSION = '0.00';\nsub which { 'stale' }\n1;\n";
+print {$stale_fh} "package DD1049::KnownSource::Widget;\nour \$VERSION = '0.00';\nsub which { 'stale' }\n1;\n";
 close $stale_fh;
 
 $real_path  = abs_path($real_path);
 $stale_path = abs_path($stale_path);
 
-END {
-    remove_tree( File::Spec->catdir( $lib_root, 'Fixture' ) ) if defined $lib_root;
-}
-
 # AC-1 / BDD-1: _locate_module_runtime_file, called with a known source_path
-# for Foo::Bar, must return the REAL copy - never the stale one, even when the
+# for DD1049::KnownSource::Widget, must return the REAL copy - never the stale one, even when the
 # stale directory sits earlier on @INC than anywhere the real copy would
 # normally be found by a bare walk.
 {
-    local @INC = ( $stale_dir, @INC );
-    my $known_paths = { 'Foo::Bar' => $real_path };
+    local @INC = ( $stale_dir, $real_dir, @INC );
+    my $known_paths = { 'DD1049::KnownSource::Widget' => $real_path };
     my $resolved = Developer::Dashboard::Pax::StandaloneImage::_locate_module_runtime_file(
-        'Foo::Bar', $known_paths,
+        'DD1049::KnownSource::Widget', $known_paths,
     );
     is( $resolved, $real_path,
         'a module with a known source_path resolves to the REAL copy, not an earlier @INC entry\'s stale duplicate' );
@@ -78,7 +76,7 @@ END {
 {
     local @INC = ( $stale_dir, $real_dir, @INC );
     my $resolved_no_known = Developer::Dashboard::Pax::StandaloneImage::_locate_module_runtime_file(
-        'Foo::Bar',
+        'DD1049::KnownSource::Widget',
     );
     is( $resolved_no_known, $stale_path,
         'with no known source_path, the existing first-match @INC walk is preserved unchanged' );
@@ -88,19 +86,19 @@ END {
 # (via _runtime_manifest), for a bundled_pure_perl dependency whose source_path
 # is already known from the dependency scan itself.
 {
-    local @INC = ( $stale_dir, @INC );
+    local @INC = ( $stale_dir, $real_dir, @INC );
     my $manifest = Developer::Dashboard::Pax::StandaloneImage::_runtime_manifest(
         mode                 => 'bundled_perl',
-        app_namespace        => 'Foo',
+        app_namespace        => 'DD1049::KnownSource',
         app_legacy_namespace => '',
         dependencies         => [
             {
                 class       => 'bundled_pure_perl',
-                module      => 'Foo::Bar',
+                module      => 'DD1049::KnownSource::Widget',
                 source_path => $real_path,
             },
         ],
-        lib_dirs      => [],
+        lib_dirs      => [$real_dir],
         exclude_files => [],
         exclude_dirs  => [],
     );
@@ -124,7 +122,7 @@ END {
 {
     local @INC = ( $stale_dir, $real_dir, @INC );
     my $resolved_bad_ref = Developer::Dashboard::Pax::StandaloneImage::_locate_module_runtime_file(
-        'Foo::Bar', 'not-a-hashref',
+        'DD1049::KnownSource::Widget', 'not-a-hashref',
     );
     is( $resolved_bad_ref, $stale_path,
         'a truthy but non-hashref $known_source_paths falls through to the ordinary @INC walk, never dereferenced as a hash' );
@@ -140,9 +138,9 @@ END {
 {
     local @INC = ();
     local *Developer::Dashboard::Pax::StandaloneImage::abs_path = sub { return '' };
-    my $known_paths = { 'Foo::Bar' => $real_path };
+    my $known_paths = { 'DD1049::KnownSource::Widget' => $real_path };
     my $resolved_abs_path_fails = Developer::Dashboard::Pax::StandaloneImage::_locate_module_runtime_file(
-        'Foo::Bar', $known_paths,
+        'DD1049::KnownSource::Widget', $known_paths,
     );
     is( $resolved_abs_path_fails, $real_path,
         'when Cwd::abs_path fails to resolve a known, existing source_path, the original $known path is returned unchanged' );
@@ -154,12 +152,59 @@ END {
 # is skipped entirely and the ordinary @INC walk runs instead.
 {
     local @INC = ( $stale_dir, $real_dir, @INC );
-    my $known_paths = { 'Foo::Bar' => File::Spec->catfile( $real_dir, qw(Foo DoesNotExist.pm) ) };
+    my $known_paths = { 'DD1049::KnownSource::Widget' => File::Spec->catfile( $real_dir, qw(DD1049 KnownSource DoesNotExist.pm) ) };
     my $resolved_missing_known = Developer::Dashboard::Pax::StandaloneImage::_locate_module_runtime_file(
-        'Foo::Bar', $known_paths,
+        'DD1049::KnownSource::Widget', $known_paths,
     );
     is( $resolved_missing_known, $stale_path,
         'a known source_path that does not exist on disk is skipped, falling through to the ordinary @INC walk' );
+}
+
+# AC-6: a known source file that is intentionally excluded from the runtime
+# payload (because it is compiled into the standalone binary) must not suppress
+# the separate runtime-family copy needed by runtime-loaded code.
+{
+    local @INC = ( $stale_dir, $real_dir, @INC );
+    my @expanded = Developer::Dashboard::Pax::StandaloneImage::_expand_runtime_module_files(
+        inc_dirs      => [],
+        seed_files    => [$real_path],
+        exclude_files => [$real_path],
+    );
+    ok( scalar( grep { $_ eq $stale_path } @expanded ),
+        'an excluded compiled source path does not hide an available runtime-family copy of the same module' );
+}
+
+# AC-7: a module force-included from the PAX library root must be written
+# relative to that root, not to a broader ancestor that also appears in @INC.
+# The latter yields runtime/inc/NNN/lib/Developer/... even though the C
+# launcher only adds runtime/inc/NNN to @INC.
+{
+    my $own_lib = abs_path( File::Spec->catdir( $Bin, File::Spec->updir, 'lib' ) );
+    my $own_parent = dirname($own_lib);
+    local @INC = ( $own_lib, $own_parent, @INC );
+    my $json_module = File::Spec->catfile( $own_lib, qw(Developer Dashboard JSON.pm) );
+    my $manifest = Developer::Dashboard::Pax::StandaloneImage::_runtime_manifest(
+        mode                 => 'bundled_perl',
+        app_namespace        => 'DD229::RuntimeRoot',
+        app_legacy_namespace => '',
+        dependencies         => [
+            {
+                class       => 'bundled_pure_perl',
+                module      => 'Developer::Dashboard::JSON',
+                source_path => $json_module,
+            },
+        ],
+        lib_dirs      => [$own_lib],
+        exclude_files => [],
+        exclude_dirs  => [],
+    );
+    my @json_payloads = grep {
+        ( $_->{source_path} // '' ) eq $json_module
+            && ( $_->{unit_kind} // '' ) eq 'runtime_inc'
+    } @{ $manifest->{payloads} // [] };
+    ok( @json_payloads, 'a force-included PAX library module is present in the runtime payload' );
+    like( $json_payloads[0]{logical_path} // '', qr{\Ainc/\d{3}/Developer/Dashboard/JSON\.pm\z},
+        'a force-included PAX library module is payload-rooted at Developer/ rather than the broader parent/lib/' );
 }
 
 done_testing();
@@ -175,31 +220,27 @@ __END__
 =head1 PURPOSE
 
 Guards that C<_locate_module_runtime_file> (and, through it,
-C<_runtime_selected_files>) prefers a dependency scan's own already-known
-C<source_path> over the first match found by walking C<@INC>, while
-preserving the existing C<@INC> walk exactly as before for a module with no
-known C<source_path> (the C<_expand_runtime_module_files> transitive-scan
-case).
+C<_runtime_selected_files>, C<_expand_runtime_module_files>, and
+C<_runtime_manifest>) preserve known module paths, exclude stale duplicates,
+allow an unexcluded runtime copy when a compiled source is omitted, and map
+force-included PAX modules relative to the correct runtime C<@INC> root.
 
 =head1 WHY IT EXISTS
 
-C<_locate_module_runtime_file> and C<_helper_module_path> walk a candidate
-list (C<@INC>, or a roots array) and return the FIRST existing file for a
-module name, with no mechanism to prefer or cross-check the dependency
-scan's own already-known C<source_path> for that module - even though every
-C<%args{dependencies}> entry carries one, and it is already used elsewhere
-in the same function for the C<hybrid_compiled_pcu_v1> case (the DD-1035
-fix). If an earlier C<@INC> entry happens to hold a stale or same-named copy
-of a module the scan already resolved correctly - the exact masking
-condition DD-1035's own investigation found already present on this
-project's development hosts (a leftover installed copy of this project's
-own package on C<PERL5LIB>) - the wrong file is bundled silently: no
-warning, no build failure, just a quietly-wrong runtime payload.
+C<_locate_module_runtime_file> must prefer a dependency scan's known source
+path over an earlier stale duplicate in C<@INC>. During package validation,
+two additional edge cases were exposed: family expansion could re-add a
+duplicate or treat an excluded compiled source as authoritative, and a
+force-included module beneath the PAX library root could be bundled relative
+to a broader parent directory. That produced C<runtime/inc/NNN/lib/...>
+paths that the standalone launcher's C<@INC> roots cannot import. The tests
+make each selection and payload-root rule explicit.
 
 =head1 WHEN TO USE
 
 Run this file whenever C<_locate_module_runtime_file>,
-C<_runtime_selected_files>, or C<_runtime_manifest> change.
+C<_runtime_selected_files>, C<_expand_runtime_module_files>, or
+C<_runtime_manifest> change.
 
 =head1 HOW TO USE
 
@@ -207,10 +248,10 @@ C<_runtime_selected_files>, or C<_runtime_manifest> change.
 
 =head1 WHAT USES IT
 
-This exact known-source_path-preference path is not exercised by any other
-test file in this suite - t/223 covers the separate, already-fixed
-C<hybrid_compiled_pcu_v1> force-include path (DD-1035); this file covers the
-still-open first-match gap for C<bundled_pure_perl>/C<bundled_xs> (DD-1049).
+This test complements t/223's C<hybrid_compiled_pcu_v1> force-include checks.
+It covers C<bundled_pure_perl>/C<bundled_xs> source selection, excluded
+family duplicates, and correct mapping of PAX library modules to importable
+standalone runtime paths.
 
 =head1 EXAMPLES
 
@@ -219,7 +260,16 @@ Example 1:
     prove -lv t/229-standaloneimage-known-source-path-preferred.t
 
 Confirm the fix is present: a module with a known source_path resolves to
-that path, never an earlier @INC entry's stale duplicate; a module with no
-known source_path still falls back to the existing @INC walk unchanged.
+that path, never an earlier @INC entry's stale duplicate; excluded sources
+do not hide runtime copies; and included files are rooted at the path the
+standalone launcher places on @INC.
+
+Example 2:
+
+    d2 docker compose exec dev prove -lv t/229-standaloneimage-known-source-path-preferred.t
+
+Run all source-path and standalone payload-root regressions in the project
+development container, including the fixture with a broad parent directory
+in C<@INC>.
 
 =cut
