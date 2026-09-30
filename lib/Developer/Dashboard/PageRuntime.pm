@@ -323,7 +323,7 @@ sub _code_inc_roots {
     my $page_skill_path = $page->{meta}{skill_path};
     if ( defined $page_skill_path && $page_skill_path ne '' ) {
         my $page_lib = File::Spec->catdir( $page_skill_path, 'lib' );
-        if ( -d $page_lib && !$seen{$page_lib}++ ) {
+        if ( -d $page_lib && !$seen{$page_lib}++ ) {    # uncoverable condition right the seen set is empty at this point so the first insertion is always new
             push @roots, $page_lib;
         }
     }

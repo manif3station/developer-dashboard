@@ -201,7 +201,7 @@ sub _git_branch {
     my $head_file = File::Spec->catfile( $git_dir, 'HEAD' );
     return if !-f $head_file;
 
-    open my $head_fh, '<', $head_file or return;
+    open my $head_fh, '<', $head_file or return;    # uncoverable branch true HEAD was just confirmed a regular file; open only fails on a race
     my $head = <$head_fh>;
     close $head_fh;
     return if !defined $head;
@@ -227,7 +227,7 @@ sub _git_metadata_dir {
     return $git_path if -d $git_path;
     return if !-f $git_path;
 
-    open my $git_fh, '<', $git_path or return;
+    open my $git_fh, '<', $git_path or return;    # uncoverable branch true .git was just confirmed a regular file; open only fails on a race
     my $line = <$git_fh>;
     close $git_fh;
     return if !defined $line;

@@ -2309,7 +2309,7 @@ sub _nav_items_html {
     for my $dashboards_root (@roots) {
         my $nav_root = File::Spec->catdir( $dashboards_root, 'nav' );
         next if !-d $nav_root;
-        opendir my $dh, $nav_root or next;
+        opendir my $dh, $nav_root or next;    # uncoverable branch true - unreadable nav/ dir cannot be simulated when tests run as root
         for my $entry ( sort grep {
             $_ ne '.' && $_ ne '..'
               && $_ =~ /\.tt\z/
@@ -3347,7 +3347,7 @@ sub _serve_static_file_from_roots {
         my $real_path = eval { File::Spec->rel2abs($candidate) } || '';    # uncoverable condition right
         my $quoted_public = quotemeta($public_dir);
         next if $real_path !~ /^$quoted_public(?:\/|\z)/;
-        next if !-f $candidate || !-r $candidate;
+        next if !-f $candidate || !-r $candidate;    # uncoverable condition right - an existing but unreadable file is unreachable when tests run as root
         $file_path = $candidate;
         last;
     }

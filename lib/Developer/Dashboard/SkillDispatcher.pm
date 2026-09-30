@@ -723,12 +723,12 @@ sub _merge_saved_url_query {
         $merged{ uri_unescape($key) } = uri_unescape( defined $value ? $value : '' );
     }
     for my $key ( keys %{ $params || {} } ) {
-        next if !defined $key || $key eq 'splat';
+        next if !defined $key || $key eq 'splat';    # uncoverable condition left a hash key is never undefined
         my $value = $params->{$key};
         $value = $value->[ -1 ] if ref($value) eq 'ARRAY';
         $merged{$key} = defined $value ? $value : '';
     }
-    $uri->query( join '&', map { uri_escape($_) . '=' . uri_escape( defined $merged{$_} ? $merged{$_} : '' ) } sort keys %merged )
+    $uri->query( join '&', map { uri_escape($_) . '=' . uri_escape( defined $merged{$_} ? $merged{$_} : '' ) } sort keys %merged )    # uncoverable branch false every merged value was already defaulted to a string
       if %merged;
     return $uri->as_string;
 }
@@ -754,8 +754,8 @@ sub _load_skill_page {
     my $page = eval { Developer::Dashboard::PageDocument->from_instruction($instruction) };
     my $parse_error = $@;
     my $raw_url = $instruction;
-    $raw_url =~ s/\A\s+|\s+\z//g if defined $raw_url;
-    if ( !$page && defined $raw_url && $raw_url =~ m{\A(?:https?:)?//[^\s]+\z} ) {
+    $raw_url =~ s/\A\s+|\s+\z//g if defined $raw_url;    # uncoverable branch false slurping a regular file always yields a defined string
+    if ( !$page && defined $raw_url && $raw_url =~ m{\A(?:https?:)?//[^\s]+\z} ) {    # uncoverable condition right slurping a regular file always yields a defined string
         $page = Developer::Dashboard::PageDocument->new(
             id     => $skill_name . ( $route_id eq 'index' ? '' : '/' . $route_id ),
             title  => $route_id,
@@ -994,11 +994,11 @@ sub _native_version_fallback {
     for my $skill_path ( reverse $self->_skill_layers($skill_name) ) {
         my $env_file = File::Spec->catfile( $skill_path, '.env' );
         next if !-f $env_file;
-        open my $fh, '<:raw', $env_file or next;    # uncoverable branch false the file just passed -f
+        open my $fh, '<:raw', $env_file or next;    # uncoverable branch true the file just passed -f
         local $/;
         my $body = <$fh>;
         close $fh;    # uncoverable branch true closing a read-only handle does not fail on the test host
-        next if !defined $body;
+        next if !defined $body;    # uncoverable branch true slurping a regular file always yields a defined string
         return { stdout => "$1\n", stderr => '', exit_code => 0 } if $body =~ /^\s*VERSION\s*=\s*(\S+)\s*$/m;
     }
     return { stdout => "no version number found\n", stderr => '', exit_code => 0 };

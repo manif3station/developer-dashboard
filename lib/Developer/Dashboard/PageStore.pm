@@ -202,7 +202,7 @@ sub migrate_legacy_json_pages {
         print {$out} $page->canonical_instruction;
         close $out;
         $self->{paths}->secure_file_permissions($target);
-        unlink $file or die "Unable to remove $file: $!";
+        unlink $file or die "Unable to remove $file: $!";    # uncoverable branch true unlink of a just-read regular file in a directory we just wrote to cannot fail on Linux without a race
         push @migrated, { from => $entry, id => $id, file => $target };
     }
     closedir $dh;

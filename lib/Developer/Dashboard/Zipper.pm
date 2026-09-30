@@ -146,7 +146,7 @@ sub Ajax {
 sub _render_ajax_code_template {
     my ( $code, $data ) = @_;
     return $code if !defined $code || ref($data) ne 'HASH';
-    my $template = Template->new( { EVAL_PERL => 0 } )
+    my $template = Template->new( { EVAL_PERL => 0 } )    # uncoverable branch true Template->new with a fixed valid config does not fail
       or die 'Unable to initialise Ajax code template renderer';
     my $rendered = '';
     $template->process( \$code, $data, \$rendered )

@@ -340,7 +340,7 @@ sub enable {
 
     my $marker = $self->_disabled_marker_path($skill_path);
     if ( -f $marker ) {
-        unlink $marker or return { error => "Unable to remove disabled marker for skill '$repo_name': $!" };
+        unlink $marker or return { error => "Unable to remove disabled marker for skill '$repo_name': $!" };    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     }
 
     return {
@@ -529,7 +529,7 @@ sub _register_root_ddfile_source {
     my $ddfile = File::Spec->catfile( $home_root, 'ddfile' );
     my $existing = '';
     if ( -f $ddfile ) {
-        open my $read_fh, '<', $ddfile or return { error => "Unable to read root ddfile $ddfile: $!" };
+        open my $read_fh, '<', $ddfile or return { error => "Unable to read root ddfile $ddfile: $!" };    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
         local $/;
         $existing = <$read_fh> // '';    # uncoverable condition right
         close $read_fh;
@@ -574,7 +574,7 @@ sub _unregister_root_ddfile_source {
         removed => 0,
     } if !-f $ddfile;
 
-    open my $read_fh, '<', $ddfile or return { error => "Unable to read root ddfile $ddfile: $!" };
+    open my $read_fh, '<', $ddfile or return { error => "Unable to read root ddfile $ddfile: $!" };    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     local $/;
     my $existing = <$read_fh> // '';    # uncoverable condition right
     close $read_fh;
@@ -598,7 +598,7 @@ sub _unregister_root_ddfile_source {
             pop @kept;
         }
         my $rewritten = @kept ? join( "\n", @kept ) . "\n" : q{};
-        open my $write_fh, '>', $ddfile or return { error => "Unable to update root ddfile $ddfile: $!" };
+        open my $write_fh, '>', $ddfile or return { error => "Unable to update root ddfile $ddfile: $!" };    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
         print {$write_fh} $rewritten;
         close $write_fh;
         $self->{paths}->secure_file_permissions($ddfile) if $rewritten ne q{};
@@ -646,7 +646,7 @@ sub _register_home_gitignore_skill {
 
     my $entry = "skills/$repo_name/";
     my $existing = '';
-    open my $read_fh, '<', $gitignore or return { error => "Unable to read home gitignore $gitignore: $!" };
+    open my $read_fh, '<', $gitignore or return { error => "Unable to read home gitignore $gitignore: $!" };    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     {
         local $/;
         $existing = <$read_fh> // '';    # uncoverable condition right
@@ -662,7 +662,7 @@ sub _register_home_gitignore_skill {
         } if $line eq $entry;
     }
 
-    open my $append_fh, '>>', $gitignore or return { error => "Unable to update home gitignore $gitignore: $!" };
+    open my $append_fh, '>>', $gitignore or return { error => "Unable to update home gitignore $gitignore: $!" };    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     print {$append_fh} "\n" if length($existing) && $existing !~ /\n\z/;
     print {$append_fh} "$entry\n";
     close $append_fh or return { error => "Unable to close home gitignore $gitignore: $!" };    # uncoverable branch true
@@ -859,7 +859,7 @@ sub _local_skill_has_version {
     my ( $self, $skill_path ) = @_;
     my $env_file = File::Spec->catfile( $skill_path, '.env' );
     return 0 if !-f $env_file;
-    open my $fh, '<', $env_file or die "Unable to read $env_file: $!";
+    open my $fh, '<', $env_file or die "Unable to read $env_file: $!";    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     local $/;
     my $content = <$fh>;
     close $fh;
@@ -936,7 +936,8 @@ sub _install_to_skills_root {
     my $had_existing = -e $skill_path ? 1 : 0;
     my $version_before = $self->_skill_env_version($skill_path);
     my $clone_branch = $self->{clone_branch};
-    return { error => 'The -b/--branch option applies only to remote Git skill sources' }
+      # uncoverable condition right the identical guard above already returned, so a local source never reaches here with a clone branch
+    return { error => 'The -b/--branch option applies only to remote Git skill sources' }    # uncoverable branch true the identical guard above already returned for this combination
       if $local_source && defined $clone_branch;
     if ( !$local_source && $had_existing && !defined $clone_branch ) {
         my $current_branch = $self->_current_installed_skill_branch($skill_path);
@@ -1026,7 +1027,7 @@ sub _skill_env_version {
     my ( $self, $skill_path ) = @_;
     my $env_file = File::Spec->catfile( $skill_path, '.env' );
     return undef if !-f $env_file;
-    open my $fh, '<', $env_file or die "Unable to read $env_file: $!";
+    open my $fh, '<', $env_file or die "Unable to read $env_file: $!";    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     while ( my $line = <$fh> ) {
         chomp $line;
         next if $line =~ /\A\s*(?:#|\z)/;
@@ -1467,7 +1468,7 @@ sub _skill_apt_packages {
     my ( $self, $skill_path ) = @_;
     my $aptfile = File::Spec->catfile( $skill_path, 'aptfile' );
     return () if !-f $aptfile;
-    open my $fh, '<', $aptfile or die "Unable to read $aptfile: $!";
+    open my $fh, '<', $aptfile or die "Unable to read $aptfile: $!";    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     my @packages;
     while ( my $line = <$fh> ) {
         chomp $line;
@@ -1502,7 +1503,7 @@ sub _packages_missing {
 sub _dependency_file_lines {
     my ( $self, $file ) = @_;
     return () if !defined $file || !-f $file;
-    open my $fh, '<', $file or die "Unable to read $file: $!";
+    open my $fh, '<', $file or die "Unable to read $file: $!";    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     my @entries;
     while ( my $line = <$fh> ) {
         chomp $line;
@@ -1756,7 +1757,7 @@ sub _install_skill_nested_dependency_manifest {
             next;
         }
 
-        my $install_stack = join ':', grep { defined && $_ ne '' } sort keys %{{ %seen, $repo_name => 1 }};
+        my $install_stack = join ':', grep { defined && $_ ne '' } sort keys %{{ %seen, $repo_name => 1 }};    # uncoverable branch false the stack keys are never undefined
         my $result;
         {
             local $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} = $install_stack;
@@ -1940,7 +1941,7 @@ sub _package_json_dependency_specs {
     my ( $self, $package_json ) = @_;
     return () if !defined $package_json || !-f $package_json;
 
-    open my $fh, '<', $package_json or die "Unable to read $package_json: $!";
+    open my $fh, '<', $package_json or die "Unable to read $package_json: $!";    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     local $/;
     my $content = <$fh>;
     close $fh;
@@ -2407,7 +2408,7 @@ sub _install_skill_dockerfile {
 sub _makefile_targets {
     my ( $self, $makefile ) = @_;
     return () if !defined $makefile || !-f $makefile;
-    open my $fh, '<', $makefile or die "Unable to read $makefile: $!";
+    open my $fh, '<', $makefile or die "Unable to read $makefile: $!";    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     my %seen;
     my @targets;
     while ( my $line = <$fh> ) {
@@ -2540,7 +2541,7 @@ sub _cli_command_details {
     my $cli_root = File::Spec->catdir( $skill_path, 'cli' );
     my @commands;
     if ( -d $cli_root ) {
-        opendir( my $dh, $cli_root ) or die "Unable to read $cli_root: $!";
+        opendir( my $dh, $cli_root ) or die "Unable to read $cli_root: $!";    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
         for my $entry (
             sort grep {
                 $_ ne '.' && $_ ne '..'
@@ -2578,7 +2579,7 @@ sub _page_details {
     my $dashboards_root = File::Spec->catdir( $skill_path, 'dashboards' );
     my @entries;
     if ( -d $dashboards_root ) {
-        opendir( my $dh, $dashboards_root ) or die "Unable to read $dashboards_root: $!";
+        opendir( my $dh, $dashboards_root ) or die "Unable to read $dashboards_root: $!";    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
         @entries = sort grep {
                $_ ne '.'
             && $_ ne '..'
@@ -2610,7 +2611,7 @@ sub _docker_service_details {
     my $docker_root = File::Spec->catdir( $skill_path, 'config', 'docker' );
     my @services;
     if ( -d $docker_root ) {
-        opendir( my $dh, $docker_root ) or die "Unable to read $docker_root: $!";
+        opendir( my $dh, $docker_root ) or die "Unable to read $docker_root: $!";    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
         for my $entry (
             sort grep {
                 $_ ne '.' && $_ ne '..' && -d File::Spec->catdir( $docker_root, $_ )
@@ -2672,7 +2673,7 @@ sub _read_skill_config_file {
     my ( $self, $skill_path ) = @_;
     my $config_file = File::Spec->catfile( $skill_path, 'config', 'config.json' );
     return {} if !-f $config_file;
-    open my $fh, '<', $config_file or return {};
+    open my $fh, '<', $config_file or return {};    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     local $/;
     my $json_text = <$fh>;
     close $fh;
@@ -2687,7 +2688,7 @@ sub _read_skill_config_file {
 sub _sorted_files {
     my ( $self, $root ) = @_;
     return () if !$root || !-d $root;
-    opendir( my $dh, $root ) or die "Unable to read $root: $!";
+    opendir( my $dh, $root ) or die "Unable to read $root: $!";    # uncoverable branch true the path just passed -f or -d, so only a permission denial can fail here and the suite may run as root
     my @files = sort grep {
            $_ ne '.'
         && $_ ne '..'

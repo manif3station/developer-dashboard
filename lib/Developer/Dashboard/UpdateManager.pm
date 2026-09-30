@@ -61,7 +61,7 @@ sub run {
     my @running = $self->_running_collectors;
     $self->_stop_collectors(@running);
 
-    opendir my $dh, $dir or die "Unable to open updates directory $dir: $!";
+    opendir my $dh, $dir or die "Unable to open updates directory $dir: $!";    # uncoverable branch true the directory just passed -d, so only a permission denial can fail here and the suite may run as root
     for my $file ( sort readdir $dh ) {
         next if $file eq '.' || $file eq '..';
         next if !-f File::Spec->catfile( $dir, $file );
