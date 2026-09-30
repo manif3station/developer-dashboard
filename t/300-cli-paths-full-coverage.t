@@ -115,6 +115,8 @@ subtest 'path locate, list and project-root' => sub {
     ok( $ok, 'list table succeeds' );
     ( $ok, $err, $out ) = _run( command => 'path', args => [ 'list', '-o', 'json' ] );
     ok( $ok, 'list json succeeds' );
+    ( $ok, $err ) = _run( command => 'path', args => [ 'list', '-o', 'xml' ] );
+    ok( !$ok, 'list rejects an unknown output format' );
 
     ( $ok, $err, $out ) = _run( command => 'path', args => ['project-root'] );
     is( $out, '', 'no project root outside a checkout' );
@@ -286,6 +288,7 @@ subtest 'Folder alias enumeration' => sub {
 subtest '_skill_folder_alias_target branches' => sub {
     my $target = \&{"${package}::_skill_folder_alias_target"};
     my $reg    = $registry->();
+    my $ok;
     _skill( 'tgt-ok', "package Folder; sub here { return '$home' } sub bad { return '' } sub refd { return {} } 1;\n" );
     _skill( 'tgt-nofile', undef );
     is( $target->( paths => $reg, name => 'tgt-ok.here' ), $home, 'target resolved' );
@@ -293,12 +296,15 @@ subtest '_skill_folder_alias_target branches' => sub {
     ok( !defined $target->( paths => $reg, name => 'tgt-nofile.here' ), 'skill without Folder.pm is undef' );
     ok( !defined $target->( paths => $reg, name => 'nosuch.here' ), 'unknown skill is undef' );
     ok( !defined $target->( paths => $reg, name => "tgt-ok..here" ), 'empty segment is undef' );
+    _skill( 'tgt-undef', "package Folder; sub nothing { return undef } 1;\n" );
+    $ok = eval { $target->( paths => $reg, name => 'tgt-undef.nothing' ); 1 };
+    ok( !$ok, 'undefined target dies' );
     for my $m (qw(bad refd)) {
         my $ok = eval { $target->( paths => $reg, name => "tgt-ok.$m" ); 1 };
         ok( !$ok, "$m target dies" );
         like( $@, qr/non-empty path/, "$m target reports" );
     }
-    my $ok = eval { $target->( name => 'a.b' ); 1 };
+    $ok = eval { $target->( name => 'a.b' ); 1 };
     ok( !$ok, 'missing registry dies' );
     ok( !defined $target->( paths => $reg, name => 'tgt-ok.__list__' ), '__list__ is reserved' );
     ok( !defined $target->( paths => $reg, name => 'tgt-ok.can' ), 'can is reserved' );
@@ -398,6 +404,15 @@ subtest '_cdr_payload alias resolution' => sub {
     my $undef_named = Test::Paths300::Stub->new;
     {
         no warnings 'once';
+        local *Test::Paths300::Stub::named_paths = sub { { dead => '/x' } };
+        local *Test::Paths300::Stub::resolve_dir = sub { die "cannot resolve\n" };
+        local *Test::Paths300::Stub::current_working_directory = sub { $home };
+        local *Test::Paths300::Stub::locate_dirs_under = sub { return () };
+        $r = $payload->( paths => $undef_named, args => ['dead'], folder_alias_resolver => sub { die "unused\n" } );
+        is( $r->{target}, '', 'configured alias that fails to resolve skips the folder resolver' );
+    }
+    {
+        no warnings 'once';
         local *Test::Paths300::Stub::named_paths = sub { undef };
         local *Test::Paths300::Stub::resolve_dir = sub { die "nope\n" };
         local *Test::Paths300::Stub::current_working_directory = sub { $home };
@@ -418,6 +433,14 @@ subtest '_cdr_completion alias roots' => sub {
     is_deeply( \@c, [], 'extra filters narrow completion' );
     @c = $completion->( paths => $reg, words => [ 'cdr', 'nonalias', 'a' ], index => 2 );
     ok( 1, 'non alias falls back to cwd root' );
+};
+
+subtest '_resolve_path_alias tolerates an undefined alias inventory' => sub {
+    my $resolve = \&{"${package}::_resolve_path_alias"};
+    no warnings 'once';
+    local *Test::Paths300::Stub::named_paths = sub { undef };
+    local *Test::Paths300::Stub::resolve_dir = sub { return "resolved:$_[1]" };
+    is( $resolve->( paths => Test::Paths300::Stub->new, name => 'plain' ), 'resolved:plain', 'falls through to resolve_dir' );
 };
 
 subtest 'undefined alias tables' => sub {

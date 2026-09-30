@@ -69,6 +69,8 @@ my $dispatcher = Developer::Dashboard::SkillDispatcher->new( manager => $manager
 {
     my $result = $dispatcher->_execute_hooks_streaming( 'mk', 'go', [$skill], 'plain-arg' );
     ok( ref $result->{hooks} eq 'HASH', '_execute_hooks_streaming treats a non-hash first argument as a plain argument' );
+    $result = $dispatcher->_execute_hooks_streaming( 'mk', 'go', [$skill], {}, 'arg' );
+    ok( ref $result->{hooks} eq 'HASH', '_execute_hooks_streaming keeps an options hash that lacks env_skill_layers as a plain argument' );
 }
 
 # _skill_env with the skill path equal to the home: the shared perl5 lib is

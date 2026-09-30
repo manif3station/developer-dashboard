@@ -936,7 +936,7 @@ sub _install_to_skills_root {
     my $had_existing = -e $skill_path ? 1 : 0;
     my $version_before = $self->_skill_env_version($skill_path);
     my $clone_branch = $self->{clone_branch};
-      # uncoverable condition right the identical guard above already returned, so a local source never reaches here with a clone branch
+      # uncoverable condition true the identical guard above already returned, so a local source never reaches here with a clone branch
     return { error => 'The -b/--branch option applies only to remote Git skill sources' }    # uncoverable branch true the identical guard above already returned for this combination
       if $local_source && defined $clone_branch;
     if ( !$local_source && $had_existing && !defined $clone_branch ) {

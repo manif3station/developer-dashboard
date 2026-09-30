@@ -181,6 +181,17 @@ sub bookmark {
 {
     my $params = { x => [ 'a', 'b' ], 'x.selected.pos' => undef, y => [ 'c', 'd' ], 'y.selected.pos' => 1 };
     Developer::Dashboard::Web::App::_resolve_legacy_selected_params($params);
+    $params->{'z.selected.pos'} = 'abc';
+    $params->{z} = [ 'p', 'q' ];
+    $params->{'w.selected.pos'} = 0;
+    $params->{w} = 'scalar';
+    $params->{'v.selected.pos'} = 5;
+    $params->{v} = ['only'];
+    Developer::Dashboard::Web::App::_resolve_legacy_selected_params($params);
+    is_deeply( $params->{z}, [ 'p', 'q' ], 'a non-numeric selected position leaves the array untouched' );
+    is( $params->{w}, 'scalar', 'a non-array value is left alone' );
+    is_deeply( $params->{v}, ['only'], 'an out-of-range position leaves the array untouched' );
+    is( Developer::Dashboard::Web::App::_resolve_legacy_selected_params('not-a-hash'), undef, 'a non-hash argument is ignored' );
     is_deeply( $params->{x}, [ 'a', 'b' ], 'an undefined selected position leaves the array untouched' );
     is( $params->{y}, 'd', 'a numeric selected position picks the element' );
 }

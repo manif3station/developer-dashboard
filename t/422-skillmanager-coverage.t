@@ -163,6 +163,21 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     like( $@, qr/Unable to copy/, 'the copy failure names the operation' );
 }
 
+# _skill_package_runner_prefix: the non-root answer, taken in a child that drops
+# its effective uid so the parent keeps its privileges.
+{
+    my $pid = fork();
+    die "fork failed: $!" if !defined $pid;
+    if ( !$pid ) {
+        $> = 65534 if $> == 0;
+        my @prefix = $manager->_skill_package_runner_prefix;
+        exit( $prefix[0] && $prefix[0] eq 'sudo' ? 0 : 1 );
+    }
+    waitpid( $pid, 0 );
+    is( $? >> 8, 0, 'a non-root user gets the sudo runner prefix' );
+    is_deeply( [ $manager->_skill_package_runner_prefix ], ( $> == 0 ? [] : ['sudo'] ), 'the parent keeps its own prefix' );
+}
+
 chdir $orig_cwd;
 done_testing;
 

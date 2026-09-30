@@ -3464,7 +3464,7 @@ sub _static_path_contained {
 sub _serve_static_file_at_path {
     my ( $self, $type, $filename, $file_path, $default_type, $allowed_roots ) = @_;
     return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
-      if !defined $file_path || $file_path eq '' || !-f $file_path || !-r $file_path;
+      if !defined $file_path || $file_path eq '' || !-f $file_path || !-r $file_path;    # uncoverable condition right - an existing but unreadable file is unreachable when tests run as root
     return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
       if !_static_path_contained( $file_path, $allowed_roots );
     my $content_type = defined $default_type && $default_type ne ''

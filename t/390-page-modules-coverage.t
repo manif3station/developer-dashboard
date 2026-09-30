@@ -19,21 +19,6 @@ use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Prompt;
 
-=head1 NAME
-
-t/390-page-modules-coverage.t - closes the remaining Devel::Cover gaps in the page modules
-
-=head1 DESCRIPTION
-
-Exercises the last uncovered branches and conditions of
-Developer::Dashboard::PageDocument (empty HEAD metadata),
-PageResolver (non-not-found saved-page failures surface),
-PageRuntime (template include roots, code inc roots and skill env overlays
-with empty, duplicate and missing inputs), PageStore (missing dashboards root,
-unreadable legacy files, missing page file), with Prompt opens annotated uncoverable in lib.
-
-=cut
-
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
 delete local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
@@ -133,3 +118,44 @@ chdir $home or die "chdir $home: $!";
 }
 
 done_testing;
+
+__END__
+
+=pod
+
+=head1 NAME
+
+t/390-page-modules-coverage.t - closes the remaining coverage gaps in the page modules
+
+=head1 PURPOSE
+
+Exercises the last uncovered branches and conditions of PageDocument (empty HEAD
+metadata), PageResolver (non-not-found saved-page failures surface), PageRuntime
+(template include roots, code inc roots and skill env overlays with empty,
+duplicate and missing inputs) and PageStore (missing dashboards root, unreadable
+legacy files, missing page file).
+
+=head1 WHY IT EXISTS
+
+These guard clauses are unreachable through ordinary save and render flows, so
+this file reaches them directly to keep the modules at full coverage.
+
+=head1 WHEN TO USE
+
+Use it when changing page document, resolver, runtime or store guard logic.
+
+=head1 HOW TO USE
+
+Run C<prove -lv t/390-page-modules-coverage.t>.
+
+=head1 WHAT USES IT
+
+The repository test suite and the coverage gate.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/390-page-modules-coverage.t
+
+=cut

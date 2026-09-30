@@ -148,6 +148,14 @@ is_deeply( Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules( 
         no warnings 'redefine';
         local *Developer::Dashboard::Web::DancerApp::abs_path = sub {
             my ($p) = @_;
+            return $p =~ /Dashboard\.pm\z/ ? undef : $p;
+        };
+        like( $run->( T330::Paths->new( { dir => $dir } ) ), qr/Unable to resolve skill Dashboard module/, 'an unresolvable module path with a resolvable lib is fatal' );
+    }
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Web::DancerApp::abs_path = sub {
+            my ($p) = @_;
             return $p =~ /Dashboard\.pm\z/ ? File::Spec->catfile( $root, 'contain', 'other', 'Dashboard.pm' ) : File::Spec->catdir( $root, 'contain', 'lib' );
         };
         like( $run->( T330::Paths->new( { dir => $dir } ) ), qr/resolves outside its skill lib directory/, 'a module outside its lib dir via .. is fatal' );
@@ -178,12 +186,14 @@ is_deeply( Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules( 
     our ( $T330_APP );
     my $builtin_get = T330::Route->new( method => 'get' );
     my $builtin_put = T330::Route->new( method => 'put' );
-    my $app = T330::App->new( routes => { get => [$builtin_get], put => [$builtin_put], post => undef, delete => [] } );
+    my $builtin_post = T330::Route->new( method => 'post' );
+    my $app = T330::App->new( routes => { get => [$builtin_get], put => [$builtin_put], post => [$builtin_post], delete => [] } );
     $main::T330_APP = $app;
     my $dir = skill_dir( 'adds-routes', <<'PERL' );
 package T330::AddsRoutes;
 push @{ $main::T330_APP->routes->{get} },    bless( { method => 'get',  match => 1 }, 'T330::Route' );
 push @{ $main::T330_APP->routes->{put} },    bless( { method => 'put',  match => 1 }, 'T330::Route' );
+push @{ $main::T330_APP->routes->{post} },   bless( { method => 'post', match => 1 }, 'T330::Route' );
 push @{ $main::T330_APP->routes->{patch} },  bless( { method => 'patch', match => 1 }, 'T330::Route' );
 1;
 PERL
