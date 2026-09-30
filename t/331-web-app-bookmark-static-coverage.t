@@ -98,18 +98,14 @@ sub bookmark {
 }
 
 {
-    # URI::_generic (what URI builds for a scheme-relative //host/path target)
-    # has no host() method of its own, so the authority test would die on a
-    # real install; give it one here so the condition itself can be exercised.
-    no warnings qw(redefine once);
-    local *URI::_generic::host = sub { my ($u) = @_; return $u->authority; };
+    # A scheme-relative //host/path target parses as URI::_generic, which has
+    # no host() of its own; the real code must still treat it as external.
     my $res = $app->_legacy_app_response( id => bookmark( 'bm-schemeless', '//example.com/dest' ) );
     is( $res->[0], 302, 'a scheme-relative bookmark redirects' );
     is( $res->[3]{Location}, '//example.com/dest', 'a scheme-relative bookmark keeps its target as the location' );
 
-    local *URI::_generic::host = sub { return; };
-    $res = $app->_legacy_app_response( id => bookmark( 'bm-schemeless-nohost', '//nohost/dest' ) );
-    isnt( $res->[0], 302, 'a scheme-relative bookmark without a usable host is not an external redirect' );
+    $res = $app->_legacy_app_response( id => bookmark( 'bm-schemeless-nohost', '///dest' ) );
+    isnt( $res->[0], 302, 'a scheme-relative bookmark without a host is not an external redirect' );
 
     $res = $app->_legacy_app_response( id => bookmark( 'bm-ftp', 'ftp://example.com/x' ) );
     is( $res->[0], 400, 'an unsupported bookmark scheme is rejected' );

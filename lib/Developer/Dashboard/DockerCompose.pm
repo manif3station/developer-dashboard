@@ -353,11 +353,11 @@ sub _discover_service_files {
         next if !-d $service_root;    # uncoverable branch true lookup roots already filtered to existing service folders
 
         my $compose = File::Spec->catfile( $service_root, 'compose.yml' );
-        push @files, $compose if -f $compose && !$seen{$compose}++;
+        push @files, $compose if -f $compose && !$seen{$compose}++;    # uncoverable condition right lookup roots are distinct, so a compose path is never seen twice
 
         next if !$development_enabled;
         my $development = File::Spec->catfile( $service_root, 'development.compose.yml' );
-        push @files, $development if -f $development && !$seen{$development}++;
+        push @files, $development if -f $development && !$seen{$development}++;    # uncoverable condition right lookup roots are distinct, so a development path is never seen twice
     }
 
     return @files;
@@ -568,14 +568,14 @@ sub _service_folder_is_disabled {
 sub _service_folder_is_development {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return 0;
-    my $project_root = $args{project_root} || cwd();
+    my $project_root = $args{project_root} || cwd();    # uncoverable condition false cwd never returns a false value
     my @roots = $self->_service_lookup_roots(
         project_root => $project_root,
         service      => $service,
     );
     for my $root ( reverse @roots ) {
         my $service_root = File::Spec->catdir( $root, $service );
-        next if !-d $service_root;
+        next if !-d $service_root;    # uncoverable branch true lookup roots already filtered to existing service folders
         return -f File::Spec->catfile( $service_root, 'develop.yml' ) ? 1 : 0;
     }
     return 0;
@@ -756,7 +756,7 @@ sub enable_service_development {
     make_path($dir) if !-d $dir;
     open my $fh, '>', $marker or die "Unable to write $marker: $!";
     print {$fh} "---\ndevelopment: 1\n";
-    close $fh or die "Unable to close $marker: $!";
+    close $fh or die "Unable to close $marker: $!";    # uncoverable branch true the deferred write failure surfaces only on close, unreproducible on the test host
     return {
         action      => 'development-enable',
         development => 1,

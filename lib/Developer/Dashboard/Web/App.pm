@@ -2501,8 +2501,12 @@ sub _legacy_app_response {
     }
     my $target = _trim($raw);
     my $uri = URI->new($target);
+    # A scheme-relative //host/path target parses as URI::_generic, which has no
+    # host() or port(); read the authority from an http: copy of the same target.
+    my $scheme_relative = !defined $uri->scheme && $target =~ m{\A//};
+    my $authority_uri   = $scheme_relative ? URI->new("http:$target") : $uri;
     my $has_external_authority = ( defined $uri->scheme && $uri->scheme ne '' )
-      || ( !defined $uri->scheme && $target =~ m{\A//} && defined $uri->host );
+      || ( $scheme_relative && ( $authority_uri->host // '' ) ne '' );
     if ($has_external_authority) {
         my $scheme = lc( $uri->scheme || 'http' );
         return [ 400, 'text/plain; charset=utf-8', "Unsupported bookmark URL scheme\n" ]
@@ -2510,11 +2514,11 @@ sub _legacy_app_response {
 
         my $port = defined $ENV{_PORT} ? $ENV{_PORT} : '';
         my $is_local_token = $scheme eq 'http'
-          && ( $uri->host || '' ) eq '127.0.0.1'
+          && ( $authority_uri->host || '' ) eq '127.0.0.1'
           && $port ne ''
-          && defined $uri->port
-          && $uri->port eq $port
-          && ( $uri->query || '' ) =~ /(?:^|&)token=/;
+          && defined $authority_uri->port
+          && $authority_uri->port eq $port
+          && ( $authority_uri->query || '' ) =~ /(?:^|&)token=/;
         if ( !$is_local_token ) {
             return $self->_legacy_external_redirect_response(
                 target    => $target,
@@ -3463,8 +3467,8 @@ sub _static_path_contained {
 # Output: array reference of status code, content type, and body.
 sub _serve_static_file_at_path {
     my ( $self, $type, $filename, $file_path, $default_type, $allowed_roots ) = @_;
-    return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
-      if !defined $file_path || $file_path eq '' || !-f $file_path || !-r $file_path;    # uncoverable condition right - an existing but unreadable file is unreachable when tests run as root
+    return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]    # uncoverable condition right count:3 - an existing but unreadable file is unreachable when tests run as root
+      if !defined $file_path || $file_path eq '' || !-f $file_path || !-r $file_path;
     return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
       if !_static_path_contained( $file_path, $allowed_roots );
     my $content_type = defined $default_type && $default_type ne ''

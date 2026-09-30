@@ -2223,7 +2223,7 @@ sub _install_skill_wingetfile {
 # Output: list containing 'sudo' for non-root users, or an empty list for root.
 sub _skill_package_runner_prefix {
     my ($self) = @_;
-    return () if $> == 0;    # uncoverable branch true
+    return () if $> == 0;
     return ('sudo');
 }
 

@@ -92,6 +92,9 @@ my $dispatcher = Developer::Dashboard::SkillDispatcher->new( manager => $manager
 {
     my $scalar = 'not-an-array';
     is( Developer::Dashboard::SkillDispatcher::_prepend_skill_lib_to_perl_argv( $scalar, $skill ), $scalar, 'a non-array argv is returned untouched' );
+    my @foreign = ( 'sh', 'a', 'b' );
+    Developer::Dashboard::SkillDispatcher::_prepend_skill_lib_to_perl_argv( \@foreign, $skill );
+    is( scalar @foreign, 3, 'a non-perl argv is left untouched' );
     my @argv = ( $^X, 'a', 'b' );
     Developer::Dashboard::SkillDispatcher::_prepend_skill_lib_to_perl_argv( \@argv, undef );
     is( scalar @argv, 3, 'an undefined skill path leaves argv untouched' );
@@ -135,6 +138,8 @@ my $dispatcher = Developer::Dashboard::SkillDispatcher->new( manager => $manager
     local *Developer::Dashboard::SkillDispatcher::_load_skill_page = sub { return $raw };
     my $redirect = $dispatcher->_skill_page_response( skill_name => 'mk', route_id => 'index', app => Local::App420->new );
     is( $redirect->[0], 302, 'a raw-url page redirects when no query params were supplied' );
+    my $with_body = $dispatcher->_skill_page_response( skill_name => 'mk', route_id => 'index', app => Local::App420->new, body_params => { b => 2 } );
+    like( $with_body->[3]{Location}, qr/b=2/, 'a raw-url redirect merges body params' );
 }
 
 # _load_skill_page: the root index route names the skill alone for raw URLs.
