@@ -1,10 +1,18 @@
-Problem 21: Discover .d2 and .developer-dashboard roots together (no git ref) (status: implementation and Docker verification complete; 5.25 packaged)
-Description: Both runtime roots participate at every home/project depth. Same-depth precedence remains .developer-dashboard for lookup and writes. Red-first Docker regression failed 11 assertions; focused suite now passes. 100% coverage is explicitly deferred to Problem 20 and is not claimed.
+Codename: problem-report
 
-Problem 22: Keep ddfile.local dependencies private to their owning skill (no git ref) (status: implementation and Docker verification complete; 5.25 packaged)
-Description: Local dependencies now install beneath the owning skill's skills/ directory, with containment, symlink, name, and recursion protections. Focused Docker tests verify nested install and no runtime-global install.
+Problem 21: Discover both runtime roots together (23981132) (status: done in 5.25; current release 5.29)
+Expected outcome: `.d2` and `.developer-dashboard` roots at every home/project depth both participate, with documented same-depth lookup/write precedence.
+Reproduction: In the isolated Docker fixture, place commands, config, Docker files, dashboards, skills, and environment files under both root names at home and project depths; run the corresponding dashboard/d2 commands and inspect resolved paths. Before the fix, the `.d2` tree was ignored whenever `.developer-dashboard` existed.
+Root cause: path discovery treated the two supported root names as mutually exclusive instead of independent roots at each layer.
+Regression: the red-first Docker test failed 11 assertions; after implementation the focused suite passed. The integration plan and path-registry tests cover lookup, writes, and ecosystem consumers. Aggregate coverage is deferred to Problem 20 by user instruction and is not claimed.
 
-Problem 23: Remove PAX from Developer Dashboard (no git ref) (status: implementation, Docker tests, package, and image verification complete; Problem 20 coverage deferred)
+Problem 22: Keep `ddfile.local` dependencies private to their owning skill (23981132) (status: done in 5.25; current release 5.29)
+Expected outcome: dependencies declared by an installed skill's `ddfile.local` are installed beneath that skill's own `skills/` directory, never the runtime-global skill directory.
+Reproduction: In Docker, create an owner skill with a local manifest naming a dependency, install the owner, then inspect both the owner's nested `skills/` tree and the runtime-wide `skills/` tree. Before the fix, local dependencies could be placed in the shared runtime location.
+Root cause: local manifests reused the runtime-wide install destination rather than deriving a contained destination from the owning skill.
+Regression: Docker tests cover successful nested installation and reject traversal, symlink escape, invalid names, and recursion hazards. Focused tests and the 5.25 blank-container package install passed. Aggregate coverage is deferred to Problem 20 and is not claimed.
+
+Problem 23: Remove PAX from Developer Dashboard (bb14a6fe) (status: done in 5.29; coverage remains deferred to Problem 20)
 Description: Expected outcome: d2/dashboard commands execute through Perl without a compiler cache, no PAX CLI/helper/modules or PAX-specific release job are shipped, stale compiled artifacts stay out of the archive, and standard commands continue working. Reproduction: in Docker, `dashboard pax build --compact -o /tmp/problem23-dashboard /usr/local/bin/dashboard` compiled 117 application files and 2,596 payloads in about 41 seconds; a fresh-home dashboard invocation also staged the PAX helper. Root cause: the vendored compiler and self-compile cache added a parallel command/runtime/release surface to normal dashboard use. Steps: run the build command; inspect staged helper and module paths; run dashboard and d2 version; inspect the built archive; invoke `t/264-pax-removal-contract.t`. The red-first Docker test initially failed because compiler/cache/helper/workflow artifacts existed; after removal all 12 assertions pass. Archive inspection also exposed stale `pax-output/` files, now excluded by a regression guard. The blank-environment browser gate exposed a Chromium-version difference: HTTP 401 can appear as a generic error page or `ERR_HTTP_RESPONSE_CODE_FAILURE`; both are checked while requiring no bootstrap/login content leakage. Aggregate coverage is expressly deferred to Problem 20 and is not claimed.
 
 Delivery checklist for Problems 21-22:
@@ -17,8 +25,8 @@ Delivery checklist for Problems 21-22:
 [x] dzil build produced Developer-Dashboard-5.25.tar.gz; embedded module says 5.25, only current tarball remains, no cover_db included.
 [x] Fresh blank-container cpanm install with no --notest: 265 files / 16,160 tests passed; CPANTS kwalitee 7/7, 100% in Docker.
 [x] d2 docker.images.build completed; scoped D2 Compose runtime reports image version 5.25.
-[x] Problem 21-22 commit recorded as 23981132; no push was requested in that cycle.
-[ ] Push and live Scorecard are not run absent a push request.
+[x] Commit recorded as 23981132 with a problem-numbered subject and structured bullet summary.
+[ ] Push and live Scorecard remain pending until local delivery gates for this follow-up are complete.
 
 Problem 23 delivery checklist:
 [x] Docker reproduction, root-cause analysis, and red-first regression test.
@@ -30,3 +38,8 @@ Problem 23 delivery checklist:
 [x] Final dzil clean/build, archive inspection, blank-container cpanm test without --notest (115 distributions), and image build/version verification for 5.29.
 [x] Full blank integration runner passed against 5.26 after the Chromium assertion adjustment; final 5.29 package install/tests passed. Post-build t/44 guard is skipped because the dev container has no docker executable.
 [x] CPANTS release kwalitee passed 7/7; fresh image containers report dashboard and d2 version 5.29. Aggregate coverage remains deferred to Problem 20.
+[x] Commit recorded as bb14a6fe with a problem-numbered subject and structured bullet summary.
+[ ] Push and live Scorecard remain pending until local delivery gates for this follow-up are complete.
+
+Problem 20: Bring repository-wide Perl coverage to 100% (status: paused by user; resume later)
+Description: Coverage work and its aggregate gate are intentionally excluded from this delivery. No 100% coverage claim is made. Problems 21–23 were validated with focused and full non-coverage tests as recorded above; return to Problem 20 in a separate cycle.
