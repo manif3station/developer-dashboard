@@ -86,7 +86,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '5.30', 'release version includes the completed Problem 21–23 report update' );
+is( $version, '5.32', 'release version includes the corrected Problem 21–23 and Scorecard report' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;

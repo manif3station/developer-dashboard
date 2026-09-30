@@ -1,3 +1,15 @@
+5.32  2026-09-30
+
+  - Correct Problem 21–23 report release labels and preserve the actual
+    post-push 8.0/10 Scorecard result and its unresolved governance actions.
+    Keep Problem 20 coverage paused.
+
+5.31  2026-09-30
+
+  - Correct the Problem 21–23 delivery report to reflect the pushed 5.30
+    release and live 8.0/10 Scorecard result. Record remaining GitHub-side
+    governance tasks explicitly; Problem 20 coverage remains paused.
+
 5.30  2026-09-30
 
   - Complete the Problem 21–23 report with expected outcomes, Docker

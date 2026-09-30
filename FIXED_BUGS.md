@@ -1,5 +1,15 @@
 # Fixed Bugs
 
+## 5.32
+
+- Corrected the Problem 21–23 report's historical release labels and recorded
+  the actual post-push Scorecard result and remaining governance tasks.
+
+## 5.31
+
+- Corrected the Problem 21–23 delivery report so push, release, Docker image,
+  and post-push Scorecard status are no longer marked pending or stale.
+
 ## 5.29
 
 - Keep the shipped Problem 23 report aligned with the release gates completed

@@ -1,18 +1,18 @@
 Codename: problem-report
 
-Problem 21: Discover both runtime roots together (23981132) (status: done in 5.25; current release 5.29)
+Problem 21: Discover both runtime roots together (23981132) (status: done in 5.25; verified in 5.30)
 Expected outcome: `.d2` and `.developer-dashboard` roots at every home/project depth both participate, with documented same-depth lookup/write precedence.
 Reproduction: In the isolated Docker fixture, place commands, config, Docker files, dashboards, skills, and environment files under both root names at home and project depths; run the corresponding dashboard/d2 commands and inspect resolved paths. Before the fix, the `.d2` tree was ignored whenever `.developer-dashboard` existed.
 Root cause: path discovery treated the two supported root names as mutually exclusive instead of independent roots at each layer.
 Regression: the red-first Docker test failed 11 assertions; after implementation the focused suite passed. The integration plan and path-registry tests cover lookup, writes, and ecosystem consumers. Aggregate coverage is deferred to Problem 20 by user instruction and is not claimed.
 
-Problem 22: Keep `ddfile.local` dependencies private to their owning skill (23981132) (status: done in 5.25; current release 5.29)
+Problem 22: Keep `ddfile.local` dependencies private to their owning skill (23981132) (status: done in 5.25; verified in 5.30)
 Expected outcome: dependencies declared by an installed skill's `ddfile.local` are installed beneath that skill's own `skills/` directory, never the runtime-global skill directory.
 Reproduction: In Docker, create an owner skill with a local manifest naming a dependency, install the owner, then inspect both the owner's nested `skills/` tree and the runtime-wide `skills/` tree. Before the fix, local dependencies could be placed in the shared runtime location.
 Root cause: local manifests reused the runtime-wide install destination rather than deriving a contained destination from the owning skill.
 Regression: Docker tests cover successful nested installation and reject traversal, symlink escape, invalid names, and recursion hazards. Focused tests and the 5.25 blank-container package install passed. Aggregate coverage is deferred to Problem 20 and is not claimed.
 
-Problem 23: Remove PAX from Developer Dashboard (bb14a6fe) (status: done in 5.29; coverage remains deferred to Problem 20)
+Problem 23: Remove PAX from Developer Dashboard (bb14a6fe) (status: done in 5.29; verified in 5.30; coverage remains deferred to Problem 20)
 Description: Expected outcome: d2/dashboard commands execute through Perl without a compiler cache, no PAX CLI/helper/modules or PAX-specific release job are shipped, stale compiled artifacts stay out of the archive, and standard commands continue working. Reproduction: in Docker, `dashboard pax build --compact -o /tmp/problem23-dashboard /usr/local/bin/dashboard` compiled 117 application files and 2,596 payloads in about 41 seconds; a fresh-home dashboard invocation also staged the PAX helper. Root cause: the vendored compiler and self-compile cache added a parallel command/runtime/release surface to normal dashboard use. Steps: run the build command; inspect staged helper and module paths; run dashboard and d2 version; inspect the built archive; invoke `t/264-pax-removal-contract.t`. The red-first Docker test initially failed because compiler/cache/helper/workflow artifacts existed; after removal all 12 assertions pass. Archive inspection also exposed stale `pax-output/` files, now excluded by a regression guard. The blank-environment browser gate exposed a Chromium-version difference: HTTP 401 can appear as a generic error page or `ERR_HTTP_RESPONSE_CODE_FAILURE`; both are checked while requiring no bootstrap/login content leakage. Aggregate coverage is expressly deferred to Problem 20 and is not claimed.
 
 Delivery checklist for Problems 21-22:
@@ -26,7 +26,9 @@ Delivery checklist for Problems 21-22:
 [x] Fresh blank-container cpanm install with no --notest: 265 files / 16,160 tests passed; CPANTS kwalitee 7/7, 100% in Docker.
 [x] d2 docker.images.build completed; scoped D2 Compose runtime reports image version 5.25.
 [x] Commit recorded as 23981132 with a problem-numbered subject and structured bullet summary.
-[ ] Push and live Scorecard remain pending until local delivery gates for this follow-up are complete.
+[x] Commit 6b9f5faf was pushed to origin/master; post-push Scorecard was run using the required interactive-shell command.
+[ ] Scorecard is 8.0/10, not a pass. Branch-Protection is 0/10 because branch protection is disabled; CII-Best-Practices is 0/10 because no badge effort is detected; Code-Review is 0/10 (0/30 approved changesets); Contributors is 0/10 (no contributing organizations). CI-Tests is unknown because there is no pull request to evaluate. Other reported checks are 10/10.
+[ ] Follow-up requires repository-admin action to enable branch protection and a genuine PR review process, external participation to earn the OpenSSF Best Practices badge and build organization contributions, then rerun Scorecard. This environment's `gh auth status` reports no GitHub CLI authentication; do not claim these checks passed.
 
 Problem 23 delivery checklist:
 [x] Docker reproduction, root-cause analysis, and red-first regression test.
@@ -39,7 +41,10 @@ Problem 23 delivery checklist:
 [x] Full blank integration runner passed against 5.26 after the Chromium assertion adjustment; final 5.29 package install/tests passed. Post-build t/44 guard is skipped because the dev container has no docker executable.
 [x] CPANTS release kwalitee passed 7/7; fresh image containers report dashboard and d2 version 5.29. Aggregate coverage remains deferred to Problem 20.
 [x] Commit recorded as bb14a6fe with a problem-numbered subject and structured bullet summary.
-[ ] Push and live Scorecard remain pending until local delivery gates for this follow-up are complete.
+[x] Commit 6b9f5faf was pushed to origin/master; post-push Scorecard was run using the required interactive-shell command (8.0/10).
+[ ] Scorecard governance follow-up remains open as detailed above. Problem 20's aggregate coverage is separately paused by user request.
 
 Problem 20: Bring repository-wide Perl coverage to 100% (status: paused by user; resume later)
 Description: Coverage work and its aggregate gate are intentionally excluded from this delivery. No 100% coverage claim is made. Problems 21–23 were validated with focused and full non-coverage tests as recorded above; return to Problem 20 in a separate cycle.
+
+Scorecard gate (2026-09-30): status incomplete, 8.0/10. Live output is from `bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"`. Repository-side verification is green for the other scored checks; remaining settings, review-history, badge, and contributor requirements need the external actions listed above. Do not mark the overall delivery complete until actionable scores reach 10/10 and any genuinely non-actionable checks have evidence-backed blockers.
