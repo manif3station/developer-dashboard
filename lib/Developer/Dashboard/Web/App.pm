@@ -7,6 +7,7 @@ our $VERSION = '5.34';
 
 use Capture::Tiny qw(capture);
 use Digest::SHA qw(sha256_hex);
+use Errno qw(EACCES EPERM);
 use File::Basename qw(dirname);
 use File::ShareDir qw(dist_dir);
 use POSIX qw(strftime);
@@ -3456,7 +3457,8 @@ sub _static_path_contained {
 # _serve_static_file_at_path($type, $filename, $file_path, $default_type, $allowed_roots)
 # Serves one already-resolved static file path after the caller has chosen the
 # lookup source, refusing any resolved path that escapes the caller's allowed
-# public roots.
+# public roots. Missing, unreadable, or permission-denied paths return 404;
+# unexpected operating-system open failures remain visible as 500 responses.
 # Input: asset type string, request filename string, resolved file path string,
 # optional explicit mime type override, and array reference of allowed root
 # directories the resolved path must stay inside.
@@ -3470,10 +3472,26 @@ sub _serve_static_file_at_path {
     my $content_type = defined $default_type && $default_type ne ''
       ? _ajax_content_type($default_type)
       : $self->_get_content_type( $type, $filename );
-    open my $fh, '<', $file_path or return [ 500, 'text/plain; charset=utf-8', "Internal Server Error\n" ];    # uncoverable branch true
+    my ( $fh, $open_error ) = _open_static_file($file_path);
+    if ( !$fh ) {
+        return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
+          if $open_error == EACCES || $open_error == EPERM;
+        return [ 500, 'text/plain; charset=utf-8', "Internal Server Error\n" ];
+    }
     my $content = do { local $/; <$fh> };
     close $fh;
     return [ 200, $content_type, $content ];
+}
+
+# _open_static_file($path)
+# Opens one already-validated static asset without converting operating-system
+# permission failures into a server error that reveals the file exists.
+# Input: absolute static-file path string.
+# Output: filehandle and zero on success, or undef and numeric errno on failure.
+sub _open_static_file {
+    my ($path) = @_;
+    open my $fh, '<', $path or return ( undef, 0 + $! );
+    return ( $fh, 0 );
 }
 
 # _get_content_type($type, $filename)

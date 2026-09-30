@@ -90,6 +90,17 @@ my $render_table     = \&Developer::Dashboard::CLI::TableHelpers::render_table;
         return @{ $self->{dirs} || [] };
     }
 
+    # resolve_dir($name)
+    # Returns one injected configured target or raises the registry-style
+    # unknown-alias diagnostic used by cdr payload fallback tests.
+    # Input: alias name string.
+    # Output: configured target string, or dies when the name is absent.
+    sub resolve_dir {
+        my ( $self, $name ) = @_;
+        return $self->{resolve}->($name) if ref( $self->{resolve} ) eq 'CODE';
+        die "unknown alias '$name'\n";
+    }
+
     # _expand_home($path)
     # Delegates to the injected home-expansion code reference.
     # Input: raw alias target string.
@@ -118,6 +129,60 @@ my $render_table     = \&Developer::Dashboard::CLI::TableHelpers::render_table;
     # Input: none.
     # Output: hash reference or undef.
     sub path_aliases { return $_[0]->{path_aliases}; }
+}
+
+{
+    package Test::CLIPaths::FolderPaths;
+
+    # new(%args)
+    # Creates a minimal installed-skill registry for malformed Folder.pm
+    # fixtures without involving the real runtime layer scanner.
+    # Input: nested_skill_entries list and optional named_paths hash.
+    # Output: a path-registry stand-in accepted by the Folder alias helpers.
+    sub new {
+        my ( $class, %args ) = @_;
+        return bless \%args, $class;
+    }
+
+    # nested_skill_entries()
+    # Returns the injected skill roots in the list context expected by Paths.
+    # Input: none.
+    # Output: list of installed skill entry hash references.
+    sub nested_skill_entries { return @{ $_[0]->{entries} || [] }; }
+
+    # named_paths()
+    # Returns the configured alias map used by completion's config precedence.
+    # Input: none.
+    # Output: hash reference or undef.
+    sub named_paths { return $_[0]->{named_paths}; }
+
+    # _expand_home($path)
+    # Keeps fixture aliases deterministic while preserving the path helper API.
+    # Input: one target path string.
+    # Output: the same target path string.
+    sub _expand_home { return $_[1]; }
+
+    # resolve_dir($name)
+    # Produces a stable unknown-alias error for completion code paths.
+    # Input: alias name.
+    # Output: never returns; dies with the unknown alias name.
+    sub resolve_dir { die "unknown alias '$_[1]'\n"; }
+}
+
+# _write_folder_fixture($name, $source)
+# Writes one isolated skill Folder.pm source file for defensive path tests.
+# Input: skill directory name and complete Perl source text.
+# Output: an installed-skill entry hash with dir, segments, lib, and file.
+sub _write_folder_fixture {
+    my ( $name, $source ) = @_;
+    my $dir  = File::Spec->catdir( $home, 'fixture-skills', $name );
+    my $lib  = File::Spec->catdir( $dir, 'lib' );
+    my $file = File::Spec->catfile( $lib, 'Folder.pm' );
+    make_path($lib);
+    open my $fh, '>', $file or die "Unable to write $file: $!";
+    print {$fh} $source;
+    close $fh or die "Unable to close $file: $!";
+    return { dir => $dir, segments => [$name], lib => $lib, file => $file };
 }
 
 subtest 'run_paths_command rejects malformed dispatch arguments' => sub {
@@ -311,6 +376,126 @@ subtest 'Folder alias discovery validates registries and safely skips invalid ca
         ok( !defined $folder_target->( paths => $paths, name => $invalid ), 'invalid or reserved Folder alias target is rejected before lookup' );
     }
     ok( !defined $folder_target->( paths => $paths, name => 'missing-skill.alias' ), 'a qualified alias with no installed skill resolves to undef' );
+    ok( !defined $folder_target->( paths => $paths, name => 'one-part' ), 'a single path component is not a skill-qualified alias' );
+    ok( !defined $folder_target->( paths => $paths, name => 'missing-skill.123bad' ), 'an invalid method identifier is rejected before loading a skill' );
+};
+
+subtest 'Folder.pm alias validation reports malformed providers and unsafe layouts' => sub {
+    my @entries;
+    my $paths = Test::CLIPaths::FolderPaths->new( entries => \@entries );
+
+    my $entries_missing_paths = eval { Developer::Dashboard::CLI::Paths::_skill_folder_entries(); 1 };
+    is( $entries_missing_paths, undef, '_skill_folder_entries rejects a missing path registry' );
+    like( $@, qr/^Missing paths registry$/m, 'the missing registry is named' );
+
+    push @entries, { dir => $home };
+    my @entries_without_segments = Developer::Dashboard::CLI::Paths::_skill_folder_entries($paths);
+    is( $entries_without_segments[0]{name}, '',
+        'a skill entry without segments defaults to an empty name safely' );
+    @entries = ();
+
+    my $missing_entry = eval { Developer::Dashboard::CLI::Paths::_load_skill_folder_module(undef); 1 };
+    is( $missing_entry, undef, '_load_skill_folder_module rejects a non-hash entry' );
+    like( $@, qr/^Missing skill Folder entry$/m, 'the malformed skill entry has a direct error' );
+
+    my $missing_file = eval { Developer::Dashboard::CLI::Paths::_load_skill_folder_module( { dir => $home, lib => $home } ); 1 };
+    is( $missing_file, undef, '_load_skill_folder_module rejects an entry without a file path' );
+    like( $@, qr/^Missing skill Folder\.pm path$/m, 'the missing Folder.pm path is named' );
+
+    my $absent = { dir => $home, lib => File::Spec->catdir( $home, 'absent-lib' ), file => File::Spec->catfile( $home, 'absent-lib', 'Folder.pm' ) };
+    ok( !Developer::Dashboard::CLI::Paths::_load_skill_folder_module($absent), 'a skill with no Folder.pm is skipped' );
+
+    push @entries, _write_folder_fixture( 'no-list', "package Folder; sub here { '/here' } 1;\n" );
+    is_deeply( $folder_aliases->( paths => $paths ), {}, 'a valid Folder.pm without __list__ contributes no aliases' );
+
+    my $array_entry = _write_folder_fixture( 'array-list', "package Folder; sub __list__ { return ['here'] } 1;\n" );
+    @entries = ($array_entry);
+    my $array_error = eval { $folder_aliases->( paths => $paths ); 1 };
+    is( $array_error, undef, 'Folder->__list__ returning an arrayref is rejected' );
+    like( $@, qr/must return a list of alias names, not an array reference/, 'the arrayref/list-context contract is explicit' );
+
+    my $bad_name_entry = _write_folder_fixture( 'bad-name', "package Folder; sub __list__ { return ('bad-name') } 1;\n" );
+    @entries = ($bad_name_entry);
+    my $bad_name_error = eval { $folder_aliases->( paths => $paths ); 1 };
+    is( $bad_name_error, undef, 'Folder->__list__ returning an invalid method name is rejected' );
+    like( $@, qr/returned an invalid alias name/, 'the invalid listed alias is named' );
+
+    my $missing_method_entry = _write_folder_fixture( 'missing-method', "package Folder; sub __list__ { return ('there') } 1;\n" );
+    @entries = ($missing_method_entry);
+    my $missing_method_error = eval { $folder_aliases->( paths => $paths ); 1 };
+    is( $missing_method_error, undef, 'Folder->__list__ naming an absent method is rejected' );
+    like( $@, qr/listed 'there' but Folder->there is not available/, 'the missing method is named' );
+
+    my $empty_target_entry = _write_folder_fixture( 'empty-target', "package Folder; sub __list__ { return ('here') } sub here { '' } 1;\n" );
+    @entries = ($empty_target_entry);
+    my $empty_target_error = eval { $folder_aliases->( paths => $paths ); 1 };
+    is( $empty_target_error, undef, 'Folder methods returning an empty target are rejected' );
+    like( $@, qr/must return a non-empty path string/, 'the empty target contract is explicit' );
+
+    @entries = ( { dir => $empty_target_entry->{dir}, segments => ['empty-target'] } );
+    ok( !defined $folder_target->( paths => $paths, name => 'empty-target.unknown' ), 'a skill with Folder.pm but no requested method returns undef' );
+
+    my $bad_return_entry = _write_folder_fixture( 'bad-return', "package Folder; sub broken { return [] } 1;\n" );
+    @entries = ($bad_return_entry);
+    my $bad_return_error = eval { $folder_target->( paths => $paths, name => 'bad-return.broken' ); 1 };
+    is( $bad_return_error, undef, 'an alias method returning a reference is rejected' );
+    like( $@, qr/must return a non-empty path string/, 'the alias return type error is explicit' );
+
+    my $compile_entry = _write_folder_fixture( 'compile-error', "package Folder; sub broken { ; 1;\n" );
+    my $compile_error = eval { Developer::Dashboard::CLI::Paths::_load_skill_folder_module($compile_entry); 1 };
+    is( $compile_error, undef, 'a syntactically invalid Folder.pm is rejected' );
+    like( $@, qr/Unable to load skill Folder\.pm.*syntax error/s, 'the Perl compile error is preserved' );
+
+    my $false_entry = _write_folder_fixture( 'false-return', "package Folder; 0;\n" );
+    my $false_error = eval { Developer::Dashboard::CLI::Paths::_load_skill_folder_module($false_entry); 1 };
+    is( $false_error, undef, 'a Folder.pm whose final expression is false is rejected' );
+    like( $@, qr/did not return a true value/, 'the false module return is reported' );
+
+    my $undefined_entry = _write_folder_fixture( 'undefined-return', "package Folder; \$! = 0; undef;\n" );
+    local $! = 0;
+    my $undefined_error = eval { Developer::Dashboard::CLI::Paths::_load_skill_folder_module($undefined_entry); 1 };
+    is( $undefined_error, undef, 'a Folder.pm whose final expression is undef is rejected' );
+    like( $@, qr/did not return a true value|Unable to load skill Folder\.pm/, 'the undefined module return has a visible error' );
+
+    my $failed_read_entry = _write_folder_fixture( 'failed-read', "package Folder; \$! = 2; undef;\n" );
+    my $failed_read_error = eval { Developer::Dashboard::CLI::Paths::_load_skill_folder_module($failed_read_entry); 1 };
+    is( $failed_read_error, undef, 'an undefined load with errno is rejected' );
+    like( $@, qr/Unable to load skill Folder\.pm/, 'the errno load failure is not swallowed' );
+
+    my $outside_file = File::Spec->catfile( $home, 'outside-Folder.pm' );
+    open my $outside_fh, '>', $outside_file or die "Unable to write $outside_file: $!";
+    print {$outside_fh} "package Folder; 1;\n";
+    close $outside_fh or die "Unable to close $outside_file: $!";
+    my $unresolvable_skill = File::Spec->catdir( $home, 'unresolvable-skill-a' );
+    my $unresolvable_loop  = File::Spec->catdir( $home, 'unresolvable-skill-b' );
+    symlink $unresolvable_loop, $unresolvable_skill or die "Unable to symlink $unresolvable_skill: $!";
+    symlink $unresolvable_skill, $unresolvable_loop or die "Unable to symlink $unresolvable_loop: $!";
+    my $missing_skill_entry = { dir => $unresolvable_skill, lib => $home, file => $outside_file };
+    my $missing_skill_error = eval { Developer::Dashboard::CLI::Paths::_load_skill_folder_module($missing_skill_entry); 1 };
+    is( $missing_skill_error, undef, 'an unresolvable skill root is rejected' );
+    like( $@, qr/Unable to resolve skill Folder\.pm/, 'the failed realpath is reported' );
+
+    my $symlink_root = File::Spec->catdir( $home, 'symlink-skill' );
+    my $external_lib = File::Spec->catdir( $home, 'external-lib' );
+    my $symlink_lib  = File::Spec->catdir( $symlink_root, 'lib' );
+    make_path( $symlink_root, $external_lib );
+    my $external_folder = File::Spec->catfile( $external_lib, 'Folder.pm' );
+    open my $external_fh, '>', $external_folder or die "Unable to write $external_folder: $!";
+    print {$external_fh} "package Folder; 1;\n";
+    close $external_fh or die "Unable to close $external_folder: $!";
+    symlink $external_lib, $symlink_lib or die "Unable to symlink $symlink_lib: $!";
+    my $outside_lib_error = eval { Developer::Dashboard::CLI::Paths::_load_skill_folder_module( { dir => $symlink_root, lib => $symlink_lib, file => File::Spec->catfile( $symlink_lib, 'Folder.pm' ) } ); 1 };
+    is( $outside_lib_error, undef, 'a Folder.pm lib directory escaping its skill root is rejected' );
+    like( $@, qr/resolves outside its skill root/, 'the escaped lib path is reported' );
+
+    my $contained_root = File::Spec->catdir( $home, 'contained-skill' );
+    my $contained_lib  = File::Spec->catdir( $contained_root, 'lib' );
+    make_path($contained_lib);
+    my $outside_file_link = File::Spec->catfile( $contained_lib, 'Folder.pm' );
+    symlink $outside_file, $outside_file_link or die "Unable to symlink $outside_file_link: $!";
+    my $outside_file_error = eval { Developer::Dashboard::CLI::Paths::_load_skill_folder_module( { dir => $contained_root, lib => $contained_lib, file => $outside_file_link } ); 1 };
+    is( $outside_file_error, undef, 'a Folder.pm symlink escaping its skill lib directory is rejected' );
+    like( $@, qr/resolves outside its skill lib directory/, 'the escaped source path is reported' );
 };
 
 subtest '_cdr_payload guards its arguments and empty term lists' => sub {
@@ -563,6 +748,78 @@ subtest '_render_table tolerates absent headers, rows, and cells' => sub {
     is( $render_table->( [undef], [] ), "\n\n", 'an undefined header cell renders as a zero-width column' );
 };
 
+subtest 'Folder alias filtering, validation and cdr fallback cover alternate provider shapes' => sub {
+    my $first = _write_folder_fixture(
+        'filter-first',
+        "package Folder; sub __list__ { return ('here') } sub here { return '/first' } 1;\n",
+    );
+    my $second = _write_folder_fixture(
+        'filter-second',
+        "package Folder; sub __list__ { return ('there') } sub there { return '/second' } 1;\n",
+    );
+    my $paths = Test::CLIPaths::FolderPaths->new(
+        entries     => [ $first, $second ],
+        named_paths => undef,
+    );
+
+    is_deeply(
+        $folder_aliases->( paths => $paths, skill_name => 'filter-first' ),
+        { 'filter-first.here' => '/first' },
+        'skill_name filters out Folder.pm providers from other installed skills',
+    );
+    is_deeply(
+        $folder_aliases->( paths => $paths, skill_name => 'not-installed' ),
+        {},
+        'a skill filter with no matching installed root returns an empty alias set',
+    );
+
+    for my $invalid ( undef, [], "bad\nname", 'unqualified', 'skill.', '.alias', 'skill..alias', 'skill.__list__' ) {
+        ok(
+            !defined $folder_target->( paths => $paths, name => $invalid ),
+            'qualified Folder alias resolver refuses undefined, referenced, control, empty-part and reserved names',
+        );
+    }
+    my $missing_paths = eval { $folder_target->( name => 'skill.here' ); 1 };
+    is( $missing_paths, undef, 'direct Folder alias resolution requires a path registry' );
+    like( $@, qr/^Missing paths registry$/m, 'direct Folder alias resolution names the missing registry' );
+
+    ok( Developer::Dashboard::CLI::Paths::_valid_folder_method_name('path_1'), 'plain Perl identifier is a valid Folder alias method' );
+    for my $reserved ( undef, [], 'bad-name', 'can', 'isa', 'DOES', 'VERSION', 'DESTROY' ) {
+        ok( !Developer::Dashboard::CLI::Paths::_valid_folder_method_name($reserved), 'non-identifiers and inherited methods are not Folder aliases' );
+    }
+
+    my $fallback_paths = Test::CLIPaths::PathsStub->new(
+        named_paths => undef,
+        cwd         => '/current',
+        resolve     => sub { die "unknown alias '$_[0]'\n" },
+    );
+    is_deeply(
+        $cdr_payload->(
+            paths                => $fallback_paths,
+            args                 => ['filter-first.here'],
+            folder_alias_resolver => sub { return '/from-folder' },
+        ),
+        { target => '/from-folder', matches => [] },
+        'cdr uses the Folder provider when configured aliases are absent and registry resolution misses',
+    );
+    my $configured_provider_calls = 0;
+    my $configured_paths = Test::CLIPaths::PathsStub->new(
+        named_paths => { configured => '/configured' },
+        cwd         => '/current',
+        resolve     => sub { die "unknown alias '$_[0]'\n" },
+    );
+    is_deeply(
+        $cdr_payload->(
+            paths                 => $configured_paths,
+            args                  => ['configured'],
+            folder_alias_resolver => sub { $configured_provider_calls++; die 'configured aliases must suppress Folder fallback'; },
+        ),
+        { target => '', matches => [] },
+        'cdr does not query the Folder provider after the configured alias map claims the name',
+    );
+    is( $configured_provider_calls, 0, 'configured path names prevent Folder.pm alias lookup' );
+};
+
 is_deeply( \@warnings, [], 'no warnings escaped the CLI::Paths coverage run' );
 
 done_testing;
@@ -584,7 +841,9 @@ current-directory delete shorthand when alias targets are missing, blank, or
 unexpandable, the C<cdr> payload and completion helpers when an alias resolves
 to a blank target or the completion index runs past the supplied words,
 skill-provided C<Folder.pm> path aliases, and the table renderers when headers,
-rows, or cells are absent.
+rows, or cells are absent. The Folder fixtures include absent C<__list__>,
+arrayref lists, invalid and missing method names, bad return values, compile and
+false module returns, and symlink escapes from the skill root and C<lib/>.
 
 =head1 WHY IT EXISTS
 

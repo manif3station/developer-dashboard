@@ -409,6 +409,66 @@ chmod 0755, File::Spec->catfile( $logbin, 'docker' );
     chdir $old or die $!;
 }
 
+# Exercise the failure and idempotency edges of development-marker operations,
+# plus duplicate lookup roots that must never duplicate compose arguments.
+{
+    like(
+        eval { $docker->enable_service_development(); 1 } ? '' : $@,
+        qr/\AUsage: dashboard docker development enable <service>/,
+        'development enable requires a service name',
+    );
+    like(
+        eval { $docker->disable_service_development(); 1 } ? '' : $@,
+        qr/\AUsage: dashboard docker development disable <service>/,
+        'development disable requires a service name',
+    );
+
+    my $escape_error = eval { $docker->enable_service_development( project_root => $repo, service => '../outside-dev' ); 1 } ? '' : $@;
+    like( $escape_error, qr/Refusing service name that escapes the docker config root/, 'development enable refuses a service path outside the toggle root' );
+    $escape_error = eval { $docker->disable_service_development( project_root => $repo, service => '../outside-dev' ); 1 } ? '' : $@;
+    like( $escape_error, qr/Refusing service name that escapes the docker config root/, 'development disable refuses a service path outside the toggle root' );
+
+    my $fresh = $docker->enable_service_development( project_root => $repo, service => 'fresh-development-marker' );
+    ok( -f $fresh->{marker}, 'development enable creates the marker and its new service directory' );
+    my $disabled = $docker->disable_service_development( project_root => $repo, service => 'fresh-development-marker' );
+    ok( !-e $disabled->{marker}, 'development disable removes an existing opt-in marker' );
+    $disabled = $docker->disable_service_development( project_root => $repo, service => 'fresh-development-marker' );
+    is( $disabled->{development}, 0, 'development disable is idempotent when the marker is already absent' );
+
+    my $blocked_service_root = File::Spec->catdir( $ddroot, 'config', 'docker', 'blocked-development-marker' );
+    my $blocked_develop_marker = File::Spec->catfile( $blocked_service_root, 'develop.yml' );
+    make_path($blocked_develop_marker);
+    my $write_error = eval { $docker->enable_service_development( project_root => $repo, service => 'blocked-development-marker' ); 1 } ? '' : $@;
+    like( $write_error, qr/Unable to write .*develop\.yml/, 'development enable reports a marker path occupied by a directory' );
+
+    SKIP: {
+        skip 'Linux /dev/full is unavailable for a deterministic close failure', 1 if !-e '/dev/full';
+        my $full_service = 'full-development-marker';
+        my $full_marker = File::Spec->catfile( $ddroot, 'config', 'docker', $full_service, 'develop.yml' );
+        make_path( dirname($full_marker) );
+        symlink '/dev/full', $full_marker or skip "cannot create /dev/full marker symlink: $!", 1;
+        my $close_error = eval { $docker->enable_service_development( project_root => $repo, service => $full_service ); 1 } ? '' : $@;
+        like( $close_error, qr/Unable to close .*develop\.yml/, 'development enable reports a failed marker close' );
+    }
+}
+
+{
+    my $service = 'duplicate-root-compose';
+    my $service_dir = File::Spec->catdir( $ddroot, 'config', 'docker', $service );
+    mkfile( File::Spec->catfile( $service_dir, 'compose.yml' ), "services:\n  duplicate-root-compose: {}\n" );
+    mkfile( File::Spec->catfile( $service_dir, 'development.compose.yml' ), "services:\n  duplicate-root-compose: {}\n" );
+    mkfile( File::Spec->catfile( $service_dir, 'develop.yml' ), "development: 1\n" );
+    no warnings 'redefine';
+    my $docker_root = File::Spec->catdir( $ddroot, 'config', 'docker' );
+    local *Developer::Dashboard::DockerCompose::_service_lookup_roots = sub { return ($docker_root, $docker_root); };
+    my @files = $docker->_discover_service_files( project_root => $repo, service => $service );
+    is_deeply(
+        \@files,
+        [ File::Spec->catfile( $service_dir, 'compose.yml' ), File::Spec->catfile( $service_dir, 'development.compose.yml' ) ],
+        'duplicate runtime roots include base and development compose files exactly once',
+    );
+}
+
 # disable into a not-yet-created marker directory (make_path branch), and into a
 # marker path blocked by a directory (open-for-write failure branch).
 {

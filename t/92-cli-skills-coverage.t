@@ -427,6 +427,11 @@ my @manager_branches;
     is_deeply( \@manager_branches, ['release/next'], 'install forwards the selected branch to SkillManager' );
 
     @manager_branches = ();
+    my $long_branch_install = run_cli( 'install', '--branch', 'release/docs', 'alpha-skill' );
+    is( $long_branch_install->{exit}, 0, 'install accepts --branch with a branch name' );
+    is_deeply( \@manager_branches, ['release/docs'], 'install forwards the long branch option to SkillManager' );
+
+    @manager_branches = ();
     my $branch_many = run_cli( 'install', 'alpha-skill', 'beta-skill', '-b', 'main' );
     is( $branch_many->{exit}, 0, 'install accepts -b with multiple sources' );
     is_deeply( \@manager_branches, ['main'], 'multi-install forwards the selected branch to SkillManager' );
@@ -434,6 +439,9 @@ my @manager_branches;
     is( run_cli( 'install', '-b', 'main' )->{exit}, 2, 'install rejects a branch option without an explicit source' );
     is( run_cli( 'install', '--ddfile', '-b', 'main' )->{exit}, 2, 'install rejects combining -b with --ddfile' );
     is( run_cli( 'install', '-b' )->{exit}, 2, 'install reports usage when -b has no branch argument' );
+    is( run_cli( 'install', '--branch' )->{exit}, 2, 'install reports usage when --branch has no branch argument' );
+    is( run_cli( 'install', '--branch', '-o', 'json', 'alpha-skill' )->{exit}, 2,
+        'install rejects an option token where --branch requires a branch value' );
     is( run_cli( 'install', '-b', '', 'alpha-skill' )->{exit}, 2, 'install reports usage when -b has an empty branch argument' );
 
     @manager_calls = ();

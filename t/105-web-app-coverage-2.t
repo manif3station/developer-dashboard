@@ -5,6 +5,7 @@ use warnings;
 use utf8;
 
 use Digest::SHA qw(sha256_hex);
+use Errno qw(EIO EPERM);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -872,6 +873,19 @@ is( $m->_missing_named_page_response('x')->[0], 200, 'missing page editor -> 200
     my $unreadable = File::Spec->catfile( $absroot, 'noperm.js' );
     wfile( $unreadable, "x\n", 0000 );
     is( $m->_serve_static_file_at_path( 'js', 'noperm.js', $unreadable )->[0], 404, 'serve at an unreadable path -> 404' );
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Web::App::_open_static_file = sub { return ( undef, EIO ); };
+        is( $m->_serve_static_file_at_path( 'js', 'io-error.js', $unreadable, '', [$absroot] )->[0], 500,
+            'unexpected static-file open errors remain server errors' );
+    }
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Web::App::_open_static_file = sub { return ( undef, EPERM ); };
+        is( $m->_serve_static_file_at_path( 'js', 'permission-error.js', $unreadable, '', [$absroot] )->[0], 404,
+            'permission errors while opening a static file are indistinguishable from missing files' );
+    }
     chmod 0644, $unreadable;
 }
 
@@ -1817,7 +1831,7 @@ __END__
 
 =head1 NAME
 
-t/101-web-app-coverage.t - branch and condition coverage closure for the web app backend
+t/105-web-app-coverage-2.t - branch and condition coverage closure for the web app backend
 
 =head1 PURPOSE
 
@@ -1825,8 +1839,10 @@ This test is the executable coverage-closure contract for
 C<Developer::Dashboard::Web::App>. It drives the browser-facing route table,
 helper login, transient-token policy, saved-page render/source/edit/action
 flows, saved and skill-local Ajax endpoints, static asset serving, and the
-defensive fallback paths so every Devel::Cover branch and condition in the
-module is exercised on the Linux test host.
+defensive fallback paths. Static-file permission denials are checked with DAC
+capabilities dropped so a root test process observes the same refusal as an
+ordinary user; unrelated open failures remain explicit server errors. Together
+these cases exercise every Devel::Cover branch and condition in the module.
 
 =head1 WHY IT EXISTS
 
@@ -1844,8 +1860,10 @@ the web app backend.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/101-web-app-coverage.t> while iterating, then keep it green
-under C<prove -lr t> and the Devel::Cover gate before release.
+Run C<prove -lv t/105-web-app-coverage-2.t> while iterating, then keep it green
+under C<prove -lr t> and the Devel::Cover gate before release. Permission
+assertions in the full Linux container suite should run with
+C<CAP_DAC_OVERRIDE> and C<CAP_DAC_READ_SEARCH> dropped.
 
 =head1 WHAT USES IT
 
@@ -1856,7 +1874,7 @@ file to keep the web app backend's branch and condition coverage complete.
 
 Example 1:
 
-  prove -lv t/101-web-app-coverage.t
+  prove -lv t/105-web-app-coverage-2.t
 
 Run the focused coverage-closure test by itself.
 
@@ -1865,5 +1883,11 @@ Example 2:
   prove -lr t
 
 Run it inside the full repository suite before release.
+
+Example 3:
+
+  setpriv --bounding-set=-dac_override,-dac_read_search prove -lv t/105-web-app-coverage-2.t
+
+Run permission-denial coverage as container root without DAC bypass.
 
 =cut

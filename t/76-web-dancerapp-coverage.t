@@ -48,6 +48,7 @@ isa_ok( $paths, 'Developer::Dashboard::PathRegistry', 'path registry anchors the
     sub header { return $_[0]->{headers}{ $_[1] }; }
     sub env    { return $_[0]->{env}; }
     sub body   { return $_[0]->{body}; }
+    sub method { return $_[0]->{env}{REQUEST_METHOD}; }
 }
 
 {
@@ -78,6 +79,16 @@ isa_ok( $paths, 'Developer::Dashboard::PathRegistry', 'path registry anchors the
 }
 
 { package Local::CovBackend; sub new { return bless {}, $_[0]; } }
+
+{
+    # Backends used to prove explicit fallback and missing-method behavior.
+    package Local::EmptyBackend;
+    sub new { return bless {}, $_[0]; }
+
+    package Local::HandleOnlyBackend;
+    sub new { return bless {}, $_[0]; }
+    sub handle { return [ 202, 'text/plain; charset=utf-8', 'handled-fallback', {} ]; }
+}
 
 {
     # Backend that implements login_response (but not logout_response) plus a
@@ -124,6 +135,68 @@ isa_ok( $paths, 'Developer::Dashboard::PathRegistry', 'path registry anchors the
     package Local::CovResponse;
     sub new { return bless { headers => $_[1] || Local::CovHeaders->new }, $_[0]; }
     sub headers { return $_[0]->{headers}; }
+    sub status { $_[0]->{status} = $_[1] if @_ > 1; return $_[0]->{status}; }
+    sub content_type { $_[0]->{content_type} = $_[1] if @_ > 1; return $_[0]->{content_type}; }
+    sub content { $_[0]->{content} = $_[1] if @_ > 1; return $_[0]->{content}; }
+    sub push_header { $_[0]->{headers}{values}{ lc $_[1] } = $_[2]; return 1; }
+}
+
+{
+    # Fake Dancer route used to exercise startup route filtering without
+    # registering additional routes in the process-global Dancer application.
+    package Local::FakeDancerRoute;
+    sub new { return bless { method => $_[1], matches => $_[2] }, $_[0]; }
+    sub method { return $_[0]->{method}; }
+    sub match { return $_[0]->{matches} ? 1 : 0; }
+}
+
+{
+    # Fake Dancer app and runner provide stable route snapshots for loader tests.
+    package Local::FakeDancerApp;
+    our $CURRENT;
+    sub new { return bless { routes => $_[1] || {}, hooks => [] }, $_[0]; }
+    sub name { return $_[0]->{name} || 'DeveloperDashboard'; }
+    sub routes { return $_[0]->{routes}; }
+    sub add_hook { push @{ $_[0]->{hooks} }, $_[1]; return $_[1]; }
+
+    package Local::FakeDancerRunner;
+    sub new { return bless { apps => $_[1] || [] }, $_[0]; }
+    sub apps { return $_[0]->{apps}; }
+}
+
+{
+    # Minimal inputs for _load_skill_dashboard_modules and authorization tests.
+    package Local::DashboardEntries;
+    sub new { return bless { entries => $_[1] || [] }, $_[0]; }
+    sub nested_skill_entries { return @{ $_[0]->{entries} }; }
+
+    package Local::AuthorizationContext;
+    sub new { return bless { request => $_[1], response => $_[2], halted => 0 }, $_[0]; }
+    sub request { return $_[0]->{request}; }
+    sub response { return $_[0]->{response}; }
+    sub halt { $_[0]->{halted} = 1; return; }
+
+    package Local::AuthorizationBackend;
+    sub new { return bless { refusal => $_[1] }, $_[0]; }
+    sub authorize_request { return $_[0]->{refusal}; }
+}
+
+package main;
+
+# _dashboard_module_fixture($name, $source)
+# Creates an isolated skill lib and writes the supplied Dashboard.pm source.
+# Input: fixture name and Perl source text.
+# Output: skill-entry hash with absolute directory and module paths.
+sub _dashboard_module_fixture {
+    my ( $name, $source ) = @_;
+    my $dir = File::Spec->catdir( $home, 'fixture-skills', $name );
+    my $lib = File::Spec->catdir( $dir, 'lib' );
+    make_path($lib);
+    my $module = File::Spec->catfile( $lib, 'Dashboard.pm' );
+    open my $fh, '>', $module or die "Unable to write $module: $!";
+    print {$fh} $source;
+    close $fh or die "Unable to close $module: $!";
+    return { dir => $dir, module => $module, lib => $lib };
 }
 
 # ---------------------------------------------------------------------------
@@ -138,6 +211,214 @@ isa_ok( $paths, 'Developer::Dashboard::PathRegistry', 'path registry anchors the
     local $Developer::Dashboard::Web::DancerApp::BACKEND_APP = undef;
     my $error = eval { Developer::Dashboard::Web::DancerApp::_current_backend(); 1 } ? '' : $@;
     like( $error, qr/Missing backend web app/, '_current_backend dies when no backend has been configured' );
+}
+
+{
+    my $psgi_app = Developer::Dashboard::Web::DancerApp->build_psgi_app( app => bless( {}, 'Local::RealBackend' ) );
+    ok( ref($psgi_app) eq 'CODE', 'build_psgi_app defaults missing response headers to an empty hash' );
+}
+
+# ---------------------------------------------------------------------------
+# Skill Dashboard startup loader: invalid registries, missing routes/modules,
+# containment failures, load failures, and route ordering.
+# ---------------------------------------------------------------------------
+{
+    is_deeply( Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules(undef), [],
+        'skill Dashboard loader skips an undefined path registry' );
+    is_deeply( Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules( bless( {}, 'Local::CovBackend' ) ), [],
+        'skill Dashboard loader skips a registry without nested_skill_entries' );
+
+    my $entries = Local::DashboardEntries->new([]);
+    {
+        no warnings 'redefine';
+        local *Dancer2::runner = sub { return Local::FakeDancerRunner->new([]); };
+        my $error = eval { Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules($entries); 1 } ? '' : $@;
+        like( $error, qr/Unable to find the DeveloperDashboard Dancer2 application/, 'loader reports a missing shared Dancer app' );
+    }
+
+    {
+        no warnings 'redefine';
+        my $wrong_app = Local::FakeDancerApp->new({});
+        $wrong_app->{name} = 'DifferentApp';
+        local *Dancer2::runner = sub { return Local::FakeDancerRunner->new( [$wrong_app] ); };
+        my $error = eval { Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules($entries); 1 } ? '' : $@;
+        like( $error, qr/Unable to find the DeveloperDashboard Dancer2 application/, 'loader ignores a Dancer app with a different name' );
+    }
+
+    my $original_get  = Local::FakeDancerRoute->new( 'get', 0 );
+    my $original_post = Local::FakeDancerRoute->new( 'post', 0 );
+    my $original_put  = Local::FakeDancerRoute->new( 'put', 0 );
+    my $original_options = Local::FakeDancerRoute->new( 'options', 0 );
+    my $fake_app = Local::FakeDancerApp->new(
+        {
+            get     => [$original_get],
+            post    => [$original_post],
+            put     => [$original_put],
+            options => [$original_options],
+            ghost   => undef,
+        }
+    );
+    my $runner = Local::FakeDancerRunner->new( [$fake_app] );
+    {
+        no warnings 'redefine';
+        local *Dancer2::runner = sub { return $runner; };
+        my $loaded = Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules($entries);
+        is_deeply( $loaded, [], 'loader returns an empty list when no skill entries exist' );
+        is_deeply( $fake_app->{hooks}, [], 'loader installs no authorization hook when no skill route was added' );
+    }
+
+    my $missing_dir = File::Spec->catdir( $home, 'fixture-skills', 'module-absent' );
+    make_path($missing_dir);
+    my $route_fixture = _dashboard_module_fixture(
+        'routes-added',
+        q{
+            package Test::Coverage::DashboardRoutes;
+            push @{ $Local::FakeDancerApp::CURRENT->{routes}{get} }, Local::FakeDancerRoute->new('get', 1);
+            push @{ $Local::FakeDancerApp::CURRENT->{routes}{post} }, Local::FakeDancerRoute->new('post', 1);
+            push @{ $Local::FakeDancerApp::CURRENT->{routes}{put} }, Local::FakeDancerRoute->new('put', 1);
+            push @{ $Local::FakeDancerApp::CURRENT->{routes}{delete} }, Local::FakeDancerRoute->new('delete', 1);
+            1;
+        },
+    );
+    my $route_entries = Local::DashboardEntries->new(
+        [ undef, 'bad-entry', { dir => undef }, { dir => '' }, { dir => $missing_dir }, $route_fixture ]
+    );
+    $Local::FakeDancerApp::CURRENT = $fake_app;
+    {
+        no warnings 'redefine';
+        local *Dancer2::runner = sub { return $runner; };
+        my $loaded = Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules($route_entries);
+        is_deeply( $loaded, [ $route_fixture->{module} ], 'loader reports the one valid skill module it loaded' );
+    }
+    is( scalar @{ $fake_app->{hooks} }, 1, 'loader installs one authorization hook for added routes' );
+    is( $fake_app->{routes}{get}[-1], $original_get, 'new GET skill routes stay ahead of the built-in fallback route' );
+    is( $fake_app->{routes}{get}[0]->method, 'get', 'new GET route is inserted before the fallback' );
+    is( $fake_app->{routes}{put}[0], $original_put, 'non-GET/POST route order preserves the existing route first' );
+    is( $fake_app->{routes}{put}[1]->method, 'put', 'new non-fallback route is appended after existing routes' );
+    is( $fake_app->{routes}{post}[-1], $original_post, 'POST fallback stays last after a skill route is added' );
+    is( $fake_app->{routes}{post}[0]->method, 'post', 'new POST route is inserted before its built-in fallback' );
+    is( $fake_app->{routes}{delete}[0]->method, 'delete', 'new methods absent from the original route table are added safely' );
+
+    my $undefined_routes_app = Local::FakeDancerApp->new( { get => undef, ghost => undef } );
+    my $undefined_routes_runner = Local::FakeDancerRunner->new( [$undefined_routes_app] );
+    my $undefined_routes_fixture = _dashboard_module_fixture(
+        'undefined-routes',
+        q{package Test::Coverage::UndefinedRoutes; push @{ $Local::FakeDancerApp::CURRENT->{routes}{get} }, Local::FakeDancerRoute->new('get', 1); 1;} . "\n",
+    );
+    {
+        no warnings 'redefine';
+        local $Local::FakeDancerApp::CURRENT = $undefined_routes_app;
+        local *Dancer2::runner = sub { return $undefined_routes_runner; };
+        my $loaded = Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules( Local::DashboardEntries->new([$undefined_routes_fixture]) );
+        is( scalar @{$loaded}, 1, 'loader snapshots and updates a route method whose prior route list is undefined' );
+    }
+
+    my $resolve_fixture = _dashboard_module_fixture( 'resolve-failure', "package Test::Coverage::ResolveFailure; 1;\n" );
+    {
+        no warnings 'redefine';
+        my @resolved = ( $resolve_fixture->{lib}, undef );
+        local *Developer::Dashboard::Web::DancerApp::abs_path = sub { return shift @resolved; };
+        local *Dancer2::runner = sub { return $runner; };
+        my $error = eval { Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules( Local::DashboardEntries->new([$resolve_fixture]) ); 1 } ? '' : $@;
+        like( $error, qr/Unable to resolve skill Dashboard module/, 'loader reports a module path that cannot be resolved' );
+    }
+
+    {
+        no warnings 'redefine';
+        my @resolved = ( undef, undef );
+        local *Developer::Dashboard::Web::DancerApp::abs_path = sub { return shift @resolved; };
+        local *Dancer2::runner = sub { return $runner; };
+        my $error = eval { Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules( Local::DashboardEntries->new([$resolve_fixture]) ); 1 } ? '' : $@;
+        like( $error, qr/Unable to resolve skill Dashboard module/, 'loader reports a lib directory that cannot be resolved' );
+    }
+
+    for my $relative ( '/outside/Dashboard.pm', '..', '../outside/Dashboard.pm' ) {
+        my $safe_name = $relative;
+        $safe_name =~ s/[^A-Za-z0-9]+/-/g;
+        my $relative_fixture = _dashboard_module_fixture( "relative-$safe_name", "package Test::Coverage::Relative; 1;\n" );
+        no warnings 'redefine';
+        local *File::Spec::abs2rel = sub { return $relative; };
+        local *Dancer2::runner = sub { return $runner; };
+        my $error = eval { Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules( Local::DashboardEntries->new([$relative_fixture]) ); 1 } ? '' : $@;
+        like( $error, qr/resolves outside its skill lib directory/, "loader rejects escaped relative path '$relative'" );
+    }
+
+    my $outside = File::Spec->catfile( $home, 'external-Dashboard.pm' );
+    open my $outside_fh, '>', $outside or die "Unable to write $outside: $!";
+    print {$outside_fh} "package Test::Coverage::ExternalDashboard; 1;\n";
+    close $outside_fh or die "Unable to close $outside: $!";
+    my $escape_fixture = _dashboard_module_fixture( 'escape-module', '' );
+    unlink $escape_fixture->{module} or die "Unable to remove $escape_fixture->{module}: $!";
+    symlink $outside, $escape_fixture->{module} or die "Unable to link $escape_fixture->{module}: $!";
+    {
+        no warnings 'redefine';
+        local *Dancer2::runner = sub { return $runner; };
+        my $error = eval { Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules( Local::DashboardEntries->new([$escape_fixture]) ); 1 } ? '' : $@;
+        like( $error, qr/resolves outside its skill lib directory/, 'loader rejects Dashboard.pm symlinks escaping the skill lib' );
+    }
+
+    my $syntax_fixture = _dashboard_module_fixture( 'syntax-error', q{package Test::Coverage::SyntaxFailure; my $broken = ; 1;} . "\n" );
+    {
+        no warnings 'redefine';
+        local *Dancer2::runner = sub { return $runner; };
+        my $error = eval { Developer::Dashboard::Web::DancerApp::_load_skill_dashboard_modules( Local::DashboardEntries->new([$syntax_fixture]) ); 1 } ? '' : $@;
+        like( $error, qr/Unable to load skill Dashboard module.*syntax error/s, 'loader preserves a Dashboard.pm compile failure' );
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Skill-route authorization validates its inputs and handles each refusal form.
+# ---------------------------------------------------------------------------
+{
+    my $bad_routes = eval { Developer::Dashboard::Web::DancerApp::_authorize_skill_dashboard_routes( {}, bless( {}, 'Local::AuthorizationContext' ) ); 1 } ? '' : $@;
+    like( $bad_routes, qr/Missing skill route list/, 'authorization rejects a non-array route list' );
+    my $bad_context = eval { Developer::Dashboard::Web::DancerApp::_authorize_skill_dashboard_routes( [], undef ); 1 } ? '' : $@;
+    like( $bad_context, qr/Missing Dancer2 request context/, 'authorization rejects a missing Dancer context' );
+    my $context_without_request = bless {}, 'Local::CovBackend';
+    my $missing_request = eval { Developer::Dashboard::Web::DancerApp::_authorize_skill_dashboard_routes( [], $context_without_request ); 1 } ? '' : $@;
+    like( $missing_request, qr/Missing Dancer2 request context/, 'authorization rejects a context without request()' );
+
+    my $request = Local::CovRequest->new( env => { REQUEST_METHOD => undef } );
+    my $context = Local::AuthorizationContext->new( $request, Local::CovResponse->new );
+    my $nonmatching = Local::FakeDancerRoute->new( 'get', 0 );
+    is( Developer::Dashboard::Web::DancerApp::_authorize_skill_dashboard_routes( [$nonmatching], $context ), undef,
+        'authorization passes requests that do not match a skill route' );
+
+    my $matching = Local::FakeDancerRoute->new( '', 1 );
+    {
+        local $Developer::Dashboard::Web::DancerApp::BACKEND_APP = { app => Local::CovBackend->new, default_headers => {} };
+        my $error = eval { Developer::Dashboard::Web::DancerApp::_authorize_skill_dashboard_routes( [$matching], $context ); 1 } ? '' : $@;
+        like( $error, qr/does not implement authorize_request/, 'authorization refuses skill routes when backend auth is absent' );
+    }
+
+    my $get_request = Local::CovRequest->new( env => { REQUEST_METHOD => 'GET' } );
+    my $matched_context = Local::AuthorizationContext->new( $get_request, Local::CovResponse->new );
+    my $get_route = Local::FakeDancerRoute->new( 'get', 1 );
+    {
+        local *Developer::Dashboard::Web::DancerApp::request = sub { return $get_request; };
+        local $Developer::Dashboard::Web::DancerApp::BACKEND_APP = { app => Local::AuthorizationBackend->new(undef), default_headers => {} };
+        is( Developer::Dashboard::Web::DancerApp::_authorize_skill_dashboard_routes( [$get_route], $matched_context ), undef,
+            'authorization passes a matched skill request when the backend allows it' );
+    }
+
+    for my $case (
+        { body => undef, headers => { 'X-Refused' => 'yes' }, expected_body => '', expected_header => 'yes' },
+        { body => 'blocked', headers => [], expected_body => 'blocked', expected_header => undef },
+    ) {
+        my $response = Local::CovResponse->new;
+        my $denied_context = Local::AuthorizationContext->new( $get_request, $response );
+        local *Developer::Dashboard::Web::DancerApp::request = sub { return $get_request; };
+        local $Developer::Dashboard::Web::DancerApp::BACKEND_APP = {
+            app => Local::AuthorizationBackend->new( [ 403, 'text/plain', $case->{body}, $case->{headers} ] ),
+            default_headers => {},
+        };
+        Developer::Dashboard::Web::DancerApp::_authorize_skill_dashboard_routes( [$get_route], $denied_context );
+        is( $response->status, 403, 'denied skill route copies the refusal status' );
+        is( $response->content_type, 'text/plain', 'denied skill route copies the refusal content type' );
+        is( $response->content, $case->{expected_body}, 'denied skill route normalizes an undefined body' );
+        is( $response->headers->header('X-Refused'), $case->{expected_header}, 'denied skill route copies only hash response headers' );
+        ok( $denied_context->{halted}, 'denied skill route halts the Dancer request' );
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -185,6 +466,20 @@ sub request_args_with {
     is( $args->{headers}{cookie},      'a=1',         'request args keep a present Cookie header' );
     is( $args->{headers}{'x-dd-api-key'},    'k',     'request args keep a present api key header' );
     is( $args->{headers}{'x-dd-api-secret'}, 's',     'request args keep a present api secret header' );
+}
+
+{
+    my $args = request_args_with(
+        headers => {
+            Origin           => 'https://same.example',
+            Referer          => 'https://same.example/page',
+            'Sec-Fetch-Site' => 'same-origin',
+        },
+        env => { PATH_INFO => '/headers' },
+    );
+    is( $args->{headers}{origin}, 'https://same.example', 'request args retain Origin for CSRF checks' );
+    is( $args->{headers}{referer}, 'https://same.example/page', 'request args retain Referer for CSRF checks' );
+    is( $args->{headers}{'sec-fetch-site'}, 'same-origin', 'request args retain browser fetch metadata' );
 }
 
 # Call B: Host empty, SERVER_NAME and SERVER_PORT both present -> host:port.
@@ -322,6 +617,19 @@ is( Developer::Dashboard::Web::DancerApp::_looks_like_disconnect_error('totally 
     is( $body->{stream}, 'not-a-coderef', 'the non-stream hash body is returned unchanged' );
 }
 
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::DancerApp::status = sub { };
+    local *Developer::Dashboard::Web::DancerApp::content_type = sub { };
+    local *Developer::Dashboard::Web::DancerApp::response_header = sub { };
+    local $Developer::Dashboard::Web::DancerApp::BACKEND_APP = { app => Local::CovBackend->new, default_headers => {} };
+    is(
+        Developer::Dashboard::Web::DancerApp::_response_from_result([ 200, 'text/plain', 'plain-body', undef ]),
+        'plain-body',
+        '_response_from_result treats an undefined backend header map as empty',
+    );
+}
+
 # ---------------------------------------------------------------------------
 # Streaming happy path plus disconnect and fatal write handling.
 # ---------------------------------------------------------------------------
@@ -449,6 +757,21 @@ is( Developer::Dashboard::Web::DancerApp::_looks_like_disconnect_error('totally 
     );
 }
 
+{
+    no warnings 'redefine';
+    my $fake = Local::CovRequest->new( headers => {}, env => { PATH_INFO => '/missing', REQUEST_METHOD => 'GET' } );
+    local *Developer::Dashboard::Web::DancerApp::request = sub { return $fake; };
+    local *Developer::Dashboard::Web::DancerApp::status = sub { };
+    local *Developer::Dashboard::Web::DancerApp::content_type = sub { };
+    local *Developer::Dashboard::Web::DancerApp::response_header = sub { };
+    local $Developer::Dashboard::Web::DancerApp::BACKEND_APP = { app => Local::EmptyBackend->new, default_headers => {} };
+    like(
+        Developer::Dashboard::Web::DancerApp::_run_backend('not_implemented'),
+        qr/Backend app does not implement not_implemented or handle/,
+        '_run_backend converts a backend with neither method nor handle into a visible 500 body',
+    );
+}
+
 # ---------------------------------------------------------------------------
 # _run_authorized: authorized method, denied by authorize_request, and no
 # authorize_request implementation at all.
@@ -476,6 +799,33 @@ is( run_authorized_body( Local::AuthDenyBackend->new ), 'denied',
     '_run_authorized returns the auth response when authorize_request denies it' );
 is( run_authorized_body( Local::NoAuthBackend->new ), 'root-noauth',
     '_run_authorized runs the method when the backend has no authorize_request' );
+
+{
+    no warnings 'redefine';
+    my $fake = Local::CovRequest->new( headers => {}, env => { PATH_INFO => '/fallback', REQUEST_METHOD => 'GET' } );
+    local *Developer::Dashboard::Web::DancerApp::request = sub { return $fake; };
+    local *Developer::Dashboard::Web::DancerApp::status = sub { };
+    local *Developer::Dashboard::Web::DancerApp::content_type = sub { };
+    local *Developer::Dashboard::Web::DancerApp::response_header = sub { };
+    local $Developer::Dashboard::Web::DancerApp::BACKEND_APP = { app => Local::HandleOnlyBackend->new, default_headers => {} };
+    is( Developer::Dashboard::Web::DancerApp::_run_authorized('root_response'), 'handled-fallback',
+        '_run_authorized falls back to handle() when the named method is absent' );
+}
+
+{
+    no warnings 'redefine';
+    my $fake = Local::CovRequest->new( headers => {}, env => { PATH_INFO => '/missing', REQUEST_METHOD => 'GET' } );
+    local *Developer::Dashboard::Web::DancerApp::request = sub { return $fake; };
+    local *Developer::Dashboard::Web::DancerApp::status = sub { };
+    local *Developer::Dashboard::Web::DancerApp::content_type = sub { };
+    local *Developer::Dashboard::Web::DancerApp::response_header = sub { };
+    local $Developer::Dashboard::Web::DancerApp::BACKEND_APP = { app => Local::EmptyBackend->new, default_headers => {} };
+    like(
+        Developer::Dashboard::Web::DancerApp::_run_authorized('root_response'),
+        qr/Backend app does not implement root_response or handle/,
+        '_run_authorized makes a missing backend method visible as a 500 body',
+    );
+}
 
 # ---------------------------------------------------------------------------
 # One genuine PSGI round-trip through build_psgi_app to exercise the real
