@@ -238,6 +238,43 @@ sub bookmark {
     is( scalar @roots, 1, 'a non PageStore pages object contributes no store roots' );
 }
 
+# ---------------------------------------------------------------------------
+# static_file_response, transient_action_response gate, _get_content_type.
+# ---------------------------------------------------------------------------
+{
+    for my $file ( 'jquery.js', 'jquery-4.0.0.min.js' ) {
+        is( $app->static_file_response( type => 'js', file => $file )->[0], 200, "static_file_response serves the bundled $file" );
+    }
+    my $other = $app->static_file_response( type => 'js', file => 'not-jquery-at-all.js' );
+    is( $other->[0], 404, 'static_file_response falls through to the public tree for other js files' );
+
+    local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 0;
+    is(
+        $app->transient_action_response( path => '/action', query => 'atoken=abc', body => '', headers => {}, remote_addr => '127.0.0.1' )->[0],
+        403,
+        'an action token is refused while transient URLs are disabled',
+    );
+}
+
+{
+    my %expected = (
+        'x.json' => 'application/json; charset=utf-8',
+        'x.xml'  => 'application/xml; charset=utf-8',
+        'x.txt'  => 'text/plain; charset=utf-8',
+        'x.html' => 'text/html; charset=utf-8',
+        'x.svg'  => 'image/svg+xml',
+        'x.png'  => 'image/png',
+        'x.jpg'  => 'image/jpeg',
+        'x.gif'  => 'image/gif',
+        'x.webp' => 'image/webp',
+        'x.ico'  => 'image/x-icon',
+        'x.bin'  => 'application/octet-stream',
+    );
+    is( $app->_get_content_type( 'other', $_ ), $expected{$_}, "content type for $_" ) for sort keys %expected;
+    is( $app->_get_content_type( 'js',  'x.js' ),  'application/javascript; charset=utf-8', 'content type for js type' );
+    is( $app->_get_content_type( 'css', 'x.css' ), 'text/css; charset=utf-8',               'content type for css type' );
+}
+
 done_testing;
 
 __END__

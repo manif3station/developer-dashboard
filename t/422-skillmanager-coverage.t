@@ -171,6 +171,7 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     if ( !$pid ) {
         $> = 65534 if $> == 0;
         my @prefix = $manager->_skill_package_runner_prefix;
+        $> = 0;
         exit( $prefix[0] && $prefix[0] eq 'sudo' ? 0 : 1 );
     }
     waitpid( $pid, 0 );

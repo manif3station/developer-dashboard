@@ -39,7 +39,8 @@ my $unknown = run_cli( 'install', '--definitely-not-an-option' );
 is( $unknown->{exit}, 2, 'an unknown install option reports usage' );
 like( $unknown->{stdout} . $unknown->{stderr}, qr/Usage: dashboard skills install/, 'the usage text is printed' );
 
-is_deeply( \@warnings, [], 'no warnings escaped' );
+is( scalar(@warnings), 1, 'only the Getopt::Long unknown-option warning was emitted' );
+like( $warnings[0], qr/Unknown option: definitely-not-an-option/, 'the warning names the unknown option' );
 
 done_testing;
 
