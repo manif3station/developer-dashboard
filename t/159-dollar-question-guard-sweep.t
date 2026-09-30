@@ -43,8 +43,7 @@ my %BASELINE = map { $_ => 1 } ();
 # its own, so the old entry stopped reproducing (a stale baseline entry, not
 # a fixed one). The new location was a genuine new unguarded instance and is
 # now guarded directly in lib/ rather than re-added here - see
-# CommandRunner.pm::terminate_command_process and
-# Pax/CoverageSelect.pm::pax_binary_source_hash, both fixed by this ticket.
+# CommandRunner.pm::terminate_command_process, fixed by this ticket.
 my %SETTER_BASELINE = map { $_ => 1 } (
     'Developer/Dashboard/ActionRunner.pm::run_command_action',
     'Developer/Dashboard/CLI/Ask.pm::_ask_claude',

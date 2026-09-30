@@ -18,12 +18,8 @@ locally here."*
 ## What still runs on GitHub
 
 - `test.yml` - the full test/coverage suite, on every push and PR.
-- `pax-release.yml` - builds compiled PAX standalone binaries per
-  platform/arch (see `docs/pax-multi-platform-ci.md`).
 - `release-github.yml` - creates the signed GitHub Release (source
-  tarball + checksum/signature/provenance, plus the compiled PAX
-  binaries via `pax-binaries`/`attach-pax-binaries` - see
-  `docs/github-release-attaches-pax-binaries.md`) on a `vX.XX` tag push.
+  tarball + checksum/signature/provenance) on a `vX.XX` tag push.
 
 None of these touch PAUSE or CPAN in any way.
 

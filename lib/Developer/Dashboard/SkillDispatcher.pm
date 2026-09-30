@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '5.25';
+our $VERSION = '5.29';
 
 use Config ();
 use Developer::Dashboard::DirEntries qw(sorted_dir_entries);
@@ -1560,7 +1560,7 @@ Developer::Dashboard::SkillDispatcher - execute commands from installed skills
 
   use Developer::Dashboard::SkillDispatcher;
   my $dispatcher = Developer::Dashboard::SkillDispatcher->new();
-  
+
   my $result = $dispatcher->dispatch('skill-name', 'cmd', 'arg1', 'arg2');
   my $hooks = $dispatcher->execute_hooks('skill-name', 'cmd');
   my $config = $dispatcher->get_skill_config('skill-name');

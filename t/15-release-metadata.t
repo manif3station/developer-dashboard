@@ -86,7 +86,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '5.25', 'release version follows the current Problems 21-22 package fixes' );
+is( $version, '5.29', 'release version includes Problem 23 and its final delivery report' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
@@ -179,8 +179,6 @@ if ( $dist ne '' ) {
     like( $dist, qr/^exclude_match = \^test_by_michael\/$/m, 'dist.ini excludes test_by_michael so private scratch fixtures do not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^updates\/$/m, 'dist.ini excludes checkout-only update scripts so user-defined update remains the installed runtime contract' );
     like( $dist, qr/^exclude_match = \^dogfood-output\/$/m, 'dist.ini excludes dogfood-output so browser QA evidence and screenshots do not leak into release tarballs' );
-    like( $dist, qr/^exclude_match = \^pax-output\/$/m, 'dist.ini excludes pax-output so locally compiled dashboard binaries do not stall or leak into release tarballs' );
-    like( $dist, qr/^prune_directory = \^pax-output\$$/m, 'dist.ini prunes pax-output before scanning its generated binaries' );
     like( $dist, qr/^exclude_match = \^\\\.worktrees\/$/m, 'dist.ini excludes .worktrees so ticket worktrees do not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^\\\.developer-dashboard\/$/m, 'dist.ini excludes .developer-dashboard so operator runtime state does not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^_developer-dashboard\/$/m, 'dist.ini excludes _developer-dashboard so a non-dot rename of the runtime root does not leak into release tarballs (DD-432 class)' );
@@ -377,7 +375,6 @@ my @operator_local_files = qw(
 
     my @must_be_excluded = qw(
         cover_db/coverage.html
-        t/tmp-sow03/isolated-app
         local/lib/perl5/Net/SSLeay.pod
         audit-local/lib/perl5/CPANSA/DB.pm
         logs/ft99.log
@@ -406,7 +403,7 @@ my @operator_local_files = qw(
         return scalar grep { $directory =~ $_ } @prune_directory;
     };
     ok( $pruned->($_), "dist.ini prunes excluded generated directory $_ before walking it" )
-      for qw(pax-output .worktrees node_modules test_by_michael);
+      for qw(.worktrees node_modules test_by_michael);
 
     # DERIVE BOTH HALVES, NOT ONE. The patterns above are compiled out of
     # dist.ini, so a new exclusion is picked up automatically - but the sample
@@ -827,27 +824,6 @@ unlike(
     'main module product manual avoids brittle private-module POD links and stays self-contained',
 );
 
-{
-    # DD-943: t/183-pax-cli-build-run-contract.t creates t/tmp-sow03/ as a
-    # deliberately minimal/POD-less fixture scratch directory and leaves it
-    # on disk after running (gitignored, cleaned only at t/183's own START,
-    # not its end). _perl_doc_paths() must exclude it the same way it
-    # excludes /lib/Developer/Dashboard/Pax and /t/fixtures/, or this test
-    # incorrectly fails whenever t/183 happens to run first in the same
-    # `prove` process.
-    my $stray_dir = _repo_path( 't', 'tmp-sow03', 'dd943-stray' );
-    make_path($stray_dir);
-    my $stray_file = File::Spec->catfile( $stray_dir, 'Fixture.pm' );
-    open my $fh, '>', $stray_file or die "Unable to write $stray_file: $!";
-    print {$fh} "package DD943::Fixture;\n1;\n";
-    close $fh;
-    my @paths = _perl_doc_paths();
-    my ($found) = grep { $_ eq $stray_file } @paths;
-    ok( !$found, 'DD-943: _perl_doc_paths() excludes a stray fixture under t/tmp-sow03/' );
-    require File::Path;
-    File::Path::remove_tree( _repo_path( 't', 'tmp-sow03' ) );
-}
-
 for my $path ( _perl_doc_paths() ) {
     my $content = _slurp($path);
     like( $content, qr/^__END__$/m, "$path keeps Perl POD after __END__" );
@@ -1006,14 +982,6 @@ sub _perl_doc_paths {
                 wanted   => sub {
                     return if !-f $_;
                     return if $_ =~ m{/OLD_CODE/};
-                    # DD-943: t/183-pax-cli-build-run-contract.t leaves its
-                    # own deliberately minimal/POD-less scratch fixtures on
-                    # disk under t/tmp-sow03/ after it runs - exclude them
-                    # the same way /lib/Developer/Dashboard/Pax and
-                    # /t/fixtures/ are already excluded elsewhere in this
-                    # file, or this sweep fails whenever t/183 happens to
-                    # run before t/15 in the same prove process.
-                    return if $_ =~ m{/t/tmp-sow03/};
                     return if $_ !~ /\.(?:pm|pl|t)\z/ && $_ !~ m{/share/private-cli/[^/]+\z};
                     push @paths, $File::Find::name;
                 },
@@ -1039,6 +1007,11 @@ sub _test_citation_population {
                 wanted   => sub {
                     return if !-f $_;
                     return if $_ !~ /\.md\z/;
+                    # This locally ignored coverage work log is intentionally
+                    # outside the shipped/repository documentation set while
+                    # Problem 20 is paused; its historical PAX test references
+                    # describe tests removed with the retired subsystem.
+                    return if $File::Find::name eq _repo_path( 'doc', 'problem-20-report.md' );
                     push @paths, $File::Find::name;
                 },
             },
@@ -1154,16 +1127,7 @@ sub _repo_search_without_self {
     FILE:
     for my $path ( sort grep { !$seen{$_}++ } @files ) {
         next if $path eq $self;
-        # DD-882: the vendored PAX compiler (lib/Developer/Dashboard/Pax/*)
-        # and its own ported test fixtures/build-artifact scratch dirs carry
-        # third-party source whose own literal strings (e.g. PAX's own
-        # `api-dashboard.page` page-name pattern in an unrelated page-runtime
-        # regex) can coincidentally match this repo-history search without
-        # being a reference to THIS project's own extracted API/SQL
-        # dashboard feature - the thing this check actually exists to catch.
-        next if $path =~ m{/lib/Developer/Dashboard/Pax(?:/|\.pm\z)};
         next if $path =~ m{/t/fixtures/};
-        next if $path =~ m{/t/tmp-sow03/};
         my $content = _slurp($path);
         my @lines   = split /\n/, $content, -1;
         for my $index ( 0 .. $#lines ) {

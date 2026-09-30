@@ -190,19 +190,8 @@ completely unmodified on disk.
 
 ## What is deliberately out of scope
 
-`lib/Developer/Dashboard/Pax/StandaloneRuntime.pm` - the hand-maintained
-duplicate CLI implementation used only by the self-compiled standalone
-binary - was **not** updated to mirror this routing. Self-exec has been
-disabled since DD-905 (a corrupted `.env`-parsing defect) and is unreachable
-in normal usage; no test asserts byte-parity between the two
-implementations. If self-exec is ever re-enabled, syncing
-`StandaloneRuntime.pm`'s `path add`/`file add`/`del` ops to call the same
-`save_path_alias`/`save_file_alias`/`remove_path_alias`/`remove_file_alias`
-dispatch is separate follow-up work, tracked on DD-1004's card rather than
-silently left as an undocumented gap (per this project's own
-"a mitigation is not done until the real fix's ticket is filed" rule -
-though note this is a scope decision, not a mitigation for a defect: the
-duplicate simply keeps its pre-existing, already-disabled behavior).
+No separate compiled-runtime command implementation is maintained. The
+interpreted CLI is the single supported command path.
 
 ## Related
 

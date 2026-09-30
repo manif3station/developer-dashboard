@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFile;
 use strict;
 use warnings;
 
-our $VERSION = '5.25';
+our $VERSION = '5.29';
 
 use Cwd qw(cwd);
 use Exporter 'import';
@@ -453,7 +453,7 @@ sub _command_exec {
     # proven reachable by t/98-cli-openfile-coverage.t's own passing
     # assertion - but the exec() op boundary is structurally invisible to
     # this coverage instrument, matching the documented fork/exec pattern
-    # already annotated the same way in PaxCache.pm.
+    # already annotated as an exec boundary for coverage tooling.
     die "Unable to run editor '$command[0]': $!\n";    # uncoverable statement
 }
 

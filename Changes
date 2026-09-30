@@ -1,3 +1,31 @@
+5.29  2026-09-30
+
+  - Ship the final Problem 23 delivery report with the verified archive and
+    image results instead of the pre-verification in-progress status.
+
+5.28  2026-09-30
+
+  - Exclude stale generated pax-output artifacts from source distributions so
+    an old local binary cannot leak into the interpreted-only package.
+
+5.27  2026-09-30
+
+  - Exclude stale generated pax-output artifacts from source distributions so
+    an old local binary cannot leak into the interpreted-only package.
+  - Keep the blank-environment outsider-browser check portable across
+    Chromium's generic 401 page and its HTTP response failure while continuing
+    to assert that bootstrap guidance and the login form are not exposed.
+
+5.26  2026-09-30
+
+  - Remove the vendored PAX compiler, self-compilation cache, CLI command,
+    private helper staging entry, and compiled-binary release workflow. Keep
+    the interpreted Perl CLI as the single supported execution path, and add
+    Docker regression coverage for the removed integration. Make the blank
+    container's outsider-browser assertion accept Chromium's generic 401 page
+    or its equivalent HTTP response failure while still rejecting leaked
+    bootstrap content.
+
 5.25  2026-09-30
 
   - Preserve eligible module source paths across standalone runtime-family

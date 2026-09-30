@@ -4,8 +4,8 @@ Description: Both runtime roots participate at every home/project depth. Same-de
 Problem 22: Keep ddfile.local dependencies private to their owning skill (no git ref) (status: implementation and Docker verification complete; 5.25 packaged)
 Description: Local dependencies now install beneath the owning skill's skills/ directory, with containment, symlink, name, and recursion protections. Focused Docker tests verify nested install and no runtime-global install.
 
-Problem 23: Remove PAX from Developer Dashboard (no git ref) (status: pending)
-Description: User reports slow iteration and unreliable d2/dashboard compilation. Expected behavior and compatibility strategy remain for a separate problem cycle; no implementation has started.
+Problem 23: Remove PAX from Developer Dashboard (no git ref) (status: implementation, Docker tests, package, and image verification complete; Problem 20 coverage deferred)
+Description: Expected outcome: d2/dashboard commands execute through Perl without a compiler cache, no PAX CLI/helper/modules or PAX-specific release job are shipped, stale compiled artifacts stay out of the archive, and standard commands continue working. Reproduction: in Docker, `dashboard pax build --compact -o /tmp/problem23-dashboard /usr/local/bin/dashboard` compiled 117 application files and 2,596 payloads in about 41 seconds; a fresh-home dashboard invocation also staged the PAX helper. Root cause: the vendored compiler and self-compile cache added a parallel command/runtime/release surface to normal dashboard use. Steps: run the build command; inspect staged helper and module paths; run dashboard and d2 version; inspect the built archive; invoke `t/264-pax-removal-contract.t`. The red-first Docker test initially failed because compiler/cache/helper/workflow artifacts existed; after removal all 12 assertions pass. Archive inspection also exposed stale `pax-output/` files, now excluded by a regression guard. The blank-environment browser gate exposed a Chromium-version difference: HTTP 401 can appear as a generic error page or `ERR_HTTP_RESPONSE_CODE_FAILURE`; both are checked while requiring no bootstrap/login content leakage. Aggregate coverage is expressly deferred to Problem 20 and is not claimed.
 
 Delivery checklist for Problems 21-22:
 [x] Docker reproduction, root cause, red tests, implementation, and focused regression verification.
@@ -17,5 +17,16 @@ Delivery checklist for Problems 21-22:
 [x] dzil build produced Developer-Dashboard-5.25.tar.gz; embedded module says 5.25, only current tarball remains, no cover_db included.
 [x] Fresh blank-container cpanm install with no --notest: 265 files / 16,160 tests passed; CPANTS kwalitee 7/7, 100% in Docker.
 [x] d2 docker.images.build completed; scoped D2 Compose runtime reports image version 5.25.
-[ ] Commit with Problem 21-22 title and bullet-point body.
+[x] Problem 21-22 commit recorded as 23981132; no push was requested in that cycle.
 [ ] Push and live Scorecard are not run absent a push request.
+
+Problem 23 delivery checklist:
+[x] Docker reproduction, root-cause analysis, and red-first regression test.
+[x] Remove compiler modules/cache, CLI helper, build workflow, and self-compile entrypoint paths.
+[x] Focused Docker regression: t/264-pax-removal-contract.t passes (11 tests).
+[x] Full non-coverage suite passes in Docker: 203 files / 19,172 tests. One first-run timing failure in t/153 passed both an isolated rerun and the clean full-suite rerun; after adding the archive-exclusion assertion, t/264 passes all 12 assertions.
+[x] Required security scans and focused web security tests pass; reviewed perlsec guidance for the removed compiler/launcher boundary. Coverage gate deferred to Problem 20 as requested.
+[x] Documentation, version 5.29, Changes, README/POD synchronization, and FIXED_BUGS.
+[x] Final dzil clean/build, archive inspection, blank-container cpanm test without --notest (115 distributions), and image build/version verification for 5.29.
+[x] Full blank integration runner passed against 5.26 after the Chromium assertion adjustment; final 5.29 package install/tests passed. Post-build t/44 guard is skipped because the dev container has no docker executable.
+[x] CPANTS release kwalitee passed 7/7; fresh image containers report dashboard and d2 version 5.29. Aggregate coverage remains deferred to Problem 20.

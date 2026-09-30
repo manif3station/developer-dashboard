@@ -308,5 +308,5 @@ The run passes when:
 - the container exits `0`
 - the app under test comes only from the host-built tarball
 - the installed `dashboard` CLI completes the scripted fake-project flow from the mounted tarball install
-- Chromium verifies the editor, saved bookmark page, outsider disabled-access page, and helper login page
+- Chromium verifies the editor, saved bookmark page, outsider disabled-access page, and helper login page. Before a helper user exists, the remote request must remain a body-free 401; headless Chromium may render its generic `HTTP ERROR 401` page or report `net::ERR_HTTP_RESPONSE_CODE_FAILURE`, but neither outcome may expose bootstrap guidance or a login form.
 - the web lifecycle and helper browser flow behave as expected

@@ -1,5 +1,31 @@
 # Fixed Bugs
 
+## 5.29
+
+- Keep the shipped Problem 23 report aligned with the release gates completed
+  for the archive and Docker image.
+
+## 5.28
+
+- Excluded stale generated `pax-output/` files from the source archive after
+  package inspection found old compiled artifacts still being collected.
+
+## 5.27
+
+- Made the blank-environment outsider-browser check accept both Chromium's
+  generic 401 page and `ERR_HTTP_RESPONSE_CODE_FAILURE`, while preserving
+  checks that neither bootstrap guidance nor a login form leaks to outsiders.
+
+## 5.26
+
+- Removed the embedded PAX compiler and self-compilation integration, which
+  added a second execution and release path. The dashboard now consistently
+  runs its CLI through the active Perl interpreter; Docker regression tests
+  guard the helper, module, command, and release-workflow boundary.
+- Stabilized blank-container outsider-browser verification across Chromium's
+  generic 401 error-page and HTTP-response-failure output forms while retaining
+  explicit no-bootstrap-content assertions.
+
 ## 5.25
 
 - Fixed standalone runtime-family expansion and payload mapping when modules

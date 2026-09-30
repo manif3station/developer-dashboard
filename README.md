@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.25
+5.29
 
 # INTRODUCTION
 
@@ -531,8 +531,8 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     workspace reference, seeds `WORKSPACE_REF`, keeps `TICKET_REF` for
     compatibility with older shells, refreshes plain-directory `.env` files from
     the highest ancestor down to the current directory when it creates or resumes a
-    session, attaches through a dashboard-managed private helper instead of a
-    public standalone binary, and completes already-open tmux session names when
+    session, attaches through a dashboard-managed private helper, and completes
+    already-open tmux session names when
     shell completion is enabled. The older `dashboard ticket` spelling has been
     removed; use `dashboard workspace`.
 
@@ -1212,6 +1212,10 @@ Or install from a checkout with:
     make install
 
 ## Local Development
+
+The CLI runs through the active Perl interpreter. It does not compile or cache
+standalone command binaries, so development and release checks exercise the same
+interpreted command path.
 
 Build the distribution:
 

@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.25';
+our $VERSION = '5.29';
 
 our @EXPORT = ('d2');
 
@@ -66,7 +66,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.25
+5.29
 
 =head1 INTRODUCTION
 
@@ -762,8 +762,8 @@ C<dashboard workspace> creates or reuses a tmux session for the requested
 workspace reference, seeds C<WORKSPACE_REF>, keeps C<TICKET_REF> for
 compatibility with older shells, refreshes plain-directory C<.env> files from
 the highest ancestor down to the current directory when it creates or resumes a
-session, attaches through a dashboard-managed private helper instead of a
-public standalone binary, and completes already-open tmux session names when
+session, attaches through a dashboard-managed private helper, and completes
+already-open tmux session names when
 shell completion is enabled. The older C<dashboard ticket> spelling has been
 removed; use C<dashboard workspace>.
 
@@ -1554,6 +1554,10 @@ Or install from a checkout with:
   make install
 
 =head2 Local Development
+
+The CLI runs through the active Perl interpreter. It does not compile or cache
+standalone command binaries, so development and release checks exercise the same
+interpreted command path.
 
 Build the distribution:
 

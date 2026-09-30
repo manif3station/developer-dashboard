@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '5.25';
+our $VERSION = '5.29';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -2729,7 +2729,7 @@ Developer::Dashboard::SkillManager - manage installed dashboard skills
 
   use Developer::Dashboard::SkillManager;
   my $manager = Developer::Dashboard::SkillManager->new();
-  
+
   my $result = $manager->install('git@github.com:user/skill-name.git');
   my $list = $manager->list();
   my $path = $manager->get_skill_path('skill-name');
