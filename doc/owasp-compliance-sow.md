@@ -233,9 +233,9 @@ Do not switch public wording from `OWASP-aligned` or `OWASP-gated` to blanket
 - the required repository security searches were reviewed; matches were in
   policy/test fixtures or intentional user-authored command/SQL support, not
   forbidden production dependencies, hidden SQL, or a discovered credential
-- live Scorecard is 8.0/10 after commit `46a1339e`; technical checks report
-  10/10, while Branch-Protection, CII-Best-Practices, Code-Review, and
-  Contributors remain below target, and CI-Tests is unknown without a PR
+- live Scorecard is 8.0/10 after pushed commit `93218224`; all checks except
+  Branch-Protection, CII-Best-Practices, Code-Review, Contributors, and
+  CI-Tests report 10/10; CI-Tests is unknown without a PR
 - read-only GitHub API access confirms six merged PRs and no approval reviews;
   the available token receives HTTP 403 on branch-protection administration
 
