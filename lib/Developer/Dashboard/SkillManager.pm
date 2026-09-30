@@ -2223,9 +2223,16 @@ sub _install_skill_wingetfile {
 # Output: list containing 'sudo' for non-root users, or an empty list for root.
 sub _skill_package_runner_prefix {
     my ($self) = @_;
-    return () if $> == 0;
+    return () if $self->_effective_uid == 0;
     return ('sudo');
 }
+
+# _effective_uid()
+# Returns the effective uid of this process, in one place so tests can answer
+# for both root and non-root regardless of the user running the suite.
+# Input: none.
+# Output: numeric effective uid.
+sub _effective_uid { return $> }
 
 # _install_skill_brewfile($skill_path)
 # Installs brewfile packages on macOS after printing the requested package list.

@@ -163,21 +163,16 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     like( $@, qr/Unable to copy/, 'the copy failure names the operation' );
 }
 
-# _skill_package_runner_prefix: the non-root answer, taken in a child that drops
-# its effective uid so the parent keeps its privileges.
+# _skill_package_runner_prefix: both answers, independent of the uid running the
+# suite (the effective uid lookup is stubbed).
 {
-    my $pid = fork();
-    die "fork failed: $!" if !defined $pid;
-    if ( !$pid ) {
-        $> = 65534 if $> == 0;
-        my @prefix = $manager->_skill_package_runner_prefix;
-        $> = 0;
-        exit( $prefix[0] && $prefix[0] eq 'sudo' ? 0 : 1 );
-    }
-    waitpid( $pid, 0 );
-    is( $? >> 8, 0, 'a non-root user gets the sudo runner prefix' );
-    is_deeply( [ $manager->_skill_package_runner_prefix ], ( $> == 0 ? [] : ['sudo'] ), 'the parent keeps its own prefix' );
+    no warnings 'redefine';
+    local *Developer::Dashboard::SkillManager::_effective_uid = sub { 65534 };
+    is_deeply( [ $manager->_skill_package_runner_prefix ], ['sudo'], 'a non-root user gets the sudo runner prefix' );
+    local *Developer::Dashboard::SkillManager::_effective_uid = sub { 0 };
+    is_deeply( [ $manager->_skill_package_runner_prefix ], [], 'root gets no runner prefix' );
 }
+is( $manager->_effective_uid, $>, '_effective_uid reports the real effective uid' );
 
 chdir $orig_cwd;
 done_testing;

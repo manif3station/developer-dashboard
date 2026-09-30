@@ -6,6 +6,15 @@
     require the intentionally unshipped .github tree. Problem 20 aggregate
     coverage remains paused.
 
+  - Problem 20: bring lib/ to 100.0 percent statement, branch, condition and
+    subroutine coverage. Add coverage tests t/300-t/305, t/330-t/331, t/360-t/362,
+    t/390, t/420-t/422 and t/450-t/451; failure paths are injected with
+    CORE::GLOBAL overrides so they run the same for root and non-root users.
+    Genuinely unreachable branches carry their own uncoverable annotation.
+    Fix scheme-relative bookmark targets (//host/path) dying on
+    URI::_generic host(). Route the effective-uid check in SkillManager through
+    _effective_uid so both answers are testable.
+
 5.33  2026-09-30
 
   - Problem 24: Require Pod::Text 6.1.1 or later for CLI help rendering and
