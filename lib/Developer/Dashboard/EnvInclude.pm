@@ -91,7 +91,7 @@ sub _recursive_sub_skills {
     my $skills_dir = File::Spec->catdir( $dir, 'skills' );
     return () if !-d $skills_dir;
     my @out;
-    opendir my $dh, $skills_dir or die "Unable to read $skills_dir: $!";    # uncoverable branch true only reachable as a non-root user (permission-denied on a directory that already passed -d); the gate container runs as root
+    opendir my $dh, $skills_dir or die "Unable to read $skills_dir: $!";
     for my $entry ( sorted_dir_entries($dh) ) {
         my $sub_dir = File::Spec->catdir( $skills_dir, $entry );
         next if !-d $sub_dir;
@@ -121,7 +121,7 @@ sub _include_one {
     for my $key ( sort keys %{ $result->{env} } ) {
         next if $key eq 'DEVELOPER_DASHBOARD_ENV_AUDIT';
         my $value = $result->{env}{$key};
-        my $target_key = $prefix eq '' ? $key : "${prefix}__${key}";    # uncoverable branch true _namespace_prefix never returns an empty string for a non-empty resolved name
+        my $target_key = $prefix eq '' ? $key : "${prefix}__${key}";
         $ENV{$target_key} = $value;
         Developer::Dashboard::EnvAudit->record( $target_key, $value, "include:$name" );
     }

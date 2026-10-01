@@ -121,6 +121,77 @@ is_deeply(
 );
 
 is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_help_target_candidates( [ 'd2', 'help' ], 3 ) ],
+    [],
+    'help completion tolerates a missing namespace word',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_help_target_candidates( [ 'd2', 'help', 'docker', undef, '' ], 4 ) ],
+    [ Developer::Dashboard::CLI::Help::actions_for('docker') ],
+    'help completion skips an undefined action token',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_help_target_candidates( [ 'd2', 'help', 'docker', '', '' ], 4 ) ],
+    [ Developer::Dashboard::CLI::Help::actions_for('docker') ],
+    'help completion skips an empty action token',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_help_target_candidates( [ 'd2', 'help', 'docker', '--', '' ], 4 ) ],
+    [ Developer::Dashboard::CLI::Help::actions_for('docker') ],
+    'help completion skips option tokens while selecting an action namespace',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_help_target_candidates( [ 'd2', 'help', 'docker', 'unknown', '' ], 4 ) ],
+    [ Developer::Dashboard::CLI::Help::actions_for('docker') ],
+    'help completion stops at an unknown action and keeps the containing namespace',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_help_target_candidates( [ 'd2', 'help', 'docker', 'development', '' ], 4 ) ],
+    [qw(enable disable)],
+    'help completion descends into nested action namespaces',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_option_context( undef, 3 ) ],
+    [],
+    'option context rejects a missing word list',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_option_context( [], 1 ) ],
+    [],
+    'option context rejects an index before command arguments',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_option_context( [ 'd2' ], 2 ) ],
+    [ '', undef ],
+    'option context tolerates a command word that is absent from the snapshot',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_option_context( [ 'd2', 'docker', 'development', 'enable', '-' ], 4 ) ],
+    [ 'docker development', 'enable' ],
+    'option context descends through nested actions and identifies the leaf action',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_option_context( [ 'd2', 'docker', '', 'enable', '-' ], 4 ) ],
+    [ 'docker', 'enable' ],
+    'option context skips an empty action token before identifying the leaf action',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_option_context( [ 'd2', 'docker', undef, 'enable', '-' ], 4 ) ],
+    [ 'docker', 'enable' ],
+    'option context skips an undefined action token before identifying the leaf action',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_option_context( [ 'd2', 'docker', 'unknown', '-' ], 3 ) ],
+    [ 'docker', undef ],
+    'option context stops at an action that is not in the command catalog',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Complete::_option_context( [ 'd2', 'skill', 'install', '-' ], 3 ) ],
+    [ 'skills', 'install' ],
+    'option context canonicalizes the skill compatibility alias',
+);
+
+is_deeply(
     [
         Developer::Dashboard::CLI::Complete::complete(
             words           => [ 'dashboard', 'workspace', 'DD-' ],

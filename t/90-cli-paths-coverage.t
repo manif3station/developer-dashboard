@@ -898,12 +898,16 @@ subtest '_cdr_directory_candidates rejects empty derived names' => sub {
         dirs        => ['/tmp/root/child'],
     );
     no warnings 'redefine';
-    local *Developer::Dashboard::CLI::Paths::basename = sub { return '' };
-    is_deeply(
-        [ $dir_candidates->( paths => $directory_paths, root => '/tmp/root', terms => [], prefix => '' ) ],
-        [],
-        'empty derived basenames are rejected before becoming completion candidates',
-    );
+    for my $name ( '', undef ) {
+        local *Developer::Dashboard::CLI::Paths::basename = sub { return $name };
+        is_deeply(
+            [ $dir_candidates->( paths => $directory_paths, root => '/tmp/root', terms => [], prefix => '' ) ],
+            [],
+            defined $name
+              ? 'empty derived basenames are rejected before becoming completion candidates'
+              : 'undefined derived basenames are rejected before becoming completion candidates',
+        );
+    }
 };
 
 is_deeply( \@warnings, [], 'no warnings escaped the CLI::Paths coverage run' );

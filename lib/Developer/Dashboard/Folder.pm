@@ -95,7 +95,7 @@ sub all {
 # Output: directory path string.
 sub postman {
     my $dir = File::Spec->catdir( configs(), 'postman' );
-    make_path($dir) if $dir ne '' && !-d $dir;    # uncoverable condition left
+    make_path($dir) if !-d $dir;
     return $dir;
 }
 
@@ -109,8 +109,8 @@ sub _paths_obj {
     return if $home eq '';
     $PATHS = Developer::Dashboard::PathRegistry->new(
         home            => $home,
-        workspace_roots => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],    # uncoverable branch false
-        project_roots   => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],    # uncoverable branch false
+        workspace_roots => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
+        project_roots   => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
     );
     _load_configured_aliases();
     return $PATHS;
@@ -197,7 +197,9 @@ sub ls {
         };
     }
     closedir $dh;
-    return sort { $b->{type} cmp $a->{type} || $a->{NAME} cmp $b->{NAME} } @items;    # uncoverable branch true
+    my @folders = sort { $a->{NAME} cmp $b->{NAME} } grep { $_->{type} eq 'folder' } @items;
+    my @files   = sort { $a->{NAME} cmp $b->{NAME} } grep { $_->{type} eq 'file' } @items;
+    return ( @folders, @files );
 }
 
 # locate(@parts)

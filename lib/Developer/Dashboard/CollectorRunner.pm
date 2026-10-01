@@ -89,8 +89,8 @@ sub run_once {
     my $name = $job->{name} || die 'Collector job missing name';
     my ( $mode, $source ) = $self->_collector_source($job);
 
-    # cwd() always returns a non-empty path
-    my $cwd = $job->{cwd} || cwd();    # uncoverable condition false
+    my $cwd = $job->{cwd};
+    $cwd = cwd() if !$cwd;
     if ( !File::Spec->file_name_is_absolute($cwd) && $RESOLVABLE_ACCESSOR{$cwd} ) {
         $cwd = $self->{paths}->$cwd();
     }
@@ -127,8 +127,7 @@ sub run_once {
         {
             enabled         => 1,
             last_started_at => $started_at,
-            # the schedule fallback ternary always yields a non-empty string
-            schedule        => $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' ),    # uncoverable condition false
+            schedule        => $self->_schedule_mode($job),
         }
     );
 
@@ -329,8 +328,7 @@ sub start_loop {
     my $interval = $self->_effective_interval_seconds($job);
     my $configured_interval = defined $job->{interval} ? $job->{interval} : 30;
     my $name = $job->{name} || die 'Collector job missing name';
-    # the schedule fallback ternary always yields a non-empty string
-    my $schedule_mode = $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' );    # uncoverable condition false
+    my $schedule_mode = $self->_schedule_mode($job);
     die "Collector '$name' uses manual schedule and should be run on demand" if $schedule_mode eq 'manual';
 
     # DD-737: a collector with neither 'command' nor 'code' used to be forked
@@ -510,8 +508,7 @@ sub _adopt_existing_loop_if_running {
             # raised "Bad file descriptor" and killed start_loop outright, which is
             # a far worse outcome than an unclosed handle.
             if ( !-f $pidfile ) {
-                # the state root was created by this same process moments earlier, so a write failure here means the disk vanished mid-call
-                open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";    # uncoverable branch true
+                open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
                 print {$fh} $pid;
                 close $fh;
                 $self->{paths}->secure_file_permissions($pidfile);
@@ -535,8 +532,8 @@ sub _start_windows_loop_process {
     my ( $self, %args ) = @_;
     my $job                 = $args{job}                 || die 'Missing collector job';
     my $name                = $args{name}                || die 'Missing collector name';
-    # _process_title always returns a non-empty title
-    my $title               = $args{title}               || $self->_process_title($name);    # uncoverable condition false
+    my $title               = $args{title};
+    $title = $self->_process_title($name) if !$title;
     my $interval            = defined $args{interval} ? $args{interval} : 30;
     my $configured_interval = defined $args{configured_interval} ? $args{configured_interval} : 30;
     my $schedule_mode       = $args{schedule_mode}       || 'interval';
@@ -586,8 +583,8 @@ sub _run_loop_child {
     my ( $self, %args ) = @_;
     my $job           = $args{job}           || die 'Missing collector job';
     my $name          = $args{name}          || die 'Missing collector name';
-    # _process_title always returns a non-empty title
-    my $title         = $args{title}         || $self->_process_title($name);    # uncoverable condition false
+    my $title         = $args{title};
+    $title = $self->_process_title($name) if !$title;
     my $interval      = defined $args{interval} ? $args{interval} : 30;
     my $schedule_mode = $args{schedule_mode} || 'interval';
     my $daemonize     = exists $args{daemonize} ? $args{daemonize} : 1;
@@ -597,11 +594,9 @@ sub _run_loop_child {
 
     if ($daemonize) {
         $self->_detach_process_session;
-        # opening the null device for reading never fails on the test host
-        open STDIN, '<', File::Spec->devnull() or die $!;    # uncoverable branch true
+        open STDIN, '<', File::Spec->devnull() or die $!;
         open STDOUT, '>>', $self->{files}->collector_log or die $!;
-        # STDOUT already opened the same collector-log path, so the STDERR reopen cannot fail independently
-        open STDERR, '>>', $self->{files}->collector_log or die $!;    # uncoverable branch true
+        open STDERR, '>>', $self->{files}->collector_log or die $!;
         $self->_close_inherited_fds( close_ipc => 1 );
     }
 
@@ -805,12 +800,11 @@ sub _run_loop_worker {
             error       => $error,
             source      => 'loop error',
         );
-        # the current pid is always truthy
-        my $state_pid      = $loop_pid || $$;    # uncoverable condition false
-        # _process_title always returns a non-empty title
-        my $state_title    = $title || $self->_process_title($name);    # uncoverable condition false
-        # the schedule fallback ternary always yields a non-empty string
-        my $state_schedule = $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' );    # uncoverable condition false
+        my $state_pid      = $loop_pid;
+        $state_pid = $$ if !$state_pid;
+        my $state_title    = $title;
+        $state_title = $self->_process_title($name) if !$state_title;
+            my $state_schedule = $self->_schedule_mode($job);
         $self->_write_loop_state(
             $name,
             {
@@ -899,8 +893,6 @@ sub _active_worker_pids {
     $active_workers ||= {};
     my @pids;
     for my $pid ( keys %{$active_workers} ) {
-        # hash keys are always defined strings
-        next if !defined $pid;    # uncoverable branch true
         next if $pid !~ /^\d+$/;
         next if $pid <= 0;
         push @pids, $pid;
@@ -938,11 +930,9 @@ sub _sleep_until_next_tick {
     my $active_workers = $args{active_workers} || {};
     my $slice = $remaining > 0.1 ? 0.1 : $remaining;
     while ( $remaining > 0 ) {
-        $slice = $remaining if $remaining < $slice || $slice <= 0;    # uncoverable condition right slice is always positive once remaining > 0
+        $slice = $remaining if $remaining < $slice;
         sleep $slice;
         $remaining -= $slice;
-        # remaining never underflows below zero after the clamped subtraction
-        $remaining = 0 if $remaining < 0;    # uncoverable branch true
         $self->_reap_finished_loop_workers($active_workers);
     }
     return 1;
@@ -1091,7 +1081,7 @@ sub loop_state {
         local $/;
         my $payload = scalar <$fh>;
         close $fh;
-        if ( defined $payload && $payload ne '' ) {    # uncoverable condition left a readable state file always slurps to a defined string (an empty file reads as the empty string, not undef)
+        if ( $payload ne '' ) {
             my $decoded = eval { json_decode($payload) };
             return $decoded if $decoded;
             $last_error = $@ || 'Unable to decode loop state JSON';
@@ -1166,8 +1156,7 @@ sub _find_running_loop {
     my ( $self, $name ) = @_;
     return if !defined $name || $name eq '';
 
-    # /proc is mounted on every host this runs on, and without it no collector could be identified at all
-    opendir my $dh, '/proc' or return;    # uncoverable branch true
+    opendir my $dh, '/proc' or return;
     my @candidates = sort { $a <=> $b } grep { /\A[0-9]+\z/ } readdir $dh;
     closedir $dh;
 
@@ -1204,7 +1193,7 @@ sub _find_running_loop {
         # A process carrying this collector's exact title while living in a
         # DIFFERENT pid namespace cannot be constructed from a test without a
         # container runtime.
-        return $pid if $self->_same_pid_namespace($pid);    # uncoverable branch false
+        return $pid if $self->_same_pid_namespace($pid);
     }
     return;
 }
@@ -1306,8 +1295,7 @@ sub _read_process_state {
 sub _read_proc_file {
     my ( $self, $file ) = @_;
     return if !-r $file;
-    # a readable procfs file always opens on the test host
-    open my $fh, '<', $file or return;    # uncoverable branch true
+    open my $fh, '<', $file or return;
     local $/;
     return scalar <$fh>;
 }
@@ -1532,14 +1520,26 @@ sub _coverage_instrumentation_active {
     return $perl5opt =~ /Devel::Cover/ ? 1 : 0;
 }
 
+# _schedule_mode($job)
+# Resolves the schedule mode of one collector job: an explicit schedule wins,
+# otherwise a cron expression, then an interval, and finally manual.
+# Input: collector job hash reference.
+# Output: schedule mode string (cron, interval, manual, or the explicit value).
+sub _schedule_mode {
+    my ( $self, $job ) = @_;
+    return $job->{schedule} if $job->{schedule};
+    return 'cron'           if $job->{cron};
+    return 'interval'       if $job->{interval};
+    return 'manual';
+}
+
 # _job_is_due($job, $name)
 # Decides whether the current loop tick should execute the collector job.
 # Input: collector job hash reference and collector name string.
 # Output: boolean due flag.
 sub _job_is_due {
     my ( $self, $job, $name ) = @_;
-    # the schedule fallback ternary always yields a non-empty string
-    my $mode = $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' );    # uncoverable condition false
+    my $mode = $self->_schedule_mode($job);
     return 0 if $mode eq 'manual';
     return 1 if $mode eq 'interval';
     return $self->_cron_due( $job->{cron}, $name );

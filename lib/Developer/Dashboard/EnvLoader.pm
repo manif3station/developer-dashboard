@@ -204,7 +204,7 @@ sub _plain_directory_layers {
         push @layers, $dir;
         last if $class->_path_identity($dir) eq $class->_path_identity($stop_dir);
         my $parent = dirname($dir);
-        last if $parent eq $dir;    # uncoverable branch true dirname never returns undef/empty and the stop-dir match above always fires before the filesystem root is reached
+        last if $parent eq $dir;
         $dir = $parent;
     }
     return reverse @layers;
@@ -245,7 +245,6 @@ sub _load_skill_layer_specs {
         next if ref($spec) ne 'HASH';
         my $prefix = $spec->{prefix} || '';
         for my $file ( $class->_env_file_candidates( $spec->{root} ) ) {
-            next if !defined $file;    # uncoverable branch true _env_file_candidates always yields defined non-empty catfile paths
             my $identity = $class->_path_identity($file);
             next if $seen{$identity}++;
             next if !-f $file;
@@ -380,7 +379,7 @@ sub _load_env_file {
         $ENV{$key} = $value;
         Developer::Dashboard::EnvAudit->record( $key, $value, $file );
     }
-    close $fh or die "Unable to close $file: $!";    # uncoverable branch true closing a read-only handle does not fail on the test host
+    close $fh or die "Unable to close $file: $!";
     die "Unterminated block comment in $file\n" if $in_block_comment;
     return 1;
 }
@@ -433,10 +432,10 @@ sub _load_env_pl_file {
 # removed).
 sub _env_pl_assigned_keys {
     my ( $class, $file ) = @_;
-    open my $fh, '<:raw', $file or return ();    # uncoverable branch true the caller already required this exact file successfully
+    open my $fh, '<:raw', $file or return ();
     local $/;
     my $source = <$fh>;
-    close $fh;    # uncoverable branch true closing a read-only handle does not fail on the test host
+    close $fh;
     return () if !defined $source;
     my %seen;
     return grep { !$seen{$_}++ } ( $source =~ /\$ENV\{\s*['"]?(\w+)['"]?\s*\}\s*=(?!=)/g );

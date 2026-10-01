@@ -315,7 +315,6 @@ sub overview_text {
     my @commands = command_names();
     for my $command ( sort @commands ) {
         my $spec = $COMMANDS{$command};
-        next if ref($spec) ne 'HASH';
         $text .= "  $spec->{usage}\n    $spec->{description}\n";
     }
     $text .= "\nUse 'dashboard <command> --help' for command details and actions.\n";

@@ -466,7 +466,7 @@ is( $seg->{skill_name}, 'runner', 'resolve_route_segments finds the installed pr
 
 is_deeply( [ $disp->_command_root_specs(undef) ], [], '_command_root_specs guards an undef list' );
 is_deeply( [ $disp->_command_root_specs( [] ) ],  [], '_command_root_specs guards an empty list' );
-my @unsafe_nested_specs = $disp->_command_root_specs( ['initchild/../grandinit'] );
+my @unsafe_nested_specs = $disp->_command_root_specs( [ 'initchild/..', 'grandinit' ] );
 ok( !grep( { $_->{init_only} || @{ $_->{nested_segments} } } @unsafe_nested_specs ),
     '_command_root_specs does not treat path-traversal command segments as nested skill names' );
 

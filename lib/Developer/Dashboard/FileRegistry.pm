@@ -39,7 +39,7 @@ sub register_named_files {
     my ( $self, $aliases ) = @_;
     return $self if ref($aliases) ne 'HASH';
     for my $name ( keys %{$aliases} ) {
-        next if !defined $name || $name eq '';    # uncoverable condition left
+        next if $name eq '';
         my $path = $aliases->{$name};
         next if !defined $path || $path eq '';
         $self->{named_files}{$name} = $path;
@@ -72,8 +72,8 @@ sub named_files {
     my ($self) = @_;
     $self->_load_configured_named_files;
     my %raw = (
-        %{ $self->{configured_named_files} || {} },    # uncoverable branch true
-        %{ $self->{named_files}            || {} },    # uncoverable branch true
+        %{ $self->{configured_named_files} },
+        %{ $self->{named_files} },
     );
     my %plain;
     for my $name ( keys %raw ) {
@@ -199,8 +199,7 @@ sub resolve_file {
             # time this runs, so "defined $parent" below can never
             # observably be false.
             my $parent = ( File::Spec->splitpath($path) )[1];
-            # uncoverable condition left
-            if ( defined $parent && $parent ne '' && !-d $parent ) {
+            if ( $parent ne '' && !-d $parent ) {
                 File::Path::make_path($parent);
                 chmod( oct($mode), $parent ) if defined $mode && $mode ne '';
             }

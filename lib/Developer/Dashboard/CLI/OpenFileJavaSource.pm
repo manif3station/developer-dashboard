@@ -154,7 +154,7 @@ sub _extract_java_sources_from_archive {
         ) or next;
         my ( $volume, $directories ) = File::Spec->splitpath($target);
         make_path( File::Spec->catpath( $volume, $directories, '' ) );
-        open my $fh, '>', $target or die "Unable to write $target: $!";    # uncoverable branch true the target parent directory is created immediately above so the write cannot fail on the test host
+        open my $fh, '>', $target or die "Unable to write $target: $!";
 
         # contents() returns ($contents, $status) in list context, which print
         # imposes, so the member body must be taken in scalar context or the

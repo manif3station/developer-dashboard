@@ -37,6 +37,11 @@
 - Completed Problem 24's Pod::Text security floor and isolated audit guard.
   Kept the CI workflow assertion in the checkout-only test so packaged tests
   do not expect the unshipped `.github` tree.
+- Fixed saved bookmarks with a scheme-relative target such as
+  `//example.com/x` failing with "Can't locate object method host via package
+  URI::_generic"; the host and port are now read from an `http:` copy of the
+  target. Brought `lib/` to 100.0 percent on all four Devel::Cover metrics
+  (Problem 20).
 
 ## 5.33
 

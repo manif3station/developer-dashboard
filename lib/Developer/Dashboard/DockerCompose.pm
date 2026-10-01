@@ -30,13 +30,25 @@ sub new {
     }, $class;
 }
 
+# _default_project_root(@candidates)
+# Picks the first true candidate project root, falling back to the current directory.
+# Input: zero or more candidate path values.
+# Output: project root directory path string.
+sub _default_project_root {
+    my ( $self, @candidates ) = @_;
+    for my $candidate (@candidates) {
+        return $candidate if $candidate;
+    }
+    return cwd();
+}
+
 # resolve(%args)
 # Resolves the effective docker compose context and overlay stack.
 # Input: optional project_root, addons, modes, services, and compose args.
 # Output: hash reference describing files, env, layers, precedence, and final command.
 sub resolve {
     my ( $self, %args ) = @_;
-    my $project_root = $args{project_root} || $self->{paths}->current_project_root || cwd();    # uncoverable condition false cwd never returns a false value
+    my $project_root = $self->_default_project_root( $args{project_root}, $self->{paths}->current_project_root );
     my $docker_cfg  = $self->{config}->docker_config;
     my $docker_root = $self->_docker_config_root;
     my @passthrough = @{ $args{args} || [] };
@@ -330,7 +342,7 @@ sub _home_docker_config_root {
 sub _discover_service_files {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return;
-    my $project_root = $args{project_root} || cwd();    # uncoverable condition false cwd never returns a false value
+    my $project_root = $self->_default_project_root( $args{project_root} );
     return if $self->_service_folder_is_disabled(
         project_root => $project_root,
         service      => $service,
@@ -342,22 +354,20 @@ sub _discover_service_files {
     );
 
     my @files;
-    my %seen;
+    my %seen_file;
     my $development_enabled = $self->_service_folder_is_development(
         project_root => $project_root,
         service      => $service,
     );
     for my $root (@roots) {
-        next if !defined $root;    # uncoverable branch true lookup roots are interpolated paths, never undef
         my $service_root = File::Spec->catdir( $root, $service );
-        next if !-d $service_root;    # uncoverable branch true lookup roots already filtered to existing service folders
 
         my $compose = File::Spec->catfile( $service_root, 'compose.yml' );
-        push @files, $compose if -f $compose && !$seen{$compose}++;
+        push @files, $compose if -f $compose && !$seen_file{$compose}++;
 
         next if !$development_enabled;
         my $development = File::Spec->catfile( $service_root, 'development.compose.yml' );
-        push @files, $development if -f $development && !$seen{$development}++;
+        push @files, $development if -f $development && !$seen_file{$development}++;
     }
 
     return @files;
@@ -385,7 +395,7 @@ sub _discover_enabled_services {
 # Output: hash reference with loaded env file list and env overlay hash.
 sub _resolve_skill_service_env {
     my ( $self, %args ) = @_;
-    my $project_root = $args{project_root} || cwd();    # uncoverable condition false cwd never returns a false value
+    my $project_root = $self->_default_project_root( $args{project_root} );
     my @services     = @{ $args{services} || [] };
     return { files => [], env => {} } if !@services;
 
@@ -433,7 +443,7 @@ sub _resolve_skill_service_env {
 sub _discover_service_skill_roots {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return;
-    my $project_root = $args{project_root} || cwd();    # uncoverable condition false cwd never returns a false value
+    my $project_root = $self->_default_project_root( $args{project_root} );
     return if $self->_service_folder_is_disabled(
         project_root => $project_root,
         service      => $service,
@@ -445,20 +455,14 @@ sub _discover_service_skill_roots {
     );
 
     my @skill_roots;
-    my %seen;
     for my $root (@roots) {
-        next if !defined $root;    # uncoverable branch true lookup roots are interpolated paths, never undef
         my $service_root = File::Spec->catdir( $root, $service );
-        next if !-d $service_root;    # uncoverable branch true lookup roots already filtered to existing service folders
 
         my $development = File::Spec->catfile( $service_root, 'development.compose.yml' );
         my $compose     = File::Spec->catfile( $service_root, 'compose.yml' );
         next if !-f $development && !-f $compose;
 
-        next if File::Spec->canonpath($root) !~ m{(?:^|/)config/docker\z};    # uncoverable branch true every lookup root ends in config/docker
         my $skill_root = dirname( dirname($root) );
-        next if !-d $skill_root;    # uncoverable branch true the config/docker parent directory always exists
-        next if $seen{$skill_root}++;    # uncoverable branch true distinct roots always map to distinct skill roots
         push @skill_roots, $skill_root;
     }
 
@@ -477,7 +481,6 @@ sub _skill_name_segments_from_root {
     my @segments;
     for my $index ( 0 .. $#parts - 1 ) {
         next if $parts[$index] ne 'skills';
-        next if !defined $parts[ $index + 1 ];    # uncoverable branch true the loop bound guarantees a defined following segment
         push @segments, $parts[ $index + 1 ];
     }
     return @segments;
@@ -520,7 +523,7 @@ sub _skill_docker_env_key {
 # Output: sorted list of service name strings.
 sub _discover_service_names {
     my ( $self, %args ) = @_;
-    my $project_root = $args{project_root} || cwd();    # uncoverable condition false cwd never returns a false value
+    my $project_root = $self->_default_project_root( $args{project_root} );
     my $service_map  = $args{service_map} || {};
     my %names = map { $_ => 1 } grep { $_ ne '' } keys %{$service_map};
 
@@ -545,20 +548,15 @@ sub _discover_service_names {
 sub _service_folder_is_disabled {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return 0;
-    my $project_root = $args{project_root} || cwd();    # uncoverable condition false cwd never returns a false value
+    my $project_root = $self->_default_project_root( $args{project_root} );
     my @roots = $self->_service_lookup_roots(
         project_root => $project_root,
         service      => $service,
     );
     return 0 if !@roots;
-    for my $root ( reverse @roots ) {
-        my $service_root = File::Spec->catdir( $root, $service );
-        next if !-d $service_root;
-        return 1 if -f File::Spec->catfile( $service_root, 'disabled.yml' );
-        return 0;
-    }
-
-    return 0;
+    # Lookup roots only ever contain existing service folders, so the deepest one decides.
+    my $service_root = File::Spec->catdir( $roots[-1], $service );
+    return -f File::Spec->catfile( $service_root, q{disabled.yml} ) ? 1 : 0;
 }
 
 # _service_folder_is_development(%args)
@@ -568,14 +566,13 @@ sub _service_folder_is_disabled {
 sub _service_folder_is_development {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return 0;
-    my $project_root = $args{project_root} || cwd();
+    my $project_root = $self->_default_project_root( $args{project_root} );
     my @roots = $self->_service_lookup_roots(
         project_root => $project_root,
         service      => $service,
     );
     for my $root ( reverse @roots ) {
         my $service_root = File::Spec->catdir( $root, $service );
-        next if !-d $service_root;
         return -f File::Spec->catfile( $service_root, 'develop.yml' ) ? 1 : 0;
     }
     return 0;
@@ -589,7 +586,7 @@ sub _service_folder_is_development {
 sub _service_lookup_roots {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return;
-    my $project_root = $args{project_root} || cwd();    # uncoverable condition false cwd never returns a false value
+    my $project_root = $self->_default_project_root( $args{project_root} );
     my @roots;
     my %seen;
     for my $runtime_root ( $self->{paths}->runtime_layers ) {
@@ -599,8 +596,7 @@ sub _service_lookup_roots {
         push @candidates, $self->_installed_skill_docker_roots_for_runtime($runtime_root);
 
         for my $root (@candidates) {
-            next if !defined $root;    # uncoverable branch true candidate roots are interpolated paths, never undef
-            next if $seen{$root}++;    # uncoverable branch true candidate roots across runtime layers are already distinct
+            next if $seen{$root}++;
             if ( $service eq '__all__' ) {
                 push @roots, $root;
                 next;
@@ -627,14 +623,12 @@ sub _installed_skill_docker_roots_for_runtime {
 
     my @roots;
     my @queue = ($skills_root);
-    my %seen;
     while (@queue) {
         my $parent = shift @queue;
         opendir my $dh, $parent or next;
         for my $entry ( sorted_dir_entries($dh) ) {
             my $skill_root = File::Spec->catdir( $parent, $entry );
             next if !-d $skill_root;
-            next if $seen{$skill_root}++;    # uncoverable branch true the breadth-first walk visits each skill root once
             next if $self->_skill_root_chain_disabled($skill_root);
             push @roots, File::Spec->catdir( $skill_root, 'config', 'docker' );
             my $nested_root = File::Spec->catdir( $skill_root, 'skills' );
@@ -657,7 +651,6 @@ sub _skill_root_chain_disabled {
     my @parts = File::Spec->splitdir( File::Spec->canonpath($skill_root) );
     for my $index ( 0 .. $#parts - 1 ) {
         next if $parts[$index] ne 'skills';
-        next if !defined $parts[ $index + 1 ];    # uncoverable branch true the loop bound guarantees a defined following segment
         my $candidate = File::Spec->catdir( @parts[ 0 .. $index + 1 ] );
         return 1 if -f File::Spec->catfile( $candidate, '.disabled' );
     }
@@ -671,7 +664,7 @@ sub _skill_root_chain_disabled {
 sub _infer_services_from_args {
     my ( $self, %args ) = @_;
     my $argv         = $args{args} || [];
-    my $project_root = $args{project_root} || cwd();    # uncoverable condition false cwd never returns a false value
+    my $project_root = $self->_default_project_root( $args{project_root} );
     my $service_map  = $args{service_map} || {};
     my %known = map { $_ => 1 } $self->_discover_service_names(
         project_root => $project_root,
@@ -708,7 +701,7 @@ sub disable_service {
     make_path($dir) if !-d $dir;
     open my $fh, '>', $marker or die "Unable to write $marker: $!";
     print {$fh} "---\ndisabled: 1\n";
-    close $fh or die "Unable to close $marker: $!";    # uncoverable branch true the deferred write failure surfaces only on close, unreproducible on the test host
+    close $fh or die "Unable to close $marker: $!";
     return {
         action   => 'disable',
         disabled => 1,
@@ -793,7 +786,7 @@ sub disable_service_development {
 # Output: array reference of service state hash references in sorted service order.
 sub list_services {
     my ( $self, %args ) = @_;
-    my $project_root = $args{project_root} || cwd();    # uncoverable condition false cwd never returns a false value
+    my $project_root = $self->_default_project_root( $args{project_root} );
     my $filter = defined $args{filter} && $args{filter} ne '' ? $args{filter} : 'all';
     die "Usage: dashboard docker list [--enabled|--disabled]\n"
       if $filter !~ /\A(?:all|enabled|disabled)\z/;
@@ -843,13 +836,13 @@ sub run {
 
     my $old = cwd();
     chdir $resolved->{project_root} or die "Unable to chdir to $resolved->{project_root}: $!";
-    local @ENV{ keys %{ $resolved->{env} } } = values %{ $resolved->{env} } if %{ $resolved->{env} };    # uncoverable branch false the resolved env always carries the DDDC key
+    local @ENV{ keys %{ $resolved->{env} } } = values %{ $resolved->{env} } if %{ $resolved->{env} };
     my $run_command = $self->_materialized_command($resolved);
     my ( $stdout, $stderr, $exit_code ) = capture {
         system @{$run_command};
         return $? >> 8;
     };
-    chdir $old or die "Unable to restore cwd to $old: $!";    # uncoverable branch true the saved cwd remains valid for the duration of the run
+    chdir $old or die "Unable to restore cwd to $old: $!";
 
     return {
         %$resolved,
@@ -902,9 +895,9 @@ sub _materialized_command {
 
     my $tmp_dir  = File::Temp::tempdir( CLEANUP => 1 );
     my $tmp_file = File::Spec->catfile( $tmp_dir, 'merged-compose.yml' );
-    open my $fh, '>', $tmp_file or die "Unable to write $tmp_file: $!";    # uncoverable branch true a fresh File::Temp::tempdir is always writable on the test host
+    open my $fh, '>', $tmp_file or die "Unable to write $tmp_file: $!";
     print {$fh} $merged;
-    close $fh or die "Unable to close $tmp_file: $!";    # uncoverable branch true the deferred write failure surfaces only on close, unreproducible on the test host
+    close $fh or die "Unable to close $tmp_file: $!";
 
     return [ 'docker', 'compose', '-f', $tmp_file, @passthrough ];
 }
@@ -982,7 +975,7 @@ sub _service_development_marker_path {
 sub _service_toggle_root {
     my ( $self, %args ) = @_;
     my @layers = $self->{paths}->runtime_layers;
-    my $runtime_root = @layers ? $layers[-1] : $self->{paths}->home_runtime_root;    # uncoverable branch false runtime_layers always includes at least the home runtime root
+    my $runtime_root = @layers ? $layers[-1] : $self->{paths}->home_runtime_root;
     return File::Spec->catdir( $runtime_root, 'config', 'docker' );
 }
 

@@ -88,8 +88,10 @@ sub run_ask {
     }
     die "No question provided.\n" . _usage_text() if $prompt eq '';
 
-    my $config = $args{config} || _build_config( $env );    # uncoverable condition false _build_config always returns a blessed config object
-    my $paths  = $args{paths}  || $config->{paths};         # uncoverable condition false a config object always carries its path registry
+    my $config = $args{config};
+    $config = _build_config($env) if !$config;
+    my $paths = $args{paths};
+    $paths = $config->{paths} if !$paths;
 
     my $key = _workspace_key( $paths, $env );
     my $file = _transcript_file( $paths, $key );
@@ -316,10 +318,14 @@ sub _ask_claude {
     my $key = _resolve_api_key( $a{claude_conf}, $a{env} );
     if ( $key ne '' ) {
         my $messages = _build_api_messages( $a{history}, $a{prompt}, $a{text_files}, $a{images} );
-        my $ua         = $a{ua} || _default_ua();                                # uncoverable condition false - _default_ua() is a built agent, never false
-        my $base_url   = $a{claude_conf}{base_url} || $DEFAULT_BASE_URL;         # uncoverable condition false - the right side is a non-empty module default, never false
-        my $model      = $a{model} || $DEFAULT_MODEL;                            # uncoverable condition false - the right side is a non-empty module default, never false
-        my $max_tokens = $a{claude_conf}{max_tokens} || $DEFAULT_MAX_TOKENS;     # uncoverable condition false - the right side is a non-empty module default, never false
+        my $ua = $a{ua};
+        $ua = _default_ua() if !$ua;
+        my $base_url = $a{claude_conf}{base_url};
+        $base_url = $DEFAULT_BASE_URL if !$base_url;
+        my $model = $a{model};
+        $model = $DEFAULT_MODEL if !$model;
+        my $max_tokens = $a{claude_conf}{max_tokens};
+        $max_tokens = $DEFAULT_MAX_TOKENS if !$max_tokens;
         return _call_claude_api(
             ua         => $ua,
             key        => $key,
@@ -356,8 +362,10 @@ sub _ask_nova {
     die "No NOVA_API_KEY set. Set it to use --nova.\n" if !defined $key || $key eq '';
     die "Image attachments are not supported with --nova.\n" if @{ $a{images} };
     my $messages = _build_api_messages( $a{history}, $a{prompt}, $a{text_files}, [] );
-    my $ua    = $a{ua} || _default_ua();          # uncoverable condition false - _default_ua() is a built agent, never false
-    my $model = $a{model} || $NOVA_DEFAULT_MODEL;    # uncoverable condition false - the right side is a non-empty module default, never false
+    my $ua = $a{ua};
+    $ua = _default_ua() if !$ua;
+    my $model = $a{model};
+    $model = $NOVA_DEFAULT_MODEL if !$model;
     return _call_nova_api(
         ua       => $ua,
         key      => $key,
@@ -718,7 +726,7 @@ sub _execute_read_file {
     return $err if defined $err;
     return "File not found: $rel" if !-f $abs;
     my $body = eval { slurp_file( $abs, raw => 1, missing_message => 'Unable to read %s: %s', normalize_undef => 1 ) };
-    return "Unable to read $rel: $@" if !defined $body;    # uncoverable branch true only reachable as a non-root user (permission-denied on a file that already passed -f); the gate container runs as root
+    return "Unable to read $rel: $@" if !defined $body;
     return $body;
 }
 
@@ -745,7 +753,7 @@ sub _execute_grep_repo {
                 return if @matches >= $GREP_MATCH_LIMIT;
                 return if !-f $_;
                 return if m{/\.git/|/\.worktrees/|/local/lib/perl5/|/blib/};
-                open my $fh, '<', $_ or return;    # uncoverable branch true only reachable as a non-root user (permission-denied on a file that already passed -f); the gate container runs as root
+                open my $fh, '<', $_ or return;
                 my $n = 0;
                 while ( my $line = <$fh> ) {
                     $n++;
@@ -840,7 +848,7 @@ sub _workspace_key {
 # single condition instance both of _workspace_key's fallback checks share
 # (DD-946: restructured from two textually-identical inline `||` conditions
 # to one shared sub, after Devel::Cover tracked those as two separate
-# condition instances and only one honored its uncoverable annotation).
+# condition instances).
 # Input: candidate value (may be undef).
 # Output: boolean.
 sub _blank {
@@ -875,6 +883,8 @@ sub _transcript_file {
 sub _load_transcript {
     my ($file) = @_;
     return { backend => '', messages => [] } if !-f $file;
+    # The open-failure branch is exercised by t/741-ask-io-coverage.t through a
+    # CORE::GLOBAL::open override, so it runs for any uid.
     open my $fh, '<:raw', $file or return { backend => '', messages => [] };
     local $/;
     my $raw = <$fh>;
@@ -947,8 +957,8 @@ sub _build_config {
     my $home = $env->{HOME} || '';
     my $paths = Developer::Dashboard::PathRegistry->new(
         home            => $home,
-        workspace_roots => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],    # uncoverable branch false the interpolated map above always yields a defined string
-        project_roots   => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],    # uncoverable branch false the interpolated map above always yields a defined string
+        workspace_roots => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
+        project_roots   => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
     );
     my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
     return Developer::Dashboard::Config->new( files => $files, paths => $paths );

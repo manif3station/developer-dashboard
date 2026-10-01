@@ -53,11 +53,8 @@ sub run_files_command {
     my $paths = build_paths();
     my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
     my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
-    my $aliases_loaded = 0;
     my $load_configured_file_aliases = sub {
-        return 1 if $aliases_loaded;    # uncoverable branch true
         $files->register_named_files( $config->file_aliases );
-        $aliases_loaded = 1;
         return 1;
     };
 

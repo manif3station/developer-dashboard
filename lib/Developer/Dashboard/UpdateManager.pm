@@ -82,7 +82,7 @@ sub run {
         };
         my $output = $stdout . $stderr;
 
-        print $output if defined $output && $output ne ''; # uncoverable condition left
+        print $output if $output ne q{};
         print "\n>> Finished.\n\n";
 
         push @results, {

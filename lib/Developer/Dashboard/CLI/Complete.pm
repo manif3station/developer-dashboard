@@ -123,8 +123,9 @@ sub _help_target_candidates {
 sub _option_context {
     my ( $words, $index ) = @_;
     return () if ref($words) ne 'ARRAY' || $index < 2;
-    my $command = Developer::Dashboard::CLI::Help::aliases()->{ $words->[1] }
-      || $words->[1] || '';
+    my $command_word = defined $words->[1] ? $words->[1] : '';
+    my $command = Developer::Dashboard::CLI::Help::aliases()->{$command_word}
+      || $command_word;
     my $namespace = $command;
     my $action;
     for my $position ( 2 .. $index - 1 ) {

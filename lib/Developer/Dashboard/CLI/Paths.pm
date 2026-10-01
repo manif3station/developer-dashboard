@@ -612,7 +612,7 @@ sub _cdr_directory_candidates {
     for my $path (@matches) {
         next if !defined $path || $path eq '' || $path eq $root;
         my $name = basename($path);
-        next if $name eq '';
+        next if !defined $name || $name eq '';
         next if $prefix ne '' && index( $name, $prefix ) != 0;
         next if $seen{$name}++;
         push @candidates, $name;

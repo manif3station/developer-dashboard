@@ -270,8 +270,8 @@ sub _build_paths {
     my $home = $ENV{HOME} || '';
     return Developer::Dashboard::PathRegistry->new(
         home            => $home,
-        workspace_roots => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],    # uncoverable branch false the mapped candidate is an interpolated string and is never undef
-        project_roots   => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],    # uncoverable branch false the mapped candidate is an interpolated string and is never undef
+        workspace_roots => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
+        project_roots   => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
     );
 }
 

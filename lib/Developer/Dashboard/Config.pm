@@ -79,7 +79,7 @@ sub _write_json_atomic {
     my $temp = $file . '.tmp.' . $$ . '.' . int( rand(1_000_000) );
     open my $fh, '>:raw', $temp or die "Unable to write $temp: $!";
     print {$fh} $text;
-    close $fh or die "Unable to close $temp: $!";    # uncoverable branch true
+    close $fh or die "Unable to close $temp: $!";
     $self->{paths}->secure_file_permissions($temp);
     rename $temp, $file or die "Unable to rename $temp to $file: $!";
     $self->{paths}->secure_file_permissions($file);
@@ -346,7 +346,7 @@ sub _skill_path_aliases {
         my $skill_aliases = $entry->{config}{path_aliases};
         next if ref($skill_aliases) ne 'HASH';
         for my $name ( keys %{$skill_aliases} ) {
-            next if !defined $name || $name eq '';    # uncoverable condition left
+            next if $name eq '';
             my $qualified_name = $name =~ /^\Q$entry->{skill_name}\E\./
               ? $name
               : $entry->{skill_name} . '.' . $name;
@@ -392,7 +392,7 @@ sub _skill_file_aliases {
         my $skill_aliases = $entry->{config}{file_aliases};
         next if ref($skill_aliases) ne 'HASH';
         for my $name ( keys %{$skill_aliases} ) {
-            next if !defined $name || $name eq '';    # uncoverable condition left
+            next if $name eq '';
             my $qualified_name = $name =~ /^\Q$entry->{skill_name}\E\./
               ? $name
               : $entry->{skill_name} . '.' . $name;
@@ -446,7 +446,7 @@ sub _nested_skill_alias_entries {
         next if ref($node) ne 'HASH';
         my $leaf = ref( $node->{$alias_key} ) eq 'HASH' ? $node->{$alias_key} : {};
         for my $name ( keys %{$leaf} ) {
-            next if !defined $name || $name eq '';    # uncoverable condition left every leaf key is either hand-authored by a skill or written by save_skill_*_alias, both of which already reject an empty/undef alias name
+            next if $name eq '';
             $aliases{ join( '.', @{$segments}, $name ) } = $leaf->{$name};
         }
     }
@@ -472,12 +472,12 @@ sub _nested_skill_alias_entries {
         }
 
         for my $seg ( @{ $location->{remaining} } ) {
-            $node = ref($node) eq 'HASH' && ref( $node->{$seg} ) eq 'HASH' ? $node->{$seg} : {};    # uncoverable condition left $node is always a hashref here by construction (the "skill" branch above only assigns a HASH, and every prior loop iteration's false side already assigns {} rather than a non-hash value), so this side can never observe a non-HASH $node
+            $node = ref( $node->{$seg} ) eq 'HASH' ? $node->{$seg} : {};
         }
 
-        my $leaf = ref($node) eq 'HASH' && ref( $node->{$alias_key} ) eq 'HASH' ? $node->{$alias_key} : {};    # uncoverable condition left $node is always a hashref here for the same reason as the loop above
+        my $leaf = ref( $node->{$alias_key} ) eq 'HASH' ? $node->{$alias_key} : {};
         for my $name ( keys %{$leaf} ) {
-            next if !defined $name || $name eq '';    # uncoverable condition left every leaf key is written by save_skill_*_alias, which already rejects an empty/undef alias name
+            next if $name eq '';
             $aliases{ join( '.', @{$segments}, $name ) } = $leaf->{$name};    # overrides pass 1 for the same qualified name
         }
     }
@@ -498,7 +498,6 @@ sub split_skill_alias_name {
     my ( $self, $name ) = @_;
     return if !defined $name || index( $name, '.' ) < 0;
     my @parts = split /\./, $name, -1;
-    return if @parts < 2;    # uncoverable branch true the preceding index() check already guarantees at least one '.', so a -1-limit split always returns at least 2 pieces
     return if grep { $_ eq '' } @parts;    # split() on a plain string never yields an undef element, only possibly-empty ones, so an explicit !defined check here would be dead code
     my $alias = pop @parts;
     return ( \@parts, $alias );
@@ -633,7 +632,7 @@ sub _remove_skill_alias {
         my $target = ref( $cfg->{$global_fallback_key} ) eq 'HASH' ? $cfg->{$global_fallback_key} : {};
         my $reachable = 1;
         for my $seg ( @{ $location->{remaining} } ) {
-            if ( ref($target) ne 'HASH' || ref( $target->{$seg} ) ne 'HASH' ) {    # uncoverable condition left $target is always a hashref entering every iteration - it starts as one above and the loop body only ever reassigns it to a value already confirmed HASH by this same check
+            if ( ref( $target->{$seg} ) ne 'HASH' ) {
                 $reachable = 0;
                 last;
             }
@@ -1299,9 +1298,9 @@ sub _skill_config_entries {
     my @entries;
     for my $skill_root ( $self->{paths}->installed_skill_roots ) {
         my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
-        next if !defined $skill_name;    # uncoverable branch true
+        next if !defined $skill_name;
         my $config = $self->_skill_config_hash($skill_name);
-        next if ref($config) ne 'HASH' || !%{$config};    # uncoverable condition left
+        next if !%{$config};
         push @entries,
           {
             skill_name => $skill_name,
@@ -1334,9 +1333,9 @@ sub _skill_api_entries {
     my @entries;
     for my $skill_root ( $self->{paths}->installed_skill_roots ) {
         my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
-        next if !defined $skill_name;    # uncoverable branch true
+        next if !defined $skill_name;
         my $api = $self->_skill_api_hash($skill_name);
-        next if ref($api) ne 'HASH' || !%{$api};    # uncoverable condition left
+        next if !%{$api};
         push @entries,
           {
             skill_name => $skill_name,

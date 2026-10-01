@@ -191,32 +191,22 @@ sub exec_workspace_attach {
     # both safer and testable.
     my $argv = $args{args};
 
-    # Both sides of this guard ARE recorded, and the annotation that used to sit
-    # here claimed otherwise (DD-537, corrected under DD-532). It reasoned that
-    # passing the guard means reaching the exec below, which replaces the process
-    # image before Devel::Cover can write anything. That is true of the exec and
-    # false of the guard: a child that reaches the guard and is then replaced has
-    # already recorded this line, so the false side is covered - Devel::Cover
-    # flagged it as "marked uncoverable but covered", which is an error rather
-    # than a gap, and it was the whole of this file's missing branch coverage.
     die 'tmux args must be an array reference' if ref($argv) ne 'ARRAY';
 
-    # Neither line below can be recorded by Devel::Cover: exec replaces the
-    # process image, so the coverage database is never written from here, and a
-    # forked child that execs successfully takes its record with it. The guard
-    # above IS reachable and is tested; only the handoff itself is not.
-    # Shaped exactly like the handoffs in PageRuntime and SkillDispatcher, which
-    # both measure 100.0, because the wrapping `if` creates a branch Devel::Cover
-    # cannot measure: on a SUCCESSFUL exec the process is replaced before anything
-    # is recorded, and on a FAILING one the count lands on the exec line itself.
-    #
-    # The spec drives a failing exec (no tmux on PATH), so this statement IS
-    # executed and recorded. The die below is not: Devel::Cover cannot attribute a
-    # statement that follows a failed exec - the count lands on the exec - so it
-    # reports zero even though the test asserts its message. PageRuntime records
-    # exactly the same thing at its own handoff.
-    exec 'tmux', @{$argv};
-    die "Unable to exec tmux to attach the workspace session: $!\n";    # uncoverable statement
+    # The raw exec lives in _exec_tmux because Devel::Cover cannot attribute a
+    # statement that follows a failed exec in the same sub; tests replace
+    # _exec_tmux to reach the die below in-process.
+    _exec_tmux( @{$argv} );
+    die "Unable to exec tmux to attach the workspace session: $!\n";
+}
+
+# _exec_tmux(@args)
+# Performs the bare exec of tmux; returns only when the exec fails.
+# Input: tmux argument list.
+# Output: false when exec fails, never returns on success.
+sub _exec_tmux {
+    my (@args) = @_;
+    return exec 'tmux', @args;
 }
 
 # resolve_attach_runner(%args)
@@ -380,7 +370,8 @@ sub apply_ticket_status {
     my (%args) = @_;
     my $session = $args{session} || die 'Missing session name';
     my $tmux = $args{tmux} || \&tmux_command;
-    my $dashboard = $args{dashboard} || _dashboard_command_path();    # uncoverable condition false
+    my $dashboard = $args{dashboard};
+    $dashboard = _dashboard_command_path() if !$dashboard;
 
     my $default_status = _tmux_stdout(
         tmux => $tmux,

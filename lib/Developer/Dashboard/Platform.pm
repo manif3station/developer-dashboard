@@ -100,7 +100,7 @@ sub native_shell_name {
 sub normalize_shell_name {
     my ($shell) = @_;
     $shell = native_shell_name() if !defined $shell || $shell eq '';
-    $shell =~ s{.*[\\/]}{} if defined $shell;    # uncoverable branch false
+    $shell =~ s{.*[\\/]}{};
     $shell = lc( $shell || '' );
 
     return 'powershell' if $shell eq 'ps' || $shell eq 'powershell.exe';
@@ -117,7 +117,7 @@ sub shell_command_argv {
     my ( $command, %args ) = @_;
     die "Missing shell command\n" if !defined $command;
 
-    my $shell = normalize_shell_name( $args{shell} || native_shell_name() );    # uncoverable condition false
+    my $shell = normalize_shell_name( $args{shell} || native_shell_name() );
     my $login = $args{login} ? 1 : 0;
     return ( $shell, $login ? '-lc' : '-c', $command ) if $shell eq 'bash' || $shell eq 'zsh' || $shell eq 'sh';
     return ( $shell, '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', $command )
@@ -388,7 +388,7 @@ sub _cmd_binary {
 # Output: executable path or command name string.
 sub _posix_shell_binary {
     my ($preferred) = @_;
-    return command_in_path($preferred) || command_in_path('sh') || $preferred;    # uncoverable condition false
+    return command_in_path($preferred) || command_in_path('sh') || $preferred;
 }
 
 # _module_lib_root()
@@ -499,7 +499,7 @@ sub _exec_java_source {
     my $build_root = tempdir( CLEANUP => 1 );
     my $source_root = tempdir( CLEANUP => 1 );
     my $staged_source = File::Spec->catfile( $source_root, $simple_class . '.java' );
-    copy( $path, $staged_source ) or die "Unable to stage Java source $path as $staged_source: $!";    # uncoverable branch true
+    copy( $path, $staged_source ) or die "Unable to stage Java source $path as $staged_source: $!";
 
     $SYSTEM_LAUNCHER->( 'javac', '-d', $build_root, $staged_source );
     my $exit_code = $? >> 8;
@@ -535,7 +535,7 @@ sub _exec_java_source_via_mvn {
 
     open my $fh, '<', $cp_file or die "Unable to read resolved classpath $cp_file: $!";
 
-    my $dependency_classpath = do { local $/; <$fh> } // '';    # uncoverable condition right
+    my $dependency_classpath = do { local $/; <$fh> };
     close $fh;
     $dependency_classpath =~ s/\s+\z//;
 

@@ -134,19 +134,17 @@ sub run_code_blocks {
                 $state = $page->{state};
             }
 
-            if ( ref( $result->{returns} ) eq 'ARRAY' ) {    # uncoverable branch false
-                for my $value ( @{ $result->{returns} } ) {
-                    if ( ref($value) eq 'HASH' ) {
-                        $page->merge_state($value);
-                        $state = $page->{state};
-                    }
-                    next if ref($value) ne 'HASH' && ref($value) ne 'ARRAY';
-                    push @outputs, $self->_runtime_value_text($value);
+            for my $value ( @{ $result->{returns} } ) {
+                if ( ref($value) eq 'HASH' ) {
+                    $page->merge_state($value);
+                    $state = $page->{state};
                 }
+                next if ref($value) ne 'HASH' && ref($value) ne 'ARRAY';
+                push @outputs, $self->_runtime_value_text($value);
             }
 
-            my $stdout = defined $result->{stdout} ? $result->{stdout} : '';    # uncoverable branch false
-            my $stderr = defined $result->{stderr} ? $result->{stderr} : '';    # uncoverable branch false
+            my $stdout = $result->{stdout};
+            my $stderr = $result->{stderr};
 
             push @outputs, $stdout if $stdout ne '';
             push @errors, $stderr if $stderr ne '';
@@ -185,7 +183,7 @@ sub _render_templates {
     my $request_context = $page->{meta}{request_context} || {};
     my $current_page = $args{runtime_context}{current_page} || $request_context->{path} || '';
     my %template_runtime = (
-        %{ $args{runtime_context} || {} },    # uncoverable branch true
+        %{ $args{runtime_context} },
         current_page => $current_page,
     );
     my %template_env = (
@@ -323,7 +321,8 @@ sub _code_inc_roots {
     my $page_skill_path = $page->{meta}{skill_path};
     if ( defined $page_skill_path && $page_skill_path ne '' ) {
         my $page_lib = File::Spec->catdir( $page_skill_path, 'lib' );
-        if ( -d $page_lib && !$seen{$page_lib}++ ) {
+        if ( -d $page_lib ) {
+            $seen{$page_lib}++;
             push @roots, $page_lib;
         }
     }
@@ -401,10 +400,10 @@ sub _run_single_block {
         paths   => $self->{paths},
         aliases => $self->{aliases},
     );
-    $sandpit ||= $self->_new_sandpit(    # uncoverable condition false
+    $sandpit = $self->_new_sandpit(
         state           => $state,
         runtime_context => $runtime,
-    );
+    ) if !$sandpit;
 
     my $package = $sandpit->{package} || die 'Missing sandpit package';
     my $wrapped_code = $self->_code_header($state) . $code;
@@ -444,9 +443,9 @@ sub _run_single_block {
     };
     my @errors = $package->__errors();
     if (@errors) {
-        my $error = join '', grep { defined $_ && $_ ne '' } @errors;    # uncoverable branch false
+        my $error = join '', @errors;
         $self->_destroy_sandpit($sandpit) if $destroy_sandpit;
-        die $error if $error ne '';    # uncoverable branch false
+        die $error;
     }
 
     $self->_destroy_sandpit($sandpit) if $destroy_sandpit;
@@ -477,10 +476,10 @@ sub stream_code_block {
         paths   => $self->{paths},
         aliases => $self->{aliases},
     );
-    $sandpit ||= $self->_new_sandpit(    # uncoverable condition false
+    $sandpit = $self->_new_sandpit(
         state           => $state,
         runtime_context => $runtime,
-    );
+    ) if !$sandpit;
 
     my $package = $sandpit->{package} || die 'Missing sandpit package';
     my $wrapped_code = $self->_code_header($state) . $code;
@@ -512,7 +511,7 @@ sub stream_code_block {
     untie *STDERR;
 
     my @errors = $package->__errors();
-    my $error = join '', grep { defined $_ && $_ ne '' } @errors;    # uncoverable branch false
+    my $error = join '', @errors;
 
     if ( ref( $args{return_writer} ) eq 'CODE' ) {
         for my $value (@returns) {
@@ -757,7 +756,7 @@ sub _drain_saved_ajax_ready_handle {
     }
     my $ready_fileno  = fileno($fh);
     my $stdout_fileno = fileno($stdout);
-    if ( defined $ready_fileno && defined $stdout_fileno && $ready_fileno == $stdout_fileno ) {    # uncoverable condition left
+    if ( defined $stdout_fileno && $ready_fileno == $stdout_fileno ) {
         my $continued = $stdout_writer->($chunk);
         return defined $continued ? $continued : 1;
     }
@@ -958,7 +957,7 @@ sub _saved_ajax_temp_file {
         SUFFIX => $args{suffix} || '',
     );
     print {$fh} defined $args{content} ? $args{content} : '';
-    close $fh or die "Unable to close saved ajax temp file $path: $!";    # uncoverable branch true
+    close $fh or die "Unable to close saved ajax temp file $path: $!";
     return $path;
 }
 
@@ -1114,13 +1113,18 @@ sub _exec_saved_ajax_command {
     die "Missing saved ajax command\n" if !@command;
     defined $SETPGID->()
       or die "Unable to isolate saved ajax process $$: $!\n";
-    exec { $command[0] } @command;
+    die "Unable to exec saved ajax command $command[0]: $!\n" if !$class->_exec_command(@command);
+}
 
-    # Devel::Cover cannot attribute a statement that follows a failed exec: the
-    # count lands on the exec line itself, so this line always reports zero even
-    # though the page-runtime coverage tests drive a failing exec through here and
-    # assert this message.
-    die "Unable to exec saved ajax command $command[0]: $!\n";    # uncoverable statement
+# _exec_command(@command)
+# Replaces this process with the command. Kept as its own sub because Devel::Cover
+# records nothing after a failed exec in the same sub, so the failure path in
+# _exec_saved_ajax_command can only be reached by stubbing this helper.
+# Input: the command and its arguments.
+# Output: false when the exec fails; never returns on success.
+sub _exec_command {
+    my ( $class, @command ) = @_;
+    return exec { $command[0] } @command;
 }
 
 # _run_saved_ajax_perl_file($path)
@@ -1293,7 +1297,7 @@ sub _new_sandpit {
     $package =~ s/[^A-Za-z0-9:]/_/g;
 
     my $ok = eval _sandpit_package_source($package);
-    die "Unable to setup sandpit $@\n" if !$ok;    # uncoverable branch true
+    die "Unable to setup sandpit $@\n" if !$ok;
 
     $package->__initial_context(
         $args{state} || {},

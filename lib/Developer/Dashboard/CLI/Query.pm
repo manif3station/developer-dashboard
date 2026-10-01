@@ -242,7 +242,6 @@ sub _parse_java_properties {
         next if $line =~ /^\s*$/;
 
         my ( $key, $value ) = split /\s*[:=]\s*|\s+/, $line, 2;
-        $key   = '' if !defined $key;    # uncoverable branch true
         $value = '' if !defined $value;
         $key   =~ s/^\s+|\s+$//g;
         $value =~ s/^\s+|\s+$//g;

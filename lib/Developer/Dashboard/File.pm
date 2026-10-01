@@ -112,7 +112,7 @@ sub touch {
     my $path = $class->_resolve_file($file);
     die 'Missing file path' if !defined $path || $path eq '';
     open my $fh, '>>', $path or die "Unable to touch $path: $!";
-    close $fh or die "Unable to close $path: $!";    # uncoverable branch true closing an append handle with no buffered output cannot fail on the test host
+    close $fh or die "Unable to close $path: $!";
     my $files = _files_obj();
     $files->paths->secure_file_permissions($path) if $files && $files->can('paths');
     return $path;
