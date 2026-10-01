@@ -143,6 +143,11 @@ is_deeply( $dispatcher->_load_skill_routes_file($routes_file)->{app} || {}, {}, 
 is_deeply( [ $dispatcher->_runtime_custom_route_specs ], [], 'a runtime routes file without kinds yields no specs' );
 is_deeply( $dispatcher->_skill_routes_for( 'mk', 'app' ), {}, 'a skill routes file without the kind yields no routes' );
 
+write_file( File::Spec->catfile( $home, '.developer-dashboard', 'config', 'routes.json' ), '{"/rt-foo":"/app/rtfoo"}' );
+write_file( $routes_file, '{"/mk-foo":"/app/foo"}' );
+is( scalar( () = $dispatcher->_runtime_custom_route_specs ), 1, 'a runtime routes file with an app route yields one spec' );
+is_deeply( [ keys %{ $dispatcher->_skill_routes_for( 'mk', 'app' ) } ], ['foo'], 'a skill routes file with an app route yields it' );
+
 my $dash_root = File::Spec->catdir( $skill, 'dashboards' );
 fails_with( $dash_root, sub { $dispatcher->_skill_bookmark_entries('mk') }, qr/Unable to read \Q$dash_root\E/, 'bookmark enumeration dies on an unreadable dashboards dir' );
 is_deeply( [ $dispatcher->_skill_bookmark_entries('mk') ], ['index'], 'bookmark enumeration lists index' );
@@ -157,11 +162,11 @@ is_deeply( [ $dispatcher->_relative_files($nav_root) ], ['a.tt'], 'relative file
 
 # Exec runs last: a failed exec makes Devel::Cover stop recording.
 # exec: a failing exec reports the error; a (faked) successful exec falls through.
-like( $dispatcher->_exec_replacement( ['/nonexistent/dd-exec-target'], [] ), qr/No such file|not found/i, 'a failing exec returns the system error' );
 {
     local $EXEC_FAKE = 1;
     ok( !$dispatcher->_exec_replacement( ['true'], [] ), 'an exec that hands off falls through without an error string' );
 }
+like( $dispatcher->_exec_replacement( ['/nonexistent/dd-exec-target'], [] ), qr/No such file|not found/i, 'a failing exec returns the system error' );
 
 done_testing;
 

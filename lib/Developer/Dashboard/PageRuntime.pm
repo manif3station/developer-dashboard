@@ -1113,8 +1113,8 @@ sub _exec_saved_ajax_command {
     die "Missing saved ajax command\n" if !@command;
     defined $SETPGID->()
       or die "Unable to isolate saved ajax process $$: $!\n";
-    exec { $command[0] } @command
-      or die "Unable to exec saved ajax command $command[0]: $!\n";
+    exec { $command[0] } @command;
+    die "Unable to exec saved ajax command $command[0]: $!\n";
 }
 
 # _run_saved_ajax_perl_file($path)

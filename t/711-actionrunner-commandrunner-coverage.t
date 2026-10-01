@@ -10,6 +10,7 @@ use warnings;
 our ( %FAIL, %REDIRECT, $FAIL_PIPE );
 
 BEGIN {
+    require Symbol;
     *CORE::GLOBAL::open = sub (*;$@) {
         if ( @_ >= 3 && defined $_[2] && !ref $_[2] ) {
             if ( $FAIL{ $_[2] } ) {
@@ -17,6 +18,12 @@ BEGIN {
                 return 0;
             }
             return CORE::open( $_[0], $_[1], $REDIRECT{ $_[2] } ) if $REDIRECT{ $_[2] };
+        }
+        # A bareword handle (STDIN/STDOUT/STDERR) arrives as a plain name.
+        if ( defined $_[0] && !ref $_[0] && ref \$_[0] eq 'SCALAR' ) {
+            my $fh = Symbol::qualify_to_ref( $_[0], scalar caller );
+            return CORE::open( $fh, $_[1] ) if @_ == 2;
+            return CORE::open( $fh, $_[1], @_[ 2 .. $#_ ] );
         }
         return CORE::open( $_[0], $_[1] ) if @_ == 2;
         return CORE::open( $_[0], $_[1], @_[ 2 .. $#_ ] );
@@ -68,6 +75,22 @@ sub write_file {
     local $FAIL_PIPE = 1;
     my $err = eval { $runner->run_command_action( command => 'true', cwd => $home, background => 1 ); 1 } ? '' : $@;
     like( $err, qr/Unable to create background action pipe/, 'a background action reports a pipe failure' );
+}
+
+# Devel::Cover stops recording in a process once a real exec has been attempted,
+# so the "exec returned" failure path is driven through a stubbed _exec_command
+# that returns false while the detached child is simulated in-process.
+{
+    my $fork_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::ActionRunner::_fork_process = sub {
+        $fork_calls++;
+        return fork() if $fork_calls == 1;
+        return 0;
+    };
+    local *Developer::Dashboard::ActionRunner::_exec_command = sub { return 0 };
+    my $err = eval { $runner->run_command_action( command => 'never-execs', cwd => $home, background => 1, timeout_ms => 1000 ); 1 } ? '' : $@;
+    like( $err, qr/Unable to exec background action command/, 'a background command whose exec returns reports the failure' );
 }
 
 # The procfs state reader tolerates an unreadable or unparsable stat file.

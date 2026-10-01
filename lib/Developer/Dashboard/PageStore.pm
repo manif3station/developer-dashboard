@@ -8,7 +8,7 @@ use utf8;
 
 use Encode qw(decode FB_CROAK FB_DEFAULT);
 use Cwd qw(abs_path);
-use Fcntl qw(:DEFAULT O_NOFOLLOW);
+use Fcntl qw(:DEFAULT);
 use File::Find ();
 use File::Spec;
 use File::Basename qw(basename dirname);
@@ -19,9 +19,18 @@ use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::Platform qw(is_windows);
 use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
 
-# Fallback no-follow flag: O_NOFOLLOW where the platform provides the macro,
-# otherwise 0 so path-based fallback opens still work on such runtimes.
-my $NOFOLLOW = eval { O_NOFOLLOW } || 0;
+# _nofollow_flag()
+# Resolves the no-follow open flag: O_NOFOLLOW where the platform provides the
+# macro, otherwise 0 so path-based fallback opens still work on such runtimes.
+# Looked up at call time so a platform without the macro can be modelled.
+# Input: none.
+# Output: integer open flag.
+sub _nofollow_flag {
+    my $flag = eval { Fcntl->can('O_NOFOLLOW')->() };
+    return $flag ? $flag : 0;
+}
+
+my $NOFOLLOW = _nofollow_flag();
 
 # new(%args)
 # Constructs the page persistence and token transport store.
