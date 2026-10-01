@@ -257,7 +257,7 @@ sub collector_indicator_candidate {
       if !defined $job->{name} || $job->{name} eq '';
 
     my $indicator = ref( $job->{indicator} ) eq 'HASH' ? $job->{indicator} : {};
-    my $name = $indicator->{name} || $job->{name};
+    my $name = $indicator->{name} ? $indicator->{name} : $job->{name};
     my $existing = ref( $opts{existing} ) eq 'HASH'
       ? $opts{existing}
       : eval { $self->get_indicator($name) } || {};
@@ -687,7 +687,7 @@ sub _indicator_sort_cmp {
 sub _local_indicator {
     my ( $self, $name ) = @_;
     my ($file) = $self->_indicator_file_candidates($name);
-    return if !defined $file || $file eq '';
+    return if !defined $file;
     return $self->_read_indicator_file($file);
 }
 

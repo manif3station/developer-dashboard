@@ -36,7 +36,7 @@ sub render {
     my ( $self, %args ) = @_;
 
     my $jobs = defined $args{jobs} ? $args{jobs} : 0;
-    my $cwd  = $args{cwd} || cwd();
+    my $cwd  = $args{cwd} ? $args{cwd} : cwd();
     my $mode = $args{mode} || 'compact';
     my $color = exists $args{color} ? $args{color} : 0;
     my $max_age = defined $args{max_age} ? $args{max_age} : 300;
@@ -83,7 +83,7 @@ sub render_tmux_status {
     my ( $top, $bottom ) = $self->_tmux_status_lines(%args);
     return $top    if $line eq 'top';
     return $bottom if $line eq 'bottom';
-    return join "\n", grep { defined $_ && $_ ne q{} } ( $top, $bottom );
+    return join "\n", grep { $_ ne q{} } ( $top, $bottom );
 }
 
 # _timestamp()
@@ -113,7 +113,7 @@ sub _indicator_parts {
         my $stale = $self->{indicators}->is_stale( $indicator, max_age => $max_age ) ? 1 : 0;
         my $part = $mode eq 'extended'
           ? join( '', grep { defined && $_ ne '' } $status_icon, $icon, $label )
-          : join( '', grep { defined && $_ ne '' } $status_icon, ( $icon || substr( $label, 0, 1 ) ) );
+          : join( '', grep { $_ ne '' } $status_icon, ( $icon || substr( $label, 0, 1 ) ) );
         if ($color) {
             my $status = $indicator->{status} || '';
             my $ansi = $stale ? "\e[33m" : $status =~ /^(ok|clean)$/ ? "\e[32m" : $status =~ /^(missing|error|dirty|down)$/ ? "\e[31m" : "\e[36m";

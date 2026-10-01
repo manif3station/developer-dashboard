@@ -197,7 +197,9 @@ sub ls {
         };
     }
     closedir $dh;
-    return sort { $b->{type} cmp $a->{type} || $a->{NAME} cmp $b->{NAME} } @items;
+    my @folders = sort { $a->{NAME} cmp $b->{NAME} } grep { $_->{type} eq 'folder' } @items;
+    my @files   = sort { $a->{NAME} cmp $b->{NAME} } grep { $_->{type} eq 'file' } @items;
+    return ( @folders, @files );
 }
 
 # locate(@parts)

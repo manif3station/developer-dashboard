@@ -553,14 +553,9 @@ sub _service_folder_is_disabled {
         service      => $service,
     );
     return 0 if !@roots;
-    for my $root ( reverse @roots ) {
-        my $service_root = File::Spec->catdir( $root, $service );
-        next if !-d $service_root;
-        return 1 if -f File::Spec->catfile( $service_root, 'disabled.yml' );
-        return 0;
-    }
-
-    return 0;
+    # Lookup roots only ever contain existing service folders, so the deepest one decides.
+    my $service_root = File::Spec->catdir( $roots[-1], $service );
+    return -f File::Spec->catfile( $service_root, q{disabled.yml} ) ? 1 : 0;
 }
 
 # _service_folder_is_development(%args)

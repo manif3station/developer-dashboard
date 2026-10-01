@@ -28,6 +28,7 @@ is( Developer::Dashboard::Platform::normalize_shell_name('/usr/local/bin/ZSH'), 
     my $empty = tempdir( CLEANUP => 1 );
     local $ENV{PATH} = $empty;
     is( Developer::Dashboard::Platform::_posix_shell_binary('bash'), 'bash', 'the preferred name is returned when neither it nor sh is on PATH' );
+    is( Developer::Dashboard::Platform::_posix_shell_binary(''), '', 'an empty preferred name is returned unchanged when nothing resolves' );
 }
 
 # _exec_java_source: staging copy failure and an empty resolved classpath.

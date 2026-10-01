@@ -179,7 +179,8 @@ sub install_many {
 sub install_from_ddfiles {
     my ( $self, $base_dir ) = @_;
     $base_dir ||= '.';
-    my $root = realpath($base_dir) || $base_dir;
+    my $root = realpath($base_dir);
+    $root = $base_dir if !$root;
     my $ddfile = File::Spec->catfile( $root, 'ddfile' );
     my $ddfile_local = File::Spec->catfile( $root, 'ddfile.local' );
     return { error => "No ddfile or ddfile.local found under $root" }
@@ -1243,7 +1244,8 @@ sub _dependency_progress_label {
         install_makefile       => 'Install Makefile dependencies',
         install_dockerfile     => 'Install dockerfile dependencies',
     );
-    my $label = $labels{$task_id} || $task_id;
+    my $label = $labels{$task_id};
+    $label = $task_id if !defined $label;
     my $file  = $files{$task_id} || return $label;
     my $path  = File::Spec->catfile( $skill_path, $file );
     my $result = $args{result};
@@ -2011,7 +2013,8 @@ sub _copy_tree_contents {
 sub _install_manifest_file {
     my ( $self, $manifest_path, %args ) = @_;
     return { success => 1, skipped => 1 } if !defined $manifest_path || !-f $manifest_path;
-    my $manifest_name = $args{manifest_name} || basename($manifest_path);
+    my $manifest_name = $args{manifest_name};
+    $manifest_name = basename($manifest_path) if !$manifest_name;
     my $skills_root = $args{skills_root} || return { error => "Missing skills root for $manifest_name" };
     my $operations = $args{operations};
     my @sources = $self->_dependency_file_lines($manifest_path);

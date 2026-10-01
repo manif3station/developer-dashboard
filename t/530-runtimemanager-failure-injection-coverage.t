@@ -22,12 +22,19 @@ BEGIN {
                 }
             }
             if ( my $redirect = $OPEN_REDIRECT{ $_[2] } ) {
-                return CORE::open( $_[0], @{$redirect} );
+                return CORE::open( $_[0], $redirect->[0], @{$redirect}[ 1 .. $#{$redirect} ] );
             }
         }
-        my $handle = $_[0];
-        if ( defined $handle && !ref $handle ) {
-            $handle = Symbol::qualify_to_ref( $handle, scalar caller );
+        my $handle;
+        if ( !defined $_[0] ) {
+            $_[0] = Symbol::gensym();
+            $handle = $_[0];
+        }
+        elsif ( !ref $_[0] ) {
+            $handle = Symbol::qualify_to_ref( $_[0], scalar caller );
+        }
+        else {
+            $handle = $_[0];
         }
         return CORE::open( $handle, $_[1] ) if @_ == 2;
         return CORE::open( $handle, $_[1], @_[ 2 .. $#_ ] ) if @_ >= 3;
@@ -45,6 +52,8 @@ BEGIN {
             $! = 24;
             return 0;
         }
+        $_[0] = Symbol::gensym() if !defined $_[0];
+        $_[1] = Symbol::gensym() if !defined $_[1];
         return CORE::pipe( $_[0], $_[1] );
     };
     *CORE::GLOBAL::seek = sub (*$$) {

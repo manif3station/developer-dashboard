@@ -149,6 +149,11 @@ sub error_of  { my ($code) = @_; return eval { $code->(); 1 } ? '' : $@ }
         like( error_of( sub { $paths->_write_state_metadata( $dir, $home ) } ), qr/Unable to close \Q$file\E/, '_write_state_metadata dies when close fails' );
     }
     ok( $paths->_write_state_metadata( $dir, $home ), 'metadata writes normally without injected failures' );
+    {
+        my $tmp = File::Spec->catfile( $dir, 'pending.tmp' );
+        local $FAIL_CLOSE{$tmp} = 1;
+        like( error_of( sub { $paths->atomic_write_secure( $tmp, File::Spec->catfile( $dir, 'final.txt' ), 'x' ) } ), qr/Unable to close \Q$tmp\E/, 'atomic_write_secure dies when close fails' );
+    }
 }
 
 # --- ls / with_dir ---------------------------------------------------------

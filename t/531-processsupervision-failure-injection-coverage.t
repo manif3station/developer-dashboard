@@ -16,7 +16,7 @@ BEGIN {
                 return 0;
             }
             if ( my $redirect = $OPEN_REDIRECT{$path} ) {
-                return CORE::open( $_[0], @{$redirect} );
+                return CORE::open( $_[0], $redirect->[0], @{$redirect}[ 1 .. $#{$redirect} ] );
             }
         }
         return CORE::open( $_[0], $_[1] ) if @_ == 2;

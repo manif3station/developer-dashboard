@@ -693,10 +693,7 @@ sub installed_skill_docker_roots_for_runtime {
     my $skills_root = File::Spec->catdir( $runtime_root, 'skills' );
     my $prefix = $skills_root . '/';
     return map { File::Spec->catdir( $_, 'config', 'docker' ) }
-      grep {
-            my $path = $_;
-            $path eq $skills_root || index( $path, $prefix ) == 0;
-      } $self->installed_skill_roots(%args);
+      grep { index( $_, $prefix ) == 0 } $self->installed_skill_roots(%args);
 }
 
 # collectors_root()

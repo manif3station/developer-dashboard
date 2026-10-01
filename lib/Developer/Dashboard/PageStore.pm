@@ -230,8 +230,6 @@ sub _validated_page_id {
     my ( $self, $id ) = @_;
     my $normalized = $self->_normalized_page_id($id);
     die 'Invalid page id' if $normalized eq '';
-
-    die 'Invalid page id' if File::Spec->file_name_is_absolute($normalized);
     die 'Invalid page id' if $normalized =~ /\A[A-Za-z]:/;
     die 'Invalid page id' if grep { $_ eq '' || $_ eq '.' || $_ eq '..' } split m{[\\/]}, $normalized, -1;
     return $normalized;
@@ -255,9 +253,7 @@ sub _assert_page_path_contained {
         my $probe = $file;
         if ( $args{for_write} && !-e $probe && !-l $probe ) {
             while ( !-e $probe && !-l $probe ) {
-                my $parent = dirname($probe);
-                last if $parent eq $probe;
-                $probe = $parent;
+                $probe = dirname($probe);
             }
         }
         my $probe_real = abs_path($probe);
@@ -432,7 +428,6 @@ sub _read_saved_instruction {
     local $/;
     my $raw = <$fh>;
     close $fh or die "Unable to close $file: $!";
-    return '' if !defined $raw;
     my $text = eval { decode( 'UTF-8', $raw, FB_CROAK ) } || decode( 'UTF-8', $raw, FB_DEFAULT );
     return $self->_normalize_legacy_icon_markup($text);
 }

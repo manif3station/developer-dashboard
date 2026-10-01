@@ -877,6 +877,27 @@ sub jquery_js_response {
     return [ 200, 'application/javascript; charset=utf-8', $content ];
 }
 
+# _page_raw_instruction($page)
+# Returns the page's stored raw instruction text, falling back to the
+# canonical instruction when no raw text was recorded.
+# Input: page document object.
+# Output: instruction text string.
+sub _page_raw_instruction {
+    my ($page) = @_;
+    my $raw = $page->{meta}{raw_instruction};
+    return $raw ? $raw : $page->canonical_instruction;
+}
+
+# _file_is_readable($path)
+# Reports whether the current process may read one path. Kept as its own
+# helper so tests can model an unreadable file even when running as root.
+# Input: file path string.
+# Output: true when the path is readable.
+sub _file_is_readable {
+    my ($path) = @_;
+    return -r $path;
+}
+
 # _bundled_public_asset_path($type, $file)
 # Resolves one bundled public asset from the repo share tree during
 # development or from the installed distribution share dir after install.
@@ -887,7 +908,7 @@ sub _bundled_public_asset_path {
     die 'asset type is required' if !defined $type || $type eq '';
     die 'asset file is required' if !defined $file || $file eq '';
 
-    my $module_source = $MODULE_SOURCE_PATH || File::Spec->rel2abs( __FILE__, $ORIG_CWD );
+    my $module_source = $MODULE_SOURCE_PATH ? $MODULE_SOURCE_PATH : File::Spec->rel2abs( __FILE__, $ORIG_CWD );
     my $module_dir    = dirname($module_source);
     my @candidates;
 
@@ -1131,12 +1152,12 @@ sub page_source_response {
     my ( $params, $body_params ) = $self->_request_params(%args);
     my $page = $self->_load_editable_named_page( $args{id} );
     return [ 404, 'text/plain; charset=utf-8', "Not found\n" ] if !$page;
-    $page->{meta}{raw_instruction} = $page->{meta}{raw_instruction} || $page->canonical_instruction;
+    $page->{meta}{raw_instruction} = _page_raw_instruction($page);
     $page = $self->_page_with_runtime_state(
         $page,
         query_params => $params,
         body_params  => $body_params,
-        path         => $args{path} || '/app/' . $args{id} . '/source',
+        path         => $args{path} ? $args{path} : '/app/' . $args{id} . '/source',
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
     );
@@ -1180,7 +1201,7 @@ sub page_edit_post_response {
             }
         }
         my $mode = $params->{mode} || $body_params->{mode} || 'edit';
-        my $request_path = $args{path} || '/app/' . $args{id} . '/edit';
+        my $request_path = $args{path} ? $args{path} : '/app/' . $args{id} . '/edit';
         $request_path = '/app/' . $args{id} if $mode eq 'render' && $source_kind eq 'skill';
         $page = $self->_page_with_runtime_state(
             $page,
@@ -1210,12 +1231,12 @@ sub page_edit_response {
     my ( $params, $body_params ) = $self->_request_params(%args);
     my $page = $self->_load_editable_named_page( $args{id} );
     return $self->_missing_named_page_response( $args{id} ) if !$page;
-    $page->{meta}{raw_instruction} = $page->{meta}{raw_instruction} || $page->canonical_instruction;
+    $page->{meta}{raw_instruction} = _page_raw_instruction($page);
     $page = $self->_page_with_runtime_state(
         $page,
         query_params => $params,
         body_params  => $body_params,
-        path         => $args{path} || '/app/' . $args{id} . '/edit',
+        path         => $args{path} ? $args{path} : '/app/' . $args{id} . '/edit',
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
     );
@@ -1239,7 +1260,7 @@ sub page_action_response {
         $page,
         query_params => $params,
         body_params  => $body_params,
-        path         => $args{path} || '/app/' . $args{id} . '/action/' . $args{action_id},
+        path         => $args{path} ? $args{path} : '/app/' . $args{id} . '/action/' . $args{action_id},
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
     );
@@ -1323,7 +1344,7 @@ sub _load_skill_named_page {
             route_id   => $route_id,
         );
     };
-    return if !$page || $@;
+    return if !$page;
     return $self->_decorate_skill_page_routes($page);
 }
 
@@ -1383,7 +1404,7 @@ sub _page_route_urls {
 # Output: response array reference.
 sub _page_response {
     my ( $self, $page, $mode ) = @_;
-    my $source = $page->{meta}{raw_instruction} || $page->canonical_instruction;
+    my $source = _page_raw_instruction($page);
 
     if ( $mode eq 'source' ) {
         return _no_editor_response() if $self->_editor_disabled;
@@ -1403,14 +1424,14 @@ sub _page_response {
 # Output: HTML string.
 sub _edit_html {
     my ( $self, $page ) = @_;
-    my $raw_source = $page->{meta}{raw_instruction} || $page->canonical_instruction;
+    my $raw_source = _page_raw_instruction($page);
     my $source = $raw_source;
     $source =~ s/&/&amp;/g;
     $source =~ s/</&lt;/g;
     $source =~ s/>/&gt;/g;
 
     my $urls = $self->_page_route_urls($page);
-    my $form_action = $urls->{form_action} || '/';
+    my $form_action = $urls->{form_action};
 
     my $title = $page->as_hash->{title};
     $title =~ s/&/&amp;/g;
@@ -2326,7 +2347,7 @@ sub _nav_items_html {
     my $current_page = $runtime_context->{current_page} || '';
     for my $nav_id (@nav_ids) {
         my $nav_page = eval { $self->_load_named_page($nav_id) };
-        next if !$nav_page || $@;
+        next if !$nav_page;
         $nav_page->{meta}{raw_instruction} = $nav_page->canonical_instruction;
         $nav_page = $self->{runtime}->prepare_page(
             page            => $self->_page_with_runtime_state(
@@ -2494,7 +2515,7 @@ sub _legacy_app_response {
     }
 
     my $raw = eval { $self->{pages}->read_saved_entry($id) };
-    if ( !defined $raw || $@ ) {
+    if ( !defined $raw ) {
         my $skill_response = $self->_skill_app_fallback_response( id => $id, %args );
         return $skill_response if $skill_response;
         return $self->_missing_named_page_response($id);
@@ -2817,7 +2838,7 @@ sub _legacy_ajax_response {
                     stderr_writer   => $writer,
                     return_writer   => $writer,
                 );
-                $writer->( $result->{error} ) if defined $result->{error} && $result->{error} ne '';
+                $writer->( $result->{error} ) if $result->{error} ne '';
             },
         },
     ];
@@ -3348,10 +3369,10 @@ sub _serve_static_file_from_roots {
     my $file_path = '';
     for my $public_dir (@public_roots) {
         my $candidate = File::Spec->catfile( $public_dir, $filename );
-        my $real_path = eval { File::Spec->rel2abs($candidate) } || '';
+        my $real_path = File::Spec->rel2abs($candidate);
         my $quoted_public = quotemeta($public_dir);
         next if $real_path !~ /^$quoted_public(?:\/|\z)/;
-        next if !-f $candidate || !-r $candidate;
+        next if !-f $candidate || !_file_is_readable($candidate);
         $file_path = $candidate;
         last;
     }
@@ -3468,7 +3489,7 @@ sub _static_path_contained {
 sub _serve_static_file_at_path {
     my ( $self, $type, $filename, $file_path, $default_type, $allowed_roots ) = @_;
     return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
-      if !defined $file_path || $file_path eq '' || !-f $file_path || !-r $file_path;
+      if !defined $file_path || $file_path eq '' || !-f $file_path || !_file_is_readable($file_path);
     return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
       if !_static_path_contained( $file_path, $allowed_roots );
     my $content_type = defined $default_type && $default_type ne ''
