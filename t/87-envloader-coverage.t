@@ -119,6 +119,7 @@ sub write_file {
         [ File::Spec->catfile( $skill_cli_root, '.env' ) ],
         'load_skill_cli_layers loads .env files from participating skill cli directories',
     );
+    is_deeply( $EL->load_skill_cli_layers, [], 'load_skill_cli_layers returns no files when skill_layers is omitted' );
     is( $ENV{SKILL_CLI_ENV}, 'loaded', 'load_skill_cli_layers applies the skill cli env file' );
 }
 
@@ -382,6 +383,59 @@ write_file( File::Spec->catfile( $ab,  '.env' ),    "AK=abval\n" );
     my $recorded = Developer::Dashboard::EnvAudit->key('SAME_VALUE_KEY');
     ok( defined $recorded, 'a .env.pl assignment that keeps the same value is still recorded in the audit (DD-1044)' );
     is( $recorded->{envfile}, $pl, 'the audit records the correct .env.pl source file for a same-value assignment' );
+}
+
+{
+    local %ENV                                   = %ENV;
+    local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT}    = undef;
+    local %Developer::Dashboard::EnvAudit::AUDIT = ();
+    local $ENV{DYNAMIC_ENV_KEY} = 'before';
+
+    my $pl = write_file(
+        File::Spec->catfile( $home, 'dynamic-assignment', '.env.pl' ),
+        "my \$key = 'DYNAMIC_ENV_KEY';\n\$ENV{\$key} = 'after';\n1;\n",
+    );
+    $EL->_load_env_pl_file($pl);
+    is( $ENV{DYNAMIC_ENV_KEY}, 'after', 'a dynamically named .env.pl assignment updates the inherited value' );
+    is(
+        Developer::Dashboard::EnvAudit->key('DYNAMIC_ENV_KEY')->{envfile}, $pl,
+        'the runtime value-diff records dynamic assignments that static scanning cannot name',
+    );
+
+    my $same_value = write_file(
+        File::Spec->catfile( $home, 'dynamic-same-value', '.env.pl' ),
+        "my \$key = 'DYNAMIC_SAME_VALUE';\n\$ENV{\$key} = 'same';\n1;\n",
+    );
+    local $ENV{DYNAMIC_SAME_VALUE} = 'same';
+    $EL->_load_env_pl_file($same_value);
+    ok(
+        !defined Developer::Dashboard::EnvAudit->key('DYNAMIC_SAME_VALUE'),
+        'a dynamic assignment of an unchanged value is not misreported without a literal assignment target',
+    );
+
+    my $from_undef = write_file(
+        File::Spec->catfile( $home, 'dynamic-from-undef', '.env.pl' ),
+        "my \$key = 'DYNAMIC_FROM_UNDEF';\n\$ENV{\$key} = 'now-defined';\n1;\n",
+    );
+    local $ENV{DYNAMIC_FROM_UNDEF} = undef;
+    $EL->_load_env_pl_file($from_undef);
+    is( $ENV{DYNAMIC_FROM_UNDEF}, 'now-defined',
+        'dynamic env.pl assignments are recorded when the inherited value was undef' );
+
+    my $to_undef = write_file(
+        File::Spec->catfile( $home, 'dynamic-to-undef', '.env.pl' ),
+        "my \$key = 'DYNAMIC_TO_UNDEF';\n\$ENV{\$key} = undef;\n1;\n",
+    );
+    local $ENV{DYNAMIC_TO_UNDEF} = 'before';
+    $EL->_load_env_pl_file($to_undef);
+    ok( !defined $ENV{DYNAMIC_TO_UNDEF},
+        'dynamic env.pl assignments are recorded when they clear an inherited value' );
+}
+
+{
+    my $missing = File::Spec->catfile( $home, 'missing-env-source.pl' );
+    is_deeply( [ $EL->_env_pl_assigned_keys($missing) ], [], 'the assignment scanner returns no keys when its source cannot be opened' );
+    is_deeply( [ $EL->_env_pl_assigned_keys($home) ], [], 'the assignment scanner returns no keys when reading a directory yields no source text' );
 }
 
 {

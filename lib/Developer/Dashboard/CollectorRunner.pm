@@ -1087,7 +1087,6 @@ sub loop_state {
     return if !-f $file;
     my $last_error = '';
     for ( 1 .. 3 ) {
-        # uncoverable branch true
         open my $fh, '<', $file or die "Unable to read $file: $!";
         local $/;
         my $payload = scalar <$fh>;
@@ -1347,7 +1346,6 @@ sub _write_loop_state {
         name => $name,
     );
     my $tmp = $self->_pending_loop_state_file($file);
-    # uncoverable branch true
     open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode( \%state );
     close $fh;

@@ -156,6 +156,7 @@ chdir $test_cwd or die "Unable to chdir to $test_cwd: $!";
 
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
+local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = File::Spec->catdir( $home, 'state' );
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};

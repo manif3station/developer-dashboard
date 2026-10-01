@@ -413,7 +413,6 @@ sub _load_env_pl_file {
             $assigned_by_file{$_}
             || !exists $before{$_}
             || ( defined $before{$_} && defined $ENV{$_} && $before{$_} ne $ENV{$_} )
-            || ( defined $before{$_} xor defined $ENV{$_} )
           )
     } sort keys %ENV;
     for my $key (@changed) {

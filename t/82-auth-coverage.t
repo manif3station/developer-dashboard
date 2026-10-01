@@ -262,6 +262,31 @@ isa_ok( $auth, 'Developer::Dashboard::Auth', 'constructed auth manager' );
     chmod 0600, $locked or die "Unable to restore $locked: $!";
 }
 
+# A non-root run can reach the real unreadable-user-file path directly. The
+# root-only fixture above deliberately drops effective uid to nobody, while
+# this companion keeps the ordinary test identity and protects root-run suites
+# from claiming that a mode-0000 file was actually unreadable.
+{
+    my $locked = $auth->_user_file('nonroot-locked');
+    open my $fh, '>', $locked or die "Unable to write $locked: $!";
+    print {$fh} json_encode( { username => 'nonroot-locked' } );
+    close $fh or die "Unable to close $locked: $!";
+    SKIP: {
+        skip 'root runs exercise the equivalent failure through the explicit privilege-drop fixture', 1 if $> == 0;
+        chmod 0000, $locked or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $locked ) {
+            close $probe or die "Unable to close permission probe for $locked: $!";
+            chmod 0600, $locked or die "Unable to restore $locked: $!";
+            skip 'this process can read a mode-0000 user file, so the failure cannot occur', 1;
+        }
+        my $read_ok = eval { $auth->get_user('nonroot-locked'); 1 };
+        my $read_fail = $read_ok ? 'record was unexpectedly readable' : $@;
+        chmod 0600, $locked or die "Unable to restore $locked: $!";
+        like( $read_fail, qr/Unable to read/, 'get_user dies when a non-root process cannot open an existing user record' );
+    }
+    unlink $locked or die "Unable to remove $locked: $!";
+}
+
 # list_users: skip non-json directory entries and drop entries whose record
 # cannot be loaded (the staged "victim.json" is a directory, not a file).
 {

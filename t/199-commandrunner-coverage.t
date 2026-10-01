@@ -57,6 +57,21 @@ subtest 'command_pid_from_file: real file I/O, no $self' => sub {
     print {$gfh} 'not-a-pid';
     close $gfh;
     is( Developer::Dashboard::CommandRunner::command_pid_from_file($garbage), undef, 'non-numeric content yields undef' );
+
+    my $unreadable = File::Spec->catfile( $dir, 'unreadable.pid' );
+    open my $ufh, '>', $unreadable or die "Unable to write $unreadable: $!";
+    print {$ufh} '4242';
+    close $ufh or die "Unable to close $unreadable: $!";
+    SKIP: {
+        chmod 0000, $unreadable or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $unreadable ) {
+            close $probe or die "Unable to close permission probe for $unreadable: $!";
+            chmod 0600, $unreadable or die "Unable to restore $unreadable: $!";
+            skip 'this process can read a mode-0000 pid file, so the open failure cannot occur', 1;
+        }
+        ok( !defined Developer::Dashboard::CommandRunner::command_pid_from_file($unreadable), 'unreadable pid files yield no command pid' );
+        chmod 0600, $unreadable or die "Unable to restore $unreadable: $!";
+    }
 };
 
 subtest 'record_command_pid then command_pid_from_file round-trip' => sub {

@@ -154,7 +154,6 @@ sub cd {
     my $pwd = cwd();
     my $dir = $class->_resolve_path($where);
     return if !$dir || !-d $dir;
-    # uncoverable branch true
     chdir $dir or return;
     my $parent = dirname($dir);
     # DD-844: the callback runs under eval so a die does not skip the
@@ -185,7 +184,6 @@ sub ls {
     my ( $class, $where ) = @_;
     my $dir = $class->_resolve_path($where);
     return () if !$dir || !-d $dir;
-    # uncoverable branch true
     opendir my $dh, $dir or return ();
     my @items;
     while ( my $entry = readdir $dh ) {

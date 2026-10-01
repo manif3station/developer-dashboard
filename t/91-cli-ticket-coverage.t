@@ -764,6 +764,39 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
     my $plan = run_workspace_command( args => [ '-c', 'DD-7' ], tmux => ok_tmux(), resolve_dir => sub { return $ws_dir } );
     is( $plan->{cwd}, $ws_dir, 'run_workspace_command changes into the resolved workspace directory before planning the session' );
     chdir $home or die "Unable to chdir to $home: $!";
+
+    my $alias_plan = run_workspace_command( args => ['DD-7A'], tmux => ok_tmux(), resolve_dir => sub { return $ws_dir } );
+    is( $alias_plan->{cwd}, $ws_dir, 'run_workspace_command also changes into a resolved path alias without -c' );
+    chdir $home or die "Unable to restore cwd after path alias test: $!";
+    my $unresolved_plan = run_workspace_command( args => ['DD-7B'], tmux => ok_tmux(), resolve_dir => sub { return undef } );
+    ok( $unresolved_plan->{cwd}, 'run_workspace_command keeps the normal cwd when the workspace is not a path alias' );
+
+    my $blocked_dir = File::Spec->catdir( $home, 'blocked-workspace-directory' );
+    make_path($blocked_dir);
+    SKIP: {
+        chmod 0000, $blocked_dir or skip 'chmod not honored on this filesystem', 2;
+        if ( opendir my $probe, $blocked_dir ) {
+            closedir $probe or die "Unable to close permission probe for $blocked_dir: $!";
+            chmod 0700, $blocked_dir or die "Unable to restore permissions on $blocked_dir: $!";
+            skip 'running root can still access a mode-0000 directory', 2;
+        }
+        my $chdir_error = error_from( sub {
+            run_workspace_command( args => ['DD-7C'], tmux => ok_tmux(), resolve_dir => sub { return $blocked_dir } );
+        } );
+        like( $chdir_error, qr/Unable to change directory to .*blocked-workspace-directory.*for workspace path alias 'DD-7C'/,
+            'run_workspace_command reports a real chdir failure for an inaccessible directory' );
+        $chdir_error = error_from( sub {
+            run_workspace_command( args => [ '-c', 'DD-7D' ], tmux => ok_tmux(), resolve_dir => sub { return $blocked_dir } );
+        } );
+        like( $chdir_error, qr/Unable to change directory to .*blocked-workspace-directory.*for workspace 'DD-7D'/,
+            'run_workspace_command reports a real chdir failure for an inaccessible -c target' );
+        chmod 0700, $blocked_dir or die "Unable to restore permissions on $blocked_dir: $!";
+    }
+    my $file_error = error_from( sub {
+        run_workspace_command( args => ['DD-7E'], tmux => ok_tmux(), resolve_dir => sub { return File::Spec->catfile( $ws_dir, '.env' ) } );
+    } );
+    like( $file_error, qr/Workspace path alias 'DD-7E' resolves to .*which is not a directory/,
+        'run_workspace_command refuses a non-directory path alias without -c' );
 }
 
 {
@@ -967,7 +1000,8 @@ coverage.
 Use this file when changing how the helper picks a workspace name, what tmux
 environment variables a session is seeded with, how the top status row is
 composed, how C<-c> resolves a registered directory, or how tmux failures are
-reported back to the user - and whenever the coverage gate reports an
+reported back to the user. It also pins path-alias chdir failures for both the
+ordinary and C<-c> forms - and whenever the coverage gate reports an
 uncovered branch or condition in the ticket helper.
 
 =head1 HOW TO USE

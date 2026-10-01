@@ -875,12 +875,7 @@ sub _transcript_file {
 sub _load_transcript {
     my ($file) = @_;
     return { backend => '', messages => [] } if !-f $file;
-    # DD-942: covered directly by t/48-ask.t on a non-root host (uid 0
-    # ignores permission bits entirely, so a chmod-0000 fixture cannot
-    # force this open() to fail there) - this project's own Docker
-    # coverage-gate container runs as root, so the false branch is
-    # genuinely unreachable in that specific, real environment.
-    open my $fh, '<:raw', $file or return { backend => '', messages => [] };    # uncoverable branch true only reachable as a non-root user; the gate container runs as root
+    open my $fh, '<:raw', $file or return { backend => '', messages => [] };
     local $/;
     my $raw = <$fh>;
     close $fh;

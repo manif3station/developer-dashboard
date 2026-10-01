@@ -63,7 +63,6 @@ sub read {
     my ( $class, $file ) = @_;
     my $path = $class->_resolve_file($file);
     return if !defined $path || !-f $path;
-    # uncoverable branch true
     open my $fh, '<', $path or die "Unable to read $path: $!";
     local $/;
     return <$fh>;

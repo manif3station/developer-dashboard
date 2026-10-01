@@ -379,7 +379,7 @@ mkd( File::Spec->catdir( $proj_runner, 'perl5', 'lib', 'perl5' ) );
 my %env = $disp->_skill_env(
     skill_name   => 'runner',
     skill_path   => $proj_runner,
-    skill_layers => \@runner_layers,
+    skill_layers => [ undef, '', @runner_layers ],
     command      => 'greet',
 );
 is( $env{DEVELOPER_DASHBOARD_SKILL_NAME}, 'runner', '_skill_env exports the skill name' );
@@ -396,6 +396,40 @@ ok( $env_min{PERL5LIB}, '_skill_env works without an explicit skill_layers list'
 {
     my $died = !eval { $disp->_skill_env( skill_name => 'x' ); 1 };
     ok( $died, '_skill_env dies without a skill path' );
+}
+
+# _prepend_skill_lib_to_perl_argv($argv, $skill_path)
+# Adds a skill's lib directory ahead of generic runtime paths for a Perl CLI.
+# Input: an argv array reference and optional skill path.
+# Output: the same argv reference, updated only for valid Perl script commands.
+{
+    my $helper = \&Developer::Dashboard::SkillDispatcher::_prepend_skill_lib_to_perl_argv;
+    is( $helper->('not-an-array', $proj_runner), 'not-an-array',
+        'Perl lib prepending leaves non-array command values untouched' );
+    my $short = [$^X, 'script'];
+    is( $helper->( $short, $proj_runner ), $short,
+        'Perl lib prepending leaves an incomplete Perl argv untouched' );
+    my $other = ['not-perl', '-I', 'dashboard-lib', 'script'];
+    is( $helper->( $other, $proj_runner ), $other,
+        'Perl lib prepending leaves non-Perl command vectors untouched' );
+
+    my $perl_argv = [$^X, '-I', 'dashboard-lib', 'script'];
+    is( $helper->( $perl_argv, undef ), $perl_argv,
+        'Perl lib prepending leaves an undefined skill path untouched' );
+    is( $helper->( $perl_argv, '' ), $perl_argv,
+        'Perl lib prepending leaves an empty skill path untouched' );
+
+    my $without_lib = mkd( File::Spec->catdir( $tmp, 'skill-without-lib' ) );
+    is( $helper->( $perl_argv, $without_lib ), $perl_argv,
+        'Perl lib prepending leaves commands alone when the skill has no lib directory' );
+
+    my $skill_lib = File::Spec->catdir( $proj_runner, 'lib' );
+    mkd($skill_lib);
+    my $with_lib = [$^X, '-I', 'dashboard-lib', 'script'];
+    is( $helper->( $with_lib, $proj_runner ), $with_lib,
+        'Perl lib prepending returns the original argv reference' );
+    is_deeply( [ @{$with_lib}[ 0 .. 2 ] ], [ $^X, '-I', $skill_lib ],
+        'Perl lib directory is inserted immediately after the interpreter' );
 }
 
 # ---------------------------------------------------------------------------
@@ -524,6 +558,15 @@ my $saved_url_redirect = $disp->_skill_page_response(
 );
 is( $saved_url_redirect->[0], 302, '_skill_page_response redirects a saved URL skill bookmark through the web app' );
 is( $saved_url_redirect->[3]{Location}, 'http://127.0.0.1:7890/app/ch/sql?abc=111&def=456&hij=999', 'saved URL skill bookmark merges request query values into its target' );
+my $saved_url_body_redirect = $disp->_skill_page_response(
+    skill_name => 'runner',
+    route_id   => 'saved-url',
+    app        => $app,
+    body_params => { abc => 'body-only' },
+);
+is( URI->new( $saved_url_body_redirect->[3]{Location} )->query,
+    'abc=body-only&def=456',
+    'saved URL bookmark redirect accepts body parameters when query parameters are absent' );
 my $with_app = $disp->_skill_page_response(
     skill_name   => 'runner',
     route_id     => 'index',

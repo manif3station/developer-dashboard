@@ -48,7 +48,7 @@ sub load_global {
     my $merged = {};
     for my $file ( reverse $self->_global_config_files ) {
         next if !-f $file;
-        open my $fh, '<:raw', $file or die "Unable to read $file: $!";    # uncoverable branch true
+        open my $fh, '<:raw', $file or die "Unable to read $file: $!";
         local $/;
         $merged = $self->_merge_hashes( $merged, json_decode(<$fh>) );
     }
@@ -77,7 +77,7 @@ sub save_global {
 sub _write_json_atomic {
     my ( $self, $file, $text ) = @_;
     my $temp = $file . '.tmp.' . $$ . '.' . int( rand(1_000_000) );
-    open my $fh, '>:raw', $temp or die "Unable to write $temp: $!";    # uncoverable branch true
+    open my $fh, '>:raw', $temp or die "Unable to write $temp: $!";
     print {$fh} $text;
     close $fh or die "Unable to close $temp: $!";    # uncoverable branch true
     $self->{paths}->secure_file_permissions($temp);
@@ -121,7 +121,7 @@ sub load_repo {
     my $repo = $self->{repo_root} || return {};
     my $file = File::Spec->catfile( $repo, '.developer-dashboard.json' );
     return {} if !-f $file;
-    open my $fh, '<:raw', $file or die "Unable to read $file: $!";    # uncoverable branch true
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     return json_decode(<$fh>);
 }
@@ -1248,7 +1248,7 @@ sub _load_writable_global {
     my ($self) = @_;
     my $file = $self->_global_config_file;
     return {} if !-f $file;
-    open my $fh, '<:raw', $file or die "Unable to read $file: $!";    # uncoverable branch true
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     return json_decode(<$fh>);
 }
@@ -1270,7 +1270,7 @@ sub _load_writable_api_registry {
 # Output: decoded hash reference.
 sub _load_json_hash_file {
     my ( $self, $file ) = @_;
-    open my $fh, '<:raw', $file or die "Unable to read $file: $!";    # uncoverable branch true
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     my $decoded = json_decode(<$fh>);
     die "Expected JSON object in $file\n" if ref($decoded) ne 'HASH';
@@ -1360,7 +1360,7 @@ sub _skill_config_hash {
     for my $skill_path (@layers) {
         my $config_file = File::Spec->catfile( $skill_path, 'config', 'config.json' );
         next if !-f $config_file;
-        open my $fh, '<:raw', $config_file or die "Unable to read $config_file: $!";    # uncoverable branch true
+        open my $fh, '<:raw', $config_file or die "Unable to read $config_file: $!";
         local $/;
         my $config = eval { json_decode(<$fh>) } || {};
         close $fh;

@@ -348,6 +348,14 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 {
     is( $manager->_clone_skill_source( '', 'x' )->{error}, 'Missing remote skill source', 'clone rejects a missing source' );
     is( $manager->_clone_skill_source( 'src', '' )->{error}, 'Missing remote skill target path', 'clone rejects a missing target' );
+    is( $manager->_clone_skill_branch( 'src', 'target', undef )->{error},
+        'Missing remote skill branch', 'single-branch clone rejects an undefined branch' );
+    is( $manager->_clone_skill_branch( 'src', 'target', '' )->{error},
+        'Missing remote skill branch', 'single-branch clone rejects an empty branch' );
+    is( $manager->_validate_skill_branch(undef)->{error},
+        'Missing remote skill branch', 'branch validation rejects an undefined branch' );
+    is( $manager->_validate_skill_branch('')->{error},
+        'Missing remote skill branch', 'branch validation rejects an empty branch' );
 
     # Silent-failing git stub so both stderr and stdout are empty.
     my $bin2 = tempdir( CLEANUP => 1 );
@@ -370,6 +378,15 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     }
     is_deeply( \@branch_attempts, [qw(master main)], 'new clone attempts master first and main second' );
 
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::SkillManager::_clone_skill_branch = sub { return { error => 'branch failed' }; };
+        local *Developer::Dashboard::SkillManager::_remove_existing_skill_path = sub { return { error => 'cleanup failed' }; };
+        my $cleanup_failure = $manager->_clone_skill_source( 'remote', 'target' );
+        like( $cleanup_failure->{error}, qr/Unable to retry skill clone.*cleanup failed/,
+            'default branch retry surfaces a failed cleanup instead of hiding it' );
+    }
+
     @branch_attempts = ();
     {
         no warnings 'redefine';
@@ -382,6 +399,40 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
         like( $explicit->{error}, qr/release-x/, 'an explicit branch reports its own clone failure' );
     }
     is_deeply( \@branch_attempts, ['release-x'], 'an explicit branch does not fall back to master or main' );
+}
+
+# install($source) result enrichment for optional gitignore registration data.
+# Input: a fake successful install and complete registration hash.
+# Output: result hash carrying only registration fields that were supplied.
+{
+    my $registration_manager = Developer::Dashboard::SkillManager->new( paths => $paths );
+    no warnings 'redefine';
+    local *Developer::Dashboard::SkillManager::_install_to_skills_root = sub {
+        return { success => 1, repo_name => 'registered-skill' };
+    };
+    local *Developer::Dashboard::SkillManager::_register_home_gitignore_skill = sub {
+        return { gitignore => '/tmp/skills.gitignore', registered => 1 };
+    };
+    local $ENV{DEVELOPER_DASHBOARD_SKIP_SKILL_REGISTRY} = 1;
+    my $result = $registration_manager->install('registered-skill');
+    is( $result->{registered_gitignore}, '/tmp/skills.gitignore',
+        'install returns a provided home gitignore path' );
+    is( $result->{registered_gitignore_entry}, 1,
+        'install returns a provided gitignore registration flag' );
+    ok( !exists $result->{registered_ddfile},
+        'nested dependency installation skips root ddfile registration when explicitly requested' );
+}
+
+# _extract_repo_name($source) direct parser edge cases.
+# Input: empty source and an existing local directory.
+# Output: undef or the local directory basename.
+{
+    is( Developer::Dashboard::SkillManager::_extract_repo_name(undef), undef,
+        'repository-name extraction rejects an undefined source' );
+    is( Developer::Dashboard::SkillManager::_extract_repo_name(''), undef,
+        'repository-name extraction rejects an empty source' );
+    is( Developer::Dashboard::SkillManager::_extract_repo_name($home), File::Basename::basename($home),
+        'repository-name extraction uses the basename of an existing local directory' );
 }
 
 # ===========================================================================
@@ -935,6 +986,37 @@ my $repos = tempdir( CLEANUP => 1 );
     is( $manager->_current_installed_skill_branch($main_target), 'main', 'the fallback clone checks out main' );
     is( $manager->_current_installed_skill_branch( tempdir( CLEANUP => 1 ) ), undef, 'branch lookup returns undef for a non-Git skill directory' );
 
+    my $head_target = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'head-clone' );
+    _run_or_die( 'git', 'clone', '--quiet', $main_repo, $head_target );
+    {
+        my $fake_git = tempdir( CLEANUP => 1 );
+        _spew( File::Spec->catfile( $fake_git, 'git' ), "#!/bin/sh\nprintf 'HEAD\\n'\n" );
+        chmod 0755, File::Spec->catfile( $fake_git, 'git' );
+        local $ENV{PATH} = "$fake_git:$ENV{PATH}";
+        is( $manager->_current_installed_skill_branch($head_target), undef,
+            'branch lookup treats a successful detached HEAD response as unnamed' );
+    }
+    for my $probe (
+        [ 'empty', "#!/bin/sh\nexit 0\n", 'successful empty branch output' ],
+        [ 'stdout', "#!/bin/sh\necho branch-stdout\nexit 1\n", 'branch failure with stdout only' ],
+        [ 'silent', "#!/bin/sh\nexit 1\n", 'silent branch failure' ],
+    ) {
+        my ( $label, $script, $description ) = @{$probe};
+        my $fake_git = tempdir( CLEANUP => 1 );
+        _spew( File::Spec->catfile( $fake_git, 'git' ), $script );
+        chmod 0755, File::Spec->catfile( $fake_git, 'git' );
+        local $ENV{PATH} = "$fake_git:$ENV{PATH}";
+        my $branch_result = $manager->_current_installed_skill_branch($head_target);
+        is( $branch_result, undef, "$description is handled without inventing a current branch ($label)" )
+          if $label eq 'empty';
+        like( $branch_result->{error}, qr/branch-stdout/,
+            "$description preserves the command's stdout diagnostic ($label)" )
+          if $label eq 'stdout';
+        like( $branch_result->{error}, qr/git could not report the current branch/,
+            "$description uses the explicit no-output diagnostic ($label)" )
+          if $label eq 'silent';
+    }
+
     my $detached_target = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'detached-clone' );
     my $detached_clone = $manager->_clone_skill_source( $main_repo, $detached_target );
     ok( $detached_clone->{success}, 'clone can provide a checkout for detached-HEAD branch detection' );
@@ -954,6 +1036,20 @@ my $repos = tempdir( CLEANUP => 1 );
     chmod 0755, File::Spec->catfile( $fake_git, 'git' );
     local $ENV{PATH} = "$fake_git:$ENV{PATH}";
     like( $manager->_current_installed_skill_branch($main_target)->{error}, qr/Unable to detect current branch/, 'branch lookup reports git errors instead of silently changing branches' );
+
+    my $stdout_git = tempdir( CLEANUP => 1 );
+    _spew( File::Spec->catfile( $stdout_git, 'git' ), "#!/bin/sh\necho ref-check-stdout\nexit 1\n" );
+    chmod 0755, File::Spec->catfile( $stdout_git, 'git' );
+    local $ENV{PATH} = "$stdout_git:$ENV{PATH}";
+    like( $manager->_validate_skill_branch('invalid-test')->{error}, qr/ref-check-stdout/,
+        'ref validation includes a stdout-only git diagnostic' );
+
+    my $silent_git = tempdir( CLEANUP => 1 );
+    _spew( File::Spec->catfile( $silent_git, 'git' ), "#!/bin/sh\nexit 1\n" );
+    chmod 0755, File::Spec->catfile( $silent_git, 'git' );
+    local $ENV{PATH} = "$silent_git:$ENV{PATH}";
+    like( $manager->_validate_skill_branch('invalid-test')->{error}, qr/git rejected the branch name/,
+        'ref validation supplies a clear diagnostic when git is silent' );
 }
 
 # Reinstall without -b preserves the branch already checked out in the skill directory.

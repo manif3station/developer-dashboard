@@ -233,7 +233,7 @@ sub read {
     my ( $self, $name ) = @_;
     my $file = $self->resolve_file($name);
     return if !-f $file;
-    open my $fh, '<', $file or die "Unable to read $file: $!";    # uncoverable branch true this process (root, or granted read) cannot be denied read on an existing file it just confirmed with -f
+    open my $fh, '<', $file or die "Unable to read $file: $!";
     local $/;
     return <$fh>;
 }

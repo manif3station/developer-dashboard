@@ -209,8 +209,57 @@ Problem 23 delivery checklist:
 [x] Commit 6b9f5faf was pushed to origin/master; post-push Scorecard was run using the required interactive-shell command (8.0/10).
 [ ] Scorecard governance follow-up remains open as detailed above. Problem 20's aggregate coverage is separately paused by user request.
 
-Problem 20: Bring repository-wide Perl coverage to 100% (status: paused by user; resume later)
-Description: Coverage work and its aggregate gate are intentionally excluded from this delivery. No 100% coverage claim is made. Problems 21–23 were validated with focused and full non-coverage tests as recorded above; return to Problem 20 in a separate cycle.
+Problem 21–23 SDLC-process v2 evidence audit (2026-09-30)
+Numbering follows this report: Problem 21 is dual runtime-root discovery,
+Problem 22 is private ddfile.local dependency installation, and Problem 23 is
+PAX removal. The earlier emoji display report also has a passing regression
+assertion in t/14-coverage-closure-extra.t (assertion 165).
+
+| SDLC-process v2 step | Problem 21 | Problem 22 | Problem 23 |
+|---|---|---|---|
+| 1. Record the problem | DONE — this report, commit 23981132 | DONE — this report, commit 23981132 | DONE — this report, commit bb14a6fe |
+| 2. Reproduce in Docker | DONE — pre-fix t/25 red run; 7 assertions failed | DONE — pre-fix t/102 red run; 4 assertions failed | DONE — pre-fix t/264 red run; 9 assertions failed; prior report records 117 files / 2,596 payloads / ~41s for the removed build |
+| 3. Find root cause | DONE — roots were treated as mutually exclusive | DONE — local manifest used runtime-global destination | DONE — compiler/cache created a second CLI/runtime/release path |
+| 4. Record exact steps and expected result | DONE — reproduction and expected layer precedence in this report; t/25 encodes the fixture | DONE — reproduction and expected owner-local install in this report; t/102 encodes the fixture | DONE — reproduction and expected no-PAX contract in this report; t/264 encodes it |
+| 5. Add red test first | DONE — overlay t/25 from 23981132 onto pre-fix 948225e0; 7 expected failures | DONE — overlay t/102 from 23981132 onto pre-fix 948225e0; 4 expected failures | DONE — overlay t/264 from bb14a6fe onto its parent; 9 expected failures |
+| 6. Implement and repeat test loop | DONE — PathRegistry changes in 23981132; current t/25 passes | DONE — owner-root containment in 23981132; current t/102 passes | DONE — removal in bb14a6fe; current t/264 passes |
+| 7. Rerun regression and relevant suite | DONE — Docker run below: t/25 passes | DONE — Docker run below: t/102 passes | DONE — Docker run below: t/264 passes |
+| 8. Rerun original reproduction after fix | DONE — current dual-root fixture passes and confirms precedence | DONE — current owner-local install and traversal/symlink guards pass | DONE — current-source command with isolated HOME prints dashboard usage, exits 1, and creates no output artifact |
+| 9. Update README, main POD, related POD, Changes | DONE — recorded in 23981132 and 6b9f5faf; t/15 release-metadata passes | DONE — recorded in 23981132 and 6b9f5faf; t/15 release-metadata passes | DONE — recorded in bb14a6fe and 6b9f5faf; t/15 release-metadata passes |
+| 10. Generate/update problem-report | DONE — problem descriptions plus this step-by-step audit are recorded here | DONE — problem descriptions plus this step-by-step audit are recorded here | DONE — problem description, delivery checklist, and this audit are recorded here |
+| 11. Run dzil clean | DONE — release sequence recorded in the delivery checklists; not rerun against later source | DONE — release sequence recorded in the delivery checklists; not rerun against later source | DONE — release sequence recorded in the delivery checklist; not rerun against later source |
+| 12. Bump dist.ini and module versions | DONE — 5.25 at 23981132; combined delivery 5.30 at 6b9f5faf | DONE — 5.25 at 23981132; combined delivery 5.30 at 6b9f5faf | DONE — 5.29 at bb14a6fe; combined delivery 5.30 at 6b9f5faf |
+| 13. Run dzil build | DONE — tarball build/install counts recorded in the delivery checklist | DONE — tarball build/install counts recorded in the delivery checklist | DONE — 5.29 archive/install and final 5.30 build/install recorded in the delivery checklist |
+| 14. Run d2 docker.images.build | DONE — 5.25 and final 5.30 image/version results recorded in the delivery checklist | DONE — 5.25 and final 5.30 image/version results recorded in the delivery checklist | DONE — 5.29 and final 5.30 image/version results recorded in the delivery checklist |
+| 15. Commit with problem title and detailed summary | DONE — 23981132 and final delivery 6b9f5faf; both are ancestors of origin/master | DONE — 23981132 and final delivery 6b9f5faf; both are ancestors of origin/master | DONE — bb14a6fe and final delivery 6b9f5faf; both are ancestors of origin/master |
+
+Fresh Docker verification (service dev, 2026-09-30):
+`d2 docker compose --project-name dev exec dev sh -c 'cd /work && prove -l t/25-d2-alias.t t/102-skillmanager-coverage.t t/264-pax-removal-contract.t t/14-coverage-closure-extra.t t/15-release-metadata.t'`
+Result: PASS, 5 files / 5,574 tests. The three red runs used isolated source
+archives at pre-fix refs, then overlaid only the regression tests from the fix
+commits; failures were P21 assertions 5, 7–12; P22 assertions 275, 278–280;
+and P23 assertions 1–7, 9–10. The current-source P23 CLI check used an isolated
+HOME and confirmed the removed command is not dispatched.
+
+Verification caveats (do not turn these into passes): the live dev container's
+installed d2/dashboard reports 5.32 and its root HOME contains an old
+`~/.developer-dashboard/cli/pax`; this stale installed state is not evidence
+about the current source or the 5.30 image. The source-only check therefore
+used `/work` with an isolated HOME. The last recorded post-push Scorecard is
+8.0/10, with repository-governance actions still open as documented below.
+Problem 20's aggregate coverage remains a separate, user-paused cycle.
+
+Problem 20: Bring repository-wide Perl coverage to 100% (status: in progress; resumed by user on 2026-09-30)
+Description: The user has resumed the coverage cycle. Run the four-metric gate in Docker, add tests for reachable gaps, remove dead conditions only when the public behavior remains covered, and repeat the full gate. No 100% coverage claim is made until all four reported metrics are exactly 100.0 and the gate exits successfully.
+
+Problem 20 resumed audit (2026-09-30, source commit f56aedc2):
+The first full-gate attempt used root with DAC-bypass capabilities dropped while the checkout was mounted as ubuntu-owned; t/110 and t/111 could not create fixtures, so that run was invalid and was stopped. A clean root-owned clone of the same commit was then tested in Docker with the same capabilities dropped. `prove -lr t` passed 204 files / 19,137 tests. The four-metric gate correctly failed: statement 99.9%, branch 99.2%, condition 98.6%, subroutine 99.9%, aggregate 99.5%. Missing coverage remains concentrated in CLI::Paths, SkillDispatcher, Web::App, PageRuntime, EnvLoader, DockerCompose, SkillManager, and filesystem failure paths. Specific report rows were inspected from `/tmp/problem20-coverage-final-20260930`; no coverage percentage is claimed as complete.
+
+Resumed coverage iteration (2026-09-30): A non-root Ubuntu test run in the `dev` Docker service passed 204 files / 19,319 tests. `t/09` initially exposed a fixture hard-coded under `/tmp/user`; it now directs state into its temporary HOME. Iteration 6 completed but remained short: statement 99.9%, branch 99.6%, condition 99.2%, subroutine 99.9%, aggregate 99.7%. Additional focused regressions were added for skill folder alias edge cases, env.pl dynamic assignments, Docker development-marker cwd defaults, saved-URL query merging, and SkillManager branch-selection diagnostics; their focused Docker tests pass. Iteration 7 passed 204 files / 14,236 tests and improved condition coverage to 99.3% (statement 99.9%, branch 99.6%, subroutine 99.9%, aggregate 99.7%), but was invalid for final coverage because its archive-only clone omitted `.git`, so source-tree checks including `t/139` skipped. A separate Docker test using a local git clone passed all 14 assertions in `t/139`.
+
+Iteration 8 used that git-backed isolated clone, passed 204 files / 19,212 tests, and ran `t/139` plus the source-tree guardrails. The strict gate still fails: statement 99.9%, branch 99.6%, condition 99.3%, subroutine 99.9%, aggregate 99.7%. Remaining non-100 modules are CLI::Paths, DockerCompose, EnvLoader, IndicatorStore, PageRuntime, SkillDispatcher, SkillManager, Web::App, and Zipper. Full gate output and per-module detail are retained in the Docker service at `/tmp/problem20-coverage-iter8-20260930`; next work must target those exact missing branch/condition rows. No full-gate success yet. Versioning, documentation/release gates, and packaging have not been started for this resumed cycle.
+
+Coverage-gap reproduction exposed an additional bookmark crash: save `//example.test/path` as a bookmark and call `_legacy_app_response`; before the fix it died because `URI::_generic` has no `host` method. The expected result is an HTTP redirect preserving the protocol-relative `Location`. The regression was added first in `t/105-web-app-coverage-2.t` and failed with that exception. The implementation now checks the generic URI's `authority` and only asks for `host` when the URI class supports it; the focused Docker test then passed. This fix and the newer `t/104`/`t/105` cases still need inclusion in a fresh full coverage gate.
 
 Scorecard gate (2026-09-30, after pushed commit 93218224): status incomplete, 8.0/10. Live output is from `bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"`. All checks other than Branch-Protection, CII-Best-Practices, Code-Review, Contributors, and CI-Tests scored 10/10; CI-Tests is unknown because no pull request was found. Branch-Protection is 0/10; CII-Best-Practices is 0/10; Code-Review is 0/10 (0/30 approved changesets); Contributors is 0/10 (0 contributing organizations). Read-only GitHub API verification found 6 merged PRs and no approval reviews; the branch-protection endpoint returned HTTP 403 `Resource not accessible by personal access token`. The interactive shell's `GITHUB_AUTH_TOKEN` authenticates API reads as `manif3station`, although `gh auth status` itself says no host login because that environment token is not configured as a `gh` login. Remaining work requires an administrator-capable token and repo-owner decisions on branch protection, OpenSSF Best Practices enrollment, and inviting independent review/contributor organizations; the 6 merged PRs cannot be retroactively turned into honest approvals. These are not fixable by source edits alone; do not claim the overall goal is complete until actionable Scorecard requirements are satisfied and rescanned.
 

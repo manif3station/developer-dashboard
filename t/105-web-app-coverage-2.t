@@ -5,7 +5,7 @@ use warnings;
 use utf8;
 
 use Digest::SHA qw(sha256_hex);
-use Errno qw(EIO EPERM);
+use Errno qw(EACCES EIO EPERM);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -611,6 +611,24 @@ is( $m->_legacy_ajax_allowed( {} ), 1, '_legacy_ajax_allowed empty' );
 is( $m->_legacy_ajax_allowed( { file => 'x' } ), 1, '_legacy_ajax_allowed with file' );
 ok( !$m->_legacy_ajax_allowed( { token => 't' } ), '_legacy_ajax_allowed token denied by default' );
 
+my $external_raw = $m->_legacy_external_redirect_response(
+    target    => 'https://example.test/path?keep=1',
+    raw_query => 'new=2',
+);
+is( $external_raw->[0], 302, 'external bookmark redirect accepts the raw incoming query' );
+is( $external_raw->[3]{Location}, 'https://example.test/path?keep=1&new=2',
+    'external bookmark redirect appends a raw query to an existing saved query' );
+is( $m->_legacy_external_redirect_response( target => 'https://example.test/path', params => { q => 'one' } )->[3]{Location},
+    'https://example.test/path?q=one',
+    'external bookmark redirect builds an incoming query from parsed request parameters' );
+is( $m->_legacy_external_redirect_response( target => 'https://example.test/path', raw_query => '' )->[3]{Location},
+    'https://example.test/path',
+    'external bookmark redirect does not append an empty query' );
+is( $m->_legacy_external_redirect_response( target => "https://example.test/bad\npath" )->[0], 400,
+    'external bookmark redirect rejects control characters in its target' );
+is( $m->_legacy_external_redirect_response( target => 'https://example.test/path', raw_query => "bad\nquery" )->[0], 400,
+    'external bookmark redirect rejects control characters in the incoming query' );
+
 is_deeply( { Developer::Dashboard::Web::App::_parse_query('') }, {}, '_parse_query empty' );
 is_deeply( { Developer::Dashboard::Web::App::_parse_query('=v&a=1') }, { a => 1 }, '_parse_query drops empty keys' );
 
@@ -877,14 +895,20 @@ is( $m->_missing_named_page_response('x')->[0], 200, 'missing page editor -> 200
     {
         no warnings 'redefine';
         local *Developer::Dashboard::Web::App::_open_static_file = sub { return ( undef, EIO ); };
-        is( $m->_serve_static_file_at_path( 'js', 'io-error.js', $unreadable, '', [$absroot] )->[0], 500,
+        is( $m->_serve_static_file_at_path( 'js', 'io-error.js', File::Spec->catfile( $absroot, 'ok.js' ), '', [$absroot] )->[0], 500,
             'unexpected static-file open errors remain server errors' );
     }
     {
         no warnings 'redefine';
         local *Developer::Dashboard::Web::App::_open_static_file = sub { return ( undef, EPERM ); };
-        is( $m->_serve_static_file_at_path( 'js', 'permission-error.js', $unreadable, '', [$absroot] )->[0], 404,
+        is( $m->_serve_static_file_at_path( 'js', 'permission-error.js', File::Spec->catfile( $absroot, 'ok.js' ), '', [$absroot] )->[0], 404,
             'permission errors while opening a static file are indistinguishable from missing files' );
+    }
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Web::App::_open_static_file = sub { return ( undef, EACCES ); };
+        is( $m->_serve_static_file_at_path( 'js', 'access-error.js', File::Spec->catfile( $absroot, 'ok.js' ), '', [$absroot] )->[0], 404,
+            'access-denied open errors are indistinguishable from missing static files' );
     }
     chmod 0644, $unreadable;
 }
@@ -1014,6 +1038,29 @@ is( $m->_page_route_urls( Developer::Dashboard::PageDocument->new( id => 'bare',
 # a saved URL-forward bookmark without a query (2187 // default)
 wfile( File::Spec->catfile( $paths->dashboards_root, 'forward-noq' ), "/app/welcome\n", 0644 );
 ok( $m->_legacy_app_response( id => 'forward-noq' )->[0], 'saved URL forward without a query string' );
+
+wfile( File::Spec->catfile( $paths->dashboards_root, 'forward-protocol-relative' ), "//example.test/path\n", 0644 );
+my $protocol_relative = $m->_legacy_app_response( id => 'forward-protocol-relative' );
+is( $protocol_relative->[3]{Location}, '//example.test/path',
+    'protocol-relative saved bookmarks preserve their authority-relative redirect target' );
+
+wfile( File::Spec->catfile( $paths->dashboards_root, 'forward-unsupported-scheme' ), "ftp://example.test/file\n", 0644 );
+is( $m->_legacy_app_response( id => 'forward-unsupported-scheme' )->[0], 400,
+    'saved bookmarks reject unsupported external URL schemes' );
+
+wfile( File::Spec->catfile( $paths->dashboards_root, 'forward-empty-path' ), "?only=query\n", 0644 );
+is( $m->_legacy_app_response( id => 'forward-empty-path' )->[0], 400,
+    'saved bookmarks reject a target with an empty path' );
+
+wfile( File::Spec->catfile( $paths->dashboards_root, 'forward-local-token' ),
+    "http://127.0.0.1:7890/app/welcome?token=local\n", 0644 );
+{
+    no warnings 'redefine';
+    local $ENV{_PORT} = '7890';
+    local *Developer::Dashboard::Web::App::dispatch_request = sub { return [ 200, 'text/plain', 'local token' ]; };
+    is( $m->_legacy_app_response( id => 'forward-local-token' )->[0], 200,
+        'a matching localhost transient-token URL is forwarded internally rather than redirected externally' );
+}
 
 # custom route spec with no skill name and no kind (2259 default)
 {

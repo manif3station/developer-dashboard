@@ -14,6 +14,7 @@ use lib 'lib';
 use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::PageStore;
+use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::SkillManager;
 use Developer::Dashboard::Web::App;
 
@@ -689,6 +690,57 @@ my $legit_skill_route = $app->handle(
 is( $legit_skill_route->[0], 200, 'containment keeps serving a legitimate skill bookmark route' );
 like( $legit_skill_route->[2], qr/Traversal Skill Index/, 'legitimate skill bookmark route still renders its own bookmark' );
 
+{
+    my $skill_root = $paths->skill_root('route-skill');
+    my $dashboard_root = File::Spec->catdir( $skill_root, 'dashboards' );
+    make_path($dashboard_root);
+    _write_file( File::Spec->catfile( $dashboard_root, 'raw-link' ), "http://127.0.0.1:7890/app/something?abc=123&def=456\n", 0644 );
+    _write_file( File::Spec->catfile( $dashboard_root, 'index' ), "http://127.0.0.1:7890/app/index-target\n", 0644 );
+
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $paths );
+    my $raw = $dispatcher->_load_skill_page( skill_name => 'route-skill', route_id => 'raw-link' );
+    is( $raw->{meta}{source_format}, 'raw-url', 'a raw URL bookmark is represented as a redirectable page' );
+
+    my $redirect = $dispatcher->_skill_page_response(
+        skill_name   => 'route-skill',
+        route_id     => 'raw-link',
+        app          => {},
+        query_params => { abc => '111', hij => '999', splat => 'ignored' },
+        body_params  => { abc => [ '222', '333' ] },
+    );
+    is( $redirect->[0], 302, 'an app request to a raw URL bookmark returns a redirect' );
+    is( URI->new( $redirect->[3]{Location} )->query, 'abc=333&def=456&hij=999',
+        'request values override matching saved keys, body wins over query, and untouched saved keys survive' );
+
+    my $raw_response = $dispatcher->_skill_page_response( skill_name => 'route-skill', route_id => 'raw-link' );
+    is( $raw_response->[2], 'http://127.0.0.1:7890/app/something?abc=123&def=456',
+        'a non-app raw URL request returns the saved target unchanged' );
+    my $index_target = $dispatcher->_load_skill_page( skill_name => 'route-skill', route_id => 'index' );
+    is( $index_target->{id}, 'route-skill', 'a raw URL stored as the skill index keeps the index identity' );
+
+    my $queryless = Developer::Dashboard::SkillDispatcher::_merge_saved_url_query( 'https://example.test/path', undef );
+    is( $queryless, 'https://example.test/path', 'query merging leaves a queryless saved URL unchanged when no params exist' );
+    my $saved_query = Developer::Dashboard::SkillDispatcher::_merge_saved_url_query( 'https://example.test/path?keep=one&empty&', {} );
+    is( URI->new($saved_query)->query, 'empty=&keep=one', 'query merging skips blank pairs and normalizes a key without a value' );
+    my $repeated_separator = Developer::Dashboard::SkillDispatcher::_merge_saved_url_query(
+        'https://example.test/path?first=one&&last=two',
+        {},
+    );
+    is( URI->new($repeated_separator)->query, 'first=one&last=two',
+        'query merging ignores an empty pair between saved parameters' );
+    my $splat_only = Developer::Dashboard::SkillDispatcher::_merge_saved_url_query(
+        'https://example.test/path',
+        { splat => 'ignored' },
+    );
+    is( $splat_only, 'https://example.test/path',
+        'query merging leaves a target queryless when the only request key is the framework splat' );
+    my $array_query = Developer::Dashboard::SkillDispatcher::_merge_saved_url_query(
+        'https://example.test/path?existing=old',
+        { existing => undef, many => [ 'first', 'last' ], splat => 'ignored' },
+    );
+    is( URI->new($array_query)->query, 'existing=&many=last', 'query merging handles undef values, arrays, and the framework splat key' );
+}
+
 sub _uri_escape {
     my ($text) = @_;
     return uri_escape($text);
@@ -924,7 +976,8 @@ This test is part of Developer Dashboard.
 This test is the executable regression contract for the isolated skill installation and routing stack. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
 It also verifies that rendered skill dashboard CODE and saved skill Ajax
 subprocesses receive their skill-local environment file while keeping those
-values out of the web process.
+values out of the web process. Raw URL bookmark tests pin request-query merging,
+POST-over-GET precedence, preserved saved keys, and the direct redirect target.
 
 =head1 WHY IT EXISTS
 

@@ -1173,7 +1173,7 @@ sub locate_dirs_under {
 
         push @found, $path_id if $matches;
 
-        opendir( my $dh, $path ) or next;    # uncoverable branch true
+        opendir( my $dh, $path ) or next;
         while ( my $entry = readdir($dh) ) {
             next if $entry eq '.' || $entry eq '..';
             my $child = File::Spec->catdir( $path, $entry );
@@ -1409,7 +1409,7 @@ sub atomic_write_secure {
 # Output: staging file path string.
 sub _chmod_pending {
     my ( $self, $tmp, $mode ) = @_;
-    chmod $mode, $tmp or die sprintf 'Unable to chmod %s to %04o: %s', $tmp, $mode, $!;    # uncoverable branch true
+    chmod $mode, $tmp or die sprintf 'Unable to chmod %s to %04o: %s', $tmp, $mode, $!;
     return $tmp;
 }
 

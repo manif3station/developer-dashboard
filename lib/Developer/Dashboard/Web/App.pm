@@ -2503,15 +2503,16 @@ sub _legacy_app_response {
     my $target = _trim($raw);
     my $uri = URI->new($target);
     my $has_external_authority = ( defined $uri->scheme && $uri->scheme ne '' )
-      || ( !defined $uri->scheme && $target =~ m{\A//} && defined $uri->host );
+      || ( !defined $uri->scheme && $target =~ m{\A//} && defined $uri->authority );
     if ($has_external_authority) {
         my $scheme = lc( $uri->scheme || 'http' );
         return [ 400, 'text/plain; charset=utf-8', "Unsupported bookmark URL scheme\n" ]
           if $scheme ne 'http' && $scheme ne 'https';
 
         my $port = defined $ENV{_PORT} ? $ENV{_PORT} : '';
+        my $host = $uri->can('host') ? $uri->host : undef;
         my $is_local_token = $scheme eq 'http'
-          && ( $uri->host || '' ) eq '127.0.0.1'
+          && ( $host || '' ) eq '127.0.0.1'
           && $port ne ''
           && defined $uri->port
           && $uri->port eq $port

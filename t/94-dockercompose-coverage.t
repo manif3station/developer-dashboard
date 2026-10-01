@@ -435,6 +435,36 @@ chmod 0755, File::Spec->catfile( $logbin, 'docker' );
     $disabled = $docker->disable_service_development( project_root => $repo, service => 'fresh-development-marker' );
     is( $disabled->{development}, 0, 'development disable is idempotent when the marker is already absent' );
 
+    my $blocked_remove_root = File::Spec->catdir( $ddroot, 'config', 'docker', 'blocked-remove-development-marker' );
+    my $blocked_remove_marker = File::Spec->catfile( $blocked_remove_root, 'develop.yml' );
+    make_path($blocked_remove_marker);
+    my $remove_error = eval { $docker->disable_service_development( project_root => $repo, service => 'blocked-remove-development-marker' ); 1 } ? '' : $@;
+    like( $remove_error, qr/Unable to remove .*develop\.yml/, 'development disable reports an existing marker that cannot be unlinked' );
+
+    is( $docker->_service_folder_is_development(), 0, 'development lookup returns false when no service was supplied' );
+    is( $docker->_service_folder_is_disabled(), 0, 'disabled lookup returns false when no service was supplied' );
+    is( $docker->_service_folder_is_development( project_root => $repo, service => 'missing-development-folder' ), 0,
+        'development lookup ignores services whose folder is absent' );
+    is( $docker->_service_folder_is_disabled( project_root => $repo, service => 'missing-disabled-folder' ), 0,
+        'disabled lookup ignores services whose folder is absent' );
+    is( $docker->_service_folder_is_development( service => 'missing-development-folder' ), 0,
+        'development lookup defaults an omitted project root to the current directory' );
+    is_deeply( [ $docker->_discover_service_names( project_root => $repo ) ], [ $docker->_discover_service_names( project_root => $repo, service_map => {} ) ],
+        'service discovery defaults an omitted service map to an empty map' );
+    like( eval { $docker->_service_development_marker_path(); 1 } ? '' : $@, qr/Missing service/,
+        'development marker path requires a service name' );
+
+    {
+        no warnings 'redefine';
+        my $empty_root = File::Spec->catdir( $repo, 'empty-service-lookup-root' );
+        make_path($empty_root);
+        local *Developer::Dashboard::DockerCompose::_service_lookup_roots = sub { return ($empty_root) };
+        is( $docker->_service_folder_is_development( project_root => $repo, service => 'absent' ), 0,
+            'development lookup skips a service absent from its lookup root' );
+        is( $docker->_service_folder_is_disabled( project_root => $repo, service => 'absent' ), 0,
+            'disabled lookup skips a service absent from its lookup root' );
+    }
+
     my $blocked_service_root = File::Spec->catdir( $ddroot, 'config', 'docker', 'blocked-development-marker' );
     my $blocked_develop_marker = File::Spec->catfile( $blocked_service_root, 'develop.yml' );
     make_path($blocked_develop_marker);
@@ -779,6 +809,8 @@ JSON
         ok( ref $docker->_resolve_skill_service_env( services => ['green'] ) eq 'HASH',    'resolve skill env defaults project_root to cwd' );
         ok( defined( scalar $docker->_service_lookup_roots( service => 'green' ) ),         'service lookup roots defaults project_root to cwd' );
         is( $docker->_service_folder_is_disabled( service => 'green' ), 0,                  'service disabled check defaults project_root to cwd' );
+        is( $docker->_service_folder_is_development( service => 'green' ), 0,
+            'development marker check defaults project_root to cwd' );
         chdir $keep or die $!;
     }
 
@@ -851,7 +883,8 @@ Use this file when changing compose file discovery, service inference, the
 disabled or development marker helpers, base/overlay ordering, skill docker-root
 resolution, environment export, or the dry-run versus execute behaviour of the
 docker helper. Extend it with a new failing case first whenever a new branch or
-condition appears.
+condition appears. Development-marker tests include absent service folders,
+missing service arguments, idempotent removal, and unlink failures.
 
 =head1 HOW TO USE
 

@@ -124,6 +124,12 @@ my $SEP = $Developer::Dashboard::PageDocument::LEGACY_SEP;
     like( $out, qr/^CODE1:/m,          'serializes a code with no body key as an empty body' );
 }
 
+# HEAD defined but empty (line 219: defined is true and the non-empty check is false).
+{
+    my $page = $PD->new( title => 'T', meta => { head => '' } );
+    unlike( $page->legacy_instruction, qr/^HEAD:/m, 'an empty HEAD section is omitted from legacy output' );
+}
+
 # Icon defined but empty string (line 192 left-true-right-false side).
 {
     my $page = $PD->new( title => 'T', meta => { icon => '' } );

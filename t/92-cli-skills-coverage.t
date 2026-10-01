@@ -443,6 +443,12 @@ my @manager_branches;
     is( run_cli( 'install', '--branch', '-o', 'json', 'alpha-skill' )->{exit}, 2,
         'install rejects an option token where --branch requires a branch value' );
     is( run_cli( 'install', '-b', '', 'alpha-skill' )->{exit}, 2, 'install reports usage when -b has an empty branch argument' );
+    my $warning_count = @warnings;
+    is( run_cli( 'install', '--unsupported-option' )->{exit}, 2,
+        'install reports usage when GetOptions rejects an unknown option' );
+    my @option_warnings = splice @warnings, $warning_count;
+    is_deeply( \@option_warnings, ["Unknown option: unsupported-option\n"],
+        'GetOptions reports the rejected option explicitly and emits no other warning' );
 
     @manager_calls = ();
     $next_result = { results => [ { repo_name => 'alpha-skill', status => 'installed' }, { repo_name => 'beta-skill', status => 'skipped' } ] };
@@ -760,7 +766,8 @@ skill and a missing one, and every payload shape the summary, list, usage, and
 table renderers accept. The branch-option cases pin C<-b> forwarding, rejection
 without a source or with C<--ddfile>, and support for one or many explicit
 sources. Read it to see the concrete inputs that reach each branch and
-condition rather than inferring them from the module source.
+condition rather than inferring them from the module source. An unknown-option
+case verifies the explicit Getopt diagnostic and rejects unrelated warnings.
 
 =head1 WHY IT EXISTS
 

@@ -180,7 +180,6 @@ PERL
 sub command_pid_from_file {
     my ($pidfile) = @_;
     return if !defined $pidfile || $pidfile eq '' || !-f $pidfile;
-    # uncoverable branch true
     open my $fh, '<', $pidfile or return;
     my $pid = <$fh>;
     close $fh;
