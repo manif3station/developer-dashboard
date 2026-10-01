@@ -143,8 +143,14 @@ sub scripted {
     like( $P->report(), qr/dashboard Run Report/, 'report as a class method strips the package name' );
     like( Developer::Dashboard::Runtime::Result::report( command => 'x' ), qr/x Run Report/, 'report as a function honours the command override' );
     like( Developer::Dashboard::Runtime::Result::report(), qr/dashboard Run Report/, 'report with no arguments works' );
-    like( Developer::Dashboard::Runtime::Result::report(undef), qr/dashboard Run Report/, 'report tolerates an undef leading argument' );
-    like( Developer::Dashboard::Runtime::Result::report( [1] ), qr/dashboard Run Report/, 'report ignores a reference leading argument' );
+    my @warnings;
+    {
+        local $SIG{__WARN__} = sub { push @warnings, @_ };
+        like( Developer::Dashboard::Runtime::Result::report(undef), qr/dashboard Run Report/, 'report tolerates an undef leading argument' );
+        like( Developer::Dashboard::Runtime::Result::report( [1] ), qr/dashboard Run Report/, 'report ignores a reference leading argument' );
+    }
+    like( join( '', @warnings ), qr/Odd number of elements in hash assignment/, 'a malformed argument list is reported as an odd-elements warning' );
+    like( join( '', @warnings ), qr/Reference found where even-sized list expected/, 'a reference argument is reported as a reference-found warning' );
 }
 
 # _command_name() with a root parent.

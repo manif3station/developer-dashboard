@@ -8,7 +8,7 @@ use Test::More;
 use File::Temp qw(tempdir);
 use File::Spec;
 use Cwd qw(getcwd);
-use Capture::Tiny qw(capture);
+use Capture::Tiny qw(capture capture_stderr);
 
 use Developer::Dashboard::FileSlurp;
 use Developer::Dashboard::JSON qw(json_encode json_decode);
@@ -1300,8 +1300,12 @@ subtest 'DD-942: _workspace_key falls all the way through to "global" when there
 };
 
 subtest 'DD-942: _run_cli reports exit -1 when the command itself cannot be launched' => sub {
-    my ( undef, undef, $exit ) = $M->can('_run_cli')->( ['/nonexistent-binary-xyz-does-not-exist-anywhere'] );
+    my @result;
+    my $teed = capture_stderr { @result = $M->can('_run_cli')->( ['/nonexistent-binary-xyz-does-not-exist-anywhere'] ) };
+    my ( undef, $err, $exit ) = @result;
     is( $exit, -1, 'a system() that never launches (exec failure) reports exit -1, not a shifted 0' );
+    like( $err, qr/Can't exec "\/nonexistent-binary-xyz-does-not-exist-anywhere"/, 'the exec failure is reported in the captured standard error' );
+    like( $teed, qr/Can't exec/, 'the live tee echoes the exec failure instead of leaking it into the test output' );
 };
 
 subtest 'DD-942: run_ask with an explicit env hash ref (not falling back to %ENV)' => sub {

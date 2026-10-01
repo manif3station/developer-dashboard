@@ -47,7 +47,7 @@ sub helper_aliases {
 # Output: canonical helper name string or empty string when unsupported.
 sub canonical_helper_name {
     my ($name) = @_;
-    return '' if $name eq '';
+    return '' if !defined $name || $name eq '';
     my %allowed = map { $_ => 1 } helper_names();
     return $name if $allowed{$name};
     my $aliases = helper_aliases();
@@ -470,7 +470,7 @@ sub _managed_helper_version_marker {
 # Output: boolean true when the helper delegates into _dashboard-core.
 sub _helper_uses_dashboard_core {
     my ($name) = @_;
-    return 0 if $name eq '';
+    return 0 if !defined $name || $name eq '';
     return $name =~ /\A(?:encode|decode|indicator|collector|config|auth|api|ask|init|cpan|page|action|docker|serve|stop|restart|log|shell|doctor|housekeeper|skills|which)\z/ ? 1 : 0;
 }
 

@@ -994,7 +994,12 @@ like( $@, qr/^Usage: open-file/, 'run rejects missing arguments' );
 # to die with a clear message naming the failed command, never fall through
 # and let the caller exit 0 as though the editor actually ran (DD-910).
 {
-    eval { oc( '_command_exec', '/nonexistent-editor-binary-xyz', $realfile ) };
+    my @warnings;
+    {
+        local $SIG{__WARN__} = sub { push @warnings, @_ };
+        eval { oc( '_command_exec', '/nonexistent-editor-binary-xyz', $realfile ) };
+    }
+    like( join( '', @warnings ), qr{Can't exec "/nonexistent-editor-binary-xyz"}, 'the failed exec is reported as a warning naming the editor' );
     like(
         $@,
         qr{\QUnable to run editor '/nonexistent-editor-binary-xyz'\E},

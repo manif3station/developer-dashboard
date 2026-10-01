@@ -28,8 +28,14 @@ my $class = 'Developer::Dashboard::PageRuntime';
 }
 
 {
-    my $failed = $class->_exec_command('/no/such/saved-ajax-worker');
+    my @warnings;
+    my $failed;
+    {
+        local $SIG{__WARN__} = sub { push @warnings, @_ };
+        $failed = $class->_exec_command('/no/such/saved-ajax-worker');
+    }
     ok( !$failed, '_exec_command returns false when the exec fails' );
+    like( join( '', @warnings ), qr{Can't exec "/no/such/saved-ajax-worker"}, 'the failed exec is reported as a warning naming the command' );
 }
 
 done_testing;
