@@ -199,7 +199,7 @@ sub run_command_action {
                 chdir $cwd or die "Unable to chdir to background action cwd '$cwd': $!";
                 local %ENV = ( %ENV, %{$env} );
                 my @argv = shell_command_argv($cmd);
-                exec { $argv[0] } @argv;
+                $self->_exec_command(@argv);
                 die "Unable to exec background action command: $!";
             }
             local $SIG{TERM} = sub {
@@ -251,6 +251,17 @@ sub run_command_action {
 # Output: child pid in parent, zero in child, or undef on failure.
 sub _fork_process {
     return fork();
+}
+
+# _exec_command(@argv)
+# Replaces the current process with the given command. Kept as its own single
+# statement sub so the failure path (exec returning) is a plain statement in the
+# caller that Devel::Cover can record, rather than code trailing an exec.
+# Input: command argv list.
+# Output: false when the exec failed; never returns on success.
+sub _exec_command {
+    my ( $self, @argv ) = @_;
+    return exec { $argv[0] } @argv;
 }
 
 # _detach_background_session()
