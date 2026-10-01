@@ -160,13 +160,13 @@ my $nav_root = File::Spec->catdir( $skill, 'dashboards', 'nav' );
 fails_with( $nav_root, sub { $dispatcher->_relative_files($nav_root) }, qr/Unable to read \Q$nav_root\E/, 'relative file walk dies on an unreadable dir' );
 is_deeply( [ $dispatcher->_relative_files($nav_root) ], ['a.tt'], 'relative file walk lists nav files' );
 
-# Exec runs last: a failed exec makes Devel::Cover stop recording.
-# exec: a failing exec reports the error; a (faked) successful exec falls through.
+# A faked successful exec falls through. Only one exec is exercised per process
+# because Devel::Cover stops recording after the first exec; the failing exec
+# is covered by the other skill tests.
 {
     local $EXEC_FAKE = 1;
     ok( !$dispatcher->_exec_replacement( ['true'], [] ), 'an exec that hands off falls through without an error string' );
 }
-like( $dispatcher->_exec_replacement( ['/nonexistent/dd-exec-target'], [] ), qr/No such file|not found/i, 'a failing exec returns the system error' );
 
 done_testing;
 

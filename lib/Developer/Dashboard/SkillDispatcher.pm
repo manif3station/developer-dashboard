@@ -1128,7 +1128,6 @@ sub _runtime_custom_route_specs {
         my $payload = $self->_load_skill_routes_file($routes_file);
         for my $kind (qw(app ajax js css others)) {
             my $kind_routes = $payload->{$kind};
-            $kind_routes = {} if !$kind_routes;
             for my $target ( sort keys %{$kind_routes} ) {
                 push @specs, $self->_normalize_skill_route_spec(
                     kind        => $kind,
@@ -1169,7 +1168,6 @@ sub _skill_routes_for {
         next if !-f $routes_file;
         my $payload = $self->_load_skill_routes_file($routes_file);
         my $kind_routes = $payload->{$kind};
-        $kind_routes = {} if !$kind_routes;
         for my $target ( sort keys %{$kind_routes} ) {
             next if exists $routes{$target};
             my $spec = $self->_normalize_skill_route_spec(
