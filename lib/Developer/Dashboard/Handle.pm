@@ -138,7 +138,12 @@ use warnings;
 # right to compare a stringifiable object. The risk fallback => 0 was reached for
 # is already gone: it only mattered while q{""} might be absent, and it is not.
 use overload
-  '&{}'    => sub { my $self = shift; return sub { return $self->_execute(@_) } },
+  '&{}'    => sub {
+      my $self = shift;
+      return sub {
+          return $self->_execute(@_);
+      };
+  },
   q{""}    => sub { my $self = shift; return 'd2 proxy: ' . join '.', @{ $self->{segments} } },
   '0+'     => sub { return 0 },
   'bool'   => sub { return 1 },

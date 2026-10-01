@@ -13,7 +13,7 @@ BEGIN {
     require Scalar::Util;
     *CORE::GLOBAL::close = sub (;*) {
         return CORE::close() if !@_;
-        my $fail = ref $_[0] && $HANDLE_FAIL{ Scalar::Util::refaddr( $_[0] ) };
+        my $fail = ref $_[0] && delete $HANDLE_FAIL{ Scalar::Util::refaddr( $_[0] ) };
         my $ok = CORE::close( $_[0] );
         if ($fail) {
             $! = 5;

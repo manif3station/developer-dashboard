@@ -20,6 +20,9 @@ BEGIN {
         my $ok;
         if ( @_ == 2 ) { $ok = CORE::open( $_[0], $_[1] ) }
         else           { $ok = CORE::open( $_[0], $_[1], @_[ 2 .. $#_ ] ) }
+        # A freed handle's address can be handed to a later, unrelated handle, so
+        # every successful open resets that slot before it is (re)registered.
+        delete $HANDLE_FAIL{ Scalar::Util::refaddr( $_[0] ) } if $ok && ref $_[0];
         if ( $ok && @_ >= 3 && defined $_[2] && !ref $_[2] && grep { $_[2] =~ $_ } @CLOSE_FAIL_RE ) {
             $HANDLE_FAIL{ Scalar::Util::refaddr( $_[0] ) } = 1;
         }
@@ -27,7 +30,7 @@ BEGIN {
     };
     *CORE::GLOBAL::close = sub (;*) {
         return CORE::close() if !@_;
-        my $fail = ref $_[0] && $HANDLE_FAIL{ Scalar::Util::refaddr( $_[0] ) };
+        my $fail = ref $_[0] && delete $HANDLE_FAIL{ Scalar::Util::refaddr( $_[0] ) };
         my $ok = CORE::close( $_[0] );
         if ($fail) {
             $! = 5;
