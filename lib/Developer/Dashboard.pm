@@ -25,7 +25,8 @@ my %HANDLE_BY_CWD;
 # Output: Developer::Dashboard::Handle object.
 sub d2 {
     my $cwd = Cwd::cwd();
-    return $HANDLE_BY_CWD{$cwd} //= Developer::Dashboard::Handle->new( cwd => $cwd );
+    $HANDLE_BY_CWD{$cwd} = Developer::Dashboard::Handle->new( cwd => $cwd ) if !$HANDLE_BY_CWD{$cwd};
+    return $HANDLE_BY_CWD{$cwd};
 }
 
 # package env

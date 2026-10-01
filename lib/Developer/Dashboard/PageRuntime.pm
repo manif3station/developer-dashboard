@@ -1113,8 +1113,18 @@ sub _exec_saved_ajax_command {
     die "Missing saved ajax command\n" if !@command;
     defined $SETPGID->()
       or die "Unable to isolate saved ajax process $$: $!\n";
-    exec { $command[0] } @command;
-    die "Unable to exec saved ajax command $command[0]: $!\n";
+    die "Unable to exec saved ajax command $command[0]: $!\n" if !$class->_exec_command(@command);
+}
+
+# _exec_command(@command)
+# Replaces this process with the command. Kept as its own sub because Devel::Cover
+# records nothing after a failed exec in the same sub, so the failure path in
+# _exec_saved_ajax_command can only be reached by stubbing this helper.
+# Input: the command and its arguments.
+# Output: false when the exec fails; never returns on success.
+sub _exec_command {
+    my ( $class, @command ) = @_;
+    return exec { $command[0] } @command;
 }
 
 # _run_saved_ajax_perl_file($path)

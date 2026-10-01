@@ -643,7 +643,9 @@ sub _abs_existing_path {
     my ($path) = @_;
     return '' if !defined $path || $path eq '';
     return $path if !-e $path;
-    return abs_path($path) || $path;
+    my $resolved = abs_path($path);
+    return $resolved if $resolved;
+    return $path;
 }
 
 # _shared_private_cli_root()
