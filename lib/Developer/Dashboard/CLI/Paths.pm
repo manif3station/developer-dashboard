@@ -402,9 +402,9 @@ sub _skill_folder_alias_target {
     return if !defined $name || ref($name) || $name =~ /[\x00-\x1F\x7F]/;
 
     my @parts = split /\./, $name, -1;
-    return if @parts < 2 || grep { !defined $_ || $_ eq '' } @parts;
+    return if @parts < 2 || grep { $_ eq '' } @parts;
     my $method_name = pop @parts;
-    return if !@parts || !_valid_folder_method_name($method_name) || $method_name eq '__list__';
+    return if !_valid_folder_method_name($method_name) || $method_name eq '__list__';
     my $skill_name = join '.', @parts;
     my ($entry) = grep { $_->{name} eq $skill_name } _skill_folder_entries($paths);
     return if !$entry || !_load_skill_folder_module($entry);
@@ -455,10 +455,10 @@ sub _load_skill_folder_module {
       if !defined $real_skill || !defined $real_lib || !defined $real_file;
     my @lib_parts = File::Spec->splitdir( File::Spec->abs2rel( $real_lib, $real_skill ) );
     die "Skill Folder.pm lib directory '$entry->{lib}' resolves outside its skill root\n"
-      if !@lib_parts || $lib_parts[0] eq File::Spec->updir();
+      if $lib_parts[0] eq File::Spec->updir();
     my @relative_parts = File::Spec->splitdir( File::Spec->abs2rel( $real_file, $real_lib ) );
     die "Skill Folder.pm '$file' resolves outside its skill lib directory\n"
-      if !@relative_parts || $relative_parts[0] eq File::Spec->updir();
+      if $relative_parts[0] eq File::Spec->updir();
 
     {
         no strict 'refs';
@@ -612,7 +612,6 @@ sub _cdr_directory_candidates {
     for my $path (@matches) {
         next if !defined $path || $path eq '' || $path eq $root;
         my $name = basename($path);
-        next if $name eq '';
         next if $prefix ne '' && index( $name, $prefix ) != 0;
         next if $seen{$name}++;
         push @candidates, $name;

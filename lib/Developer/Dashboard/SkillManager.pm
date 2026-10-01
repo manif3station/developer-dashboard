@@ -83,7 +83,7 @@ sub install_progress_tasks {
 sub dependency_progress_tasks_for_skill_path {
     my ( $self, $skill_path ) = @_;
     my %wanted = map { $_ => 1 } $self->_dependency_progress_task_ids_for_skill_path($skill_path);
-    my @tasks = grep { $wanted{ $_->{id} || '' } } @{ install_progress_tasks() };    # uncoverable condition right
+    my @tasks = grep { $wanted{ $_->{id} } } @{ install_progress_tasks() };
     return \@tasks;
 }
 
@@ -179,7 +179,8 @@ sub install_many {
 sub install_from_ddfiles {
     my ( $self, $base_dir ) = @_;
     $base_dir ||= '.';
-    my $root = realpath($base_dir) || $base_dir;    # uncoverable condition false
+    my $root = realpath($base_dir);
+    $root = $base_dir if !$root;
     my $ddfile = File::Spec->catfile( $root, 'ddfile' );
     my $ddfile_local = File::Spec->catfile( $root, 'ddfile.local' );
     return { error => "No ddfile or ddfile.local found under $root" }
@@ -266,7 +267,7 @@ sub uninstall {
     return { error => 'Missing repo name' } if !$repo_name;
     
     my $skill_path = $self->get_skill_path( $repo_name, include_disabled => 1 );
-    return { error => "Skill '$repo_name' not found" } if !defined $skill_path || !-d $skill_path;    # uncoverable condition right
+    return { error => "Skill '$repo_name' not found" } if !defined $skill_path || !-d $skill_path;
     my $real_path = realpath($skill_path);
     my $inside_layer = 0;
     for my $skills_root ( $self->{paths}->skills_roots ) {
@@ -306,7 +307,7 @@ sub update {
     return { error => 'Missing repo name' } if !$repo_name;
     
     my $skill_path = $self->get_skill_path( $repo_name, include_disabled => 1 );
-    return { error => "Skill '$repo_name' not found" } if !defined $skill_path || !-d $skill_path;    # uncoverable condition right
+    return { error => "Skill '$repo_name' not found" } if !defined $skill_path || !-d $skill_path;
 
     my ( $stdout, $stderr, $exit ) = capture {
         system( 'git', '-C', $skill_path, 'pull', '--ff-only' );
@@ -531,7 +532,7 @@ sub _register_root_ddfile_source {
     if ( -f $ddfile ) {
         open my $read_fh, '<', $ddfile or return { error => "Unable to read root ddfile $ddfile: $!" };
         local $/;
-        $existing = <$read_fh> // '';    # uncoverable condition right
+        $existing = join q{}, <$read_fh>;
         close $read_fh;
         for my $line ( split /\n/, $existing ) {
             $line =~ s/^\s+|\s+$//g;
@@ -576,7 +577,7 @@ sub _unregister_root_ddfile_source {
 
     open my $read_fh, '<', $ddfile or return { error => "Unable to read root ddfile $ddfile: $!" };
     local $/;
-    my $existing = <$read_fh> // '';    # uncoverable condition right
+    my $existing = join q{}, <$read_fh>;
     close $read_fh;
 
     my @kept;
@@ -622,7 +623,7 @@ sub _ddfile_source_matches_repo_name {
     $source =~ s/^\s+|\s+$//g;
     return 0 if $source eq q{} || $source =~ /\A#/;
     my $resolved = _extract_repo_name($source);
-    return 0 if !defined $resolved || $resolved eq q{};    # uncoverable condition right
+    return 0 if !defined $resolved;
     return $resolved eq $repo_name ? 1 : 0;
 }
 
@@ -649,9 +650,9 @@ sub _register_home_gitignore_skill {
     open my $read_fh, '<', $gitignore or return { error => "Unable to read home gitignore $gitignore: $!" };
     {
         local $/;
-        $existing = <$read_fh> // '';    # uncoverable condition right
+        $existing = join q{}, <$read_fh>;
     }
-    close $read_fh or return { error => "Unable to close home gitignore $gitignore: $!" };    # uncoverable branch true
+    close $read_fh or return { error => "Unable to close home gitignore $gitignore: $!" };
     for my $line ( split /\n/, $existing ) {
         $line =~ s/^\s+|\s+$//g;
         next if $line eq '' || $line =~ /\A#/;
@@ -665,7 +666,7 @@ sub _register_home_gitignore_skill {
     open my $append_fh, '>>', $gitignore or return { error => "Unable to update home gitignore $gitignore: $!" };
     print {$append_fh} "\n" if length($existing) && $existing !~ /\n\z/;
     print {$append_fh} "$entry\n";
-    close $append_fh or return { error => "Unable to close home gitignore $gitignore: $!" };    # uncoverable branch true
+    close $append_fh or return { error => "Unable to close home gitignore $gitignore: $!" };
     $self->{paths}->secure_file_permissions($gitignore);
 
     return {
@@ -735,7 +736,7 @@ sub _copy_tree {
         );
         1;
     } or do {
-        my $error = $@ || 'Unknown local skill copy failure';    # uncoverable condition right
+        my $error = $@ || 'Unknown local skill copy failure';
         return { error => "Failed to sync local skill source $source_path without rsync: $error" };
     };
 
@@ -936,8 +937,6 @@ sub _install_to_skills_root {
     my $had_existing = -e $skill_path ? 1 : 0;
     my $version_before = $self->_skill_env_version($skill_path);
     my $clone_branch = $self->{clone_branch};
-    return { error => 'The -b/--branch option applies only to remote Git skill sources' }
-      if $local_source && defined $clone_branch;
     if ( !$local_source && $had_existing && !defined $clone_branch ) {
         my $current_branch = $self->_current_installed_skill_branch($skill_path);
         return $current_branch if ref($current_branch) eq 'HASH';
@@ -1177,16 +1176,13 @@ sub _dependency_progress_task_ids_for_skill_path {
     my %allowed_system = map { $_ => 1 } $self->_host_progress_system_task_ids;
     my @task_ids;
     for my $task ( @{ install_progress_tasks() } ) {
-        my $task_id = $task->{id} || '';    # uncoverable condition right
+        my $task_id = $task->{id};
         next if $task_id eq 'fetch_source' || $task_id eq 'prepare_layout';
         if ( my $file = $cross_platform_file_for{$task_id} ) {
             push @task_ids, $task_id if -f File::Spec->catfile( $skill_path, $file );
             next;
         }
-        if ( my $file = $system_file_for{$task_id} ) {    # uncoverable branch false
-            push @task_ids, $task_id if $allowed_system{$task_id} && -f File::Spec->catfile( $skill_path, $file );
-            next;
-        }
+        push @task_ids, $task_id if $allowed_system{$task_id} && -f File::Spec->catfile( $skill_path, $system_file_for{$task_id} );
     }
     return @task_ids;
 }
@@ -1198,12 +1194,10 @@ sub _dependency_progress_task_ids_for_skill_path {
 # Output: ordered task id list for host-relevant system package managers.
 sub _host_progress_system_task_ids {
     my ($self) = @_;
-    my $os = $ENV{DD_TEST_OS} || $^O;    # uncoverable condition false
+    my $os = $self->_current_os;
     my $is_alpine = $self->_is_alpine;
     my $is_fedora = $self->_is_fedora;
-    my $is_debian_like = $ENV{DD_TEST_DEBIAN_LIKE}
-      ? 1    # uncoverable condition right
-      : ( $os eq 'linux' && !$is_alpine && !$is_fedora && -f '/etc/debian_version' ? 1 : 0 );
+    my $is_debian_like = $self->_is_debian_like;
     return ('install_wingetfile') if $os eq 'MSWin32';
     return ('install_brewfile')   if $os eq 'darwin';
     return ('install_apkfile')    if $is_alpine;
@@ -1250,7 +1244,8 @@ sub _dependency_progress_label {
         install_makefile       => 'Install Makefile dependencies',
         install_dockerfile     => 'Install dockerfile dependencies',
     );
-    my $label = $labels{$task_id} || $task_id;    # uncoverable condition false
+    my $label = $labels{$task_id};
+    $label = $task_id if !defined $label;
     my $file  = $files{$task_id} || return $label;
     my $path  = File::Spec->catfile( $skill_path, $file );
     my $result = $args{result};
@@ -1365,22 +1360,22 @@ sub _run_streaming_command {
         chdir $cwd or die "Unable to chdir to $cwd for command launch: $!";
         my $ok = eval { $launcher->(); 1 };
         my $error = $@;
-        chdir $orig or die "Unable to chdir back to $orig after command launch: $!";    # uncoverable branch true
+        chdir $orig or die "Unable to chdir back to $orig after command launch: $!";
         die $error if !$ok;
     }
     else {
         $launcher->();
     }
 
-    close $stdin_handle if $stdin_handle;    # uncoverable branch false
+    close $stdin_handle;
     %target_for = (
         fileno($stdout_handle) => \$stdout,
         fileno($stderr_handle) => \$stderr,
     );
 
     my $selector = IO::Select->new();
-    $selector->add($stdout_handle) if $stdout_handle;    # uncoverable branch false
-    $selector->add($stderr_handle) if $stderr_handle;    # uncoverable branch false
+    $selector->add($stdout_handle);
+    $selector->add($stderr_handle);
 
     my $timed_out = 0;
     my $read_loop = sub {
@@ -1388,8 +1383,7 @@ sub _run_streaming_command {
             for my $handle (@ready) {
                 my $chunk_ref = $self->_drain_ready_handle( $selector, $handle ) or next;
                 my $chunk = ${$chunk_ref};
-                my $slot  = $target_for{ fileno($handle) };
-                ${$slot} .= $chunk if $slot;    # uncoverable branch false
+                ${ $target_for{ fileno($handle) } } .= $chunk;
                 for my $line ( split /\n/, $chunk ) {
                     $self->_progress_detail_line($line);
                 }
@@ -1404,7 +1398,7 @@ sub _run_streaming_command {
         my $ok = eval { $read_loop->(); 1 };
         alarm(0);
         if ( !$ok ) {
-            die $@ if $@ !~ /__STREAMING_COMMAND_TIMEOUT__/;    # uncoverable branch true
+            die $@ if $@ !~ /__STREAMING_COMMAND_TIMEOUT__/;
             $self->_terminate_streaming_command($pid);
             $timed_out = 1;
         }
@@ -1439,7 +1433,7 @@ sub _terminate_streaming_command {
             $reaped = 1;
             last;
         }
-        select( undef, undef, undef, 0.01 );    # uncoverable branch true
+        select( undef, undef, undef, 0.01 );
     }
     if ( !$reaped ) {
         kill 'KILL', $pid;
@@ -1521,7 +1515,8 @@ sub _dependency_file_lines {
 # Input: none.
 # Output: short operating system string such as linux or darwin.
 sub _current_os {
-    my $os = $ENV{DD_TEST_OS} || $^O; return $os;    # uncoverable condition false
+    my $os = $ENV{DD_TEST_OS} || $^O;
+    return $os;
 }
 
 # _is_debian_like()
@@ -1533,7 +1528,7 @@ sub _is_debian_like {
     return 1 if $ENV{DD_TEST_DEBIAN_LIKE};
     return 0 if $self->_is_alpine;
     return 0 if $self->_current_os ne 'linux';
-    return -f '/etc/debian_version' ? 1 : 0;    # uncoverable branch false
+    return 0 + !!-f '/etc/debian_version';
 }
 
 # _is_alpine()
@@ -1544,7 +1539,7 @@ sub _is_alpine {
     my ($self) = @_;
     return 1 if $ENV{DD_TEST_ALPINE};
     return 0 if $self->_current_os ne 'linux';
-    return -f '/etc/alpine-release' ? 1 : 0;    # uncoverable branch true
+    return 0 + !!-f '/etc/alpine-release';
 }
 
 # _is_fedora()
@@ -1555,7 +1550,7 @@ sub _is_fedora {
     my ($self) = @_;
     return 1 if $ENV{DD_TEST_FEDORA};
     return 0 if $self->_current_os ne 'linux';
-    return -f '/etc/fedora-release' ? 1 : 0;    # uncoverable branch true
+    return 0 + !!-f '/etc/fedora-release';
 }
 
 # _is_windows()
@@ -1685,7 +1680,7 @@ sub _install_skill_dependency_manifest {
     for my $dependency (@skills) {
         next if $seen{$dependency};
         next if $self->get_skill_path( $dependency, include_disabled => 1 );
-        my $install_stack = join ':', grep { defined && $_ ne '' } sort keys %{{ %seen, $dependency => 1 }};    # uncoverable branch false
+        my $install_stack = join ':', sort keys %{{ %seen, $dependency => 1 }};
         my ( $step_stdout, $step_stderr, $exit ) = do {
             local $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} = $install_stack;
             local $ENV{DEVELOPER_DASHBOARD_DEPENDENCY_MANIFEST} = $manifest_name;
@@ -1710,8 +1705,8 @@ sub _install_skill_dependency_manifest {
         return {
             error => "Failed to install dependent skills for $skill_path via $manifest_name: $step_stderr",
         } if $exit != 0;
-        push @stdout, $step_stdout if defined $step_stdout && $step_stdout ne '';    # uncoverable condition left
-        push @stderr, $step_stderr if defined $step_stderr && $step_stderr ne '';    # uncoverable condition left
+        push @stdout, $step_stdout if $step_stdout ne '';
+        push @stderr, $step_stderr if $step_stderr ne '';
     }
 
     return { success => 1, skipped => 1 } if !@stdout && !@stderr;
@@ -1756,7 +1751,7 @@ sub _install_skill_nested_dependency_manifest {
             next;
         }
 
-        my $install_stack = join ':', grep { defined && $_ ne '' } sort keys %{{ %seen, $repo_name => 1 }};
+        my $install_stack = join ':', sort keys %{{ %seen, $repo_name => 1 }};
         my $result;
         {
             local $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} = $install_stack;
@@ -1797,7 +1792,7 @@ sub _install_skill_package_json {
     make_path($target_root) if !-d $target_root;
     my $workspace = tempdir( 'npm-install-XXXXXX', DIR => $workspace_parent, CLEANUP => 1 );
     my $workspace_package_json = File::Spec->catfile( $workspace, 'package.json' );
-    open my $workspace_fh, '>', $workspace_package_json or die "Unable to write $workspace_package_json: $!";    # uncoverable branch true
+    open my $workspace_fh, '>', $workspace_package_json or die "Unable to write $workspace_package_json: $!";
     print {$workspace_fh} encode_json(
         {
             name    => 'developer-dashboard-skill-runtime',
@@ -1828,7 +1823,7 @@ sub _install_skill_package_json {
             $self->_copy_tree_contents( $workspace_modules, $target_root );
             1;
         } ? '' : "$@";
-        $copy_error =~ s/\s+\z// if defined $copy_error;    # uncoverable branch false
+        $copy_error =~ s/\s+\z//;
         return {
             error => "Failed to merge skill Node dependencies into $target_root for $skill_path: $copy_error",
         } if $copy_error ne '';
@@ -1946,7 +1941,7 @@ sub _package_json_dependency_specs {
     close $fh;
 
     my $decoded = eval { decode_json($content) };
-    die "Unable to parse $package_json: $@" if !$decoded || $@;    # uncoverable condition right
+    die "Unable to parse $package_json: $@" if !$decoded;
 
     my @specs;
     for my $section ( qw(dependencies devDependencies optionalDependencies peerDependencies) ) {
@@ -1999,9 +1994,6 @@ sub _copy_tree_contents {
                     make_path($target) if !-d $target;
                     return;
                 }
-
-                my ( undef, $target_dir ) = File::Spec->splitpath($target);
-                make_path($target_dir) if !-d $target_dir;    # uncoverable branch true
                 copy( $source, $target ) or die "Unable to copy $source to $target: $!";
                 my $mode = ( stat $source )[2];
                 chmod( $mode & 07777, $target );
@@ -2021,7 +2013,8 @@ sub _copy_tree_contents {
 sub _install_manifest_file {
     my ( $self, $manifest_path, %args ) = @_;
     return { success => 1, skipped => 1 } if !defined $manifest_path || !-f $manifest_path;
-    my $manifest_name = $args{manifest_name} || basename($manifest_path);    # uncoverable condition false
+    my $manifest_name = $args{manifest_name};
+    $manifest_name = basename($manifest_path) if !$manifest_name;
     my $skills_root = $args{skills_root} || return { error => "Missing skills root for $manifest_name" };
     my $operations = $args{operations};
     my @sources = $self->_dependency_file_lines($manifest_path);
@@ -2205,8 +2198,8 @@ sub _install_skill_wingetfile {
         return {
             error => "Failed to install skill winget dependencies for $skill_path: $run->{stderr}",
         } if $run->{exit} != 0;
-        push @stdout, $run->{stdout} if defined $run->{stdout} && $run->{stdout} ne '';    # uncoverable condition left
-        push @stderr, $run->{stderr} if defined $run->{stderr} && $run->{stderr} ne '';    # uncoverable condition left
+        push @stdout, $run->{stdout} if $run->{stdout} ne '';
+        push @stderr, $run->{stderr} if $run->{stderr} ne '';
     }
 
     return {
@@ -2222,9 +2215,16 @@ sub _install_skill_wingetfile {
 # Output: list containing 'sudo' for non-root users, or an empty list for root.
 sub _skill_package_runner_prefix {
     my ($self) = @_;
-    return () if $> == 0;    # uncoverable branch true
+    return () if $self->_effective_uid == 0;
     return ('sudo');
 }
+
+# _effective_uid()
+# Returns the effective uid of this process, in one place so tests can answer
+# for both root and non-root regardless of the user running the suite.
+# Input: none.
+# Output: numeric effective uid.
+sub _effective_uid { return $> }
 
 # _install_skill_brewfile($skill_path)
 # Installs brewfile packages on macOS after printing the requested package list.
@@ -2326,7 +2326,7 @@ sub _install_skill_makefile {
     my ( $self, $skill_path ) = @_;
     my $makefile = File::Spec->catfile( $skill_path, 'Makefile' );
     return { success => 1, skipped => 1 } if !-f $makefile;
-    my $make = command_in_path('make') || 'make';    # uncoverable condition right
+    my $make = command_in_path('make') || 'make';
 
     my %targets = map { $_ => 1 } $self->_makefile_targets($makefile);
     my @commands = (
@@ -2352,8 +2352,8 @@ sub _install_skill_makefile {
                 banner  => "Running make $target_name for " . basename($skill_path) . " from $makefile",
             );
             my ( $stdout, $stderr, $exit ) = @{$run}{qw(stdout stderr exit)};
-            push @stdout, $stdout if defined $stdout && $stdout ne '';    # uncoverable condition left
-            push @stderr, $stderr if defined $stderr && $stderr ne '';    # uncoverable condition left
+            push @stdout, $stdout if $stdout ne '';
+            push @stderr, $stderr if $stderr ne '';
             if ( $exit != 0 ) {
                 my $target = 'default';
                 if (@{$args}) {
@@ -2416,12 +2416,11 @@ sub _makefile_targets {
         next if $line =~ /^\./;
         next if $line !~ /^([^:=]+)\s*:(?![=])/;
         for my $target ( split /\s+/, $1 ) {
-            next if $target eq '';    # uncoverable branch true
             next if $seen{$target}++;
             push @targets, $target;
         }
     }
-    close $fh or die "Unable to close $makefile: $!";    # uncoverable branch true
+    close $fh or die "Unable to close $makefile: $!";
     return @targets;
 }
 

@@ -37,7 +37,7 @@ sub new {
     my $ssl_subject_alt_names = ref( $args{ssl_subject_alt_names} ) eq 'ARRAY'
       ? [ @{ $args{ssl_subject_alt_names} } ]
       : [];
-    die 'Missing worker count' if !defined $workers || $workers eq '';    # uncoverable condition left
+    die 'Missing worker count' if $workers eq '';
     die 'Worker count must be a positive integer' if $workers !~ /^\d+$/ || $workers < 1;
 
     if ($ssl) {
@@ -204,7 +204,7 @@ sub _serve_ssl_frontend {
 
     if ( !$backend_pid ) {
         my $exit_code = $self->_run_ssl_backend_process($daemon);
-        exit $exit_code; # uncoverable statement
+        exit $exit_code;
     }
 
     my $previous_term = $SIG{TERM};
@@ -899,7 +899,7 @@ sub _ssl_expected_subject_alt_names {
     my %seen;
     for my $name (@requested) {
         my $normalized = _normalize_ssl_subject_alt_name($name);
-        next if !defined $normalized || $normalized eq '';    # uncoverable condition left
+        next if $normalized eq '';
         next if _ssl_subject_alt_name_is_wildcard($normalized);
         my $seen_key = lc $normalized;
         next if $seen{$seen_key}++;

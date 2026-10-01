@@ -60,15 +60,17 @@ sub acmdx {
         $query .= '&singleton=' . uri_escape( $args{singleton} );
     }
     my $url = $base ? $base . $query : $query;
+    my $app_url = $args{app};
+    $app_url = $url if !$app_url;
     return {
         token   => $token,
-        url     => { tokenised => $url, app => $args{app} || $url },
+        url     => { tokenised => $url, app => $app_url },
         forward => [ $path => { token => $token->{raw}, type => $type } ],
         html    => sprintf(
             q{<a href="%s" target="%s">%s</a>},
             _escape_html_attr($url),
             _escape_html_attr( $args{target} || '_blank' ),
-            _escape_html( $args{label} || 'Click Here' ),    # uncoverable condition false
+            _escape_html( $args{label} || 'Click Here' ),
         ),
     };
 }
@@ -200,7 +202,7 @@ sub load_saved_ajax_code {
     my (%args) = @_;
     my $path = saved_ajax_file_path(%args);
     return if !-f $path;
-    open my $fh, '<', $path or die "Unable to read $path: $!";    # uncoverable branch true only reachable as a non-root user (permission-denied on a file that already passed -f); the gate container runs as root
+    open my $fh, '<', $path or die "Unable to read $path: $!";
     local $/;
     my $code = <$fh>;
     close $fh;

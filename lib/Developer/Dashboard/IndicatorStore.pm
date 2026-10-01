@@ -83,7 +83,7 @@ sub set_indicator {
     my @preserve_existing = ref($preserve_fields) eq 'ARRAY' ? @{$preserve_fields} : ();
 
     open my $lock_fh, '>>', $lock or die "Unable to open $lock: $!";
-    flock( $lock_fh, LOCK_EX ) or die "Unable to lock $lock: $!";    # uncoverable branch true
+    flock( $lock_fh, LOCK_EX ) or die "Unable to lock $lock: $!";
     my $existing = $self->_read_indicator_file($file) || {};
 
     for my $field (@preserve_existing) {
@@ -257,7 +257,7 @@ sub collector_indicator_candidate {
       if !defined $job->{name} || $job->{name} eq '';
 
     my $indicator = ref( $job->{indicator} ) eq 'HASH' ? $job->{indicator} : {};
-    my $name = $indicator->{name} || $job->{name};    # uncoverable condition false
+    my $name = $indicator->{name} ? $indicator->{name} : $job->{name};
     my $existing = ref( $opts{existing} ) eq 'HASH'
       ? $opts{existing}
       : eval { $self->get_indicator($name) } || {};
@@ -389,7 +389,8 @@ sub refresh_core_indicators {
     # return regardless of how many system() calls run inside.
     local $?;
     my $prompt_only = $args{prompt_only} ? 1 : 0;
-    my $cwd   = $args{cwd} || $self->{paths}->current_project_root || $self->{paths}->home;    # uncoverable condition false
+    my $cwd   = $args{cwd} || $self->{paths}->current_project_root;
+    $cwd = $self->{paths}->home if !$cwd;
     my $items = [];
 
     my $docker_ok = command_in_path('docker') ? 1 : 0;
@@ -568,8 +569,7 @@ sub _collector_sync_plan {
     my $effective_existing = $existing;
     my $healed_from_inherited = 0;
     if (
-        ref($local_existing) eq 'HASH'
-        && %{ $local_existing }
+        %{ $local_existing }
         && $self->_is_placeholder_missing_indicator($local_existing)
     ) {
         my $inherited = $self->_nearest_inherited_indicator($indicator_name);
@@ -590,7 +590,7 @@ sub _collector_sync_plan {
         existing => $effective_existing,
         status   => defined $effective_existing->{status} && $effective_existing->{status} ne '' ? $effective_existing->{status} : 'missing',
     );
-    my $comparison_existing = ref($local_existing) eq 'HASH' && %{ $local_existing }    # uncoverable condition left
+    my $comparison_existing = %{ $local_existing }
       ? $local_existing
       : $existing;
     my @preserve_existing = $healed_from_inherited ? () : qw(status updated_at stale);
@@ -687,7 +687,7 @@ sub _indicator_sort_cmp {
 sub _local_indicator {
     my ( $self, $name ) = @_;
     my ($file) = $self->_indicator_file_candidates($name);
-    return if !defined $file || $file eq '';    # uncoverable condition right
+    return if !defined $file;
     return $self->_read_indicator_file($file);
 }
 

@@ -90,3 +90,6 @@ nytprof/
 # Operator tooling is never part of the repo (owner, 2026-08-29):
 # "no claude tool allows to be part of the repo. add to gitignore"
 .claude/
+
+# npm artefacts installed by install.sh for the JS fuzz tooling.
+node_modules/

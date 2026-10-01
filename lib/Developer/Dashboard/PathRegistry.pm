@@ -88,7 +88,7 @@ sub register_named_paths {
     my ( $self, $paths ) = @_;
     return $self if ref($paths) ne 'HASH';
     for my $name ( keys %$paths ) {
-        next if !defined $name || $name eq '';    # uncoverable condition left
+        next if $name eq '';
         $self->{named_paths}{$name} = $paths->{$name};
     }
     return $self;
@@ -120,7 +120,7 @@ sub unregister_named_path {
 sub named_paths {
     my ($self) = @_;
     my %plain;
-    for my $name ( keys %{ $self->{named_paths} || {} } ) {    # uncoverable branch true
+    for my $name ( keys %{ $self->{named_paths} || {} } ) {
         my $entry = $self->{named_paths}{$name};
         $plain{$name} = ref($entry) eq 'HASH' ? $entry->{path} : $entry;
     }
@@ -228,7 +228,7 @@ sub alias_cache_key {
     my ($paths) = @_;
     return '' if !$paths || !blessed($paths);
     my $project_root  = eval { $paths->current_project_root } || '';
-    my @runtime_roots = eval { $paths->runtime_roots } || ();    # uncoverable condition right
+    my @runtime_roots = eval { $paths->runtime_roots };
     return join "\n", $project_root, @runtime_roots;
 }
 
@@ -248,7 +248,7 @@ sub runtime_layers {
                 my @home_layers = $self->_existing_layer_dirs_for( $self->home );
                 @home_layers = reverse @home_layers;
                 for my $root ( $self->_runtime_layers_from_env, @home_layers, $self->home_runtime_root, $self->_ancestor_runtime_layers ) {
-                    next if $root eq '';    # uncoverable branch true
+                    next if $root eq '';
                     my $identity = $self->_path_identity($root);
                     next if $seen{$identity}++;
                     push @roots, $root;
@@ -546,7 +546,7 @@ sub installed_skill_roots {
     my %seen_names;
     for my $skills_root ( $self->skills_roots ) {
         next if !-d $skills_root;
-        opendir my $dh, $skills_root or die "Unable to read $skills_root: $!";    # uncoverable branch true
+        opendir my $dh, $skills_root or die "Unable to read $skills_root: $!";
         for my $entry (
             sort grep {
                    $_ ne '.'
@@ -622,7 +622,7 @@ sub nested_skill_entries {
         push @entries, $node;
         my $nested_root = File::Spec->catdir( $node->{dir}, 'skills' );
         next if !-d $nested_root;
-        opendir my $dh, $nested_root or next;    # uncoverable branch true - transient unreadable nested skills/ tree, not a supported failure mode
+        opendir my $dh, $nested_root or next;
         for my $child ( sort grep { $_ ne '.' && $_ ne '..' && -d File::Spec->catdir( $nested_root, $_ ) } readdir $dh ) {
             my $child_dir = File::Spec->catdir( $nested_root, $child );
             my $disabled = -f File::Spec->catfile( $child_dir, '.disabled' ) ? 1 : 0;
@@ -693,10 +693,7 @@ sub installed_skill_docker_roots_for_runtime {
     my $skills_root = File::Spec->catdir( $runtime_root, 'skills' );
     my $prefix = $skills_root . '/';
     return map { File::Spec->catdir( $_, 'config', 'docker' ) }
-      grep {
-            my $path = $_;
-            $path eq $skills_root || index( $path, $prefix ) == 0;    # uncoverable branch false
-      } $self->installed_skill_roots(%args);
+      grep { index( $_, $prefix ) == 0 } $self->installed_skill_roots(%args);
 }
 
 # collectors_root()
@@ -766,7 +763,7 @@ sub sessions_roots {
 sub _state_root_key {
     my ( $self, $runtime_root ) = @_;
     my $identity = $self->_path_identity($runtime_root);
-    return md5_hex( defined $identity ? $identity : '' );    # uncoverable branch false
+    return md5_hex($identity);
 }
 
 # _state_root_user()
@@ -812,14 +809,14 @@ sub _write_state_metadata {
     return '' if !defined $runtime_root || $runtime_root eq '';
     $self->_ensure_state_dir($dir);
     my $file = File::Spec->catfile( $dir, 'runtime.json' );
-    open my $fh, '>:raw', $file or die "Unable to write $file: $!";    # uncoverable branch true
+    open my $fh, '>:raw', $file or die "Unable to write $file: $!";
     print {$fh} json_encode(
         {
             runtime_root => $runtime_root,
             app_name     => $self->app_name,
         }
     );
-    close $fh or die "Unable to close $file: $!";    # uncoverable branch true
+    close $fh or die "Unable to close $file: $!";
     $self->secure_file_permissions($file);
     return $file;
 }
@@ -971,7 +968,7 @@ sub project_root_for {
         return $dir if -d File::Spec->catdir( $dir, '.git' );
 
         my $parent = dirname($dir);
-        last if !$parent || $parent eq $dir;    # uncoverable condition left
+        last if $parent eq $dir;
         $dir = $parent;
     }
 
@@ -1072,7 +1069,7 @@ sub ls {
     my $dir = $self->resolve_dir($name);
     return if !-d $dir;
 
-    opendir my $dh, $dir or die "Unable to open $dir: $!";    # uncoverable branch true
+    opendir my $dh, $dir or die "Unable to open $dir: $!";
     my @items;
     while ( my $entry = readdir $dh ) {
         next if $entry eq '.' || $entry eq '..';
@@ -1091,10 +1088,10 @@ sub with_dir {
     my ( $self, $name, $code ) = @_;
     my $dir = $self->resolve_dir($name);
     my $old = getcwd();
-    chdir $dir or die "Unable to chdir to $dir: $!";    # uncoverable branch true
+    chdir $dir or die "Unable to chdir to $dir: $!";
     my @result = eval { $code->($dir) };
     my $error = $@;
-    chdir $old or die "Unable to restore cwd to $old: $!";    # uncoverable branch true
+    chdir $old or die "Unable to restore cwd to $old: $!";
     die $error if $error;
     return wantarray ? @result : $result[0];
 }
@@ -1111,7 +1108,7 @@ sub locate_projects {
     my %seen;
 
     for my $root (@roots) {
-        opendir my $dh, $root or next;    # uncoverable branch true
+        opendir my $dh, $root or next;
         while ( my $entry = readdir $dh ) {
             next if $entry =~ /^\./;
             my $path = File::Spec->catdir( $root, $entry );
@@ -1153,13 +1150,10 @@ sub locate_dirs_under {
 
     while (@pending) {
         my $path = shift @pending;
-        next if !-d $path;    # uncoverable branch true
-
         my $path_id = $self->_path_identity($path);
-        next if $path_id eq '' || $seen{$path_id}++;    # uncoverable condition left
+        next if $seen{$path_id}++;
 
         my $relative = $path_id eq $root_id ? '.' : File::Spec->abs2rel( $path_id, $root_id );
-        $relative = '.' if $relative eq '';    # uncoverable branch true
         $relative =~ s{\\}{/}g;
         $relative = $relative eq '.' ? '.' : './' . $relative;
 
@@ -1173,7 +1167,7 @@ sub locate_dirs_under {
 
         push @found, $path_id if $matches;
 
-        opendir( my $dh, $path ) or next;    # uncoverable branch true
+        opendir( my $dh, $path ) or next;
         while ( my $entry = readdir($dh) ) {
             next if $entry eq '.' || $entry eq '..';
             my $child = File::Spec->catdir( $path, $entry );
@@ -1278,10 +1272,8 @@ sub runtime_layer_root_for {
         # None of the three sources above can yield undef or empty in
         # production - the env reader filters blanks itself, home_runtime_path
         # is a pure File::Spec->catdir on an always-set home, and the ancestor
-        # walker only ever pushes real existing-directory paths. Annotating
-        # this as uncoverable held branch at 100.0 but never closed condition
-        # (stuck at 99.9 across five independent attempts at the comment
-        # syntax), so per Q-150 it is exercised directly instead: t/93 stubs
+        # walker only ever pushes real existing-directory paths. The guard is
+        # exercised directly instead of being annotated: t/93 stubs
         # _runtime_layers_from_env to inject an undef entry and an empty-string
         # entry ahead of a real root, which drives both operands of this OR
         # true independently while a normal run still drives it false.
@@ -1319,7 +1311,7 @@ sub secure_dir_permissions {
 
     my $path = $layer_root;
     if ( -d $path ) {
-        chmod 0700, $path or die "Unable to chmod $path to 0700: $!";    # uncoverable branch true
+        chmod 0700, $path or die "Unable to chmod $path to 0700: $!";
     }
     return $dir if $dir eq $layer_root;
 
@@ -1328,7 +1320,7 @@ sub secure_dir_permissions {
     for my $part ( grep { $_ ne '' } File::Spec->splitdir($suffix) ) {
         $path = File::Spec->catdir( $path, $part );
         next if !-d $path;
-        chmod 0700, $path or die "Unable to chmod $path to 0700: $!";    # uncoverable branch true
+        chmod 0700, $path or die "Unable to chmod $path to 0700: $!";
     }
 
     return $dir;
@@ -1349,7 +1341,7 @@ sub secure_file_permissions {
     return $file if !$self->is_runtime_layer_path($file) && !$self->_is_state_path($file);
     return $file if !-e $file;
     my $mode = $args{executable} ? 0700 : 0600;
-    chmod $mode, $file or die sprintf 'Unable to chmod %s to %04o: %s', $file, $mode, $!;    # uncoverable branch true
+    chmod $mode, $file or die sprintf 'Unable to chmod %s to %04o: %s', $file, $mode, $!;
     return $file;
 }
 
@@ -1409,7 +1401,7 @@ sub atomic_write_secure {
 # Output: staging file path string.
 sub _chmod_pending {
     my ( $self, $tmp, $mode ) = @_;
-    chmod $mode, $tmp or die sprintf 'Unable to chmod %s to %04o: %s', $tmp, $mode, $!;    # uncoverable branch true
+    chmod $mode, $tmp or die sprintf 'Unable to chmod %s to %04o: %s', $tmp, $mode, $!;
     return $tmp;
 }
 
@@ -1457,7 +1449,7 @@ sub _ensure_state_dir {
         make_path( $dir, { mode => 0700 } );
     }
     else {
-        chmod 0700, $dir or die sprintf 'Unable to chmod %s to 0700: %s', $dir, $!;    # uncoverable branch true
+        chmod 0700, $dir or die sprintf 'Unable to chmod %s to 0700: %s', $dir, $!;
     }
     return $dir;
 }
@@ -1541,7 +1533,6 @@ sub _prefer_reference_style {
 
     my $path_id = $self->_path_identity($path);
     my $ref_id  = $self->_path_identity($reference);
-    return $path if $path_id eq '';    # uncoverable branch true
 
     my $prefix = $ref_id;
     $prefix .= '/' if $prefix !~ m{/$};
@@ -1568,7 +1559,6 @@ sub _display_path {
         next if index( $path, $alias_prefix ) != 0;
         my $short_prefix = substr( $alias_prefix, length('/private') );
         my $candidate = $short_prefix . substr( $path, length($alias_prefix) );
-        next if $candidate eq '';    # uncoverable branch true
         next if $self->_path_identity($candidate) ne $self->_path_identity($path);
         return $candidate;
     }
