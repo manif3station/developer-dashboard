@@ -113,6 +113,13 @@ sub write_file {
     is( Developer::Dashboard::Folder->cd( $dir, sub { 7 } ), 7, 'cd runs the callback when chdir succeeds' );
     chdir $start or die "chdir: $!";
 
+    {
+        local $ENV{DEVELOPER_DASHBOARD_PATH_S5EMPTY} = '';
+        is( Developer::Dashboard::Folder->_resolve_path('s5empty'), undef, 'an empty path env override is ignored' );
+        local $ENV{DEVELOPER_DASHBOARD_PATH_S5SET} = $home;
+        is( Developer::Dashboard::Folder->_resolve_path('s5set'), $home, 'a set path env override resolves' );
+    }
+
     # Lazily built default registry honours existing workspace roots.
     {
         no warnings 'once';

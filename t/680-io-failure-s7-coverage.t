@@ -7,7 +7,7 @@ use warnings;
 # compiled. Each one fails only for an exact registered path (or for the next
 # close/flock while a flag is set), so the failure runs deterministically for
 # any uid, including root where chmod-based failures never happen.
-our ( %FAIL_OPEN, %FAIL_OPENDIR, %FAIL_UNLINK, $FAIL_CLOSE, $FAIL_FLOCK );
+our ( %FAIL_OPEN, %FAIL_OPENDIR, %FAIL_UNLINK, $FAIL_CLOSE, $FAIL_FLOCK, $FAKE_GETPWUID );
 
 BEGIN {
     *CORE::GLOBAL::open = sub (*;$@) {
@@ -43,6 +43,10 @@ BEGIN {
         }
         return CORE::close($handle) if ref $handle;
         return @_ ? CORE::close( Symbol::qualify_to_ref( $handle, scalar caller ) ) : CORE::close();
+    };
+    *CORE::GLOBAL::getpwuid = sub ($) {
+        return $FAKE_GETPWUID->( $_[0] ) if $FAKE_GETPWUID;
+        return wantarray ? CORE::getpwuid( $_[0] ) : scalar CORE::getpwuid( $_[0] );
     };
     *CORE::GLOBAL::flock = sub (*$) {
         if ($FAIL_FLOCK) {
@@ -122,6 +126,25 @@ sub write_file {
     like( $html, qr/nav-x/, 'readable nav directories contribute fragments' );
     local $FAIL_OPENDIR{$nav_root} = 1;
     is( $app->_nav_items_html( page => $page, runtime_context => { params => {} } ), '', 'an unopenable nav directory is skipped' );
+}
+
+# --- Web::App: top-right user name fallbacks ---------------------------------
+{
+    my $app = Developer::Dashboard::Web::App->new(
+        auth     => Developer::Dashboard::Auth->new( files => Developer::Dashboard::FileRegistry->new( paths => $paths ), paths => $paths ),
+        pages    => Developer::Dashboard::PageStore->new( paths => $paths ),
+        runtime  => Developer::Dashboard::PageRuntime->new( paths => $paths ),
+        sessions => Developer::Dashboard::SessionStore->new( paths => $paths ),
+    );
+    my $page = Developer::Dashboard::PageDocument->new( id => 'ctx', title => 'Ctx', layout => { body => 'b' } );
+    local $ENV{USER};
+    delete $ENV{USER};
+    local $FAKE_GETPWUID = sub { return 'pwname' };
+    like( $app->_top_context_html($page), qr/pwname/, 'the passwd entry names the user when USER is unset' );
+    local $FAKE_GETPWUID = sub { return undef };
+    like( $app->_top_context_html($page), qr/&#128129;&#127996; user</, 'the literal user name is the last fallback' );
+    local $ENV{USER} = 'envname';
+    like( $app->_top_context_html($page), qr/envname/, 'USER wins when present' );
 }
 
 # --- PageRuntime: saved-ajax temp file close failure -------------------------

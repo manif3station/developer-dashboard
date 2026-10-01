@@ -389,7 +389,8 @@ sub refresh_core_indicators {
     # return regardless of how many system() calls run inside.
     local $?;
     my $prompt_only = $args{prompt_only} ? 1 : 0;
-    my $cwd   = $args{cwd} || $self->{paths}->current_project_root || $self->{paths}->home;
+    my $cwd   = $args{cwd} || $self->{paths}->current_project_root;
+    $cwd = $self->{paths}->home if !$cwd;
     my $items = [];
 
     my $docker_ok = command_in_path('docker') ? 1 : 0;
@@ -568,8 +569,7 @@ sub _collector_sync_plan {
     my $effective_existing = $existing;
     my $healed_from_inherited = 0;
     if (
-        ref($local_existing) eq 'HASH'
-        && %{ $local_existing }
+        %{ $local_existing }
         && $self->_is_placeholder_missing_indicator($local_existing)
     ) {
         my $inherited = $self->_nearest_inherited_indicator($indicator_name);
@@ -590,7 +590,7 @@ sub _collector_sync_plan {
         existing => $effective_existing,
         status   => defined $effective_existing->{status} && $effective_existing->{status} ne '' ? $effective_existing->{status} : 'missing',
     );
-    my $comparison_existing = ref($local_existing) eq 'HASH' && %{ $local_existing }
+    my $comparison_existing = %{ $local_existing }
       ? $local_existing
       : $existing;
     my @preserve_existing = $healed_from_inherited ? () : qw(status updated_at stale);

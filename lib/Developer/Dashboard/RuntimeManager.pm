@@ -117,7 +117,7 @@ sub start_web {
     die "Unable to fork dashboard web service: $!" if !defined $pid;
 
     if ($pid) {
-        close $writer;
+        CORE::close($writer);
         my $line = <$reader>;
         close $reader;
         $self->_reap_child_process($pid);

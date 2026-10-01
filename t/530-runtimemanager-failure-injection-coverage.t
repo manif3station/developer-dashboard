@@ -238,7 +238,7 @@ sub in_child {
         my ( $label, $code, $key, $queue ) = @{$case};
         local $OPEN_FAIL{$key} = [ @{$queue} ];
         my $err = in_child($code);
-        like( $err, qr/\S/, "$label redirect failure dies in the child ($err)" );
+        like( $err, qr/\S/, "$label redirect failure dies in the child" );
     }
 }
 

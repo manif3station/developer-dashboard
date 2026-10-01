@@ -235,13 +235,23 @@ sub _rank_candidates {
         next if !defined $score;
         push @scored, { value => $candidate, score => $score };
     }
-    @scored = sort {
-             $a->{score} <=> $b->{score}
-          || length( $a->{value} ) <=> length( $b->{value} )
-          || $a->{value} cmp $b->{value}
-    } @scored;
+    @scored = sort { _compare_ranked( $a, $b ) } @scored;
     splice @scored, 5 if @scored > 5;
     return @scored;
+}
+
+# _compare_ranked($left, $right)
+# Orders two scored candidates by score, then value length, then alphabetically.
+# Kept out of the sort block so each tiebreak stage is a measurable statement.
+# Input: two hash references carrying value and score.
+# Output: -1, 0, or 1 comparison result.
+sub _compare_ranked {
+    my ( $left, $right ) = @_;
+    my $by_score = $left->{score} <=> $right->{score};
+    return $by_score if $by_score;
+    my $by_length = length( $left->{value} ) <=> length( $right->{value} );
+    return $by_length if $by_length;
+    return $left->{value} cmp $right->{value};
 }
 
 # _candidate_score($query, $candidate)
