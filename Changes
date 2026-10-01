@@ -1,8 +1,15 @@
+5.38  2026-10-01
+
+  - Problem 26 follow-up: preserve `origin/` in `dashboard ps1` unless a
+    same-named local branch points to the exact same commit. Apply the rule to
+    symbolic and detached HEADs, including loose and packed refs.
+
 5.37  2026-10-01
 
   - Problem 26: preserve complete slash-delimited branch names in `dashboard
     ps1` for every shell adapter. Detached HEADs matching loose or packed
-    `origin` refs now display the branch name without the `origin/` prefix;
+    `origin` refs retain the `origin/` prefix unless a same-named local branch
+    points to the same commit;
     symlinked ref roots are ignored. Add regression coverage for both ref
     formats, symlink rejection, unmatched detached HEADs, and shared-renderer
     delegation from every supported shell bootstrap.

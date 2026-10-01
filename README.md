@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.37
+5.38
 
 # INTRODUCTION
 
@@ -2037,10 +2037,11 @@ context from tmux when the shell environment does not already export it, but it
 skips that tmux probe entirely when the shell is not inside tmux.
 The branch marker preserves every component of a local branch such as
 `team/feature`. If HEAD is detached at a commit that matches an
-`origin` remote-tracking ref, the marker shows that full branch name without
-the `origin/` prefix instead of a short commit id; packed and loose refs are
-both recognized, while symlinked refs are not followed. When no matching
-remote ref exists, it keeps the short commit id. All generated shell adapters
+`origin` remote-tracking ref, the marker shows `origin/team/feature` unless
+the same-named local branch points to the same commit; only then is the
+redundant `origin/` prefix omitted. Packed and loose refs are both recognized,
+while symlinked refs are not followed. When no matching remote ref exists, it
+keeps the short commit id. All generated shell adapters
 call this same `dashboard ps1` renderer, so the branch label is consistent in
 Bash, Zsh, sh, and PowerShell.
 

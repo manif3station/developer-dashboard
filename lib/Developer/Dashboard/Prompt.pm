@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '5.37';
+our $VERSION = '5.38';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(basename);
@@ -210,7 +210,19 @@ sub _git_branch {
     if ( $head =~ /^ref:\s+(.+)$/ ) {
         my $reference = $1;
         return $1 if $reference =~ m{\Arefs/heads/(.+)\z};
-        return $1 if $reference =~ m{\Arefs/remotes/[^/]+/(.+)\z};
+        if ( $reference =~ m{\Arefs/remotes/([^/]+)/(.+)\z} ) {
+            my ( $remote, $branch ) = ( $1, $2 );
+            return "$remote/$branch" if $remote ne 'origin';
+
+            my $remote_commit = $self->_git_ref_commit( $git_dir, $reference );
+            my $local_commit = $self->_git_ref_commit( $git_dir, "refs/heads/$branch" );
+            return $branch
+              if defined $remote_commit
+              && defined $local_commit
+              && lc($remote_commit) eq lc($local_commit);
+
+            return "origin/$branch";
+        }
         return basename($reference);
     }
 
@@ -228,7 +240,8 @@ sub _git_branch {
 # detached HEAD commit, allowing the prompt to show a useful branch label
 # instead of a short object id after `git checkout origin/<branch>`.
 # Input: git metadata directory path and full hexadecimal commit id.
-# Output: matching origin branch name without the remote prefix, or undef.
+# Output: matching local branch name when it points to this commit, otherwise
+# the complete origin/<branch> name, or undef.
 sub _origin_branch_for_commit {
     my ( $self, $git_dir, $commit ) = @_;
     return if !defined $git_dir || $git_dir eq '';
@@ -277,7 +290,54 @@ sub _origin_branch_for_commit {
         close $packed_fh or die "Unable to close $packed_refs: $!";
     }
 
-    return ( sort keys %matches )[0];
+    for my $branch ( sort keys %matches ) {
+        my $local_commit = $self->_git_ref_commit( $git_dir, "refs/heads/$branch" );
+        return $branch
+          if defined $local_commit
+          && lc($local_commit) eq lc($commit);
+    }
+
+    my ($branch) = sort keys %matches;
+    return defined $branch ? "origin/$branch" : undef;
+}
+
+# _git_ref_commit($git_dir, $reference)
+# Reads an exact loose or packed branch ref while refusing symlinked metadata.
+# Input: Git metadata directory and a refs/heads or refs/remotes ref name.
+# Output: full hexadecimal object id, or undef when the ref is unavailable.
+sub _git_ref_commit {
+    my ( $self, $git_dir, $reference ) = @_;
+    return if !defined $git_dir || !defined $reference;
+    return if $reference !~ m{\Arefs/(?:heads|remotes)/([A-Za-z0-9._/-]+)\z};
+    my @parts = split m{/}, $1;
+    return if !@parts || grep { $_ eq '' || $_ eq '.' || $_ eq '..' || /\.lock\z/ } @parts;
+
+    my $path = File::Spec->catfile( $git_dir, split m{/}, $reference );
+    my $parent = $git_dir;
+    for my $part ( split m{/}, $reference ) {
+        $parent = File::Spec->catfile( $parent, $part );
+        return if -l $parent;
+    }
+    if ( -f $path ) {
+        open my $ref_fh, '<', $path or die "Unable to open $path: $!";
+        my $line = <$ref_fh>;
+        close $ref_fh or die "Unable to close $path: $!";
+        return $1 if defined $line && $line =~ /\A([0-9a-f]{40,64})\s*\z/i;
+    }
+
+    my $packed_refs = File::Spec->catfile( $git_dir, 'packed-refs' );
+    return if !-f $packed_refs || -l $packed_refs;
+    open my $packed_fh, '<', $packed_refs or die "Unable to open $packed_refs: $!";
+    while ( my $line = <$packed_fh> ) {
+        next if $line =~ /\A\^/;
+        if ( $line =~ /\A([0-9a-f]{40,64})\s+\Q$reference\E\s*\z/i ) {
+            my $commit = $1;
+            close $packed_fh or die "Unable to close $packed_refs: $!";
+            return $commit;
+        }
+    }
+    close $packed_fh or die "Unable to close $packed_refs: $!";
+    return;
 }
 
 # _git_metadata_dir($project_root)
@@ -331,9 +391,11 @@ directory context, and git metadata. It is designed to stay fast enough for
 per-prompt execution. The prompt renderer is shared by every generated shell
 adapter, so branch labels are not shell-specific. Local branch names retain
 their complete slash-delimited names. A detached HEAD that matches an
-C<origin> remote-tracking ref displays the branch name without C<origin/>;
-loose and packed refs are supported, but symlinked ref roots and packed-ref
-files are not followed. An unmatched detached HEAD keeps its short commit id.
+C<origin> remote-tracking ref displays C<origin/branch> unless the same-named
+local branch points to the same commit, in which case the redundant prefix is
+omitted. Other remote names are retained. Loose and packed refs are supported,
+but symlinked ref paths and packed-ref files are not followed. An unmatched
+detached HEAD keeps its short commit id.
 
 =head1 METHODS
 

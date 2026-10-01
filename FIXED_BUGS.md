@@ -1,10 +1,17 @@
 # Fixed Bugs
 
+## 5.38
+
+- Follow-up to Problem 26: retain `origin/<branch>` for symbolic and detached
+  remote refs unless the corresponding local branch resolves to the exact same
+  commit. In that one redundant-prefix case, show `<branch>`. Loose and packed
+  local and remote refs are supported without following symlinked ref paths.
+
 ## 5.37
 
 - Fixed Problem 26 in the shared `dashboard ps1` renderer: local branch names
-  retain all slash-separated components, and detached commits matching loose
-  or packed `origin` refs display the full branch name without `origin/`.
+  retain all slash-separated components, and `origin/<branch>` remains visible
+  unless a same-named local branch points to the same commit.
   Symlinked origin-ref roots and packed-ref files are not followed. Because all
   generated shell adapters use this renderer, Bash, Zsh, sh, and PowerShell
   show the same label; shell-bootstrap tests now assert that each adapter calls

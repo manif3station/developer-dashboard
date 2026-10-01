@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.37';
+our $VERSION = '5.38';
 
 our @EXPORT = ('d2');
 
@@ -66,7 +66,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.37
+5.38
 
 =head1 INTRODUCTION
 
@@ -2412,10 +2412,11 @@ context from tmux when the shell environment does not already export it, but it
 skips that tmux probe entirely when the shell is not inside tmux.
 The branch marker preserves every component of a local branch such as
 C<team/feature>. If HEAD is detached at a commit that matches an
-C<origin> remote-tracking ref, the marker shows that full branch name without
-the C<origin/> prefix instead of a short commit id; packed and loose refs are
-both recognized, while symlinked refs are not followed. When no matching
-remote ref exists, it keeps the short commit id. All generated shell adapters
+C<origin> remote-tracking ref, the marker shows C<origin/team/feature> unless
+the same-named local branch points to the same commit; only then is the
+redundant C<origin/> prefix omitted. Packed and loose refs are both recognized,
+while symlinked refs are not followed. When no matching remote ref exists, it
+keeps the short commit id. All generated shell adapters
 call this same C<dashboard ps1> renderer, so the branch label is consistent in
 Bash, Zsh, sh, and PowerShell.
 

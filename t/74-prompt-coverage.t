@@ -256,7 +256,38 @@ sub write_file {
     my $remote_ref = File::Spec->catfile( $remote_git, 'refs', 'remotes', 'origin', 'foo', 'bar' );
     make_path( File::Spec->catdir( $remote_git, 'refs', 'remotes', 'origin', 'foo' ) );
     write_file( $remote_ref, "$remote_commit\n" );
-    is( $prompt->_git_branch($remote_branch), 'foo/bar', 'detached HEAD resolves its matching origin branch and keeps the full branch name' );
+    is( $prompt->_git_branch($remote_branch), 'origin/foo/bar', 'detached HEAD keeps origin prefix when no same-commit local branch exists' );
+
+    my $local_remote_branch = File::Spec->catdir( $base, 'local-origin-branch' );
+    mkdir $local_remote_branch or die "mkdir $local_remote_branch: $!";
+    my $local_remote_git = File::Spec->catdir( $local_remote_branch, '.git' );
+    mkdir $local_remote_git or die "mkdir local-origin-branch/.git: $!";
+    write_file( File::Spec->catfile( $local_remote_git, 'HEAD' ), "ref: refs/remotes/origin/foo/bar\n" );
+    my $local_remote_ref = File::Spec->catfile( $local_remote_git, 'refs', 'remotes', 'origin', 'foo', 'bar' );
+    make_path( File::Spec->catdir( $local_remote_git, 'refs', 'remotes', 'origin', 'foo' ) );
+    write_file( $local_remote_ref, "$remote_commit\n" );
+    my $same_local_ref = File::Spec->catfile( $local_remote_git, 'refs', 'heads', 'foo', 'bar' );
+    make_path( File::Spec->catdir( $local_remote_git, 'refs', 'heads', 'foo' ) );
+    write_file( $same_local_ref, "$remote_commit\n" );
+    is( $prompt->_git_branch($local_remote_branch), 'foo/bar', 'origin prefix is omitted when same-named local branch points to same commit' );
+
+    my $different_local_ref = File::Spec->catfile( $local_remote_git, 'refs', 'heads', 'foo', 'bar' );
+    write_file( $different_local_ref, "abcdef0123456789abcdef0123456789abcdef01\n" );
+    is( $prompt->_git_branch($local_remote_branch), 'origin/foo/bar', 'origin prefix remains when same-named local branch points elsewhere' );
+
+    my $symbolic_remote = File::Spec->catdir( $base, 'symbolic-origin' );
+    mkdir $symbolic_remote or die "mkdir $symbolic_remote: $!";
+    my $symbolic_git = File::Spec->catdir( $symbolic_remote, '.git' );
+    mkdir $symbolic_git or die "mkdir symbolic-origin/.git: $!";
+    write_file( File::Spec->catfile( $symbolic_git, 'HEAD' ), "ref: refs/remotes/origin/foo/bar\n" );
+    my $symbolic_remote_ref = File::Spec->catfile( $symbolic_git, 'refs', 'remotes', 'origin', 'foo', 'bar' );
+    make_path( File::Spec->catdir( $symbolic_git, 'refs', 'remotes', 'origin', 'foo' ) );
+    write_file( $symbolic_remote_ref, "$remote_commit\n" );
+    is( $prompt->_git_branch($symbolic_remote), 'origin/foo/bar', 'symbolic remote HEAD retains origin prefix without local same-commit branch' );
+    my $symbolic_local_ref = File::Spec->catfile( $symbolic_git, 'refs', 'heads', 'foo', 'bar' );
+    make_path( File::Spec->catdir( $symbolic_git, 'refs', 'heads', 'foo' ) );
+    write_file( $symbolic_local_ref, "$remote_commit\n" );
+    is( $prompt->_git_branch($symbolic_remote), 'foo/bar', 'symbolic remote HEAD omits origin prefix for matching local branch' );
 
     my $packed_remote = File::Spec->catdir( $base, 'packed-origin' );
     mkdir $packed_remote or die "mkdir $packed_remote: $!";
@@ -264,7 +295,10 @@ sub write_file {
     mkdir $packed_git or die "mkdir packed-origin/.git: $!";
     write_file( File::Spec->catfile( $packed_git, 'HEAD' ), "$remote_commit\n" );
     write_file( File::Spec->catfile( $packed_git, 'packed-refs' ), "# pack-refs with: peeled fully-peeled\n$remote_commit refs/remotes/origin/foo/bar\n" );
-    is( $prompt->_git_branch($packed_remote), 'foo/bar', 'detached HEAD resolves a packed origin ref with its full name' );
+    is( $prompt->_git_branch($packed_remote), 'origin/foo/bar', 'detached HEAD keeps prefix for a packed origin ref without matching local branch' );
+    my $packed_local_git = File::Spec->catdir( $packed_remote, '.git' );
+    write_file( File::Spec->catfile( $packed_local_git, 'packed-refs' ), "# pack-refs with: peeled fully-peeled\n$remote_commit refs/remotes/origin/foo/bar\n$remote_commit refs/heads/foo/bar\n" );
+    is( $prompt->_git_branch($packed_remote), 'foo/bar', 'packed local branch at the same commit permits omitting origin prefix' );
 
     my $symlinked_origin = File::Spec->catdir( $base, 'symlinked-origin' );
     mkdir $symlinked_origin or die "mkdir $symlinked_origin: $!";
