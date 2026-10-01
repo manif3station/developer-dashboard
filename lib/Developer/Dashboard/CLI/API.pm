@@ -125,8 +125,6 @@ sub _run_add_command {
         }
     }
 
-    die "API key '$key' does not have a secret yet\n" if $next->{secret} eq '';    # uncoverable branch true
-
     $writable->{$key} = $next;
     my $file = $config->save_writable_api_registry($writable);
 

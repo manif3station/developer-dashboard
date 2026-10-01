@@ -36,7 +36,7 @@ sub render {
     my ( $self, %args ) = @_;
 
     my $jobs = defined $args{jobs} ? $args{jobs} : 0;
-    my $cwd  = $args{cwd} || cwd();    # uncoverable condition false
+    my $cwd  = $args{cwd} || cwd();
     my $mode = $args{mode} || 'compact';
     my $color = exists $args{color} ? $args{color} : 0;
     my $max_age = defined $args{max_age} ? $args{max_age} : 300;
@@ -83,7 +83,7 @@ sub render_tmux_status {
     my ( $top, $bottom ) = $self->_tmux_status_lines(%args);
     return $top    if $line eq 'top';
     return $bottom if $line eq 'bottom';
-    return join "\n", grep { defined $_ && $_ ne q{} } ( $top, $bottom );    # uncoverable branch false
+    return join "\n", grep { defined $_ && $_ ne q{} } ( $top, $bottom );
 }
 
 # _timestamp()
@@ -113,7 +113,7 @@ sub _indicator_parts {
         my $stale = $self->{indicators}->is_stale( $indicator, max_age => $max_age ) ? 1 : 0;
         my $part = $mode eq 'extended'
           ? join( '', grep { defined && $_ ne '' } $status_icon, $icon, $label )
-          : join( '', grep { defined && $_ ne '' } $status_icon, ( $icon || substr( $label, 0, 1 ) ) );    # uncoverable branch false
+          : join( '', grep { defined && $_ ne '' } $status_icon, ( $icon || substr( $label, 0, 1 ) ) );
         if ($color) {
             my $status = $indicator->{status} || '';
             my $ansi = $stale ? "\e[33m" : $status =~ /^(ok|clean)$/ ? "\e[32m" : $status =~ /^(missing|error|dirty|down)$/ ? "\e[31m" : "\e[36m";
@@ -201,7 +201,7 @@ sub _git_branch {
     my $head_file = File::Spec->catfile( $git_dir, 'HEAD' );
     return if !-f $head_file;
 
-    open my $head_fh, '<', $head_file or return;    # uncoverable branch true HEAD was just confirmed a regular file; open only fails on a race
+    open my $head_fh, '<', $head_file or return;
     my $head = <$head_fh>;
     close $head_fh;
     return if !defined $head;
@@ -227,7 +227,7 @@ sub _git_metadata_dir {
     return $git_path if -d $git_path;
     return if !-f $git_path;
 
-    open my $git_fh, '<', $git_path or return;    # uncoverable branch true .git was just confirmed a regular file; open only fails on a race
+    open my $git_fh, '<', $git_path or return;
     my $line = <$git_fh>;
     close $git_fh;
     return if !defined $line;

@@ -233,7 +233,6 @@ sub legacy_instruction {
 
     my @chunks = map {
         my ( $name, $body ) = @$_;
-        $body = '' if !defined $body;    # uncoverable branch true
         $body =~ s/\A\n+//;
         $body =~ s/\n+\z//;
         "$name: $body";

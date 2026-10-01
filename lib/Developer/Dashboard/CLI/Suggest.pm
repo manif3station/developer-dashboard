@@ -19,12 +19,14 @@ use Developer::Dashboard::SkillManager;
 # Output: suggestion helper object.
 sub new {
     my ( $class, %args ) = @_;
-    my $paths = $args{paths} || Developer::Dashboard::PathRegistry->new(
+    my $paths = $args{paths};
+    $paths = Developer::Dashboard::PathRegistry->new(
         home            => $ENV{HOME},
-        workspace_roots => [],    # uncoverable condition false
+        workspace_roots => [],
         project_roots   => [],
-    );
-    my $manager = $args{manager} || Developer::Dashboard::SkillManager->new( paths => $paths );    # uncoverable condition false
+    ) if !$paths;
+    my $manager = $args{manager};
+    $manager = Developer::Dashboard::SkillManager->new( paths => $paths ) if !$manager;
     return bless {
         paths   => $paths,
         manager => $manager,
@@ -237,7 +239,7 @@ sub _rank_candidates {
              $a->{score} <=> $b->{score}
           || length( $a->{value} ) <=> length( $b->{value} )
           || $a->{value} cmp $b->{value}
-    } @scored;    # uncoverable branch true : candidates are de-duplicated, so the final cmp tiebreaker is never 0 and the comparator never returns 0
+    } @scored;
     splice @scored, 5 if @scored > 5;
     return @scored;
 }

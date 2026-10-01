@@ -31,7 +31,8 @@ use Developer::Dashboard::Platform qw(command_argv_for_path is_runnable_file res
 # Output: SkillDispatcher object.
 sub new {
     my ( $class, %args ) = @_;
-    my $manager = $args{manager} || Developer::Dashboard::SkillManager->new( paths => $args{paths} );    # uncoverable condition false
+    my $manager = $args{manager};
+    $manager = Developer::Dashboard::SkillManager->new( paths => $args{paths} ) if !$manager;
     return bless {
         manager => $manager,
     }, $class;
@@ -180,7 +181,7 @@ sub execute_hooks {
     for my $layer_path (@skill_layers) {
         my $hooks_dir = File::Spec->catdir( $layer_path, 'cli', "$resolved_command.d" );
         next if !-d $hooks_dir;
-        opendir( my $dh, $hooks_dir ) or die "Unable to read $hooks_dir: $!";    # uncoverable branch true
+        opendir( my $dh, $hooks_dir ) or die "Unable to read $hooks_dir: $!";
         for my $entry ( sorted_dir_entries($dh) ) {
             my $hook_path = File::Spec->catfile( $hooks_dir, $entry );
             next unless is_runnable_file($hook_path);
@@ -256,7 +257,7 @@ sub _execute_hooks_streaming {
     for my $layer_path (@skill_layers) {
         my $hooks_dir = File::Spec->catdir( $layer_path, 'cli', "$command.d" );
         next if !-d $hooks_dir;
-        opendir( my $dh, $hooks_dir ) or die "Unable to read $hooks_dir: $!";    # uncoverable branch true
+        opendir( my $dh, $hooks_dir ) or die "Unable to read $hooks_dir: $!";
         for my $entry ( sorted_dir_entries($dh) ) {
             my $hook_path = File::Spec->catfile( $hooks_dir, $entry );
             next unless is_runnable_file($hook_path);
@@ -331,7 +332,7 @@ sub _run_child_command_streaming {
     my $stdin_spec = '<&STDIN';
     my $stdin_fh;
     if ( $stdin_mode eq 'null' ) {
-        open $stdin_fh, '<', File::Spec->devnull() or die "Unable to open " . File::Spec->devnull() . " for streaming skill hook stdin: $!";    # uncoverable branch true
+        open $stdin_fh, '<', File::Spec->devnull() or die "Unable to open " . File::Spec->devnull() . " for streaming skill hook stdin: $!";
         $stdin_spec = '<&' . fileno($stdin_fh);
     }
     my $stderr = gensym();
@@ -371,11 +372,10 @@ sub _run_child_command_streaming {
                 next;
             }
 
-            if ( fileno($fh) == $stderr_fd ) {    # uncoverable branch false
-                print STDERR ${$chunk_ref};
-                $stderr_text .= ${$chunk_ref};
-                next;
-            }
+            # The selector only watches stdout and stderr, so anything that is
+            # not stdout is stderr.
+            print STDERR ${$chunk_ref};
+            $stderr_text .= ${$chunk_ref};
         }
     }
 
@@ -410,7 +410,7 @@ sub _exec_replacement {
     my ( $self, $command, $args ) = @_;
     my @command = @{ $self->_arrayref_or_empty($command) };
     my @args = @{ $self->_arrayref_or_empty($args) };
-    if ( !exec @command, @args ) {    # uncoverable branch false
+    if ( !exec @command, @args ) {
         my $error = "$!";
         return $error;
     }
@@ -504,7 +504,7 @@ sub get_skill_config {
         my $config_file = File::Spec->catfile( $skill_path, 'config', 'config.json' );
         next if !-f $config_file;
 
-        open( my $fh, '<', $config_file ) or return {};    # uncoverable branch true
+        open( my $fh, '<', $config_file ) or return {};
         my $json_text = do { local $/; <$fh> };
         close($fh);
 
@@ -524,7 +524,7 @@ sub config_fragment {
     my ( $self, $skill_name ) = @_;
     return {} if !$skill_name;
     my $config = $self->get_skill_config($skill_name);
-    return {} if ref($config) ne 'HASH' || !%{$config};    # uncoverable condition left
+    return {} if !%{$config};
     return { '_' . $skill_name => $config };
 }
 
@@ -574,13 +574,12 @@ sub command_hook_paths {
     return () if !$command_spec;
 
     my @hooks;
-    my $resolved_command = $command_spec->{command_name} || '';    # uncoverable condition right
-    return () if $resolved_command eq '';                          # uncoverable branch true
+    my $resolved_command = $command_spec->{command_name};
 
-    for my $layer_path ( @{ $command_spec->{skill_layers} || [] } ) {    # uncoverable branch true
+    for my $layer_path ( @{ $command_spec->{skill_layers} } ) {
         my $hooks_dir = File::Spec->catdir( $layer_path, 'cli', "$resolved_command.d" );
         next if !-d $hooks_dir;
-        opendir( my $dh, $hooks_dir ) or die "Unable to read $hooks_dir: $!";    # uncoverable branch true
+        opendir( my $dh, $hooks_dir ) or die "Unable to read $hooks_dir: $!";
         for my $entry ( sorted_dir_entries($dh) ) {
             my $hook_path = File::Spec->catfile( $hooks_dir, $entry );
             next unless is_runnable_file($hook_path);
@@ -659,7 +658,7 @@ sub all_skill_nav_pages {
     my ($self) = @_;
     my @pages;
     for my $skill_name ( $self->_all_installed_skill_names ) {
-        push @pages, @{ $self->skill_nav_pages($skill_name) || [] };    # uncoverable branch true
+        push @pages, @{ $self->skill_nav_pages($skill_name) };
     }
     return \@pages;
 }
@@ -686,12 +685,16 @@ sub _skill_page_response {
     }
     return [ 200, 'text/plain; charset=utf-8', $page->{meta}{raw_url} ]
       if ($page->{meta}{source_format} || '') eq 'raw-url';
-    return [ 200, 'text/plain; charset=utf-8', $page->{meta}{raw_instruction} || $page->canonical_instruction ]
-      if !$args{app};    # uncoverable condition false
+    if ( !$args{app} ) {
+        my $instruction = $page->{meta}{raw_instruction};
+        $instruction = $page->canonical_instruction if !$instruction;
+        return [ 200, 'text/plain; charset=utf-8', $instruction ];
+    }
 
     my $app = $args{app};
     $page = $app->_decorate_skill_page_routes($page);
-    my $page_path = $args{path} || '/app/' . $page->{id};    # uncoverable condition false
+    my $page_path = $args{path};
+    $page_path = '/app/' . $page->{id} if !$page_path;
     $page = $app->_page_with_runtime_state(
         $page,
         query_params => $args{query_params} || {},
@@ -723,12 +726,12 @@ sub _merge_saved_url_query {
         $merged{ uri_unescape($key) } = uri_unescape( defined $value ? $value : '' );
     }
     for my $key ( keys %{ $params || {} } ) {
-        next if !defined $key || $key eq 'splat';    # uncoverable condition left a hash key is never undefined
+        next if $key eq 'splat';
         my $value = $params->{$key};
         $value = $value->[ -1 ] if ref($value) eq 'ARRAY';
         $merged{$key} = defined $value ? $value : '';
     }
-    $uri->query( join '&', map { uri_escape($_) . '=' . uri_escape( defined $merged{$_} ? $merged{$_} : '' ) } sort keys %merged )    # uncoverable branch false every merged value was already defaulted to a string
+    $uri->query( join '&', map { uri_escape($_) . '=' . uri_escape( $merged{$_} ) } sort keys %merged )
       if %merged;
     return $uri->as_string;
 }
@@ -743,10 +746,10 @@ sub _load_skill_page {
     my $skill_name = $args{skill_name} || die 'Missing skill name';
     my $route_id   = $args{route_id}   || die 'Missing route id';
     my ( $file, $skill_path ) = $self->_page_location( $skill_name, $route_id );
-    die "Skill bookmark '$route_id' not found" if !defined $file || !-f $file;    # uncoverable condition right
+    die "Skill bookmark '$route_id' not found" if !defined $file;
 
     require Developer::Dashboard::PageDocument;
-    open my $fh, '<', $file or die "Unable to read $file: $!";    # uncoverable branch true
+    open my $fh, '<', $file or die "Unable to read $file: $!";
     local $/;
     my $instruction = <$fh>;
     close $fh;
@@ -754,8 +757,8 @@ sub _load_skill_page {
     my $page = eval { Developer::Dashboard::PageDocument->from_instruction($instruction) };
     my $parse_error = $@;
     my $raw_url = $instruction;
-    $raw_url =~ s/\A\s+|\s+\z//g if defined $raw_url;    # uncoverable branch false slurping a regular file always yields a defined string
-    if ( !$page && defined $raw_url && $raw_url =~ m{\A(?:https?:)?//[^\s]+\z} ) {    # uncoverable condition right slurping a regular file always yields a defined string
+    $raw_url =~ s/\A\s+|\s+\z//g;
+    if ( !$page && $raw_url =~ m{\A(?:https?:)?//[^\s]+\z} ) {
         $page = Developer::Dashboard::PageDocument->new(
             id     => $skill_name . ( $route_id eq 'index' ? '' : '/' . $route_id ),
             title  => $route_id,
@@ -994,11 +997,10 @@ sub _native_version_fallback {
     for my $skill_path ( reverse $self->_skill_layers($skill_name) ) {
         my $env_file = File::Spec->catfile( $skill_path, '.env' );
         next if !-f $env_file;
-        open my $fh, '<:raw', $env_file or next;    # uncoverable branch true the file just passed -f
+        open my $fh, '<:raw', $env_file or next;
         local $/;
         my $body = <$fh>;
-        close $fh;    # uncoverable branch true closing a read-only handle does not fail on the test host
-        next if !defined $body;    # uncoverable branch true slurping a regular file always yields a defined string
+        close $fh;
         return { stdout => "$1\n", stderr => '', exit_code => 0 } if $body =~ /^\s*VERSION\s*=\s*(\S+)\s*$/m;
     }
     return { stdout => "no version number found\n", stderr => '', exit_code => 0 };
@@ -1093,20 +1095,16 @@ sub resolve_custom_route_path {
     my ( $self, $path ) = @_;
     return if !defined $path || $path eq '';
     for my $spec ( reverse $self->_runtime_custom_route_specs ) {
-        return $spec if ( $spec->{path} || '' ) eq $path;    # uncoverable condition right
-        my $aliases = $spec->{aliases};
-        $aliases = [] if ref($aliases) ne 'ARRAY';    # uncoverable branch true
-        return $spec if grep { $_ eq $path } @{$aliases};
+        return $spec if $spec->{path} eq $path;
+        return $spec if grep { $_ eq $path } @{ $spec->{aliases} };
     }
     for my $skill_name ( $self->_all_installed_skill_names ) {
         for my $kind (qw(app ajax js css others)) {
             my $routes = $self->_skill_routes_for( $skill_name, $kind );
             for my $target ( sort keys %{$routes} ) {
                 my $spec = $routes->{$target};
-                return $spec if ( $spec->{path} || '' ) eq $path;    # uncoverable condition right
-                my $aliases = $spec->{aliases};
-                $aliases = [] if ref($aliases) ne 'ARRAY';    # uncoverable branch true
-                return $spec if grep { $_ eq $path } @{$aliases};
+                return $spec if $spec->{path} eq $path;
+                return $spec if grep { $_ eq $path } @{ $spec->{aliases} };
             }
         }
     }
@@ -1129,7 +1127,8 @@ sub _runtime_custom_route_specs {
         next if !-f $routes_file;
         my $payload = $self->_load_skill_routes_file($routes_file);
         for my $kind (qw(app ajax js css others)) {
-            my $kind_routes = $payload->{$kind} || {};    # uncoverable condition right
+            my $kind_routes = $payload->{$kind};
+            $kind_routes = {} if !$kind_routes;
             for my $target ( sort keys %{$kind_routes} ) {
                 push @specs, $self->_normalize_skill_route_spec(
                     kind        => $kind,
@@ -1169,7 +1168,8 @@ sub _skill_routes_for {
         my $routes_file = File::Spec->catfile( $skill_path, 'config', 'routes.json' );
         next if !-f $routes_file;
         my $payload = $self->_load_skill_routes_file($routes_file);
-        my $kind_routes = $payload->{$kind} || {};    # uncoverable condition right
+        my $kind_routes = $payload->{$kind};
+        $kind_routes = {} if !$kind_routes;
         for my $target ( sort keys %{$kind_routes} ) {
             next if exists $routes{$target};
             my $spec = $self->_normalize_skill_route_spec(
@@ -1205,7 +1205,7 @@ sub _skill_ajax_routes_for {
 # Output: decoded hash reference.
 sub _load_skill_routes_file {
     my ( $self, $routes_file ) = @_;
-    open my $fh, '<', $routes_file or die "Unable to read $routes_file: $!";    # uncoverable branch true
+    open my $fh, '<', $routes_file or die "Unable to read $routes_file: $!";
     local $/;
     my $json_text = <$fh>;
     close $fh;
@@ -1269,8 +1269,8 @@ sub _expand_flat_skill_routes_payload {
         my ( $kind, $target ) = $to =~ m{\A/(ajax|app|js|css|others)/(.*)\z};
         die "$routes_file route path '$route_path' must map to /ajax/, /app/, /js/, /css/, or /others/"
           if !$kind;
-        die "$routes_file route path '$route_path' target must not be empty"    # uncoverable condition left
-          if !defined $target || $target eq '';
+        die "$routes_file route path '$route_path' target must not be empty"
+          if $target eq '';
         die "$routes_file route path '$route_path' type must be a scalar"
           if defined $type && ref($type);
         die "$routes_file route path '$route_path' type must not be empty"
@@ -1405,7 +1405,7 @@ sub _skill_bookmark_entries {
     for my $skill_path ( $self->_skill_lookup_roots($skill_name) ) {
         my $dashboards_root = File::Spec->catdir( $skill_path, 'dashboards' );
         next if !-d $dashboards_root;
-        opendir( my $dh, $dashboards_root ) or die "Unable to read $dashboards_root: $!";    # uncoverable branch true
+        opendir( my $dh, $dashboards_root ) or die "Unable to read $dashboards_root: $!";
         for my $entry (
             grep {
                    $_ ne '.'
@@ -1436,7 +1436,7 @@ sub _skill_nav_route_ids {
         my $nav_root = File::Spec->catdir( $skill_path, 'dashboards', 'nav' );
         next if !-d $nav_root;
         for my $entry ( $self->_relative_files($nav_root) ) {
-            $routes{$entry} ||= 'nav/' . $entry;    # uncoverable condition false
+            $routes{$entry} = 'nav/' . $entry if !exists $routes{$entry};
         }
     }
     return %routes;
@@ -1453,7 +1453,7 @@ sub _all_installed_skill_names {
     my @names;
     for my $skill_root ( $self->{manager}{paths}->installed_skill_roots ) {
         my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
-        next if !defined $skill_name || $skill_name eq '';    # uncoverable condition right
+        next if !defined $skill_name;
         push @names, $self->_descendant_skill_names( $skill_name, $skill_root );
     }
     return @names;
@@ -1472,7 +1472,7 @@ sub _descendant_skill_names {
     my $nested_root = File::Spec->catdir( $skill_root, 'skills' );
     return @names if !-d $nested_root;
 
-    opendir my $dh, $nested_root or die "Unable to read $nested_root: $!";    # uncoverable branch true
+    opendir my $dh, $nested_root or die "Unable to read $nested_root: $!";
     for my $entry (
         sort grep {
                $_ ne '.'
@@ -1500,7 +1500,7 @@ sub _relative_files {
     return () if !$root || !-d $root;
 
     my @relative_files;
-    opendir my $dh, $root or die "Unable to read $root: $!";    # uncoverable branch true
+    opendir my $dh, $root or die "Unable to read $root: $!";
     for my $entry ( sorted_dir_entries($dh) ) {
         my $path = File::Spec->catfile( $root, $entry );
         if ( -d $path ) {

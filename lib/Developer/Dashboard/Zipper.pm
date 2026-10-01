@@ -68,7 +68,7 @@ sub acmdx {
             q{<a href="%s" target="%s">%s</a>},
             _escape_html_attr($url),
             _escape_html_attr( $args{target} || '_blank' ),
-            _escape_html( $args{label} || 'Click Here' ),    # uncoverable condition false
+            _escape_html( $args{label} || 'Click Here' ),
         ),
     };
 }
@@ -146,7 +146,7 @@ sub Ajax {
 sub _render_ajax_code_template {
     my ( $code, $data ) = @_;
     return $code if !defined $code || ref($data) ne 'HASH';
-    my $template = Template->new( { EVAL_PERL => 0 } )    # uncoverable branch true Template->new with a fixed valid config does not fail
+    my $template = Template->new( { EVAL_PERL => 0 } )
       or die 'Unable to initialise Ajax code template renderer';
     my $rendered = '';
     $template->process( \$code, $data, \$rendered )
@@ -200,7 +200,7 @@ sub load_saved_ajax_code {
     my (%args) = @_;
     my $path = saved_ajax_file_path(%args);
     return if !-f $path;
-    open my $fh, '<', $path or die "Unable to read $path: $!";    # uncoverable branch true only reachable as a non-root user (permission-denied on a file that already passed -f); the gate container runs as root
+    open my $fh, '<', $path or die "Unable to read $path: $!";
     local $/;
     my $code = <$fh>;
     close $fh;

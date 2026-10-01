@@ -21,7 +21,7 @@ use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
 
 # Fallback no-follow flag: O_NOFOLLOW where the platform provides the macro,
 # otherwise 0 so path-based fallback opens still work on such runtimes.
-my $NOFOLLOW = eval { O_NOFOLLOW } || 0;    # uncoverable condition false O_NOFOLLOW is defined on every POSIX test host
+my $NOFOLLOW = eval { O_NOFOLLOW } || 0;
 
 # new(%args)
 # Constructs the page persistence and token transport store.
@@ -202,7 +202,7 @@ sub migrate_legacy_json_pages {
         print {$out} $page->canonical_instruction;
         close $out;
         $self->{paths}->secure_file_permissions($target);
-        unlink $file or die "Unable to remove $file: $!";    # uncoverable branch true unlink of a just-read regular file in a directory we just wrote to cannot fail on Linux without a race
+        unlink $file or die "Unable to remove $file: $!";
         push @migrated, { from => $entry, id => $id, file => $target };
     }
     closedir $dh;
@@ -230,7 +230,7 @@ sub _validated_page_id {
     my ( $self, $id ) = @_;
     my $normalized = $self->_normalized_page_id($id);
     die 'Invalid page id' if $normalized eq '';
-    # uncoverable branch true leading separators are stripped by normalization and drive-qualified absolutes only exist on Windows
+
     die 'Invalid page id' if File::Spec->file_name_is_absolute($normalized);
     die 'Invalid page id' if $normalized =~ /\A[A-Za-z]:/;
     die 'Invalid page id' if grep { $_ eq '' || $_ eq '.' || $_ eq '..' } split m{[\\/]}, $normalized, -1;
@@ -256,7 +256,7 @@ sub _assert_page_path_contained {
         if ( $args{for_write} && !-e $probe && !-l $probe ) {
             while ( !-e $probe && !-l $probe ) {
                 my $parent = dirname($probe);
-                last if $parent eq $probe;    # uncoverable branch true the filesystem root always exists so the walk stops on an existing ancestor first
+                last if $parent eq $probe;
                 $probe = $parent;
             }
         }
@@ -431,8 +431,8 @@ sub _read_saved_instruction {
       };
     local $/;
     my $raw = <$fh>;
-    close $fh or die "Unable to close $file: $!";    # uncoverable branch true
-    return '' if !defined $raw;    # uncoverable branch true
+    close $fh or die "Unable to close $file: $!";
+    return '' if !defined $raw;
     my $text = eval { decode( 'UTF-8', $raw, FB_CROAK ) } || decode( 'UTF-8', $raw, FB_DEFAULT );
     return $self->_normalize_legacy_icon_markup($text);
 }

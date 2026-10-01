@@ -873,7 +873,7 @@ sub jquery_js_response {
     open my $fh, '<:raw', $path or die "Unable to read $path: $!";
     local $/;
     my $content = <$fh>;
-    close $fh or die "Unable to close $path: $!";    # uncoverable branch true
+    close $fh or die "Unable to close $path: $!";
     return [ 200, 'application/javascript; charset=utf-8', $content ];
 }
 
@@ -887,7 +887,7 @@ sub _bundled_public_asset_path {
     die 'asset type is required' if !defined $type || $type eq '';
     die 'asset file is required' if !defined $file || $file eq '';
 
-    my $module_source = $MODULE_SOURCE_PATH || File::Spec->rel2abs( __FILE__, $ORIG_CWD );    # uncoverable condition false
+    my $module_source = $MODULE_SOURCE_PATH || File::Spec->rel2abs( __FILE__, $ORIG_CWD );
     my $module_dir    = dirname($module_source);
     my @candidates;
 
@@ -1131,7 +1131,7 @@ sub page_source_response {
     my ( $params, $body_params ) = $self->_request_params(%args);
     my $page = $self->_load_editable_named_page( $args{id} );
     return [ 404, 'text/plain; charset=utf-8', "Not found\n" ] if !$page;
-    $page->{meta}{raw_instruction} = $page->{meta}{raw_instruction} || $page->canonical_instruction;    # uncoverable condition false
+    $page->{meta}{raw_instruction} = $page->{meta}{raw_instruction} || $page->canonical_instruction;
     $page = $self->_page_with_runtime_state(
         $page,
         query_params => $params,
@@ -1139,7 +1139,7 @@ sub page_source_response {
         path         => $args{path} || '/app/' . $args{id} . '/source',
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
-    );    # uncoverable condition false
+    );
     $page = $self->{runtime}->prepare_page(
         page            => $page,
         source          => $page->{meta}{source_kind} || 'saved',
@@ -1180,7 +1180,7 @@ sub page_edit_post_response {
             }
         }
         my $mode = $params->{mode} || $body_params->{mode} || 'edit';
-        my $request_path = $args{path} || '/app/' . $args{id} . '/edit';    # uncoverable condition false
+        my $request_path = $args{path} || '/app/' . $args{id} . '/edit';
         $request_path = '/app/' . $args{id} if $mode eq 'render' && $source_kind eq 'skill';
         $page = $self->_page_with_runtime_state(
             $page,
@@ -1210,7 +1210,7 @@ sub page_edit_response {
     my ( $params, $body_params ) = $self->_request_params(%args);
     my $page = $self->_load_editable_named_page( $args{id} );
     return $self->_missing_named_page_response( $args{id} ) if !$page;
-    $page->{meta}{raw_instruction} = $page->{meta}{raw_instruction} || $page->canonical_instruction;    # uncoverable condition false
+    $page->{meta}{raw_instruction} = $page->{meta}{raw_instruction} || $page->canonical_instruction;
     $page = $self->_page_with_runtime_state(
         $page,
         query_params => $params,
@@ -1218,7 +1218,7 @@ sub page_edit_response {
         path         => $args{path} || '/app/' . $args{id} . '/edit',
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
-    );    # uncoverable condition false
+    );
     $page = $self->{runtime}->prepare_page(
         page            => $page,
         source          => $page->{meta}{source_kind} || 'saved',
@@ -1242,7 +1242,7 @@ sub page_action_response {
         path         => $args{path} || '/app/' . $args{id} . '/action/' . $args{action_id},
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
-    );    # uncoverable condition false
+    );
     $page = $self->{runtime}->prepare_page(
         page            => $page,
         source          => $page->{meta}{source_kind} || 'saved',
@@ -1323,7 +1323,7 @@ sub _load_skill_named_page {
             route_id   => $route_id,
         );
     };
-    return if !$page || $@;    # uncoverable condition right
+    return if !$page || $@;
     return $self->_decorate_skill_page_routes($page);
 }
 
@@ -1383,7 +1383,7 @@ sub _page_route_urls {
 # Output: response array reference.
 sub _page_response {
     my ( $self, $page, $mode ) = @_;
-    my $source = $page->{meta}{raw_instruction} || $page->canonical_instruction;    # uncoverable condition false
+    my $source = $page->{meta}{raw_instruction} || $page->canonical_instruction;
 
     if ( $mode eq 'source' ) {
         return _no_editor_response() if $self->_editor_disabled;
@@ -1403,14 +1403,14 @@ sub _page_response {
 # Output: HTML string.
 sub _edit_html {
     my ( $self, $page ) = @_;
-    my $raw_source = $page->{meta}{raw_instruction} || $page->canonical_instruction;    # uncoverable condition false
+    my $raw_source = $page->{meta}{raw_instruction} || $page->canonical_instruction;
     my $source = $raw_source;
     $source =~ s/&/&amp;/g;
     $source =~ s/</&lt;/g;
     $source =~ s/>/&gt;/g;
 
     my $urls = $self->_page_route_urls($page);
-    my $form_action = $urls->{form_action} || '/';    # uncoverable condition right
+    my $form_action = $urls->{form_action} || '/';
 
     my $title = $page->as_hash->{title};
     $title =~ s/&/&amp;/g;
@@ -2309,7 +2309,7 @@ sub _nav_items_html {
     for my $dashboards_root (@roots) {
         my $nav_root = File::Spec->catdir( $dashboards_root, 'nav' );
         next if !-d $nav_root;
-        opendir my $dh, $nav_root or next;    # uncoverable branch true - unreadable nav/ dir cannot be simulated when tests run as root
+        opendir my $dh, $nav_root or next;
         for my $entry ( sort grep {
             $_ ne '.' && $_ ne '..'
               && $_ =~ /\.tt\z/
@@ -2326,7 +2326,7 @@ sub _nav_items_html {
     my $current_page = $runtime_context->{current_page} || '';
     for my $nav_id (@nav_ids) {
         my $nav_page = eval { $self->_load_named_page($nav_id) };
-        next if !$nav_page || $@;    # uncoverable condition right
+        next if !$nav_page || $@;
         $nav_page->{meta}{raw_instruction} = $nav_page->canonical_instruction;
         $nav_page = $self->{runtime}->prepare_page(
             page            => $self->_page_with_runtime_state(
@@ -2494,7 +2494,7 @@ sub _legacy_app_response {
     }
 
     my $raw = eval { $self->{pages}->read_saved_entry($id) };
-    if ( !defined $raw || $@ ) {    # uncoverable condition right
+    if ( !defined $raw || $@ ) {
         my $skill_response = $self->_skill_app_fallback_response( id => $id, %args );
         return $skill_response if $skill_response;
         return $self->_missing_named_page_response($id);
@@ -2817,7 +2817,7 @@ sub _legacy_ajax_response {
                     stderr_writer   => $writer,
                     return_writer   => $writer,
                 );
-                $writer->( $result->{error} ) if defined $result->{error} && $result->{error} ne '';    # uncoverable condition left
+                $writer->( $result->{error} ) if defined $result->{error} && $result->{error} ne '';
             },
         },
     ];
@@ -3113,7 +3113,7 @@ sub _top_context_html {
     my $ctx = $page->{meta}{request_context} || {};
     my $user = (
         ( $ctx->{tier} || '' ) eq 'helper' && ( $ctx->{username} || '' ) ne ''
-    ) ? $ctx->{username} : ( $ENV{USER} || eval { getpwuid($<) } || 'user' );    # uncoverable condition right count:2
+    ) ? $ctx->{username} : ( $ENV{USER} || eval { getpwuid($<) } || 'user' );
     my $host = $ctx->{host} || '';
     $host =~ s/^https?:\/\///;
     $host =~ s/\/.*$//;
@@ -3348,10 +3348,10 @@ sub _serve_static_file_from_roots {
     my $file_path = '';
     for my $public_dir (@public_roots) {
         my $candidate = File::Spec->catfile( $public_dir, $filename );
-        my $real_path = eval { File::Spec->rel2abs($candidate) } || '';    # uncoverable condition right
+        my $real_path = eval { File::Spec->rel2abs($candidate) } || '';
         my $quoted_public = quotemeta($public_dir);
         next if $real_path !~ /^$quoted_public(?:\/|\z)/;
-        next if !-f $candidate || !-r $candidate;    # uncoverable condition right - an existing but unreadable file is unreachable when tests run as root
+        next if !-f $candidate || !-r $candidate;
         $file_path = $candidate;
         last;
     }
@@ -3467,14 +3467,14 @@ sub _static_path_contained {
 # Output: array reference of status code, content type, and body.
 sub _serve_static_file_at_path {
     my ( $self, $type, $filename, $file_path, $default_type, $allowed_roots ) = @_;
-    return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]    # uncoverable condition right count:3 - an existing but unreadable file is unreachable when tests run as root
+    return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
       if !defined $file_path || $file_path eq '' || !-f $file_path || !-r $file_path;
     return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
       if !_static_path_contained( $file_path, $allowed_roots );
     my $content_type = defined $default_type && $default_type ne ''
       ? _ajax_content_type($default_type)
       : $self->_get_content_type( $type, $filename );
-    open my $fh, '<', $file_path or return [ 500, 'text/plain; charset=utf-8', "Internal Server Error\n" ];    # uncoverable branch true
+    open my $fh, '<', $file_path or return [ 500, 'text/plain; charset=utf-8', "Internal Server Error\n" ];
     my $content = do { local $/; <$fh> };
     close $fh;
     return [ 200, $content_type, $content ];
