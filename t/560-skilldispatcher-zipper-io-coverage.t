@@ -95,6 +95,7 @@ write_file( File::Spec->catfile( $skill, 'dashboards', 'nav', 'a.tt' ), "nav\n" 
 write_file( File::Spec->catfile( $skill, '.env' ), "VERSION=1.0\n" );
 write_file( File::Spec->catfile( $skill, 'config', 'routes.json' ), '{"version":1}' );
 make_path( File::Spec->catdir( $skill, 'skills', 'child' ) );
+write_file( File::Spec->catfile( $home, '.developer-dashboard', 'config', 'routes.json' ), '{"version":1}' );
 
 my $paths      = Developer::Dashboard::PathRegistry->new( home => $home );
 my $manager    = Developer::Dashboard::SkillManager->new( paths => $paths );
@@ -113,13 +114,6 @@ fails_with(
     qr/Unable to open \Q$devnull\E for streaming/,
     'a null stdin that cannot open dies'
 );
-
-# exec: a failing exec reports the error; a (faked) successful exec falls through.
-like( $dispatcher->_exec_replacement( ['/nonexistent/dd-exec-target'], [] ), qr/No such file|not found/i, 'a failing exec returns the system error' );
-{
-    local $EXEC_FAKE = 1;
-    ok( !$dispatcher->_exec_replacement( ['true'], [] ), 'an exec that hands off falls through without an error string' );
-}
 
 # Config, page, version, routes, and directory walkers.
 my $config_file = File::Spec->catfile( $skill, 'config', 'config.json' );
@@ -146,6 +140,9 @@ my $routes_file = File::Spec->catfile( $skill, 'config', 'routes.json' );
 fails_with( $routes_file, sub { $dispatcher->_load_skill_routes_file($routes_file) }, qr/Unable to read \Q$routes_file\E/, 'an unreadable routes file dies' );
 is_deeply( $dispatcher->_load_skill_routes_file($routes_file)->{app} || {}, {}, 'a routes file with no kinds loads' );
 
+is_deeply( [ $dispatcher->_runtime_custom_route_specs ], [], 'a runtime routes file without kinds yields no specs' );
+is_deeply( $dispatcher->_skill_routes_for( 'mk', 'app' ), {}, 'a skill routes file without the kind yields no routes' );
+
 my $dash_root = File::Spec->catdir( $skill, 'dashboards' );
 fails_with( $dash_root, sub { $dispatcher->_skill_bookmark_entries('mk') }, qr/Unable to read \Q$dash_root\E/, 'bookmark enumeration dies on an unreadable dashboards dir' );
 is_deeply( [ $dispatcher->_skill_bookmark_entries('mk') ], ['index'], 'bookmark enumeration lists index' );
@@ -157,6 +154,14 @@ is_deeply( [ $dispatcher->_descendant_skill_names( 'mk', $skill ) ], [ 'mk', 'mk
 my $nav_root = File::Spec->catdir( $skill, 'dashboards', 'nav' );
 fails_with( $nav_root, sub { $dispatcher->_relative_files($nav_root) }, qr/Unable to read \Q$nav_root\E/, 'relative file walk dies on an unreadable dir' );
 is_deeply( [ $dispatcher->_relative_files($nav_root) ], ['a.tt'], 'relative file walk lists nav files' );
+
+# Exec runs last: a failed exec makes Devel::Cover stop recording.
+# exec: a failing exec reports the error; a (faked) successful exec falls through.
+like( $dispatcher->_exec_replacement( ['/nonexistent/dd-exec-target'], [] ), qr/No such file|not found/i, 'a failing exec returns the system error' );
+{
+    local $EXEC_FAKE = 1;
+    ok( !$dispatcher->_exec_replacement( ['true'], [] ), 'an exec that hands off falls through without an error string' );
+}
 
 done_testing;
 

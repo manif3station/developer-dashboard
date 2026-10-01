@@ -193,9 +193,11 @@ sub load_provider_page {
         $page = Developer::Dashboard::PageDocument->from_hash( $provider->{page} );
     }
     else {
+        my $title = $provider->{title};
+        $title = $provider->{id} if !$title;
         $page = Developer::Dashboard::PageDocument->new(
             id          => $provider->{id},
-            title       => $provider->{title} || $provider->{id},
+            title       => $title,
             description => $provider->{description} || 'Generated provider page.',
             layout      => { body => $provider->{body} || '' },
             actions     => $provider->{actions} || [],
