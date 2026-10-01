@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '5.35';
+our $VERSION = '5.37';
 
 use Config ();
 use Developer::Dashboard::DirEntries qw(sorted_dir_entries);
@@ -933,7 +933,13 @@ sub _command_spec {
     my @segments = grep { $_ ne '' } split /\./, $command;
     return if !@segments;
 
-    for my $command_root_spec ( $self->_command_root_specs( \@segments ) ) {
+    my @command_root_specs = $self->_command_root_specs( \@segments );
+
+    # Resolve every explicit command before considering any initializer. An
+    # initializer on an intermediate nested skill must not hide an explicit
+    # command (or the initializer) on a deeper nested skill.
+    for my $command_root_spec (@command_root_specs) {
+        next if $command_root_spec->{init_only};
         my @provider_layers = ();
         for my $skill_path ( $self->_skill_layers($skill_name) ) {
             my $provider_path = $skill_path;
@@ -947,14 +953,6 @@ sub _command_spec {
 
         for my $provider_path ( reverse @provider_layers ) {
             my $cmd_path = resolve_runnable_file( File::Spec->catfile( $provider_path, 'cli', $command_root_spec->{command_name} ) );
-
-            # DD-954: no explicit cli/<command> file exists for this
-            # candidate - fall back to the provider's own cli/__init__
-            # self-script (any extension) before giving up on it. This runs
-            # for every nested level _command_root_specs already visits, so
-            # a nested skill's __init__ is reached the same way a top-level
-            # one is, with no separate recursive walk needed.
-            $cmd_path ||= resolve_runnable_file( File::Spec->catfile( $provider_path, 'cli', '__init__' ) );
             next if !$cmd_path;
             my @env_skill_layers;
             my @env_frontier = $self->_skill_layers($skill_name);
@@ -974,6 +972,44 @@ sub _command_spec {
                 skill_layers  => \@provider_layers,
                 env_skill_layers => \@env_skill_layers,
                 command_name  => $command_root_spec->{command_name},
+            };
+        }
+    }
+
+    # Search initializer fallbacks from the deepest provider back toward the
+    # root. This allows a dotted command tail to name a nested skill directly
+    # (foo.bar -> foo/skills/bar/cli/__init__) and ensures a deeper nested
+    # initializer wins over an ancestor's generic __init__.
+    for my $command_root_spec ( reverse @command_root_specs ) {
+        my @provider_layers = ();
+        for my $skill_path ( $self->_skill_layers($skill_name) ) {
+            my $provider_path = $self->_nested_skill_path( $skill_path, $command_root_spec->{nested_segments} );
+            next if @{ $command_root_spec->{nested_segments} } && !-d $provider_path;
+            push @provider_layers, $provider_path;
+        }
+        next if !@provider_layers;
+
+        for my $provider_path ( reverse @provider_layers ) {
+            my $cmd_path = resolve_runnable_file( File::Spec->catfile( $provider_path, 'cli', '__init__' ) );
+            next if !$cmd_path;
+            my @env_skill_layers;
+            my @env_frontier = $self->_skill_layers($skill_name);
+            push @env_skill_layers, @env_frontier;
+            for my $nested_segment ( @{ $command_root_spec->{nested_segments} } ) {
+                my @next_frontier;
+                for my $root_path (@env_frontier) {
+                    my $nested_path = $self->_nested_skill_path( $root_path, [$nested_segment] );
+                    push @next_frontier, $nested_path if -d $nested_path;
+                }
+                @env_frontier = @next_frontier;
+                push @env_skill_layers, @env_frontier;
+            }
+            return {
+                cmd_path      => $cmd_path,
+                skill_path    => $provider_path,
+                skill_layers  => \@provider_layers,
+                env_skill_layers => \@env_skill_layers,
+                command_name  => $command_root_spec->{init_only} ? '__init__' : $command_root_spec->{command_name},
             };
         }
     }
@@ -1007,7 +1043,8 @@ sub _native_version_fallback {
 # _command_root_specs(\@segments)
 # Builds candidate nested-skill command roots from the dotted command tail.
 # Input: array reference of dotted command segments.
-# Output: ordered list of hash references with nested_segments and command_name.
+# Output: ordered explicit-command candidates, followed by a terminal nested
+# initializer candidate when the complete tail can name a nested skill.
 sub _command_root_specs {
     my ( $self, $segments ) = @_;
     my @segments = @{ $segments || [] };
@@ -1021,9 +1058,21 @@ sub _command_root_specs {
     );
 
     for my $split_index ( 1 .. $#segments ) {
+        my @nested_segments = @segments[ 0 .. $split_index - 1 ];
+        my @validated_nested_segments = Developer::Dashboard::PathRegistry::validated_path_segments( join '/', @nested_segments );
+        next if @validated_nested_segments != @nested_segments;
         push @specs, {
-            nested_segments => [ @segments[ 0 .. $split_index - 1 ] ],
+            nested_segments => \@nested_segments,
             command_name    => join( '.', @segments[ $split_index .. $#segments ] ),
+        };
+    }
+
+    my @validated_terminal_segments = Developer::Dashboard::PathRegistry::validated_path_segments( join '/', @segments );
+    if ( @validated_terminal_segments == @segments ) {
+        push @specs, {
+            nested_segments => [@segments],
+            command_name    => '__init__',
+            init_only       => 1,
         };
     }
 

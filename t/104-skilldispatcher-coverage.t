@@ -205,6 +205,8 @@ write_file( File::Spec->catfile( $proj_runner, 'skills', 'disabledchild', '.disa
 # cli/<command> file at all - the command token never resolves to a real
 # file, so this is exactly the case the __init__ fallback exists for.
 write_exec( File::Spec->catfile( $proj_runner, 'skills', 'initchild', 'cli', '__init__' ), "#!/bin/sh\necho initchild-self \"\$@\"\n" );
+write_exec( File::Spec->catfile( $proj_runner, 'skills', 'initchild', 'skills', 'grandinit', 'cli', '__init__' ), "#!/bin/sh\necho grandinit-self \"\$@\"\n" );
+write_exec( File::Spec->catfile( $proj_runner, 'skills', 'initchild', 'skills', 'grandinit', 'cli', 'task' ), "#!/bin/sh\necho grandinit-task \"\$@\"\n" );
 
 # secondary skills in the project layer
 mkd( File::Spec->catdir( $proj_skills, 'nocfg' ) );                       # exists, no config/dashboards
@@ -464,6 +466,9 @@ is( $seg->{skill_name}, 'runner', 'resolve_route_segments finds the installed pr
 
 is_deeply( [ $disp->_command_root_specs(undef) ], [], '_command_root_specs guards an undef list' );
 is_deeply( [ $disp->_command_root_specs( [] ) ],  [], '_command_root_specs guards an empty list' );
+my @unsafe_nested_specs = $disp->_command_root_specs( ['initchild/../grandinit'] );
+ok( !grep( { $_->{init_only} || @{ $_->{nested_segments} } } @unsafe_nested_specs ),
+    '_command_root_specs does not treat path-traversal command segments as nested skill names' );
 
 # ---------------------------------------------------------------------------
 # _nested_skill_path() edge inputs.
@@ -491,6 +496,27 @@ is( $disp->_command_spec( 'runner', 'missingchild.sub' ), undef, '_command_spec 
     ok( $init_spec, '_command_spec falls back to the nested skill\'s cli/__init__ when no explicit command file exists' );
     like( $init_spec->{cmd_path}, qr{initchild.*cli.*__init__\z}, 'the resolved cmd_path is the __init__ script itself' );
     is( $init_spec->{command_name}, 'anything', 'command_name still reports the token that was actually typed' );
+}
+{
+    my $nested_init_spec = $disp->_command_spec( 'runner', 'initchild' );
+    ok( $nested_init_spec, '_command_spec resolves a nested skill invoked by its own name to cli/__init__' );
+    like( $nested_init_spec->{cmd_path}, qr{initchild.*cli.*__init__\z}, 'a nested skill initializer resolves at its own level' );
+
+    my $deep_init_spec = $disp->_command_spec( 'runner', 'initchild.grandinit' );
+    ok( $deep_init_spec, '_command_spec resolves an initializer at a deeper nested-skill level' );
+    like( $deep_init_spec->{cmd_path}, qr{grandinit.*cli.*__init__\z}, 'the deepest nested initializer wins over its parent initializer' );
+
+    my $nested_init_result = $disp->dispatch( 'runner', 'initchild', 'one', 'two' );
+    is( $nested_init_result->{exit_code}, 0, 'direct invocation of nested __init__ exits successfully' );
+    like( $nested_init_result->{stdout}, qr/initchild-self one two/, 'direct invocation of nested __init__ receives arguments' );
+
+    my $deep_init_result = $disp->dispatch( 'runner', 'initchild.grandinit', 'three' );
+    is( $deep_init_result->{exit_code}, 0, 'direct invocation of deeply nested __init__ exits successfully' );
+    like( $deep_init_result->{stdout}, qr/grandinit-self three/, 'deepest nested __init__ executes instead of its parent initializer' );
+
+    my $deep_command_result = $disp->dispatch( 'runner', 'initchild.grandinit.task', 'four' );
+    is( $deep_command_result->{exit_code}, 0, 'an explicit deep nested command still executes successfully' );
+    like( $deep_command_result->{stdout}, qr/grandinit-task four/, 'explicit deep command takes precedence over every __init__ fallback' );
 }
 is( $disp->_command_spec( 'runner', 'missingchild.anything' ), undef,
     '__init__ fallback still does not invent a provider path that does not exist at all' );
@@ -908,9 +934,11 @@ t/104-skilldispatcher-coverage.t - branch and condition coverage for the skill d
 
 This test drives C<Developer::Dashboard::SkillDispatcher> across every command,
 hook, bookmark, route, and configuration code path so the release coverage gate
-keeps the module at full branch and condition coverage. It builds a two-layer
-installed-skill tree on disk, actually executes skill commands and their sorted
-hook files, and pushes each helper through its guard clauses and error paths.
+can measure those paths. It builds a two-layer installed-skill tree on disk,
+actually executes skill commands and their sorted hook files, and pushes each
+helper through its guard clauses and error paths. Its nested-command fixtures
+cover both direct and multi-level C<cli/__init__> dispatch, explicit-command
+precedence, argument forwarding, and traversal rejection.
 
 =head1 WHY IT EXISTS
 
@@ -930,8 +958,11 @@ routes.json schema handling in the skill dispatcher.
 =head1 HOW TO USE
 
 Run C<prove -lv t/104-skilldispatcher-coverage.t> while iterating, and run it
-under C<HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t> to confirm the
-dispatcher stays at full coverage before release.
+under C<HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t> as part of the full
+coverage gate before release. The Docker development service can run the
+focused test with:
+
+  d2 docker compose exec dev prove -lv t/104-skilldispatcher-coverage.t
 
 =head1 WHAT USES IT
 
@@ -950,8 +981,10 @@ Run the dispatcher coverage regression by itself.
 
 Example 2:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
+  dashboard nest.child
 
-Re-check the module under the repository coverage gate.
+Invoke the nested skill's C<cli/__init__> at the matching dotted depth.
+
+The full repository coverage gate is separate from this focused regression.
 
 =cut

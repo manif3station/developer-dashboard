@@ -770,6 +770,18 @@ ok(
     like( $stdout, qr/ps1 --jobs \\j --mode compact --no-indicators/, 'the staged shell helper bootstrap suppresses prompt indicators when tmux owns the status line' );
 }
 {
+    my $shell_helper = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', 'shell' );
+    for my $shell (qw(zsh sh ps powershell pwsh)) {
+        my ( $stdout, $stderr, $exit ) = capture {
+            system $^X, $shell_helper, $shell;
+            return $? >> 8;
+        };
+        is( $exit, 0, "the staged shell helper generates the $shell bootstrap" );
+        is( $stderr, '', "the $shell bootstrap generator writes no stderr" );
+        like( $stdout, qr/ps1[^\n]*--mode compact/, "$shell prompt delegates to the shared dashboard ps1 renderer" );
+    }
+}
+{
     my $legacy_flat_core = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', '_dashboard-core' );
     my $legacy_flat_shell = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'shell' );
     open my $legacy_core_fh, '>:raw', $legacy_flat_core or die "Unable to write $legacy_flat_core: $!";
@@ -5299,8 +5311,9 @@ __END__
 
 =head1 DESCRIPTION
 
-This test closes direct branch coverage for the private helper packaging,
-query parsing, runtime result, path registry, and isolated skill modules.
+This test closes direct branch coverage for private helper packaging, query
+parsing, runtime results, path registries, isolated skills, and cross-shell
+prompt bootstrap delegation to the common C<dashboard ps1> renderer.
 
 =for comment FULL-POD-DOC START
 
@@ -5314,7 +5327,10 @@ It exists because the hard-to-hit branches that keep library coverage honest has
 
 =head1 WHEN TO USE
 
-Use this file when changing the hard-to-hit branches that keep library coverage honest, when a focused CI failure points here, or when you want a faster regression loop than running the entire suite.
+Use this file when changing helper packaging, query parsing, path registries,
+skill dispatch, or the generated Bash, Zsh, sh, and PowerShell prompt adapters.
+The shell bootstrap assertions verify the shell-specific hook delegates to the
+same C<dashboard ps1> output path.
 
 =head1 HOW TO USE
 
@@ -5343,6 +5359,13 @@ Example 3:
   prove -lr t
 
 Put the focused fix back through the whole repository suite before calling the work finished.
+
+Example 4:
+
+  d2 docker compose exec dev prove -lv t/21-refactor-coverage.t
+
+Run the focused helper and shell-bootstrap assertions in the project dev
+container.
 
 =for comment FULL-POD-DOC END
 

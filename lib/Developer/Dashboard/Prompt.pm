@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '5.35';
+our $VERSION = '5.37';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(basename);
@@ -208,11 +208,76 @@ sub _git_branch {
     $head =~ s/\s+\z//;
 
     if ( $head =~ /^ref:\s+(.+)$/ ) {
-        return basename($1);
+        my $reference = $1;
+        return $1 if $reference =~ m{\Arefs/heads/(.+)\z};
+        return $1 if $reference =~ m{\Arefs/remotes/[^/]+/(.+)\z};
+        return basename($reference);
     }
+
+    my $origin_branch = $head =~ /\A[0-9a-f]{40,64}\z/i
+      ? $self->_origin_branch_for_commit( $git_dir, $head )
+      : undef;
+    return $origin_branch if defined $origin_branch;
 
     return substr( $head, 0, 7 ) if $head =~ /\A[0-9a-f]{7,40}\z/i;
     return;
+}
+
+# _origin_branch_for_commit($git_dir, $commit)
+# Finds an origin remote-tracking branch whose loose or packed ref points to a
+# detached HEAD commit, allowing the prompt to show a useful branch label
+# instead of a short object id after `git checkout origin/<branch>`.
+# Input: git metadata directory path and full hexadecimal commit id.
+# Output: matching origin branch name without the remote prefix, or undef.
+sub _origin_branch_for_commit {
+    my ( $self, $git_dir, $commit ) = @_;
+    return if !defined $git_dir || $git_dir eq '';
+    return if !defined $commit || $commit !~ /\A[0-9a-f]{40,64}\z/i;
+
+    my %matches;
+    my $origin_root = File::Spec->catdir( $git_dir, 'refs', 'remotes', 'origin' );
+    if ( -d $origin_root && !-l $origin_root ) {
+        my @directories = ($origin_root);
+        while (@directories) {
+            my $directory = shift @directories;
+            opendir my $dh, $directory or die "Unable to open $directory: $!";
+            my @entries = sort grep { $_ ne '.' && $_ ne '..' } readdir $dh;
+            closedir $dh or die "Unable to close $directory: $!";
+
+            for my $entry (@entries) {
+                my $path = File::Spec->catfile( $directory, $entry );
+                next if -l $path;
+                if ( -d $path ) {
+                    push @directories, $path;
+                    next;
+                }
+                next if !-f $path;
+
+                my $branch = File::Spec->abs2rel( $path, $origin_root );
+                $branch =~ s{\\}{/}g;
+                next if $branch eq 'HEAD';
+                open my $ref_fh, '<', $path or die "Unable to open $path: $!";
+                my $ref = <$ref_fh>;
+                close $ref_fh or die "Unable to close $path: $!";
+                next if !defined $ref || $ref !~ /\A([0-9a-f]{40,64})\s*\z/i;
+                $matches{$branch} = 1 if lc($1) eq lc($commit);
+            }
+        }
+    }
+
+    my $packed_refs = File::Spec->catfile( $git_dir, 'packed-refs' );
+    if ( -f $packed_refs && !-l $packed_refs ) {
+        open my $packed_fh, '<', $packed_refs or die "Unable to open $packed_refs: $!";
+        while ( my $line = <$packed_fh> ) {
+            next if $line =~ /\A\^/;
+            next if $line !~ /\A([0-9a-f]{40,64})\s+refs\/remotes\/origin\/(.+?)\s*\z/i;
+            my ( $ref_commit, $branch ) = ( $1, $2 );
+            $matches{$branch} = 1 if $branch ne 'HEAD' && lc($ref_commit) eq lc($commit);
+        }
+        close $packed_fh or die "Unable to close $packed_refs: $!";
+    }
+
+    return ( sort keys %matches )[0];
 }
 
 # _git_metadata_dir($project_root)
@@ -263,7 +328,12 @@ Developer::Dashboard::Prompt - prompt rendering for Developer Dashboard
 
 This module renders the shell prompt from cached indicator state, current
 directory context, and git metadata. It is designed to stay fast enough for
-per-prompt execution.
+per-prompt execution. The prompt renderer is shared by every generated shell
+adapter, so branch labels are not shell-specific. Local branch names retain
+their complete slash-delimited names. A detached HEAD that matches an
+C<origin> remote-tracking ref displays the branch name without C<origin/>;
+loose and packed refs are supported, but symlinked ref roots and packed-ref
+files are not followed. An unmatched detached HEAD keeps its short commit id.
 
 =head1 METHODS
 

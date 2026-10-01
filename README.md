@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.35
+5.37
 
 # INTRODUCTION
 
@@ -2035,6 +2035,14 @@ as iSH. If the workspace workflow seeded `WORKSPACE_REF` or the older
 `TICKET_REF` into the current tmux session, `dashboard ps1` also reads that
 context from tmux when the shell environment does not already export it, but it
 skips that tmux probe entirely when the shell is not inside tmux.
+The branch marker preserves every component of a local branch such as
+`team/feature`. If HEAD is detached at a commit that matches an
+`origin` remote-tracking ref, the marker shows that full branch name without
+the `origin/` prefix instead of a short commit id; packed and loose refs are
+both recognized, while symlinked refs are not followed. When no matching
+remote ref exists, it keeps the short commit id. All generated shell adapters
+call this same `dashboard ps1` renderer, so the branch label is consistent in
+Bash, Zsh, sh, and PowerShell.
 
 Generate shell bootstrap:
 
@@ -2810,6 +2818,19 @@ that same public dotted route, including multiple nested levels. For example,
 if `example-skill` ships `skills/foo/skills/bar/cli/baz`, then
 `dashboard example-skill.foo.bar.baz` resolves the nested command through the
 installed skill tree.
+
+A nested skill can also expose its default command as `cli/__init__` (with any
+supported executable extension). Naming that nested skill directly invokes
+its initializer, including at multiple nested levels:
+
+    dashboard example-skill.foo
+    dashboard example-skill.foo.bar
+
+When a deeper nested skill has its own initializer, it takes precedence over
+an ancestor skill's generic initializer. Explicit command files are resolved
+before initializer fallbacks, so a real command is never shadowed by
+`__init__`.
+
 isolated skill root, runs sorted hooks from `cli/somecmd.d/`, and then runs the
 main command.
 

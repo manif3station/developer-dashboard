@@ -7,6 +7,7 @@ use utf8;
 use lib 'lib';
 
 use Test::More;
+use File::Path qw(make_path);
 use File::Temp qw(tempdir);
 use File::Spec;
 
@@ -240,6 +241,66 @@ sub write_file {
     write_file( File::Spec->catfile( $ok, '.git', 'HEAD' ), "ref: refs/heads/main\n" );
     is( $prompt->_git_branch($ok), 'main', 'symbolic HEAD resolves to a branch (line 196 both-true, line 205 defined)' );
 
+    my $slash_branch = File::Spec->catdir( $base, 'slash-branch' );
+    mkdir $slash_branch or die "mkdir $slash_branch: $!";
+    mkdir File::Spec->catdir( $slash_branch, '.git' ) or die "mkdir slash-branch/.git: $!";
+    write_file( File::Spec->catfile( $slash_branch, '.git', 'HEAD' ), "ref: refs/heads/foo/bar\n" );
+    is( $prompt->_git_branch($slash_branch), 'foo/bar', 'symbolic branch names retain every slash-delimited component' );
+
+    my $remote_branch = File::Spec->catdir( $base, 'detached-origin' );
+    mkdir $remote_branch or die "mkdir $remote_branch: $!";
+    my $remote_git = File::Spec->catdir( $remote_branch, '.git' );
+    mkdir $remote_git or die "mkdir detached-origin/.git: $!";
+    my $remote_commit = '0123456789abcdef0123456789abcdef01234567';
+    write_file( File::Spec->catfile( $remote_git, 'HEAD' ), "$remote_commit\n" );
+    my $remote_ref = File::Spec->catfile( $remote_git, 'refs', 'remotes', 'origin', 'foo', 'bar' );
+    make_path( File::Spec->catdir( $remote_git, 'refs', 'remotes', 'origin', 'foo' ) );
+    write_file( $remote_ref, "$remote_commit\n" );
+    is( $prompt->_git_branch($remote_branch), 'foo/bar', 'detached HEAD resolves its matching origin branch and keeps the full branch name' );
+
+    my $packed_remote = File::Spec->catdir( $base, 'packed-origin' );
+    mkdir $packed_remote or die "mkdir $packed_remote: $!";
+    my $packed_git = File::Spec->catdir( $packed_remote, '.git' );
+    mkdir $packed_git or die "mkdir packed-origin/.git: $!";
+    write_file( File::Spec->catfile( $packed_git, 'HEAD' ), "$remote_commit\n" );
+    write_file( File::Spec->catfile( $packed_git, 'packed-refs' ), "# pack-refs with: peeled fully-peeled\n$remote_commit refs/remotes/origin/foo/bar\n" );
+    is( $prompt->_git_branch($packed_remote), 'foo/bar', 'detached HEAD resolves a packed origin ref with its full name' );
+
+    my $symlinked_origin = File::Spec->catdir( $base, 'symlinked-origin' );
+    mkdir $symlinked_origin or die "mkdir $symlinked_origin: $!";
+    my $symlinked_git = File::Spec->catdir( $symlinked_origin, '.git' );
+    mkdir $symlinked_git or die "mkdir symlinked-origin/.git: $!";
+    write_file( File::Spec->catfile( $symlinked_git, 'HEAD' ), "$remote_commit\n" );
+    my $outside_origin = File::Spec->catdir( $base, 'outside-origin' );
+    make_path( File::Spec->catdir( $outside_origin, 'foo' ) );
+    write_file( File::Spec->catfile( $outside_origin, 'foo', 'bar' ), "$remote_commit\n" );
+    my $origin_refs_parent = File::Spec->catdir( $symlinked_git, 'refs', 'remotes' );
+    make_path($origin_refs_parent);
+    SKIP: {
+        skip 'directory symlinks unavailable', 1
+          if !symlink( $outside_origin, File::Spec->catdir( $origin_refs_parent, 'origin' ) );
+        is( $prompt->_git_branch($symlinked_origin), substr( $remote_commit, 0, 7 ), 'origin refs root symlink is not followed outside git metadata' );
+    }
+
+    my $symlinked_packed = File::Spec->catdir( $base, 'symlinked-packed' );
+    mkdir $symlinked_packed or die "mkdir $symlinked_packed: $!";
+    my $symlinked_packed_git = File::Spec->catdir( $symlinked_packed, '.git' );
+    mkdir $symlinked_packed_git or die "mkdir symlinked-packed/.git: $!";
+    write_file( File::Spec->catfile( $symlinked_packed_git, 'HEAD' ), "$remote_commit\n" );
+    my $outside_packed_refs = File::Spec->catfile( $base, 'outside-packed-refs' );
+    write_file( $outside_packed_refs, "$remote_commit refs/remotes/origin/foo/bar\n" );
+    SKIP: {
+        skip 'file symlinks unavailable', 1
+          if !symlink( $outside_packed_refs, File::Spec->catfile( $symlinked_packed_git, 'packed-refs' ) );
+        is( $prompt->_git_branch($symlinked_packed), substr( $remote_commit, 0, 7 ), 'packed-refs symlink is not followed outside git metadata' );
+    }
+
+    my $detached_unknown = File::Spec->catdir( $base, 'detached-unknown' );
+    mkdir $detached_unknown or die "mkdir $detached_unknown: $!";
+    mkdir File::Spec->catdir( $detached_unknown, '.git' ) or die "mkdir detached-unknown/.git: $!";
+    write_file( File::Spec->catfile( $detached_unknown, '.git', 'HEAD' ), "abcdef0123456789abcdef0123456789abcdef01\n" );
+    is( $prompt->_git_branch($detached_unknown), 'abcdef0', 'detached commits without a matching origin ref retain their short SHA display' );
+
     is( $prompt->_git_branch(undef), undef, 'undef project root yields no branch (line 196 falsy root)' );
     is(
         $prompt->_git_branch( File::Spec->catdir( $base, 'absent' ) ),
@@ -327,7 +388,11 @@ coverage alongside the statement and subroutine coverage the wider suite already
 provides. It exercises current-directory and ticket selection, tmux status
 suppression, indicator colour and label formatting, tmux status-line width
 folding, ANSI stripping, and git metadata resolution for both ordinary
-repositories and worktree pointer files.
+repositories and worktree pointer files. Branch-label tests cover nested local
+names, detached HEAD resolution through loose and packed origin refs, rejection
+of symlinked refs, and the unmatched-SHA fallback. These expectations apply to
+every supported shell because Bash, Zsh, sh, and PowerShell adapters all invoke
+the same C<dashboard ps1> renderer.
 
 =head1 WHY IT EXISTS
 
@@ -355,6 +420,8 @@ green under C<prove -lr t>. Under the coverage gate it closes the renderer's
 branch and condition columns; the two genuinely unreachable sides (a working
 directory function that never returns false, and defined guards over values that
 are never undef) are annotated in the module as uncoverable rather than tested.
+Branch-label behavior is shell-independent: Bash, Zsh, sh, and PowerShell
+adapters all invoke the same C<dashboard ps1> renderer.
 
 =head1 WHAT USES IT
 

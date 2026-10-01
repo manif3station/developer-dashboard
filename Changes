@@ -1,3 +1,18 @@
+5.37  2026-10-01
+
+  - Problem 26: preserve complete slash-delimited branch names in `dashboard
+    ps1` for every shell adapter. Detached HEADs matching loose or packed
+    `origin` refs now display the branch name without the `origin/` prefix;
+    symlinked ref roots are ignored. Add regression coverage for both ref
+    formats, symlink rejection, unmatched detached HEADs, and shared-renderer
+    delegation from every supported shell bootstrap.
+
+5.36  2026-10-01
+
+  - Problem 7: resolve nested skill cli/__init__ entrypoints when addressed
+    directly at any nesting depth. Prefer the deepest matching initializer
+    after checking explicit commands, and document the dotted invocation.
+
 5.35  2026-10-01
 
   - Problem 25: add a shared help catalog for every internal CLI command,

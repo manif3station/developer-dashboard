@@ -1,5 +1,21 @@
 # Fixed Bugs
 
+## 5.37
+
+- Fixed Problem 26 in the shared `dashboard ps1` renderer: local branch names
+  retain all slash-separated components, and detached commits matching loose
+  or packed `origin` refs display the full branch name without `origin/`.
+  Symlinked origin-ref roots and packed-ref files are not followed. Because all
+  generated shell adapters use this renderer, Bash, Zsh, sh, and PowerShell
+  show the same label; shell-bootstrap tests now assert that each adapter calls
+  the shared `dashboard ps1` command.
+
+## 5.36
+
+- Revisited Problem 7: nested skill `cli/__init__` entrypoints now run when the
+  dotted command names the nested skill itself, at any depth. Explicit command
+  files are checked first and the deepest available initializer wins.
+
 ## 5.35
 
 - Added working help and TAB completion across the internal CLI surface.
