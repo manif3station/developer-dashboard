@@ -127,7 +127,7 @@ sub run_once {
         {
             enabled         => 1,
             last_started_at => $started_at,
-                    schedule        => $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' ),    # uncoverable condition false
+            schedule        => $self->_schedule_mode($job),
         }
     );
 
