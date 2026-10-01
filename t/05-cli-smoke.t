@@ -506,19 +506,10 @@ is( $usage_exit, 1, 'dashboard with no arguments exits with usage status' );
 like( $usage_stdout . $usage_stderr, qr/SYNOPSIS|dashboard init/, 'dashboard with no arguments renders POD-backed usage' );
 
 my $help = _run("$perl -I'$lib' '$dashboard' help");
-like($help, qr/Description:/, 'dashboard help renders the fuller POD help');
-like($help, qr/dashboard serve \[logs \[-f\] \[-n N\]\|workers <N>\]/, 'dashboard help documents serve logs tail/follow flags and serve workers commands');
-like($help, qr/dashboard serve .*--no-editor.*--no-endit.*--no-indicators.*--no-indicator/s, 'dashboard help documents serve no-editor and no-indicators aliases');
-like($help, qr/dashboard workspace \[workspace-ref\]/, 'dashboard help documents the built-in workspace subcommand');
-like($help, qr/dashboard docker enable <service>/, 'dashboard help documents docker enable for isolated compose services');
-like($help, qr/dashboard docker disable <service>/, 'dashboard help documents docker disable for isolated compose services');
-like($help, qr/dashboard docker development \{enable\|disable\} <service>/, 'dashboard help documents development overlay markers for isolated compose services');
-like($help, qr/dashboard docker list \[--enabled\|--disabled\]/, 'dashboard help documents docker list filters for isolated compose services');
-like($help, qr/dashboard skills enable <repo-name>/, 'dashboard help documents skill enable');
-like($help, qr/dashboard skills disable <repo-name>/, 'dashboard help documents skill disable');
-like($help, qr/dashboard skills usage <repo-name> \[-o json\|table\]/, 'dashboard help documents skill usage inspection');
-like($help, qr/dashboard which \[--edit\] <cmd>/, 'dashboard help documents the built-in which command and --edit mode');
-unlike($help, qr/dashboard skill <repo-name> <command>/, 'dashboard help no longer documents the removed singular skill dispatcher');
+like($help, qr/^Available built-in commands:/m, 'dashboard help renders the concise command index');
+like($help, qr/^  dashboard api \[ls\|add\|rm\] \[options\]/m, 'dashboard help shows actionable usage for each built-in command');
+like($help, qr/^  dashboard version\b/m, 'dashboard help includes the public version command');
+unlike($help, qr/dashboard skill <repo-name> <command>/, 'dashboard help does not advertise the removed singular skill dispatcher');
 my ( $invalid_cmd_stdout, $invalid_cmd_stderr, $invalid_cmd_exit ) = capture {
     system $perl, '-I' . $lib, $dashboard, 'dcoekr';
     return $? >> 8;
@@ -548,7 +539,7 @@ is( $complete_docker_development, "enable\ndisable\n", 'dashboard complete expos
 my $docker_help = _run("$perl -I'$lib' '$dashboard' docker --help");
 like( $docker_help, qr/^Usage: dashboard docker/m, 'docker --help prints Docker command usage' );
 like( $docker_help, qr/dashboard docker development enable <service>/, 'docker --help documents development overlays' );
-like( $docker_help, qr/<compose-args\.\.\./, 'docker --help documents Compose passthrough' );
+like( $docker_help, qr/compose-arguments\.\.\./, 'docker --help documents Compose passthrough' );
 my $completion_skill_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'skills', 'completion-skill', 'cli' );
 make_path($completion_skill_root);
 my $completion_skill_command = File::Spec->catfile( $completion_skill_root, 'run-test' );
@@ -1315,9 +1306,33 @@ is( $bash_d2_version, "$expected_version\n", 'the real d2 command dispatches das
 my $bash_completion = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard do); COMP_CWORD=1; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
 like( $bash_completion, qr/^docker$/m, 'dashboard shell bash completion suggests docker through the generated completion helper' );
 like( $bash_completion, qr/^doctor$/m, 'dashboard shell bash completion suggests doctor through the generated completion helper' );
+my $bash_global_help_entry = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard ''); COMP_CWORD=1; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+like( $bash_global_help_entry, qr/^help$/m, 'dashboard shell bash completion exposes the global help entrypoint' );
+like( $bash_global_help_entry, qr/^version$/m, 'dashboard shell bash completion exposes the built-in version command' );
 my $bash_completion_alias = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 do); COMP_CWORD=1; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
 like( $bash_completion_alias, qr/^docker$/m, 'dashboard shell bash completion also works through the d2 alias' );
 like( $bash_completion_alias, qr/^doctor$/m, 'dashboard shell bash completion keeps the same candidates for d2' );
+my $bash_api_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard api ''); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+like( $bash_api_actions, qr/^ls$/m, 'dashboard bash TAB completion lists the API default action' );
+like( $bash_api_actions, qr/^add$/m, 'dashboard bash TAB completion lists API add' );
+like( $bash_api_actions, qr/^rm$/m, 'dashboard bash TAB completion lists API removal' );
+my $bash_docker_development_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard docker development ''); COMP_CWORD=3; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+is( $bash_docker_development_actions, "enable\ndisable\n", 'dashboard bash TAB completion offers both Docker development marker actions' );
+my $bash_file_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard file ''); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+like( $bash_file_actions, qr/^resolve$/m, 'dashboard bash TAB completion lists file resolution' );
+like( $bash_file_actions, qr/^list$/m, 'dashboard bash TAB completion lists file aliases' );
+my $bash_path_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard path ''); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+like( $bash_path_actions, qr/^cdr$/m, 'dashboard bash TAB completion lists the implemented cdr action' );
+like( $bash_path_actions, qr/^complete-cdr$/m, 'dashboard bash TAB completion lists the cdr completion protocol' );
+like( $bash_path_actions, qr/^rm$/m, 'dashboard bash TAB completion lists the path rm alias' );
+my $bash_api_options = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard api add -); COMP_CWORD=3; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+like( $bash_api_options, qr/^--secret$/m, 'dashboard bash TAB completion suggests API command options' );
+like( $bash_api_options, qr/^--help$/m, 'dashboard bash TAB completion suggests explicit help options' );
+my $bash_api_default_options = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard api -); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+like( $bash_api_default_options, qr/^--key$/m, 'dashboard bash TAB completion suggests the API default-list key filter' );
+like( $bash_api_default_options, qr/^--output$/m, 'dashboard bash TAB completion suggests the API default-list output option' );
+my $bash_global_help = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard help docker ''); COMP_CWORD=3; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+like( $bash_global_help, qr/^compose$/m, 'dashboard bash TAB completion suggests actions after global help target' );
 my $bash_cdr_completion = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(cdr foobar alpha); COMP_CWORD=2; _dashboard_complete_cdr; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
 like( $bash_cdr_completion, qr/^alpha-foo$/m, 'dashboard shell bash cdr completion suggests alias-root narrowing candidates' );
 like( $bash_cdr_completion, qr/^alpha-foo-bar$/m, 'dashboard shell bash cdr completion includes other matching alias-root candidates' );
@@ -3713,14 +3728,15 @@ __END__
 This test verifies the main command-line entrypoints for Developer Dashboard.
 It also verifies Docker service base/development compose selection and the
 development marker commands through the staged helper without starting real
-containers. Docker help text and the command/subcommand shell-completion paths
-are exercised through the same public CLI dispatch.
+containers. Built-in and nested help, catalog-backed actions/options, the
+version command, and generated Bash completion are exercised through the same
+public CLI dispatch; the zsh bootstrap's completion registration is checked.
 
 =for comment FULL-POD-DOC START
 
 =head1 PURPOSE
 
-This test is the executable regression contract for the thin CLI, helper staging, low-level runtime contracts, Docker help and completion, and Docker service development overlays. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
+This test is the executable regression contract for the thin CLI, helper staging, low-level runtime contracts, Docker help and completion, and Docker service development overlays. Its shell completion checks cover top-level commands, nested actions, and parser-backed flags such as API's implicit list options. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
 
 =head1 WHY IT EXISTS
 

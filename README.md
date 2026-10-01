@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.34
+5.35
 
 # INTRODUCTION
 
@@ -546,6 +546,14 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     error instead of silently starting from the wrong directory. The tmux session
     and its layered `.env` refresh both start from the resolved directory.
 
+    Built-in commands and actions share a help catalog used by both command
+    dispatch and shell completion. Use `d2 help` for a concise command index,
+    `d2 help docker development` for nested action guidance, or append `--help`,
+    `-h`, or `help` to a command/action. TAB offers the same public actions and
+    known option flags. Workspace session names are queried only while completing
+    a positional workspace name; completing an option such as `-c` does not call
+    tmux.
+
 - Runtime Manager
 
     `Developer::Dashboard::RuntimeManager` manages the background web service and
@@ -797,6 +805,28 @@ error together with the closest matching public command before the usual usage
 summary. The same guidance also applies to dotted skill commands, so
 `dashboard alpha-skill.run-tset` suggests the nearest installed dotted skill
 command instead of only dumping generic help.
+
+## Built-in command help and completion
+
+Every dashboard-managed built-in command and its public actions use one help
+catalog. Request help with `--help`, `-h`, or a trailing `help`, for
+example `d2 api add --help`, `d2 api add help`, or the global form
+`d2 help docker development enable`. The public `version` command also
+supports `d2 version --help` and global `d2 help version`. Bare `d2 help`,
+`d2 --help`, and `d2 -h` print a concise index of public built-in commands
+instead of the full module manual. Help is returned before the built-in
+command body runs, while the normal main and per-command hook order is
+preserved. The global help form and command help include actionable usage and
+the available action/options where applicable.
+
+The same catalog supplies TAB candidates for public commands, nested actions,
+and supported option flags. Bash and zsh call the live `dashboard complete`
+helper, so their candidates stay aligned with the command catalog rather than
+maintaining separate shell-side action lists. Existing dynamic completions for
+skills, workspace sessions, collectors, and path aliases remain available.
+When a command has a default action, the root help and completion also expose
+that action's options; for example, `d2 api --key helper-bot -o json` lists
+API keys without requiring the explicit `ls` action.
 
 `DD-OOP-LAYERS` is now the runtime contract for the whole local ecosystem.
 Starting at the home directory and walking down through every parent directory

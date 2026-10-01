@@ -274,10 +274,12 @@ sub complete { return Developer::Dashboard::CLI::Complete::complete(@_) }
 
 {
     my %expected = (
-        skill     => [qw(install enable disable uninstall list usage)],
-        skills    => [qw(install enable disable uninstall list usage)],
+        skill     => [qw(install uninstall enable disable list usage)],
+        skills    => [qw(install uninstall enable disable list usage)],
         docker    => [qw(compose list enable disable development)],
-        path      => [qw(list resolve add del locate project-root)],
+        api       => [qw(ls add rm)],
+        file      => [qw(resolve locate add del list)],
+        path      => [qw(resolve locate cdr complete-cdr add del rm project-root list)],
         restart   => [qw(web collector)],
         stop      => [qw(web collector)],
         log       => [qw(web collector)],
@@ -392,11 +394,11 @@ t/69-cli-complete-coverage.t - branch and condition coverage for the shell-compl
 This test is the executable coverage contract for
 C<Developer::Dashboard::CLI::Complete>. It drives every dispatch arm of
 C<complete()> - top-level candidates, the workspace session branch, the
-restart/stop and log/logs collector branches, the static subcommand fallback,
-the Docker development action branch, dotted skill path aliases, argument
-validation, and the current-word prefix filter - together with injected and
-real collector/ticket providers so both sides of each branch and short-circuit
-condition actually execute.
+restart/stop and log/logs collector branches, catalog-backed API/file/path
+actions, the Docker development action branch, dotted skill path aliases,
+argument validation, and the current-word prefix filter - together with
+injected and real collector/ticket providers so both sides of each branch and
+short-circuit condition actually execute.
 
 =head1 WHY IT EXISTS
 

@@ -1,3 +1,12 @@
+5.35  2026-10-01
+
+  - Problem 25: add a shared help catalog for every internal CLI command,
+    compatibility alias, public action, and the direct version command.
+    Route help before command execution and align TAB candidates with the same
+    catalog, including nested actions and recognized option flags. Add concise
+    global help, package/runtime regressions, and workspace completion that
+    does not query tmux for option flags. Keep release metadata version-neutral.
+
 5.34  2026-09-30
 
   - Complete Problem 24's Pod::Text 6.1.1 security floor and fail-closed

@@ -42,6 +42,7 @@ my $switchboard_cwd = eval { cwd() };
 my $switchboard_paths;
 
 my $cmd = shift @ARGV || '';
+
 _load_runtime_env();
 
 # DD-835 (reverses DD-832): also set before the main gate runs, as an
@@ -52,6 +53,51 @@ $ENV{DEVELOPER_DASHBOARD_COMMAND} = $cmd if $cmd ne '';
 my $main_gate_results = _run_main_gate_hooks( $cmd, @ARGV );
 _prime_command_result_env( $cmd, $main_gate_results, @ARGV ) if $cmd ne '';
 
+if ( $cmd eq 'help' ) {
+    require Developer::Dashboard::CLI::Help;
+    if ( !@ARGV || $ARGV[0] eq '--help' || $ARGV[0] eq '-h' ) {
+        print Developer::Dashboard::CLI::Help::overview_text();
+        exit 0;
+    }
+    if (@ARGV) {
+        my $target = shift @ARGV;
+        my $action;
+        while (@ARGV) {
+            my $candidate = shift @ARGV;
+            my @available = Developer::Dashboard::CLI::Help::actions_for(
+                defined $action ? "$target $action" : $target,
+            );
+            die "Unknown help target '$candidate' for '$target'\n"
+              if !grep { $_ eq $candidate } @available;
+            if ( defined $action ) {
+                $target = "$target $action";
+            }
+            $action = $candidate;
+        }
+        print Developer::Dashboard::CLI::Help::help_text( $target, $action );
+        exit 0;
+    }
+}
+elsif ( $cmd eq '--help' || $cmd eq '-h' ) {
+    require Developer::Dashboard::CLI::Help;
+    print Developer::Dashboard::CLI::Help::overview_text();
+    exit 0;
+}
+elsif ( $cmd ne '' ) {
+    require Developer::Dashboard::InternalCLI;
+    if ( $cmd eq 'version' || Developer::Dashboard::InternalCLI::canonical_helper_name($cmd) ne '' ) {
+        require Developer::Dashboard::CLI::Help;
+        my @request = Developer::Dashboard::CLI::Help::help_request(
+            command => $cmd,
+            args    => \@ARGV,
+        );
+        if (@request) {
+            print Developer::Dashboard::CLI::Help::help_text(@request);
+            exit 0;
+        }
+    }
+}
+
 if ( $cmd eq '' ) {
     pod2usage(
         -exitval  => 1,
@@ -59,13 +105,6 @@ if ( $cmd eq '' ) {
         -sections => [qw(NAME SYNOPSIS)],
     );
 }
-elsif ( $cmd eq 'help' || $cmd eq '--help' || $cmd eq '-h' ) {
-    pod2usage(
-        -exitval => 0,
-        -verbose => 99,
-    );
-}
-
 if ( $cmd eq 'version' ) {
     require Developer::Dashboard;
     print $Developer::Dashboard::VERSION, "\n";
@@ -663,6 +702,15 @@ execs the resolved helper or custom command
 The real built-in command implementations live outside this entrypoint, either
 in private staged helper scripts under F<share/private-cli/> or in reusable
 Perl modules loaded by those helpers.
+
+Built-in help requests are resolved through the shared CLI help catalog after
+the established main and per-command hook gates have run, but before a helper
+body is dispatched. Root commands and actions accept C<--help>, C<-h>, or a
+trailing C<help>; the global form is C<dashboard help E<lt>commandE<gt>
+[action...]>. Bare C<dashboard help>, C<dashboard --help>, and C<dashboard
+-h> print a concise index of public built-in commands instead of this full
+manual. Shell completion calls the same catalog-backed C<dashboard
+complete> command for public command, action, and option candidates.
 
 =head2 The main gate
 

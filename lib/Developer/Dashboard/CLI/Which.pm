@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Which;
 use strict;
 use warnings;
 
-our $VERSION = '5.34';
+our $VERSION = '5.35';
 
 use Cwd qw(cwd);
 use Developer::Dashboard::DirEntries qw(sorted_dir_entries);

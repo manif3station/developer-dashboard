@@ -3,12 +3,13 @@ package Developer::Dashboard::CLI::Complete;
 use strict;
 use warnings;
 
-our $VERSION = '5.34';
+our $VERSION = '5.35';
 
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::CLI::Help ();
 use Developer::Dashboard::CLI::TableHelpers qw(build_paths);
 use Developer::Dashboard::CLI::Suggest;
 use Developer::Dashboard::CLI::Ticket ();
@@ -38,7 +39,10 @@ sub complete {
             @path_aliases,
         );
     }
-    elsif ( ( $words[1] || '' ) eq 'workspace' && $index == 2 ) {
+    elsif ( ( $words[1] || '' ) eq 'help' ) {
+        @candidates = _help_target_candidates( \@words, $index );
+    }
+    elsif ( ( $words[1] || '' ) eq 'workspace' && $index == 2 && $current !~ /^-/ ) {
         my $provider = $args{ticket_sessions} || \&_ticket_sessions;
         @candidates = $provider->();
     }
@@ -67,8 +71,78 @@ sub complete {
         @candidates = _subcommand_candidates( $words[1] || '' );
     }
 
+    if ( $current =~ /^-/ && $index >= 2 ) {
+        my ( $command, $action ) = _option_context( \@words, $index );
+        push @candidates, Developer::Dashboard::CLI::Help::options_for( $command, $action );
+    }
+    push @candidates, qw(-h --help) if $index <= 1 && $current =~ /^-/;
+    push @candidates, 'help' if $index <= 1 || $current =~ /^h/i;
+
     my %seen;
     return grep { !$seen{$_}++ } grep { $current eq '' || index( $_, $current ) == 0 } @candidates;
+}
+
+# _help_target_candidates($words, $index)
+# Returns public command or action names after the global `dashboard help` prefix.
+# Input: command-line words array reference and active word index.
+# Output: ordered help target candidates for the current nested namespace.
+sub _help_target_candidates {
+    my ( $words, $index ) = @_;
+    if ( $index == 2 ) {
+        return (
+            Developer::Dashboard::CLI::Help::command_names(),
+            sort keys %{ Developer::Dashboard::CLI::Help::aliases() },
+        );
+    }
+    my $namespace = $words->[2] || '';
+    my $action;
+    for my $position ( 3 .. $index - 1 ) {
+        my $token = $words->[$position];
+        next if !defined $token || $token eq '' || $token =~ /^-/;
+        my @actions = Developer::Dashboard::CLI::Help::actions_for($namespace);
+        last if !grep { $_ eq $token } @actions;
+        my $nested = "$namespace $token";
+        my @nested_actions = Developer::Dashboard::CLI::Help::actions_for($nested);
+        if (@nested_actions) {
+            $namespace = $nested;
+            $action = undef;
+        }
+        else {
+            $action = $token;
+        }
+    }
+    return Developer::Dashboard::CLI::Help::actions_for(
+        defined $action ? "$namespace $action" : $namespace,
+    );
+}
+
+# _option_context($words, $index)
+# Finds the deepest catalogued command/action before the active option word.
+# Input: command-line words array reference and active word index.
+# Output: command name and optional action name for option completion.
+sub _option_context {
+    my ( $words, $index ) = @_;
+    return () if ref($words) ne 'ARRAY' || $index < 2;
+    my $command = Developer::Dashboard::CLI::Help::aliases()->{ $words->[1] }
+      || $words->[1] || '';
+    my $namespace = $command;
+    my $action;
+    for my $position ( 2 .. $index - 1 ) {
+        my $token = $words->[$position];
+        next if !defined $token || $token eq '' || $token =~ /^-/;
+        my @actions = Developer::Dashboard::CLI::Help::actions_for($namespace);
+        last if !grep { $_ eq $token } @actions;
+        my $nested = "$namespace $token";
+        my @nested_actions = Developer::Dashboard::CLI::Help::actions_for($nested);
+        if (@nested_actions) {
+            $namespace = $nested;
+            $action = undef;
+        }
+        else {
+            $action = $token;
+        }
+    }
+    return ( $namespace, $action );
 }
 
 # _skill_path_alias_candidates($skill_name)
@@ -103,19 +177,7 @@ sub _skill_path_alias_candidates {
 # Output: ordered list of candidate strings.
 sub _subcommand_candidates {
     my ($command) = @_;
-    return qw(install enable disable uninstall list usage) if $command eq 'skills' || $command eq 'skill';
-    return qw(compose list enable disable development) if $command eq 'docker';
-    return qw(list resolve add del locate project-root) if $command eq 'path';
-    return qw(web collector) if $command eq 'restart' || $command eq 'stop' || $command eq 'log' || $command eq 'logs';
-    return qw(set list refresh-core) if $command eq 'indicator';
-    return qw(write-result status list job output inspect log run start stop restart) if $command eq 'collector';
-    return qw(init show) if $command eq 'config';
-    return qw(add-user list-users remove-user) if $command eq 'auth';
-    return qw(new save list show encode decode urls render source) if $command eq 'page';
-    return qw(run) if $command eq 'action';
-    return qw(logs workers) if $command eq 'serve';
-    return qw(bash zsh sh ps powershell pwsh) if $command eq 'shell';
-    return ();
+    return Developer::Dashboard::CLI::Help::actions_for($command);
 }
 
 # _ticket_sessions()
@@ -180,7 +242,8 @@ Developer::Dashboard::CLI::Complete - shell completion candidates for dashboard
 =head1 DESCRIPTION
 
 Builds completion candidates for dashboard subcommands, built-in second-level
-actions, dotted skill commands, and skill-qualified path aliases.
+actions, option flags, global help targets, dotted skill commands, and
+skill-qualified path aliases.
 
 =for comment FULL-POD-DOC START
 
@@ -188,10 +251,13 @@ actions, dotted skill commands, and skill-qualified path aliases.
 
 This module centralizes shell-completion candidate generation for C<dashboard>
 and the C<d2> shortcut. It exposes top-level built-ins, layered custom
-commands, dotted installed skill commands, and selected built-in second-level
-subcommands through one reusable API. Docker completion lists C<compose>,
-C<list>, C<enable>, C<disable>, and C<development>, then offers C<enable> and
-C<disable> after C<docker development>.
+commands, dotted installed skill commands, and nested built-in actions through
+one reusable API. Command and option candidates are read from the shared help
+catalog; global C<dashboard help> completion follows the same nested action
+tree. Docker completion lists C<compose>, C<list>, C<enable>, C<disable>, and
+C<development>, then offers C<enable> and C<disable> after
+C<docker development>. Workspace names are queried only for positional
+completion; completing option flags does not invoke the tmux session provider.
 
 =head1 WHY IT EXISTS
 
@@ -199,7 +265,9 @@ It exists because shell completion should not hardcode command lists inside the
 generated shell snippets. Keeping completion discovery in Perl lets the shell
 bootstrap ask the live DD-OOP-LAYERS runtime what commands and skills are
 available. After a C<skill.> prefix it includes config aliases and alias names
-listed by that skill's C<Folder.pm>.
+listed by that skill's C<Folder.pm>. After a command name, the help catalog
+provides valid public actions and recognized option spellings, avoiding a
+second shell-side inventory.
 
 =head1 WHEN TO USE
 
@@ -249,6 +317,13 @@ Example 5:
   prove -lr t
 
 Recheck completion behavior inside the full repository suite before release.
+
+Example 6:
+
+  dashboard complete 3 dashboard api add -
+
+Print option candidates for the API add action, including long options, short
+aliases, and the explicit help flags.
 
 =for comment FULL-POD-DOC END
 

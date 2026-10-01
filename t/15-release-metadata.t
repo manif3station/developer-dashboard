@@ -18,6 +18,7 @@ plan skip_all => 'source-tree release metadata/citation gate; installed tarballs
     if !-e '.git';
 
 my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
+my %tracked_repo_paths = _tracked_repo_paths();
 
 my $pm = _slurp( _repo_path('lib', 'Developer', 'Dashboard.pm') );
 my $readme = _slurp_optional( _repo_path('README.md') );
@@ -40,7 +41,9 @@ my $makefile = _slurp( _repo_path('Makefile.PL') );
 my $agents_override = _slurp_optional( _repo_path('AGENTS.override.md') );
 my $security_pod = _slurp_optional( _repo_path('SECURITY.pod') );
 my $contributing_pod = _slurp_optional( _repo_path('CONTRIBUTING.pod') );
-my @doc_paths = grep { -e $_ } (
+my @doc_paths = grep {
+    -e $_ && $tracked_repo_paths{ File::Spec->abs2rel( $_, $ROOT ) }
+} (
     _repo_path('README.md'),
     _repo_path('SKILL.md'),
     _repo_path('FIXED_BUGS.md'),
@@ -86,7 +89,8 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '5.34', 'release version includes the Problem 24 Pod::Text security fix' );
+my ($dist_version) = $dist =~ /^version = (\S+)$/m;
+is( $version, $dist_version, 'release version matches dist.ini, including the security fixes already released' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
@@ -456,7 +460,6 @@ my @required_tarball_paths = (
     "Developer-Dashboard-$version/share/public/js/jquery-4.0.0.min.js",
     "Developer-Dashboard-$version/share/public/others/favicon.ico",
     "Developer-Dashboard-$version/doc/integration-test-plan.md",
-    "Developer-Dashboard-$version/doc/install-bootstrap.md",
     "Developer-Dashboard-$version/doc/testing.md",
     "Developer-Dashboard-$version/doc/windows-testing.md",
     "Developer-Dashboard-$version/integration/blank-env/run-integration.pl",
@@ -464,6 +467,8 @@ my @required_tarball_paths = (
     "Developer-Dashboard-$version/integration/windows/run-qemu-windows-smoke.sh",
     "Developer-Dashboard-$version/integration/windows/run-strawberry-smoke.ps1",
 );
+push @required_tarball_paths, "Developer-Dashboard-$version/doc/install-bootstrap.md"
+  if $tracked_repo_paths{'doc/install-bootstrap.md'};
 my $matching_tarball = _repo_path("Developer-Dashboard-$version.tar.gz");
 SKIP: {
     skip "matching release tarball $matching_tarball has not been built yet",
@@ -936,6 +941,15 @@ sub _slurp_optional {
 
 sub _repo_path {
     return File::Spec->catfile( $ROOT, @_ );
+}
+
+sub _tracked_repo_paths {
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'git', '-C', $ROOT, 'ls-files', '-z' );
+    };
+    die "git ls-files failed while checking tracked release inputs: $stderr"
+      if $exit != 0 || $stderr ne '';
+    return map { $_ => 1 } grep { $_ ne '' } split /\0/, $stdout;
 }
 
 # DD-941 (owner decision, Q-179: widen the allow-list to the phrase, not just

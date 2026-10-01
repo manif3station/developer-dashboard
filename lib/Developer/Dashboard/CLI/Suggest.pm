@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Suggest;
 use strict;
 use warnings;
 
-our $VERSION = '5.34';
+our $VERSION = '5.35';
 
 use File::Basename qw(basename);
 use File::Spec;
@@ -131,7 +131,8 @@ sub skill_command_suggestions {
 sub _top_level_candidates {
     my ($self) = @_;
     my %seen;
-    my @candidates = ();
+    my @candidates = ('version');
+    $seen{version} = 1;
 
     for my $name ( Developer::Dashboard::InternalCLI::helper_names() ) {
         next if $seen{$name}++;

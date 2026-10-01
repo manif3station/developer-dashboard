@@ -179,7 +179,8 @@ BOOKMARK
     _assert_match( $bare->{stdout}, qr/Usage:/, 'bare dashboard prints usage output' );
 
     my $help = _run_shell( 'dashboard help', 'dashboard help' );
-    _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
+    _assert_match( $help->{stdout}, qr/Available built-in commands:/, 'dashboard help renders the concise built-in command index' );
+    _assert_match( $help->{stdout}, qr/^  dashboard api \[ls\|add\|rm\]/m, 'dashboard help includes command-specific catalog entries' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
     _assert_match( $version->{stdout}, qr/^\Q$expected_version\E$/m, 'dashboard version reports the installed runtime version' );
@@ -962,7 +963,9 @@ into the container. It extracts that tarball to a temporary source tree,
 stages a versioned local tarball copy for C<cpanm --notest> so the install
 stays on the host-built artifact rather than drifting to a CPAN lookup, and
 then exercises the installed C<dashboard> CLI and web runtime against a fake
-project after the source-tree test and coverage gates have already run.
+project after the source-tree test and coverage gates have already run. The
+installed-runtime help check requires the concise built-in command index and
+an API catalog entry rather than the old full-module POD dump.
 
 =head1 FUNCTIONS
 

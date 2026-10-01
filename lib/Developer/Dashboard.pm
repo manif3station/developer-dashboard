@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.34';
+our $VERSION = '5.35';
 
 our @EXPORT = ('d2');
 
@@ -66,7 +66,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.34
+5.35
 
 =head1 INTRODUCTION
 
@@ -777,6 +777,14 @@ when C<-c> is used with an unregistered name, the command fails with an explicit
 error instead of silently starting from the wrong directory. The tmux session
 and its layered C<.env> refresh both start from the resolved directory.
 
+Built-in commands and actions share a help catalog used by both command
+dispatch and shell completion. Use C<d2 help> for a concise command index,
+C<d2 help docker development> for nested action guidance, or append C<--help>,
+C<-h>, or C<help> to a command/action. TAB offers the same public actions and
+known option flags. Workspace session names are queried only while completing
+a positional workspace name; completing an option such as C<-c> does not call
+tmux.
+
 =item * Runtime Manager
 
 C<Developer::Dashboard::RuntimeManager> manages the background web service and
@@ -1040,6 +1048,28 @@ error together with the closest matching public command before the usual usage
 summary. The same guidance also applies to dotted skill commands, so
 C<dashboard alpha-skill.run-tset> suggests the nearest installed dotted skill
 command instead of only dumping generic help.
+
+=head2 Built-in command help and completion
+
+Every dashboard-managed built-in command and its public actions use one help
+catalog. Request help with C<--help>, C<-h>, or a trailing C<help>, for
+example C<d2 api add --help>, C<d2 api add help>, or the global form
+C<d2 help docker development enable>. The public C<version> command also
+supports C<d2 version --help> and global C<d2 help version>. Bare C<d2 help>,
+C<d2 --help>, and C<d2 -h> print a concise index of public built-in commands
+instead of the full module manual. Help is returned before the built-in
+command body runs, while the normal main and per-command hook order is
+preserved. The global help form and command help include actionable usage and
+the available action/options where applicable.
+
+The same catalog supplies TAB candidates for public commands, nested actions,
+and supported option flags. Bash and zsh call the live C<dashboard complete>
+helper, so their candidates stay aligned with the command catalog rather than
+maintaining separate shell-side action lists. Existing dynamic completions for
+skills, workspace sessions, collectors, and path aliases remain available.
+When a command has a default action, the root help and completion also expose
+that action's options; for example, C<d2 api --key helper-bot -o json> lists
+API keys without requiring the explicit C<ls> action.
 
 C<DD-OOP-LAYERS> is now the runtime contract for the whole local ecosystem.
 Starting at the home directory and walking down through every parent directory

@@ -10,7 +10,7 @@ use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::Config;
 use Developer::Dashboard::JSON qw(json_decode);
 
-our $VERSION = '5.34';
+our $VERSION = '5.35';
 
 our $AUTOLOAD;
 

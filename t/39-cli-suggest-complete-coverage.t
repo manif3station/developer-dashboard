@@ -25,7 +25,7 @@ use Developer::Dashboard::CLI::Suggest ();
 
     is_deeply(
         [ Developer::Dashboard::CLI::Complete::complete( words => [ 'dashboard', '' ], index => 1 ) ],
-        [ qw(docker doctor alpha.run beta.go) ],
+        [ qw(docker doctor alpha.run beta.go help) ],
         'complete returns deduplicated top-level and skill candidates when the current token is empty',
     );
     is_deeply(
@@ -81,10 +81,12 @@ use Developer::Dashboard::CLI::Suggest ();
 }
 
 for my $case (
-    [ skills    => [ qw(install enable disable uninstall list usage) ] ],
-    [ skill     => [ qw(install enable disable uninstall list usage) ] ],
+    [ skills    => [ qw(install uninstall enable disable list usage) ] ],
+    [ skill     => [ qw(install uninstall enable disable list usage) ] ],
     [ docker    => [ qw(compose list enable disable development) ] ],
-    [ path      => [ qw(list resolve add del locate project-root) ] ],
+    [ api       => [ qw(ls add rm) ] ],
+    [ file      => [ qw(resolve locate add del list) ] ],
+    [ path      => [ qw(resolve locate cdr complete-cdr add del rm project-root list) ] ],
     [ restart   => [ qw(web collector) ] ],
     [ stop      => [ qw(web collector) ] ],
     [ log       => [ qw(web collector) ] ],
@@ -385,9 +387,10 @@ C<Developer::Dashboard::CLI::Complete> and
 C<Developer::Dashboard::CLI::Suggest> so the shell-completion and typo-guidance
 helpers stay fully covered.
 Docker assertions also pin the available subcommand list and nested
-development-action completion used when tabbing after C<d2 docker>. Skill
-Folder.pm aliases and skill-config aliases are also pinned in the dotted
-C<d2 E<lt>skillE<gt>.> completion path.
+development-action completion used when tabbing after C<d2 docker>. The static
+action map includes the API and file command trees as well as the full path
+action set. Skill Folder.pm aliases and skill-config aliases are also pinned in
+the dotted C<d2 E<lt>skillE<gt>.> completion path.
 
 =head1 PURPOSE
 

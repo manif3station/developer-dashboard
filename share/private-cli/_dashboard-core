@@ -58,6 +58,18 @@ my %POWERSHELL_ENV_LIST_KEYS = map { $_ => 1 } qw(PATH PERL5LIB PERL_LOCAL_LIB_R
 my $cmd = shift @ARGV || die "Missing built-in dashboard command\n";
 $0 = join q{ }, 'developer-dashboard', $cmd, @ARGV;
 
+if ( Developer::Dashboard::InternalCLI::canonical_helper_name($cmd) ne '' ) {
+    require Developer::Dashboard::CLI::Help;
+    my @help_request = Developer::Dashboard::CLI::Help::help_request(
+        command => $cmd,
+        args    => \@ARGV,
+    );
+    if (@help_request) {
+        print Developer::Dashboard::CLI::Help::help_text(@help_request);
+        exit 0;
+    }
+}
+
 if ( $cmd eq 'complete' ) {
     require Developer::Dashboard::CLI::Complete;
     my $index = shift @ARGV;
@@ -1902,6 +1914,13 @@ C<development.compose.yml> after it. The Docker helper's C<--help>, C<-h>,
 C<help>, and no-subcommand forms print its usage without starting Docker.
 Completion offers the Docker service subcommands and the nested development
 actions.
+
+Before dispatching a public built-in body, this runtime checks explicit
+C<--help>, C<-h>, and trailing C<help> requests against
+C<Developer::Dashboard::CLI::Help>. It exits with the matching command or
+action synopsis before running the requested operation. The shared
+C<dashboard complete> helper reads the same catalog for action and option TAB
+candidates, including targets after global C<dashboard help>.
 
 =head1 WHAT USES IT
 

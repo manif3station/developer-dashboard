@@ -1,5 +1,14 @@
 # Fixed Bugs
 
+## 5.35
+
+- Added working help and TAB completion across the internal CLI surface.
+  Command/action help, aliases, recognized flags, default API-list options,
+  the direct `version` command, and global help now use one catalog. Global
+  help is concise, and workspace option completion does not query tmux.
+- Made the release metadata version check follow `dist.ini` instead of pinning
+  the preceding release number.
+
 ## 5.34
 
 - Completed Problem 24's Pod::Text security floor and isolated audit guard.
