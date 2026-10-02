@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 5.41
+
+- Prevent Devel::Cover databases with both default and custom names from being
+  gathered into the release tarball.
+
 ## 5.40
 
 - Fixed Problem 27: `dashboard of grep -nr <pattern> <dir>` now searches file

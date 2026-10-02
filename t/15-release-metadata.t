@@ -118,6 +118,11 @@ like(
     'README.md is generated from the canonical POD source',
 ) if $readme ne '';
 like( $dist, qr/^\[Prereqs \/ ConfigureRequires\]$/m, 'dist.ini declares explicit configure prerequisites for packaged installs' );
+like(
+    $dist,
+    qr/^exclude_match = \^cover_db\(\?:_\[\^\/\]\+\)\?\(\?:\/\|\$\)/m,
+    'dist.ini excludes root coverage databases and their contents from the release tarball',
+);
 like( $dist, qr/^File::ShareDir::Install = 0$/m, 'dist.ini declares File::ShareDir::Install as a configure prerequisite so packaged installs refresh shipped helper assets' );
 like( $cpanfile, qr/on 'configure' => sub \{\s*requires 'File::ShareDir::Install';\s*\};/s, 'cpanfile declares File::ShareDir::Install during configure so local cpanm installs refresh shipped helper assets' );
 ok( -f $readme_sync_script, 'checkout README sync script is tracked' );
@@ -176,7 +181,7 @@ if ( $dist ne '' ) {
     like( $dist, qr/^skip = \^Module::CPANTS::Analyse\$$/m, 'dist.ini skips release-only Module::CPANTS::Analyse from generated install-time prereqs' );
     like( $dist, qr/^skip = \^Module::CPANTS::Kwalitee\$$/m, 'dist.ini skips release-only Module::CPANTS::Kwalitee from generated install-time prereqs' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
-    like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
+    like( $dist, qr/^exclude_match = \^cover_db\(\?:_\[\^\/\]\+\)\?\(\?:\/\|\$\)$/m, 'dist.ini excludes root coverage databases and their contents from release tarballs' );
     like( $dist, qr/^package = env$/m, 'dist.ini prevents the env helper package from being advertised as a standalone module' );
     like( $dist, qr/^package = Developer::Dashboard::Handle::Proxy$/m, 'dist.ini prevents the nested handle proxy package from being advertised as a standalone module' );
     like( $dist, qr/^exclude_match = \^node_modules\/$/m, 'dist.ini excludes node_modules so JavaScript dependency trees do not leak into release tarballs' );

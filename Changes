@@ -1,3 +1,9 @@
+5.41  2026-10-02
+
+  - Exclude all root-level Devel::Cover databases, including custom
+    `cover_db_*` names, from distribution archives; add a release-metadata
+    regression guard for the exclusion.
+
 5.40  2026-10-02
 
   - Problem 27: Restore `dashboard of grep ...` as a recursive content search,
