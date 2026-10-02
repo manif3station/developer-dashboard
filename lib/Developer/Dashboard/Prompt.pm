@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '5.38';
+our $VERSION = '5.40';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(basename);
@@ -310,7 +310,7 @@ sub _git_ref_commit {
     return if !defined $git_dir || !defined $reference;
     return if $reference !~ m{\Arefs/(?:heads|remotes)/([A-Za-z0-9._/-]+)\z};
     my @parts = split m{/}, $1;
-    return if !@parts || grep { $_ eq '' || $_ eq '.' || $_ eq '..' || /\.lock\z/ } @parts;
+    return if grep { $_ eq '' || $_ eq '.' || $_ eq '..' || /\.lock\z/ } @parts;
 
     my $path = File::Spec->catfile( $git_dir, split m{/}, $reference );
     my $parent = $git_dir;

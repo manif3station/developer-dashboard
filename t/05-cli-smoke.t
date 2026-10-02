@@ -2150,6 +2150,18 @@ SH
 close $fake_editor_fh;
 chmod 0755, $fake_editor or die "Unable to chmod $fake_editor: $!";
 
+my $grep_content_target = File::Spec->catfile( $open_root, 'content-match.txt' );
+open my $grep_content_fh, '>', $grep_content_target or die "Unable to write $grep_content_target: $!";
+print {$grep_content_fh} "needle is in the file body\n";
+close $grep_content_fh;
+my $of_grep_print = _run("$perl -I'$lib' '$dashboard' of --print grep -nr needle '$open_root'");
+is( $of_grep_print, "$grep_content_target\n", 'dashboard of grep -nr searches file contents and prints the matching file' );
+my $of_grep_open = _run("EDITOR='$fake_editor' $perl -I'$lib' '$dashboard' of grep -nr needle '$open_root'");
+open my $grep_editor_log_fh, '<', $fake_editor_log or die "Unable to read $fake_editor_log after grep open: $!";
+my $grep_editor_args = do { local $/; <$grep_editor_log_fh> };
+close $grep_editor_log_fh;
+is( $grep_editor_args, "$grep_content_target\n", 'dashboard of grep opens the unique content match in the configured editor' );
+
 my $open_select = _run(qq{printf '2\\n' | EDITOR='$fake_editor' $perl -I'$lib' '$dashboard' of '$open_root' alpha});
 like($open_select, qr/^\d+: \Q$open_target\E$/m, 'dashboard of lists the first matching open-file path');
 like($open_select, qr/^\d+: \Q$second_open_target\E$/m, 'dashboard of lists the second matching open-file path');
@@ -3731,12 +3743,14 @@ development marker commands through the staged helper without starting real
 containers. Built-in and nested help, catalog-backed actions/options, the
 version command, and generated Bash completion are exercised through the same
 public CLI dispatch; the zsh bootstrap's completion registration is checked.
+The open-file smoke cases also prove that content grep returns matching paths
+instead of treating `grep` and its switches as filename patterns.
 
 =for comment FULL-POD-DOC START
 
 =head1 PURPOSE
 
-This test is the executable regression contract for the thin CLI, helper staging, low-level runtime contracts, Docker help and completion, and Docker service development overlays. Its shell completion checks cover top-level commands, nested actions, and parser-backed flags such as API's implicit list options. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
+This test is the executable regression contract for the thin CLI, helper staging, low-level runtime contracts, Docker help and completion, Docker service development overlays, and the user-facing `dashboard of grep` invocation. Its shell completion checks cover top-level commands, nested actions, and parser-backed flags such as API's implicit list options. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
 
 =head1 WHY IT EXISTS
 

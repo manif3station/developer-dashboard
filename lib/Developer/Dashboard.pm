@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.38';
+our $VERSION = '5.40';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.38
+5.40
 
 =head1 INTRODUCTION
 
@@ -1321,7 +1321,8 @@ C<file:line> references
 
 =item *
 
-Perl module names such as C<My::Module>
+Perl module names such as C<My::Module>, resolved against every directory in
+the running Perl's C<@INC>
 
 =item *
 
@@ -1330,6 +1331,11 @@ Java class names such as C<com.example.App> or C<javax.jws.WebService>
 =item *
 
 recursive regex searches inside a resolved directory alias or path
+
+=item *
+
+recursive content searches with C<dashboard of grep -nr E<lt>patternE<gt>
+E<lt>directoryE<gt>>
 
 =back
 
@@ -1343,6 +1349,10 @@ rank exact helper/script names before broader regex hits, so
 C<dashboard of . jq> lists C<jq> and C<jq.js> ahead of C<jquery.js>. Every
 scoped search token is treated as a case-insensitive regex, so
 C<dashboard of . 'Ok\.js$'> matches C<ok.js> but not C<ok.json>.
+Content grep passes arguments directly to the system C<grep> executable (no
+shell expansion), adds filename and line-number output for reliable file
+selection, then opens the unique matching files using the same chooser. Add
+C<--print> before C<grep> to print the unique paths without opening an editor.
 
 Java class lookup first checks live F<.java> files under the current project,
 workspace roots, and C<@INC>-adjacent source trees. If no live source file
@@ -2147,6 +2157,13 @@ C<sh -lc> on Unix-like systems and PowerShell on Windows
 C<code> runs Perl code directly inside the collector runtime
 
 =back
+
+A collector's C<cwd> may be an absolute or relative directory, a built-in
+directory accessor such as C<home>, a configured C<path_aliases> name, or a
+skill-qualified C<Folder.pm> alias such as C<collectorpaths.workspace>. Config
+aliases take precedence over skill-provided aliases. The latter are resolved
+read-only from the installed skill's C<lib/Folder.pm> using the same method
+rules as C<dashboard path resolve>.
 
 The built-in C<housekeeper> collector is always present even when
 F<config/config.json> is otherwise empty. It runs every C<900> seconds with

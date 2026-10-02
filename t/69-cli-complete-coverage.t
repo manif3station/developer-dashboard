@@ -304,6 +304,39 @@ sub complete { return Developer::Dashboard::CLI::Complete::complete(@_) }
 }
 
 {
+    my @candidates = complete(
+        words => [ 'dashboard', 'help', 'docker', '--option', '' ],
+        index => 4,
+    );
+    ok( ( grep { $_ eq 'compose' } @candidates ),
+        'help completion skips an option token while walking the command path' );
+
+    @candidates = complete(
+        words => [ 'dashboard', 'help', 'docker', '', '--option', '' ],
+        index => 5,
+    );
+    ok( ( grep { $_ eq 'compose' } @candidates ),
+        'help completion also skips an empty prior word before an option token' );
+}
+
+{
+    no warnings 'redefine';
+    my @option_context;
+    local *Developer::Dashboard::CLI::Help::options_for = sub {
+        @option_context = @_;
+        return ('--candidate');
+    };
+    my @candidates = complete(
+        words => [ 'dashboard', 'docker', '--prior-option', '--c' ],
+        index => 3,
+    );
+    is_deeply( \@option_context, [ 'docker', undef ],
+        'option completion skips a preceding option while resolving its command context' );
+    is_deeply( \@candidates, ['--candidate'],
+        'option completion returns candidates for the resolved command context' );
+}
+
+{
     no warnings 'redefine';
     local *Developer::Dashboard::CLI::Ticket::list_sessions = sub { return qw(session-a session-b) };
     is_deeply(

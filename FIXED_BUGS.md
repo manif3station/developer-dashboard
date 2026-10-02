@@ -1,5 +1,15 @@
 # Fixed Bugs
 
+## 5.40
+
+- Fixed Problem 27: `dashboard of grep -nr <pattern> <dir>` now searches file
+  contents recursively and opens the unique matching files through the normal
+  chooser. Grep receives an argument vector, not shell-evaluated text. Perl
+  module names resolve across all existing directories in the process `@INC`.
+- Fixed Problem 28: collector working directories now resolve configured path
+  aliases and skill-qualified `lib/Folder.pm` aliases. Configured aliases remain
+  authoritative when names collide with read-only skill aliases.
+
 ## 5.38
 
 - Follow-up to Problem 26: retain `origin/<branch>` for symbolic and detached

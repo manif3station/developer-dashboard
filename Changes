@@ -1,3 +1,13 @@
+5.40  2026-10-02
+
+  - Problem 27: Restore `dashboard of grep ...` as a recursive content search,
+    using argv-safe grep execution and the existing file chooser; retain full
+    Perl module source lookup across every directory in `@INC`.
+  - Problem 28: Resolve collector `cwd` values from configured path aliases and
+    skill-qualified `lib/Folder.pm` aliases, with config aliases taking priority.
+  - Close the reachable four-metric coverage gaps found by the release gate,
+    including grep editor/no-match dispatch and collector alias resolution.
+
 5.38  2026-10-01
 
   - Problem 26 follow-up: preserve `origin/` in `dashboard ps1` unless a

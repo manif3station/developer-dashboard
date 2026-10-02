@@ -17,6 +17,7 @@ use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use lib 'lib';
 
 use Developer::Dashboard::CLI::OpenFile qw(build_path_registry run_open_file_command);
+use Developer::Dashboard::CLI::OpenFileGrep qw(grep_matching_files);
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
@@ -439,10 +440,128 @@ is_deeply( [ oc( '_named_source_matches', paths => $reg ) ], [], 'missing name y
 # Perl module resolution via @INC (no archive/network path is taken for :: names).
 {
     make_path( catdir( $home, 'plib', 'My' ) );
+    make_path( catdir( $home, 'plib2', 'My' ) );
     spew( catfile( $home, 'plib', 'My', 'Mod.pm' ), "package My::Mod;\n1;\n" );
-    local @INC = ( $home, catdir( $home, 'plib' ), @INC );
+    spew( catfile( $home, 'plib2', 'My', 'Mod.pm' ), "package My::Mod;\n1;\n" );
+    local @INC = ( $home, catdir( $home, 'plib' ), catdir( $home, 'plib2' ), @INC );
     my @pm = oc( '_named_source_matches', paths => $reg, name => 'My::Mod' );
-    ok( ( grep { m{Mod\.pm$} } @pm ), 'Perl module name resolves to a source file' );
+    is_deeply(
+        \@pm,
+        [ sort ( catfile( $home, 'plib', 'My', 'Mod.pm' ), catfile( $home, 'plib2', 'My', 'Mod.pm' ) ) ],
+        'Perl module lookup returns matches from every directory in @INC',
+    );
+}
+
+# The historical `of grep ...` mode searches file contents, not path names.
+{
+    like( eval { grep_matching_files(args => {}); 1 } ? '' : $@, qr/grep args must be an array reference/,
+        'grep adapter rejects a non-array argument value' );
+    like( eval { grep_matching_files(); 1 } ? '' : $@, qr/^Usage: dashboard of grep/,
+        'grep adapter rejects an empty argument list' );
+
+    my $grep_root = catdir( $home, 'grep-root' );
+    make_path( catdir( $grep_root, 'nested' ) );
+    my $match_a = catfile( $grep_root, 'nested', 'a.txt' );
+    my $match_b = catfile( $grep_root, 'b.txt' );
+    spew( $match_a, "needle in nested file\nneedle repeated in one file\n" );
+    spew( $match_b, "needle in second file\n" );
+    spew( catfile( $grep_root, 'named:123:file.txt' ), "needle in a colon-named file\n" );
+    spew( catfile( $grep_root, 'miss.txt' ), "other text\n" );
+    is_deeply(
+        [ sort( grep_matching_files( args => [ '-nr', 'needle', $grep_root ] ) ) ],
+        [ sort ( $match_a, $match_b, catfile( $grep_root, 'named:123:file.txt' ) ) ],
+        'grep mode recursively searches contents and returns unique paths, including colon-named files',
+    );
+    my $print_error;
+    my ($grep_print) = capture {
+        local *Developer::Dashboard::CLI::OpenFile::_command_exit = sub { die "EXIT:$_[0]\n" };
+        eval { run_open_file_command( paths => $reg, args => [ '--print', 'grep', '-nr', 'needle', $grep_root ] ) };
+        $print_error = $@;
+    };
+    like( $print_error, qr/^EXIT:0/, 'dashboard of --print grep exits successfully after printing matches' );
+    is_deeply( [ sort split /\n/, $grep_print ], [ sort ( $match_a, $match_b, catfile( $grep_root, 'named:123:file.txt' ) ) ],
+        'dashboard of --print grep uses the content-search adapter' );
+
+    my $bare_print_error;
+    eval { run_open_file_command( paths => $reg, args => ['--print'] ); 1 };
+    $bare_print_error = $@;
+    like( $bare_print_error, qr/^Usage: open-file/, 'print mode without a following grep token falls through to normal argument validation' );
+
+    my @editor_command;
+    my $editor_error;
+    capture {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CLI::OpenFile::_select_open_file_matches = sub {
+            return ( $match_a, $match_b );
+        };
+        local *Developer::Dashboard::CLI::OpenFile::_default_editor = sub { return 'vim'; };
+        local *Developer::Dashboard::CLI::OpenFile::_editor_supports_tabs = sub { return 1; };
+        local *Developer::Dashboard::CLI::OpenFile::_command_exec = sub {
+            @editor_command = @_;
+            die "EDITOR EXECUTED\n";
+        };
+        eval { run_open_file_command( paths => $reg, args => [ 'grep', '-nr', 'needle', $grep_root ] ) };
+        $editor_error = $@;
+    };
+    like( $editor_error, qr/^EDITOR EXECUTED/, 'dashboard of grep reaches the editor launch after matching content' );
+    is_deeply( \@editor_command, [ 'vim', '-p', $match_a, $match_b ],
+        'dashboard of grep opens the unique matching files in vim tabs' );
+
+    my @single_editor_command;
+    my $single_editor_error;
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CLI::OpenFile::_select_open_file_matches = sub {
+            return ( $match_a, $match_b );
+        };
+        local *Developer::Dashboard::CLI::OpenFile::_default_editor = sub { return 'editor'; };
+        local *Developer::Dashboard::CLI::OpenFile::_editor_supports_tabs = sub { return 0; };
+        local *Developer::Dashboard::CLI::OpenFile::_command_exec = sub {
+            @single_editor_command = @_;
+            die "SINGLE EDITOR EXECUTED\n";
+        };
+        eval { run_open_file_command( paths => $reg, args => [ 'grep', '-nr', 'needle', $grep_root ] ) };
+        $single_editor_error = $@;
+    }
+    like( $single_editor_error, qr/^SINGLE EDITOR EXECUTED/, 'dashboard of grep launches editors without tab support' );
+    is_deeply( \@single_editor_command, [ 'editor', $match_a, $match_b ],
+        'dashboard of grep omits the tab flag for an editor without tab support' );
+
+    my $no_match_error;
+    eval {
+        run_open_file_command( paths => $reg, args => [ 'grep', '-nr', 'absent-pattern', $grep_root ] );
+        1;
+    };
+    $no_match_error = $@;
+    like( $no_match_error, qr/^No files found\n/, 'dashboard of grep reports an explicit error when no file matches' );
+
+    my $grep_error;
+    capture {
+        $grep_error = eval { grep_matching_files( args => [ '--not-a-grep-option', 'needle', $grep_root ] ); 1 };
+    };
+    ok( !$grep_error, 'grep mode propagates grep command failures' );
+    like( $@, qr/grep failed/, 'grep mode reports the grep failure explicitly' );
+    for my $diagnostic ( undef, '' ) {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CLI::OpenFileGrep::capture = sub { return ( '', $diagnostic, 2 ) };
+        eval { grep_matching_files( args => [ 'needle', $grep_root ] ) };
+        like( $@, qr/^grep failed with exit code 2/, 'grep error remains explicit when its stderr is absent or empty' );
+    }
+
+    my @no_match = grep_matching_files( args => [ '-nr', 'absent-pattern', $grep_root ] );
+    is( scalar(@no_match), 0, q{grep's normal no-match exit status returns an empty result list} );
+
+    {
+        local $ENV{PATH} = '';
+        eval { grep_matching_files( args => [ 'needle', $grep_root ] ) };
+        like( $@, qr/^Unable to execute grep:/, 'grep adapter reports an unavailable grep executable' );
+    }
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CLI::OpenFileGrep::capture = sub { return ( "not grep output\n", '', 0 ) };
+        eval { grep_matching_files( args => [ 'needle', $grep_root ] ) };
+        like( $@, qr/^Unable to identify file in grep output:/, 'grep adapter rejects unparseable successful output' );
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -1025,19 +1144,20 @@ t/98-cli-openfile-coverage.t - branch and condition coverage for the open-file C
 This test drives every decision point in
 C<Developer::Dashboard::CLI::OpenFile>, the library behind C<dashboard of> and
 C<dashboard open-file>. It exercises direct path, C<file:line>, file-alias,
-scoped-relative, Perl-module and Java-class resolution, the numbered chooser
-flow, editor-command selection, and the Java source-archive and Maven download
-lookups, including their guard, failure, and empty-input branches.
+scoped-relative, complete C<@INC>-based Perl-module and Java-class resolution,
+recursive content-grep dispatch, the numbered chooser flow, editor-command
+selection, and Java source-archive/Maven download lookups, including guard,
+failure, and empty-input branches.
 
 =head1 WHY IT EXISTS
 
 The open-file helper carries an unusually dense set of fallback rules: regex
-matching, module-to-file mapping, archive extraction, mirror-status handling,
-and the print-versus-editor decision. Ordinary end-to-end use covers only the
-common paths, leaving many guard clauses, short-circuit conditions, and error
-returns untested. This file pins the remaining branch and condition sides so the
-module holds at full Devel::Cover coverage and cannot silently regress a
-defensive path.
+matching, module-to-file mapping, content-grep subprocess handling, archive
+extraction, mirror-status handling, and the print-versus-editor decision.
+Ordinary end-to-end use covers only the common paths, leaving many guard
+clauses, short-circuit conditions, and error returns untested. This file pins
+the remaining branch and condition sides so the module holds at full
+Devel::Cover coverage and cannot silently regress a defensive path.
 
 =head1 WHEN TO USE
 

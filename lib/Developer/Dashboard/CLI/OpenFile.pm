@@ -4,13 +4,14 @@ use strict;
 use warnings;
 use sort 'stable';
 
-our $VERSION = '5.38';
+our $VERSION = '5.40';
 
 use Cwd qw(cwd);
 use Exporter 'import';
 use File::Find ();
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
+use Developer::Dashboard::CLI::OpenFileGrep qw(grep_matching_files);
 
 use Developer::Dashboard::CLI::OpenFileChooser qw(_default_editor _editor_supports_tabs _select_open_file_matches _stdin_has_pending_input _selection_matches);
 use Developer::Dashboard::CLI::OpenFileJavaSource qw(
@@ -52,6 +53,31 @@ sub run_open_file_command {
     my $paths = $args{paths};
     $paths = build_path_registry() if !$paths;
     my @argv  = @{ $args{args} || [] };
+
+    # Keep the established `of grep ...` shape before Getopt::Long sees grep's
+    # own flags such as -nr. The grep adapter receives arguments as an argv
+    # list, never as shell text.
+    my $grep_print = 0;
+    if ( @argv && $argv[0] eq '--print' && @argv > 1 && $argv[1] eq 'grep' ) {
+        $grep_print = 1;
+        shift @argv;
+    }
+    if ( @argv && $argv[0] eq 'grep' ) {
+        shift @argv;
+        my @matches = grep_matching_files( args => \@argv );
+        die "No files found\n" if !@matches;
+        if ($grep_print) {
+            print join( "\n", @matches ), "\n";
+            _command_exit(0);
+        }
+        @matches = _select_open_file_matches( matches => \@matches );
+        my $editor_cmd = _default_editor('');
+        my @command = split /\s+/, $editor_cmd;
+        push @command, '-p' if _editor_supports_tabs( command => \@command );
+        push @command, @matches;
+        _command_exec(@command);
+    }
+
     my $print  = 0;
     my $line   = 0;
     my $editor = '';
@@ -509,8 +535,13 @@ match the candidate path, except when those remaining arguments join into one
 existing relative file path inside the resolved scope. In that exact-file case,
 the helper opens the scoped file directly instead of falling back to regex
 search. A single hit opens or prints that file, while multiple hits are ranked
-and shown as a chooser or plain list. Perl module lookup maps C<Foo::Bar> to
-C<Foo/Bar.pm>; Java lookup maps dotted class names to C<.java> source files or
+and shown as a chooser or plain list. C<dashboard of grep -nr PATTERN DIR>
+instead searches file contents and opens each unique matching file; adding
+C<--print> before C<grep> prints those paths without launching an editor. The
+grep arguments are passed directly to the executable, not through a shell.
+Perl module lookup maps C<Foo::Bar> to C<Foo/Bar.pm> under every existing
+directory in the running process's C<@INC>; Java lookup maps dotted class
+names to C<.java> source files or
 local source archives entirely offline. When neither is found, the helper
 prints a notice and stops rather than reaching the network - pass C<--online>
 to let it fall through to a Maven Central search and download a source jar

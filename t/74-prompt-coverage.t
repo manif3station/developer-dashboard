@@ -399,6 +399,17 @@ sub write_file {
     write_file( File::Spec->catfile( $packed_local_git, 'packed-refs' ), "# pack-refs with: peeled fully-peeled\n$remote_commit refs/remotes/origin/foo/bar\n$remote_commit refs/heads/foo/bar\n" );
     is( $prompt->_git_branch($packed_remote), 'foo/bar', 'packed local branch at the same commit permits omitting origin prefix' );
 
+    my $mismatch_git = File::Spec->catdir( $base, 'origin-local-mismatch' );
+    make_path( File::Spec->catdir( $mismatch_git, 'refs', 'remotes', 'origin', 'foo' ) );
+    make_path( File::Spec->catdir( $mismatch_git, 'refs', 'heads', 'foo' ) );
+    write_file( File::Spec->catfile( $mismatch_git, 'refs', 'remotes', 'origin', 'foo', 'bar' ), "$remote_commit\n" );
+    write_file( File::Spec->catfile( $mismatch_git, 'refs', 'heads', 'foo', 'bar' ), "abcdef0123456789abcdef0123456789abcdef01\n" );
+    is(
+        $prompt->_origin_branch_for_commit( $mismatch_git, $remote_commit ),
+        'origin/foo/bar',
+        'a local branch at a different commit does not hide the origin prefix',
+    );
+
     my $symlinked_origin = File::Spec->catdir( $base, 'symlinked-origin' );
     mkdir $symlinked_origin or die "mkdir $symlinked_origin: $!";
     my $symlinked_git = File::Spec->catdir( $symlinked_origin, '.git' );

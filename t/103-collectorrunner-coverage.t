@@ -15,6 +15,7 @@ use lib 'lib';
 
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CollectorRunner;
+use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::FileSlurp;
 use Developer::Dashboard::IndicatorStore;
@@ -223,6 +224,7 @@ is( $runner->_is_dashboard_subcommand_collector( { command => '/opt/tools/dashbo
 # _active_worker_pids / _state_active_worker_pids / _reap_finished_loop_workers.
 # ===========================================================================
 is_deeply( [ $runner->_active_worker_pids(undef) ], [], '_active_worker_pids tolerates an undef worker set' );
+is( $runner->_reap_finished_loop_workers(undef), 0, '_reap_finished_loop_workers tolerates an undef worker set' );
 is_deeply( [ $runner->_state_active_worker_pids(undef) ], [], '_state_active_worker_pids rejects an undef name' );
 is_deeply( [ $runner->_state_active_worker_pids('') ],    [], '_state_active_worker_pids rejects an empty name' );
 {
@@ -313,7 +315,7 @@ is( $runner->_state_confirms_managed_loop( 'demo', 0 ), 0, '_state_confirms_mana
     # Matching identity with no recorded status: the status fallback yields the
     # empty string, which is not 'stopped', so the loop is still confirmed.
     write_raw_state( 'confirm.nostatus', json_encode( { pid => $$, name => 'confirm.nostatus', process_name => $runner->_process_title('confirm.nostatus') } ) );
-    is( $runner->_state_confirms_managed_loop( 'confirm.nostatus', $$ ), 1, '_state_confirms_managed_loop confirms a live recorded loop with no recorded status' );
+is( $runner->_state_confirms_managed_loop( 'confirm.nostatus', $$ ), 1, '_state_confirms_managed_loop confirms a live recorded loop with no recorded status' );
 }
 
 # ===========================================================================
@@ -783,6 +785,12 @@ like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? 
     local *Developer::Dashboard::CollectorRunner::capture             = sub { return ( '', '', 0 ) };
     is( $runner->_spawn_windows_background_command( 'perl', 'x' ), undef, '_spawn_windows_background_command returns undef when stdout carries no pid' );
 }
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_powershell_command = sub { return 'pwsh' };
+    local *Developer::Dashboard::CollectorRunner::capture             = sub { return ( "0\n", '', 0 ) };
+    is( $runner->_spawn_windows_background_command( 'perl', 'x' ), undef, '_spawn_windows_background_command rejects a zero pid' );
+}
 
 # ===========================================================================
 # _replace_state_file: Linux non-Windows failure, and the Windows retry loop.
@@ -856,6 +864,13 @@ like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? 
 # ===========================================================================
 # cron scheduling: _job_is_due, _cron_due, _cron_match.
 # ===========================================================================
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::loop_state = sub { return undef };
+    local *Developer::Dashboard::CollectorRunner::_write_loop_state = sub { return {} };
+    ok( $runner->_cron_due( '* * * * *', 'cron.undefined-state' ),
+        '_cron_due handles absent prior state before recording the current slot' );
+}
 ok( !$runner->_job_is_due( { schedule => 'manual' }, 'cron.c' ), '_job_is_due rejects a manual collector' );
 ok( $runner->_job_is_due( { interval => 10 }, 'cron.c' ),       '_job_is_due accepts an interval collector' );
 ok( $runner->_job_is_due( { schedule => 'interval' }, 'cron.c' ), '_job_is_due accepts an explicit interval schedule' );
@@ -1783,6 +1798,63 @@ ok( !defined $runner->stop_loop('stop.missing'), 'stop_loop returns undef with n
     is( $result->{exit_code}, 0, 'DD-881: a legitimate accessor alias (home) still resolves' );
 }
 
+# Problem 28: collector cwd accepts configured path aliases and installed
+# skill Folder.pm aliases, while retaining the same collector execution path.
+{
+    is( $runner->_resolve_collector_cwd_alias(undef), undef,
+        'Problem 28: cwd alias resolver leaves an undefined value unchanged' );
+    my $reference_cwd = [];
+    is( $runner->_resolve_collector_cwd_alias($reference_cwd), $reference_cwd,
+        'Problem 28: cwd alias resolver leaves a reference unchanged' );
+
+    {
+        package DDCollectorRunnerCwdBarePaths;
+        # new()
+        # Builds a deliberately minimal registry with no alias methods.
+        # Input: class name.
+        # Output: bare registry object.
+        sub new { return bless {}, shift }
+    }
+    my $bare_runner = Developer::Dashboard::CollectorRunner->new(
+        collectors => $collector_store,
+        files      => $files,
+        paths      => DDCollectorRunnerCwdBarePaths->new,
+    );
+    is( $bare_runner->_resolve_collector_cwd_alias('bare-alias'), 'bare-alias',
+        'Problem 28: a registry without alias resolver methods leaves the cwd unchanged' );
+
+    my $alias_root = File::Spec->catdir( $home, 'collector-alias-root' );
+    make_path($alias_root);
+    my $config = Developer::Dashboard::Config->for_paths($paths);
+    $config->save_global_path_alias( 'collector_alias', $alias_root );
+    my $result = $runner->run_once(
+        { name => 'problem28.config-alias', command => 'true', cwd => 'collector_alias' } );
+    is( $result->{exit_code}, 0, 'Problem 28: collector runs with a configured path alias' );
+    is( $collector_store->read_job('problem28.config-alias')->{cwd}, $alias_root,
+        'Problem 28: resolved configured alias is persisted as the effective collector cwd' );
+
+    my $skills_root = $paths->skills_root;
+    my $skill_root = File::Spec->catdir( $skills_root, 'collectorpaths' );
+    my $skill_lib = File::Spec->catdir( $skill_root, 'lib' );
+    make_path( $skill_lib, $alias_root );
+    my $folder_module = File::Spec->catfile( $skill_lib, 'Folder.pm' );
+    open my $folder_fh, '>', $folder_module or die "Unable to write $folder_module: $!";
+    print {$folder_fh} "package Folder;\nsub collector_root { return '$alias_root'; }\n1;\n";
+    close $folder_fh or die "Unable to close $folder_module: $!";
+    my $folder_result = $runner->run_once(
+        { name => 'problem28.folder-alias', command => 'true', cwd => 'collectorpaths.collector_root' } );
+    is( $folder_result->{exit_code}, 0, 'Problem 28: collector runs with a skill Folder.pm alias' );
+    is( $collector_store->read_job('problem28.folder-alias')->{cwd}, $alias_root,
+        'Problem 28: Folder.pm alias resolves to its declared collector cwd' );
+
+    my $unknown_alias_error = eval {
+        $runner->run_once( { name => 'problem28.unknown-alias', command => 'true', cwd => 'missing-skill.workspace' } );
+        1;
+    } ? '' : $@;
+    like( $unknown_alias_error, qr/Collector cwd 'missing-skill\.workspace' does not exist/,
+        'Problem 28: an unknown qualified alias remains an explicit invalid-cwd error' );
+}
+
 done_testing;
 
 __END__
@@ -1796,7 +1868,8 @@ t/103-collectorrunner-coverage.t - branch and condition closure for the collecto
 This file is the executable branch-and-condition coverage contract for
 C<Developer::Dashboard::CollectorRunner>. It drives every remaining
 partially-covered decision in the collector execution and loop-management
-runtime: cwd and schedule resolution in C<run_once>, indicator template
+runtime: cwd accessor, configured path-alias, skill C<Folder.pm> alias, and
+schedule resolution in C<run_once>, indicator template
 materialization, collector-source and execution-policy normalization, interval
 and cron scheduling, process-identity and namespace probing, loop pidfile and
 state lifecycle, the daemonized child and worker fork paths, the Windows
@@ -1815,8 +1888,8 @@ minimal, targeted reproduction per behavior.
 
 =head1 WHEN TO USE
 
-Run it whenever you change collector process spawning, pid validation, loop
-state persistence, cron or interval scheduling, indicator icon rendering, the
+Run it whenever you change collector cwd alias resolution, process spawning,
+pid validation, loop state persistence, cron or interval scheduling, indicator icon rendering, the
 Windows detached-launch and state-replacement fallbacks, or the command and
 code timeout handling. It is the first check to run when touching C<run_once>,
 C<start_loop>, C<stop_loop>, C<running_loops>, C<_run_loop_child>,

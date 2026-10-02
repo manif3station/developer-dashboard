@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Help;
 use strict;
 use warnings;
 
-our $VERSION = '5.38';
+our $VERSION = '5.40';
 
 use Developer::Dashboard::InternalCLI ();
 
@@ -134,7 +134,7 @@ my %COMMANDS = (
             collector => [ 'dashboard log collector [name]', 'Read one or all collector logs.' ],
         },
     },
-    of => { usage => 'dashboard of [options] <file-or-scope> [pattern ...]', description => 'Open or print a matching file.' },
+    of => { usage => 'dashboard of [options] <file-or-scope> [pattern ...] | grep <grep-args...>', description => 'Open, print, or content-search matching files.' },
     'open-file' => { usage => 'dashboard open-file [options] <file-or-scope> [pattern ...]', description => 'Alias for the file-opening helper.' },
     page => {
         usage => 'dashboard page <new|save|list|show|encode|decode|urls|render|source> [arguments]',

@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.38
+5.40
 
 # INTRODUCTION
 
@@ -1010,9 +1010,12 @@ These commands support:
 
 - direct file paths
 - `file:line` references
-- Perl module names such as `My::Module`
+- Perl module names such as `My::Module`, resolved against every directory in
+the running Perl's `@INC`
 - Java class names such as `com.example.App` or `javax.jws.WebService`
 - recursive regex searches inside a resolved directory alias or path
+- recursive content searches with `dashboard of grep -nr <pattern>
+<directory>`
 
 Without `--print`, `dashboard of` and `dashboard open-file` now behave like
 the older picker workflow again: one unique match opens directly in
@@ -1024,6 +1027,10 @@ rank exact helper/script names before broader regex hits, so
 `dashboard of . jq` lists `jq` and `jq.js` ahead of `jquery.js`. Every
 scoped search token is treated as a case-insensitive regex, so
 `dashboard of . 'Ok\.js$'` matches `ok.js` but not `ok.json`.
+Content grep passes arguments directly to the system `grep` executable (no
+shell expansion), adds filename and line-number output for reliable file
+selection, then opens the unique matching files using the same chooser. Add
+`--print` before `grep` to print the unique paths without opening an editor.
 
 Java class lookup first checks live `.java` files under the current project,
 workspace roots, and `@INC`-adjacent source trees. If no live source file
@@ -1795,6 +1802,13 @@ Collector jobs support two execution fields:
 - `command` runs a shell command string through the native platform shell:
 `sh -lc` on Unix-like systems and PowerShell on Windows
 - `code` runs Perl code directly inside the collector runtime
+
+A collector's `cwd` may be an absolute or relative directory, a built-in
+directory accessor such as `home`, a configured `path_aliases` name, or a
+skill-qualified `Folder.pm` alias such as `collectorpaths.workspace`. Config
+aliases take precedence over skill-provided aliases. The latter are resolved
+read-only from the installed skill's `lib/Folder.pm` using the same method
+rules as `dashboard path resolve`.
 
 The built-in `housekeeper` collector is always present even when
 `config/config.json` is otherwise empty. It runs every `900` seconds with

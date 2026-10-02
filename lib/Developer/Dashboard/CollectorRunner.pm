@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '5.38';
+our $VERSION = '5.40';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -16,6 +16,7 @@ use Time::HiRes qw(sleep time);
 use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::FileSlurp qw(slurp_file);
 use Developer::Dashboard::JSON qw(json_encode json_decode);
+use Developer::Dashboard::Config;
 use Developer::Dashboard::PerlEnv ();
 use Developer::Dashboard::CommandRunner ();
 use Developer::Dashboard::TimeUtils qw(_now_iso8601);
@@ -80,7 +81,8 @@ my %RESOLVABLE_ACCESSOR = map { $_ => 1 } qw(
 );
 
 # run_once($job)
-# Executes a collector job a single time with cwd/env/timeout handling.
+# Executes a collector job a single time with cwd/env/timeout handling; cwd
+# may be a built-in accessor, configured path alias, or skill Folder.pm alias.
 # Input: collector job hash reference.
 # Output: result hash reference with stdout, stderr, exit_code, and timed_out.
 sub run_once {
@@ -93,6 +95,9 @@ sub run_once {
     $cwd = cwd() if !$cwd;
     if ( !File::Spec->file_name_is_absolute($cwd) && $RESOLVABLE_ACCESSOR{$cwd} ) {
         $cwd = $self->{paths}->$cwd();
+    }
+    elsif ( !File::Spec->file_name_is_absolute($cwd) ) {
+        $cwd = $self->_resolve_collector_cwd_alias($cwd);
     }
 
     die "Collector cwd '$cwd' does not exist" if !-d $cwd;
@@ -202,6 +207,34 @@ sub run_once {
         stderr    => $stderr,
         timed_out => $timed_out ? 1 : 0,
     };
+}
+
+# _resolve_collector_cwd_alias($name)
+# Resolves a relative collector cwd from configured aliases, then installed
+# skill Folder.pm aliases, without dispatching arbitrary registry methods.
+# Input: relative cwd or alias string.
+# Output: resolved path string, or the original string if no alias applies.
+sub _resolve_collector_cwd_alias {
+    my ( $self, $name ) = @_;
+    my $paths = $self->{paths};
+    return $name if !defined $name || ref($name);
+    return $name if !$paths->can('named_paths') || !$paths->can('resolve_dir');
+
+    my $config = Developer::Dashboard::Config->for_paths($paths);
+    $paths->register_named_paths( $config->path_aliases );
+    my $configured = $paths->named_paths;
+    return $paths->resolve_dir($name) if exists $configured->{$name};
+
+    if ( $name =~ /\A[A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+\z/ ) {
+        require Developer::Dashboard::CLI::Paths;
+        my $target = Developer::Dashboard::CLI::Paths::_skill_folder_alias_target(
+            paths => $paths,
+            name  => $name,
+        );
+        return $target if defined $target;
+    }
+
+    return $name;
 }
 
 # _normalize_timeout_ms($job)
@@ -1725,7 +1758,9 @@ Developer::Dashboard::CollectorRunner - collector execution and loop management
 This module runs collector jobs on demand and as managed background loops. It
 handles scheduling, timeout enforcement, process naming, persisted loop
 state, shell-command collectors, Perl-code collectors, and TT-backed
-collector indicator icon rendering from stdout JSON.
+collector indicator icon rendering from stdout JSON. Collector working
+directories resolve built-in accessors and configured path aliases, followed
+by skill-qualified aliases provided by installed C<lib/Folder.pm> modules.
 
 =head1 METHODS
 
@@ -1745,11 +1780,17 @@ It exists because collector process control is more than a single C<system()> ca
 
 =head1 WHEN TO USE
 
-Use this file when changing collector process spawning, pid validation, restart semantics, background job cleanup, TT-backed indicator icon rendering, or the contract between collector execution and the persisted collector state.
+Use this file when changing collector process spawning, pid validation, restart semantics, background job cleanup, TT-backed indicator icon rendering, the contract between collector execution and persisted collector state, or how the collector's C<cwd> value resolves from path aliases.
 
 =head1 HOW TO USE
 
 Construct it with the path registry and collector store, then call the lifecycle methods for one collector name. Keep process-management behavior and TT-backed collector icon rendering here; the CLI wrappers should only parse arguments and print the returned state.
+
+For C<run_once>, a relative C<cwd> first checks built-in directory accessors,
+then configured aliases from merged dashboard config, then a qualified skill
+C<Folder.pm> method (for example C<collectorpaths.workspace>). If no alias
+applies, an existing relative directory remains valid. Config aliases win over
+skill methods with the same name; skill aliases are read-only.
 
 =head1 WHAT USES IT
 
