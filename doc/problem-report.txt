@@ -374,6 +374,79 @@ tests in `t/265-cli-help-completion-contract.t` and
 fix marks explicit passthrough namespaces and execs grep unchanged for
 `--help`; Docker Compose's resolved `-f` arguments are preserved.
 
+Problem 25 follow-up: Restrict Dashboard help interception to internal CLI
+commands (status: in progress; release 5.51; Docker image gate failed)
+Expected outcome: `d2 <internal-command> --help` and its supported `help`/`-h`
+forms show Dashboard's internal help. External tools own their flags, including
+`d2 tira.tasklist.prune --help`, which must display the skill executable's
+native help and return its exit status.
+Docker reproduction: in the isolated `dd-problem25` Compose `dev` container,
+create a fake installed skill at `$HOME/.d2/skills/tira/cli/tasklist.prune`
+that prints `Tira tasklist prune native help`, then run
+`perl -Ilib bin/d2 tira.tasklist.prune --help`. Before the fix, it exited 255,
+printed no stdout, and failed with `Unknown action '_exec' for dashboard
+command 'skills'`.
+Root cause: the switchboard correctly translated the dotted command to
+`skills _exec <skill> <command> ...`, but the staged private helper ran the
+internal help detector again. `help_request` interpreted `_exec` as a public
+`skills` action when it found the external command's trailing help flag.
+Red test: the new `t/266-cli-help-dispatch.t` fixture failed its three exact
+assertions (exit status, native help output, and empty Dashboard-error stderr)
+before the implementation change.
+Fix: `help_request` now returns no Dashboard help request when the canonical
+command is `skills` and the first argument is the private `_exec` sentinel.
+The dispatcher then passes every remaining argument, including `--help`, to
+the external skill CLI. Built-in `skills --help`/action help and existing grep
+and Docker Compose passthrough cases remain covered.
+After the fix, the same Docker reproduction passed; `t/266-cli-help-dispatch.t`
+passes 463 assertions. The complete Docker suite passed (257 files, 22,957
+tests; environment-dependent Windows QEMU, Chromium, nested-Docker, and
+operator-local `.claude` checks skipped with their documented reasons). A
+separate full `Devel::Cover` run passed 257 files / 22,895 tests and reported
+100.0% statement, branch, condition, and subroutine coverage across `lib/`.
+The 5.51 tarball installed in the clean blank-environment container using
+`cpanm` with its default test execution; the integration script completed
+successfully. The Kwalitee and POD tests passed in the Docker suite.
+
+Packaging used `dzil clean`, aligned `dist.ini` and all 76 `lib/` module
+versions at 5.51, synchronized README with the main module POD, then built
+`Developer-Dashboard-5.51.tar.gz`. However, `d2 docker.images.build` did not
+produce the required 5.51 runtime image: the Dockerfile build failed on its
+first `RUN curl ... | sh` layer with `mount options is too long`. The wrapper
+continued to a host-side tarball install and returned exit 0 despite that
+image failure. This gate is recorded as failed, not passed; Problem 25 remains
+in progress and must not be committed as complete until image-build
+verification is resolved. No commit has been made for this follow-up.
+
+Problem 36: Merge project and home skill command names in shell completion
+(status: in progress; release 5.52)
+Expected outcome: while inside a project, `d2 layered-skill.<TAB>` lists
+commands from both `.developer-dashboard/skills/layered-skill/cli` in the
+project and the same skill under the home runtime. A command name present in
+both is listed once; runtime execution precedence remains deepest project
+layer first.
+Docker reproduction: `t/804-skill-completion-layer-merge.t` creates a
+temporary home and a Git project. Both layers contain `layered-skill`; home
+provides `home-only` and `shared`, project provides `project-only` and
+`shared`. Run `prove -lv t/804-skill-completion-layer-merge.t` through the
+dedicated `dd-problem36` Docker Compose service. Before the fix, the single
+completion assertion failed: only `layered-skill.project-only` and
+`layered-skill.shared` were returned, and `layered-skill.home-only` was
+missing.
+Root cause: `PathRegistry::installed_skill_roots` intentionally emits only
+one effective root per skill name. `Suggest::_all_skill_command_entries`
+iterated those names, then `_skill_command_entries` called
+`SkillManager::get_skill_path`, which again selected only the winning root.
+That behavior was appropriate for execution lookup but incomplete for a
+completion inventory that must merge inherited command names.
+Red test and fix: the new regression checks direct completion and the public
+`dashboard complete` helper, including duplicate suppression. The fix uses
+`PathRegistry::skill_roots_for` to scan every effective root from project to
+home and returns each dotted command name once. Both the direct API and public
+helper now return `layered-skill.home-only`, `layered-skill.project-only`,
+and one `layered-skill.shared` candidate. Focused completion/help tests pass;
+full-suite, coverage, package, and image gate evidence will follow.
+
 Focused Docker verification after implementation: `t/10-extension-action-docker.t`,
 `t/91-cli-ticket-coverage.t`, `t/98-cli-openfile-coverage.t`,
 `t/103-collectorrunner-coverage.t`, `t/770-cli-exec-handoff-coverage.t`,
@@ -651,3 +724,95 @@ The 5.50 archive was installed in a fresh blank Docker environment with
 integration script passed. The matching `d2 docker.images.build` completed,
 and a fresh image returned `d2 version` 5.50. `dzil release` was deliberately
 not run because it would upload the distribution to PAUSE.
+
+Problem 25 and Problem 36 verification cycle (2026-10-03):
+
+Problem 25's external-help regression was reproduced as
+`d2 tira.tasklist.prune --help` being claimed by the dashboard's private
+`skills _exec` help route and failing with an unknown `_exec` action. The fix
+keeps help detection from taking ownership after that private dispatch
+sentinel; a fake installed skill CLI verifies `--help`, `-h`, and `help` are
+passed through unchanged. Problem 36's pre-fix Docker fixture had the same
+skill name in project and home runtimes but completion returned only
+project-local command names. The fix enumerates all discovered skill roots in
+their established precedence order and emits each dotted name once; the
+project layer remains the runtime winner for actual execution.
+
+Focused Docker verification passed 4 files / 1,693 tests, including both
+problem regressions. After installing the optional author-gate dependencies in
+the isolated `dd-problem36` development container and setting its Git
+safe-directory for the `/work` bind mount, `prove -lr t` passed 258 files /
+22,959 tests. `t/158` skipped because operator-local `.claude` tooling is not
+part of this checkout; Windows QEMU and Chromium-only browser tests skipped
+because those optional tools are unavailable. The release-archive guard tests
+also skipped in this pre-build run because the 5.52 tarball does not yet exist.
+The all-metric coverage gate passed 258 files / 22,897 tests with 100.0%
+statement, branch, condition, and subroutine coverage (45,356 detail rows, no
+stale annotations). Devel::Cover emitted warnings for temporary fixture
+modules removed before digesting; these warnings are recorded and were not
+caused by the completion change. Archive kwalitee, final package tests,
+blank-environment install, and image build were pending at the time of that
+coverage run.
+
+Final 5.52 package verification: `dzil clean` and `dzil build` completed.
+There is exactly one root tarball, `Developer-Dashboard-5.52.tar.gz`; all 76
+library modules and `dist.ini` declare 5.52, the embedded main module declares
+5.52, and archive inspection found no `cover_db`. The Docker release-focused
+tests passed 6 files / 6,228 assertions, including kwalitee, POD syntax,
+archive inspection, both numbered regressions, and the smart-router package
+guard. A fresh blank Docker install used `cpanm` with its default test behavior
+(no `--notest`) and finished with “Blank-environment integration run passed.”
+
+The required `d2 docker.images.build` was attempted against 5.52. BuildKit
+failed at the Dockerfile's first `RUN curl ... | sh` with `mount options is too
+long`. The wrapper then disabled the development marker, installed the tarball
+into the host Perl library, and returned success; this is not a successful
+image build and no new image/version claim is made. The same BuildKit failure
+was recorded for 5.51. Problem 25 remains in progress, and delivery of Problem
+36 is also not declared complete while the mandatory image gate remains
+unresolved. No commit or push was made.
+
+BuildKit root-cause follow-up (2026-10-03): the failed Compose context is the
+local D2 image service, whose Dockerfile starts with `FROM
+developer-dashboard:latest` and immediately executes the installer in a new
+RUN layer. A read-only `d2 docker compose run --rm --no-deps` against that
+configured base image measured 408 overlay lowerdirs; the lowerdir option
+alone is 4,085 bytes and the complete `/proc/mounts` record is 4,128 bytes.
+This is consistent with containerd's page-sized mount-option guard rejecting
+the next overlay snapshot before the RUN command executes. The current
+containerd mount implementation compacts large overlay lowerdir options
+before enforcing its page limit; the local build backend still rejects the
+resulting mount options after any compaction it performs. This is
+environmental to the configured base-image layer stack/runtime, not to the
+5.52 Perl archive. Safely reducing the base stack or upgrading/reconfiguring
+the Docker/containerd runtime requires operator-level authorization; no image,
+container storage, or daemon configuration was changed. The P36 regression
+and package changes are still uncommitted while this required image gate is
+unresolved.
+
+Problem 25 and 36 final delivery follow-up (2026-10-03; release 5.53):
+
+The configured base's deep layer stack was exported and flattened into a
+temporary local image using an isolated D2 Compose project. The resulting
+Compose image build completed. Runtime verification initially exposed a stale
+5.41 copy at `/root/perl5/lib/perl5/Developer/Dashboard.pm`, which shadowed
+the newly installed 5.53 module under `/usr/local/share/perl/5.40.1`. For the
+disposable verification image only, that exact stale module file and directory
+were removed before installing the 5.53 archive. A fresh D2 Compose run then
+reported `d2 version` 5.53 and loaded `Developer::Dashboard` 5.53 from the
+installed package path. The ignored local Dockerfile was restored afterward;
+no daemon settings or unrelated containers were changed.
+
+The 5.53 archive contains version 5.53 in `dist.ini` and
+`lib/Developer/Dashboard.pm`, and the built image reports 5.53. The blank
+environment integration flow passed using plain `cpanm` with tests enabled.
+The full D2 suite then passed 258 files / 22,403 tests, including all three
+P25/P36 regression files and the release metadata gate. Its optional skips
+were limited to unavailable external tools/operator-local `.claude` assets.
+
+The initial source-suite run exposed missing ignore rules. HEAD `1dc5c062`
+had narrowed `.gitignore` to only `.claude/`; the worktree restores the
+required `nytprof.out`, `nytprof/`, `.worktrees/`, and `dogfood-output/`
+patterns while retaining `.claude/`. The 5,344-assertion release metadata
+test and the subsequent full suite both pass with those rules. No commit or
+push was made.

@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.50
+5.53
 
 # INTRODUCTION
 
@@ -565,7 +565,10 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     tool: `d2 of grep --help` displays grep's usage, while `d2 docker compose
     config --help` and `d2 docker compose help` reach Docker Compose. Use
     `d2 docker compose --help` or `d2 help docker compose` for the dashboard's
-    Compose wrapper help. Workspace session names are queried only while
+    Compose wrapper help. Dotted skill commands such as
+    `d2 tira.tasklist.prune --help` pass help options through to the skill's own
+    CLI rather than interpreting its private `skills _exec` dispatch as a public
+    Dashboard action. Workspace session names are queried only while
     completing a positional workspace name; completing an option such as `-c`
     does not call tmux.
 
@@ -841,7 +844,11 @@ and supported option flags. Bash and zsh call the live `dashboard complete`
 helper, so their candidates stay aligned with the command catalog rather than
 maintaining separate shell-side action lists. Existing dynamic completions for
 skills, workspace sessions, collectors, and workspace path aliases remain
-available. `cdr` TAB completion lists aliases and direct child directories.
+available. When a skill with the same name exists in project and home runtime
+layers, its dotted command candidates are merged from every participating
+layer and duplicate command names appear once; execution still uses the
+normal deepest-layer lookup. `cdr` TAB completion lists aliases and direct
+child directories.
 Each entered narrowing term descends one matching directory level before
 suggesting the next child, avoiding recursive scans of unrelated repository
 and dependency trees.

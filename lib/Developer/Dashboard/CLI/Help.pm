@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Help;
 use strict;
 use warnings;
 
-our $VERSION = '5.50';
+our $VERSION = '5.53';
 
 use Developer::Dashboard::InternalCLI ();
 
@@ -397,9 +397,16 @@ sub help_request {
     return () if !defined $command || $command eq '';
 
     my @args = @{$argv};
+    # Dotted skill commands re-enter this helper as "skills _exec <skill>
+    # <command> ...". From _exec onward, arguments belong to the skill CLI,
+    # including its own native help flags.
+    return () if _canonical_command($command) eq 'skills'
+      && @args
+      && ( $args[0] // '' ) eq '_exec';
+
     my $help_index;
     for my $index ( 0 .. $#args ) {
-        if ( $args[$index] eq '--help' || $args[$index] eq '-h' ) {
+        if ( defined $args[$index] && ( $args[$index] eq '--help' || $args[$index] eq '-h' ) ) {
             $help_index = $index;
             last;
         }
@@ -629,7 +636,9 @@ canonical command and an optional action name. In particular,
 C<dashboard of grep --help> and C<dashboard docker compose config --help>
 leave their trailing help options with grep or Docker Compose. That ownership
 is preserved when C<of --print> or Docker Compose selectors occur before the
-delegated command. The built-in Compose synopsis remains available as
+delegated command. Dotted skill invocations enter the private C<skills _exec>
+dispatch; help detection stops there so a skill CLI receives its own C<-h> or
+C<--help> unchanged. The built-in Compose synopsis remains available as
 C<dashboard docker compose --help> or C<dashboard help docker compose>.
 
 =head1 WHAT USES IT

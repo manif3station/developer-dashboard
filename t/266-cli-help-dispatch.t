@@ -112,6 +112,20 @@ like( $grep_after_options_out, qr/^Usage: grep/m, 'grep help following --print r
 unlike( $grep_after_options_out, qr/^Usage: dashboard of/m, 'grep help following --print is not intercepted as dashboard help' );
 is( $grep_after_options_err, '', 'grep help following --print emits no dashboard parser error' );
 
+my $skill_cli_dir = File::Spec->catdir( $home, '.d2', 'skills', 'tira', 'cli' );
+make_path($skill_cli_dir);
+my $skill_cli = File::Spec->catfile( $skill_cli_dir, 'tasklist.prune' );
+open my $skill_cli_fh, '>', $skill_cli or die "Unable to create $skill_cli: $!";
+print {$skill_cli_fh} "#!/bin/sh\nprintf '%s\\n' 'Tira tasklist prune native help'\nfor arg in \"\$@\"; do printf 'arg=%s\\n' \"\$arg\"; done\n";
+close $skill_cli_fh or die "Unable to close $skill_cli: $!";
+chmod 0755, $skill_cli or die "Unable to chmod $skill_cli: $!";
+for my $help_flag ( '--help', '-h', 'help' ) {
+    my ( $skill_help_out, $skill_help_err, $skill_help_exit ) = run_cli( 'tira.tasklist.prune', $help_flag );
+    is( $skill_help_exit, 0, "dotted external skill CLI $help_flag exits with the skill CLI status" );
+    like( $skill_help_out, qr/^Tira tasklist prune native help\narg=\Q$help_flag\E\n\z/, "dotted external skill CLI receives $help_flag unchanged" );
+    is( $skill_help_err, '', "dotted external skill CLI $help_flag is not intercepted as internal skills help" );
+}
+
 my $fake_bin = File::Spec->catdir( $home, 'fake-bin' );
 make_path($fake_bin);
 my $fake_docker = File::Spec->catfile( $fake_bin, 'docker' );
@@ -170,6 +184,21 @@ is_deeply(
     [ Developer::Dashboard::CLI::Help::help_request( command => 'of', args => [ 'grep', 'help' ] ) ],
     [],
     'trailing grep help is left for the delegated command',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::help_request( command => 'skills', args => [] ) ],
+    [],
+    'an empty skills argument list does not match the private skill dispatch sentinel',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::help_request( command => 'skills', args => [ '_exec', 'tira', 'tasklist.prune', '--help' ] ) ],
+    [],
+    'the private skills executor leaves an external CLI help request untouched',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::help_request( command => 'skills', args => [ undef, '--help' ] ) ],
+    [ 'skills', undef ],
+    'an undefined first skills argument does not hide a later internal help flag',
 );
 is_deeply(
     [ Developer::Dashboard::CLI::Help::help_request( command => 'docker', args => [ 'compose', '--help' ] ) ],
@@ -237,5 +266,9 @@ Run the focused dispatch regression in Docker.
   d2 docker compose --project-name problem25 run --rm --no-deps dev prove -lr t
 
 Re-run the suite after changing help dispatch behavior.
+
+The dotted-skill case creates an isolated installed-skill fixture with a
+native help response, then verifies C<d2 tira.tasklist.prune --help> reaches
+that executable rather than rendering the internal C<skills _exec> action.
 
 =cut

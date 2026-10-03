@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.50';
+our $VERSION = '5.53';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.50
+5.53
 
 =head1 INTRODUCTION
 
@@ -797,7 +797,10 @@ known option flags. Help is passed through when it belongs to a delegated
 tool: C<d2 of grep --help> displays grep's usage, while C<d2 docker compose
 config --help> and C<d2 docker compose help> reach Docker Compose. Use
 C<d2 docker compose --help> or C<d2 help docker compose> for the dashboard's
-Compose wrapper help. Workspace session names are queried only while
+Compose wrapper help. Dotted skill commands such as
+C<d2 tira.tasklist.prune --help> pass help options through to the skill's own
+CLI rather than interpreting its private C<skills _exec> dispatch as a public
+Dashboard action. Workspace session names are queried only while
 completing a positional workspace name; completing an option such as C<-c>
 does not call tmux.
 
@@ -1085,7 +1088,11 @@ and supported option flags. Bash and zsh call the live C<dashboard complete>
 helper, so their candidates stay aligned with the command catalog rather than
 maintaining separate shell-side action lists. Existing dynamic completions for
 skills, workspace sessions, collectors, and workspace path aliases remain
-available. C<cdr> TAB completion lists aliases and direct child directories.
+available. When a skill with the same name exists in project and home runtime
+layers, its dotted command candidates are merged from every participating
+layer and duplicate command names appear once; execution still uses the
+normal deepest-layer lookup. C<cdr> TAB completion lists aliases and direct
+child directories.
 Each entered narrowing term descends one matching directory level before
 suggesting the next child, avoiding recursive scans of unrelated repository
 and dependency trees.

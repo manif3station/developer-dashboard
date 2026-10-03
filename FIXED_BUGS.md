@@ -1,5 +1,23 @@
 # Fixed Bugs
 
+## 5.53
+
+- Fixed Problems 25 and 36: preserve native help for dotted skill CLIs and
+  merge shell-completion candidates across same-named project/home skills.
+  Both fixes have regression coverage and a verified 5.53 image build.
+
+## 5.52
+
+- Fixed Problem 25 follow-up: dotted skill CLI help flags now bypass the
+  internal `skills _exec` help parser and reach the skill-owned command.
+- Fixed Problem 36: shell completion now merges unique commands from every
+  active project/home layer of a same-named skill.
+
+## 5.51
+
+- Fixed Problem 25 follow-up: dotted skill CLI help flags now bypass the
+  internal `skills _exec` help parser and reach the skill-owned command.
+
 ## 5.50
 
 - Problem 35: configure `Dist::Zilla::Plugin::UploadToCPAN` as the explicit PAUSE releaser

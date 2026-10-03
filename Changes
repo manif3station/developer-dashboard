@@ -1,3 +1,30 @@
+5.53  2026-10-03
+
+  - Implement Problem 25's external skill-help passthrough and Problem 36's
+    layered skill-command completion, with regression coverage for both.
+  - Rebuild the project Docker image from a flattened local base after the
+    previous base image exceeded the overlay mount-option limit.
+  - Pass the complete D2 test suite (258 files / 22,403 tests) and the 5.53
+    blank-environment integration run with tests enabled.
+  - Keep the internal/external CLI help boundary and layered skill completion
+    regressions covered in the test suite.
+
+5.52  2026-10-03
+
+  - Problem 25 follow-up: keep help handling within internal CLI dispatch and
+    pass native help flags through to dotted external skill commands.
+  - Problem 36: merge dotted skill completion names across project and home
+    runtime layers while de-duplicating shared commands.
+  - Add Docker regression coverage for external CLI help passthrough and
+    layered project/home skill command completion.
+
+5.51  2026-10-03
+
+  - Problem 25 follow-up: keep help handling within internal CLI dispatch and
+    pass native help flags through to dotted external skill commands.
+  - Add a Docker regression fixture for `d2 tira.tasklist.prune --help` and
+    document the internal-versus-skill help ownership boundary.
+
 5.50  2026-10-03
 
   - Problem 35: configure Dist::Zilla's UploadToCPAN releaser so an explicit `dzil release`
