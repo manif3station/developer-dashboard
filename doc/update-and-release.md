@@ -81,7 +81,12 @@ be recovered, and it is not something the dispatch path is meant to bypass.
 The GitHub-hosted CPAN upload workflow is deliberately manual-only. Do not
 wire tag pushes to automatic PAUSE uploads here; ordinary `vX.XX` tags are for
 the signed GitHub release path, while CPAN publication stays an explicit
-`workflow_dispatch` or local `dashboard pause-release` operator action.
+`workflow_dispatch`, local `dashboard pause-release`, or local `dzil release`
+operator action. The repository configures `Dist::Zilla::Plugin::UploadToCPAN`
+as the real releaser for `dzil release`. Configure credentials only in
+`~/.dzil/config.ini` or `~/.pause`, never in tracked repository files. Run
+`dzil release` only after all release gates pass and an operator explicitly
+intends to upload to PAUSE.
 
 ## OWASP Gate
 

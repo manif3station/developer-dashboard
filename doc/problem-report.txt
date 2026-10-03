@@ -620,3 +620,34 @@ image returned version 5.49. The blank-container rerun installed that archive
 using `cpanm` without `--notest`, passed its distribution suite, and ended with
 “Blank-environment integration run passed.” Thus the 5.49 release gates and
 problem fixes are committed; no push was performed.
+
+Problem 35: Configure a real Dist::Zilla releaser for dzil release
+Expected outcome: `dzil release` must find a real Dist::Zilla Releaser plugin
+instead of exiting with “you can't release without any Releaser plugins.” The
+release action must be an explicit PAUSE upload, and no credentials may be
+stored in the repository.
+Reproduction: run `dzil release` with the existing dist.ini. It exits before
+building or uploading because the config contains build/gather plugins only
+and no class with the Dist::Zilla::Role::Releaser role.
+Red test: `t/15-release-metadata.t` asserted that dist.ini contains the real
+`[UploadToCPAN]` stanza; before the fix this assertion failed (1 of 5,396).
+Fix: configure `[UploadToCPAN]`, document that `dzil release` uploads to PAUSE,
+and keep credentials in user-owned `~/.dzil/config.ini` or `~/.pause` only.
+The test now passes. Host `dzil authordeps` lists
+`Dist::Zilla::Plugin::UploadToCPAN`; direct Dist::Zilla configuration
+inspection finds `UploadToCPAN (Dist::Zilla::Plugin::UploadToCPAN)` under
+`-Releaser`; and `dzil build` succeeds. We did not execute `dzil release`,
+because that would upload externally.
+The initial full gate found stale 5.49 artifacts and correctly failed the
+single-archive hygiene assertion. `dzil clean` was run against the prior
+version configuration to clean generated artifacts; after rebuilding only
+5.50, `t/36-release-kwalitee.t` passed 7/7. The clean 5.50 full Docker gate
+passed 257 files / 22,733 tests and all four library metrics at 100.0% (45,335
+detail rows, no stale annotations). Devel::Cover reported digest warnings for
+temporary test fixtures deleted during coverage; these remain visible and the
+run is not described as warning-free.
+The 5.50 archive was installed in a fresh blank Docker environment with
+`cpanm` and tests enabled (no `--notest`); the distribution suite and complete
+integration script passed. The matching `d2 docker.images.build` completed,
+and a fresh image returned `d2 version` 5.50. `dzil release` was deliberately
+not run because it would upload the distribution to PAUSE.

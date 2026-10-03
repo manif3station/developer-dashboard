@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 5.50
+
+- Problem 35: configure `Dist::Zilla::Plugin::UploadToCPAN` as the explicit PAUSE releaser
+  required by `dzil release`; keep credentials external to the repository and
+  add a regression assertion.
+
 ## 5.49
 
 - Problems 12, 32, 33, and 34: complete the tracked delivery evidence for the

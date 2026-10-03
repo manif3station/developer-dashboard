@@ -1,3 +1,10 @@
+5.50  2026-10-03
+
+  - Problem 35: configure Dist::Zilla's UploadToCPAN releaser so an explicit `dzil release`
+    has a real PAUSE upload action; keep the upload separate from `dzil build`
+    and document that credentials belong outside the repository.
+  - Add a release metadata regression test for the configured Releaser plugin.
+
 5.49  2026-10-03
 
   - Problem 12, 32, 33, and 34 delivery follow-up: publish the final Docker,

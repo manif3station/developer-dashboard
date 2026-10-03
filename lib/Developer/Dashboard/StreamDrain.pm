@@ -3,7 +3,7 @@ package Developer::Dashboard::StreamDrain;
 use strict;
 use warnings;
 
-our $VERSION = '5.49';
+our $VERSION = '5.50';
 
 use Exporter 'import';
 

@@ -124,6 +124,7 @@ like(
     'dist.ini excludes root coverage databases and their contents from the release tarball',
 );
 like( $dist, qr/^File::ShareDir::Install = 0$/m, 'dist.ini declares File::ShareDir::Install as a configure prerequisite so packaged installs refresh shipped helper assets' );
+like( $dist, qr/^\[UploadToCPAN\]$/m, 'dist.ini configures an explicit CPAN releaser for the deliberate release command' );
 like( $cpanfile, qr/on 'configure' => sub \{\s*requires 'File::ShareDir::Install';\s*\};/s, 'cpanfile declares File::ShareDir::Install during configure so local cpanm installs refresh shipped helper assets' );
 ok( -f $readme_sync_script, 'checkout README sync script is tracked' );
 if ( $readme ne '' ) {

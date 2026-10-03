@@ -114,6 +114,9 @@ If the first `cdr` word is not a registered alias, it remains a search term and 
 ### Problem 34: Limit automatic Compose services to the local Compose project — done in 5.48
 When cwd contains a supported Compose file, it is the base and only runtime services declared by that file are automatically merged. Explicit service selection remains possible, and runtime discovery is unchanged when no local base exists. Red-first and follow-up Docker regressions: `t/94-dockercompose-coverage.t`, `t/10-extension-action-docker.t`.
 
+### Problem 35: Configure a real Dist::Zilla releaser for `dzil release` — done in 5.50
+`dist.ini` now configures `Dist::Zilla::Plugin::UploadToCPAN`, so an explicit `dzil release` has a real PAUSE upload action. The release-metadata test failed before the stanza and passes after it; `dzil authordeps` lists the plugin, Dist::Zilla resolves it as a `-Releaser`, and `dzil build` succeeds and produces `Developer-Dashboard-5.50.tar.gz`. The matching Docker image built successfully and reports version 5.50. A fresh blank Docker environment installed the tarball with `cpanm` (without `--notest`) and completed its full integration script. The release command was not run, so no package was uploaded.
+
 ## Current-cycle verification (2026-10-03)
 
 Problems 12, 32, 33, and 34 were verified in the isolated `dd-problem32` Compose

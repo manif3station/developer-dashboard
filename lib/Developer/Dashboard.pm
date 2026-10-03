@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.49';
+our $VERSION = '5.50';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.49
+5.50
 
 =head1 INTRODUCTION
 
@@ -1630,7 +1630,7 @@ interpreted command path.
 
 Build the distribution:
 
-  rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
+  dzil clean
   dzil build
 
 The release gather rules exclude local coverage output such as F<cover_db>, so
@@ -1642,6 +1642,14 @@ C<Developer-Dashboard-X.XX.tar.gz> artifact after the build.
 The built distribution also ships a plain F<README> companion so CPAN and
 kwalitee consumers still receive a top-level readme without re-including the
 checkout-only documentation set.
+
+To publish the built distribution to PAUSE, first complete the repository's
+release gates and configure PAUSE credentials outside the checkout, then run
+C<dzil release> explicitly. The distribution config uses the
+C<Dist::Zilla::Plugin::UploadToCPAN> releaser. It reads credentials from the
+user's Dist::Zilla configuration or C<~/.pause>; never place credentials in
+C<dist.ini> or another tracked file. C<dzil release> uploads to CPAN and must
+not be used as a substitute for C<dzil build>.
 
 Run the CLI directly from the repository:
 
@@ -2943,7 +2951,8 @@ The GitHub release tag path is intentionally decoupled from the repository's
 GitHub Actions CPAN upload workflow. Tag pushes in the form C<vX.XX> are for
 the signed GitHub release path, while any GitHub-hosted CPAN upload remains a
 manual C<workflow_dispatch> action so an ordinary release tag cannot perform an
-unasked PAUSE upload behind the operator's back.
+unasked PAUSE upload behind the operator's back. A local C<dzil release> is a
+separate, explicitly invoked PAUSE upload path.
 
 The coverage-closure suite includes managed collector loop start/stop paths
 under C<Devel::Cover>, including wrapped fork coverage in
