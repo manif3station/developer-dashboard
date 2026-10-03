@@ -1,8 +1,16 @@
 Codename: problem-report
 
-Historical numbered-problem audit (current source regression status checked
-2026-10-03 in the isolated Compose dev container: 257 test files and 22,700
-tests passed; all four library coverage metrics are 100.0%). Release references below are from `Changes`. The original
+Historical numbered-problem audit (latest active-change verification checked
+2026-10-03 in the isolated Compose dev container: 257 test files and 22,371
+tests passed. The full run initially measured 99.9% condition coverage; after
+adding and running the missing completion branch under Devel::Cover, the
+aggregate checker reported 100.0% statement, branch, condition, and subroutine
+coverage. The coverage-gate invocation exited 1 before that final test-only
+addition, so the complete suite has not been rerun with the expanded test.
+Problems 12, 32, and 34 have passing implementation regressions; release
+delivery remains in progress. Problem 33's current behavior is verified by a
+new regression and required no production-code change. Earlier release
+references below are from `Changes`. The original
 red-test transcripts were not retained, so a detached pre-fix snapshot was
 reconstructed for the 5.00 dashboard/skill batch: commit `37a5bd77` (parent of
 `2a09c53b`), with the regression-test changes from `2a09c53b` applied, ran in
@@ -249,8 +257,10 @@ installed d2/dashboard reports 5.32 and its root HOME contains an old
 about the current source or the 5.30 image. The source-only check therefore
 used `/work` with an isolated HOME. The last recorded post-push Scorecard is
 8.0/10, with repository-governance actions still open as documented below.
-Problem 20's aggregate coverage cycle now passes in the isolated Compose dev
-container; see the final delivery verification below.
+Problem 20's earlier aggregate coverage cycle passed; the active Problem 12 and
+32 edits introduced new uncovered paths, so the current full-tree coverage gate
+is not green yet. Do not treat that historical Problem 20 result as covering
+the current uncommitted tree.
 
 Problem 20: Bring repository-wide Perl coverage to 100% (status: complete; verified 2026-10-03)
 Description: The isolated Docker coverage gate passed all 257 test files / 22,259 tests and reported 100.0% statement, branch, condition, and subroutine coverage across `lib/`, with no stale uncoverable annotations.
@@ -390,6 +400,14 @@ Reproduction: configure a collector with `cwd` set to a configured alias whose t
 Root cause: `CollectorRunner::run_once` dispatched only the fixed accessor allowlist and never loaded configured aliases or the secured skill Folder alias provider. Red-first tests now exercise both alias sources, invalid aliases, and the registry contract. The resolver registers config aliases first, then consults the existing guarded Folder.pm resolver; aliases from skills remain read-only.
 Verification: the Docker regression harness exercised both alias sources and unknown-alias failure; full-suite, coverage, security, and packaging results are recorded below.
 
+Problem 29 historical record gap: Collector stop propagation (status: needs investigation)
+The user asked whether `d2 stop`, `d2 stop collector`, and stopping a named
+collector terminate collector-spawned child processes. The historical report
+does not contain the requested Docker reproduction result or a final status.
+Do not infer that dispatcher shutdown also stops child processes without
+checking the current implementation and reproducing it in the isolated Docker
+container.
+
 Problem 30: Repair config.json collector cron scheduling (status: complete; release 5.44)
 Expected happy path: a collector with a valid five-field `cron` expression in
 the effective config.json runs once in each matching local-time minute, follows
@@ -479,3 +497,126 @@ harness reported `Blank-environment integration run passed`. Its unique
 Compose project exited 0 and was removed. Post-push Scorecard verification is
 not recorded because no push was requested; the repository-side verification
 above does not claim that external status.
+
+Problem 12 follow-up: Resolve dotted workspace names as tmux session names
+(git ref: pending) (status: functional regression passes; release pending)
+Expected outcome: `d2 workspace ch.docker -c` changes to the configured alias
+directory and attaches to the tmux session created for logical workspace
+`ch.docker`. A concurrently-created duplicate may be reused only after the
+session's existence and logical `WORKSPACE_REF` are verified; unrelated tmux
+errors and normalized-name collisions remain visible.
+Reproduction: in Docker, `tmux new-session -d -s ch.docker` creates a session
+listed as `ch_docker`; `tmux has-session -t ch.docker` instead parses the dot as
+a session/window target and exits 1 (`can't find pane: docker`). The previous
+workspace code queried `ch.docker`, then attempted `new-session -s ch.docker`,
+which tmux normalized to the already-existing `ch_docker` and rejected as a
+duplicate. Red-first assertions in `t/91-cli-ticket-coverage.t` exposed the
+query/create mismatch. The fix consistently uses tmux's underscore-normalized
+name, preserves the dotted logical reference in the environment, rejects a
+tagged collision with another workspace, and rechecks confirmed duplicate
+creation races. Docker reproduction now lists `ch_docker` and reports
+`workspace=ch.docker tmux_session=ch_docker reused=1 created=0`.
+
+Problem 32: Separate command/path completion and make cdr completion responsive
+(git ref: pending) (status: functional regressions pass; release pending)
+Expected outcome: `d2 <TAB>` and `d2 <skill>. <TAB>` offer command candidates,
+not path aliases; `d2 workspace <TAB>` offers configured and Folder.pm path
+aliases beside existing tmux sessions. `cdr` TAB completion lists direct
+children and descends one directory level for each entered narrowing term; it
+must not recursively walk unrelated descendants.
+Reproduction: install a skill exposing both `cli/run` and a `Folder.pm` alias,
+then compare `d2 <skill>.` against `d2 workspace <skill>.`; run cdr completion
+from a large checkout containing nested dependency trees. Before the fix, the
+top-level dotted skill completion mixed commands and path aliases, workspace
+completion omitted aliases, and `cdr` completion recursively walked directory
+trees (the Docker repository fixture returned 1,350 candidate lines). Red-first
+tests in `t/69-cli-complete-coverage.t` and `t/90-cli-paths-coverage.t` failed
+for these mismatches. The fix separates candidate namespaces and narrows `cdr`
+one level per entered term. Docker verification returned 40 immediate
+candidates in 0.131 seconds. Regression tests passed in Docker. The current full
+suite passed 257 files / 22,371 tests. A test-only assertion added to
+`t/69-cli-complete-coverage.t` exercises the sole previously uncovered
+condition; after rerunning it under Devel::Cover, the aggregate checker reports
+all four library metrics at 100.0%. The coverage-gate command itself must be
+rerun on the final test tree before release can claim a clean gate.
+
+Problem 33: Keep an unregistered first `cdr` word as a search pattern
+(status: behavior verified; regression guard added)
+Expected outcome: when the first `cdr` argument is not a registered path alias,
+it remains the first regex search term, followed by any later terms; it is not
+dropped or treated as a fatal alias lookup. TAB completion must apply that
+first word while narrowing candidates.
+Reproduction: from a fixture directory containing `alpha/red/target`, run
+`cdr alpha red` and `dashboard path complete-cdr 2 alpha red`. The implementation
+already retained all words when alias lookup failed; new assertions in
+`t/90-cli-paths-coverage.t` prove target resolution and later-term narrowing.
+The Docker regression passed. No production change was necessary for this item.
+
+Problem 34: Limit ecosystem Compose services to the local Compose project
+(git ref: pending) (status: implementation and Docker regression pass; release pending)
+Expected outcome: if the invocation directory contains a supported local
+`compose.yml`, `compose.yaml`, `docker-compose.yml`, or `docker-compose.yaml`,
+that file is the base project. Runtime-discovered services absent from the
+local Compose `services:` map are ignored by default; services present locally
+can receive their matching ecosystem overlays. Explicitly requested services
+and marker behavior must be tested separately so this default does not silently
+block deliberate opt-in.
+Reproduction: create a local compose file declaring only `foo`, add runtime
+service folders for `foo`, `bar`, and `bob`, then run `d2 docker compose config`.
+Expected output includes local `foo` and its applicable overlays, not automatic
+`bar` or `bob` definitions. Root cause: unscoped auto-discovery gathered every
+enabled ecosystem service without intersecting with the invocation directory's
+Compose service map. The Docker red test reproduced that mismatch. The resolver
+now parses local base service names, filters automatic discovery, preserves
+explicit selectors and no-local-file behavior, and reports malformed YAML.
+The Docker regressions and full suite pass; release checks remain outstanding.
+
+Current-cycle final audit (2026-10-03): `t/90`, `t/91`, and `t/94` passed in
+Docker (3 files / 359 assertions); the added completion defensive-branch test
+passed `t/69` (71 assertions); corrected `t/590` passed 17 assertions. The full
+instrumented suite passed 257 files / 22,371 tests. Initial four-metric gate
+result: statement/branch/subroutine 100%, condition 99.9%, exit 1. After the
+new `t/69` case ran under Devel::Cover using the same database, the aggregate
+checker reported 100.0% for all four library metrics and no stale annotations.
+This is a combined full-suite plus focused instrumented-test result, not a
+successful clean exit from a single full gate invocation. Devel::Cover emitted
+warnings about ephemeral skill fixtures deleted before report generation and
+the custom database marker; these warnings remain visible and are not
+described as warning-free verification.
+
+The Markdown index `doc/problem-report.md` is maintained in numerical order;
+this text file preserves the longer chronological audit. Keep status and
+verification facts consistent between the two files.
+
+Final release-gate correction (2026-10-03): after that earlier audit, the full
+5.48 instrumented suite was rerun with the defensive completion assertion
+included and passed 257 files / 22,372 tests. The four-metric checker exited
+successfully at 100.0% statement, branch, condition, and subroutine coverage
+(45,335 detail rows, no stale annotations). Devel::Cover still emitted
+warnings for temporary skill fixture files removed during tests; this result
+is not described as warning-free. `dzil build` produced
+`Developer-Dashboard-5.48.tar.gz`; `d2 docker.images.build` completed and a
+fresh image returned `d2 version` 5.48. The blank-environment Compose run then
+installed the host-built tarball with `cpanm` without `--notest`, ran the
+distribution test suite, and completed the integration script successfully.
+The Compose project needed an explicit `--project` directory and a temporary
+network override to use the existing shared network; no unrelated container
+was inspected or changed. Problems 12, 32, 33, and 34 now have completed
+functional, coverage, packaging, image, and blank-install evidence; commit
+remains pending.
+
+Documentation/release refresh (2026-10-03): the numbered Markdown report had
+been behind the current verification state, so its Problem 12, 32, 33, and 34
+statuses and completed 5.48 evidence were brought current. Because the report is
+included in the release archive and the Docker image helper rejects rebuilding
+an already-used version, the report refresh moved release metadata to 5.49.
+All 76 library module versions and dist.ini were aligned; Changes, FIXED_BUGS,
+README/POD synchronization, and the report were updated. The 5.49 full Docker
+coverage run passed 257 files / 22,732 tests. All four library metrics were
+100.0% (45,335 detail rows, no stale annotations). Devel::Cover emitted the
+same known warnings for temporary fixture files removed before digesting.
+The 5.49 archive was built, `d2 docker.images.build` completed, and a fresh
+image returned version 5.49. The blank-container rerun installed that archive
+using `cpanm` without `--notest`, passed its distribution suite, and ended with
+“Blank-environment integration run passed.” Thus the 5.49 release gates and
+problem fixes are committed; no push was performed.

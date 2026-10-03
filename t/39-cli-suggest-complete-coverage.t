@@ -70,13 +70,26 @@ use Developer::Dashboard::CLI::Suggest ();
     local $ENV{HOME} = $completion_home;
     is_deeply(
         [ Developer::Dashboard::CLI::Complete::complete( words => [ 'd2', 'completion-skill.' ], index => 1 ) ],
-        [ map { "completion-skill.$_" } qw(a b c d e f g) ],
-        'd2 completion after a skill prefix merges Folder->__list__ aliases with skill config aliases',
+        [],
+        'd2 command completion after a skill prefix does not mix in Folder.pm or config path aliases',
     );
     is_deeply(
-        [ Developer::Dashboard::CLI::Complete::complete( words => [ 'd2', 'completion-skill.c' ], index => 1 ) ],
+        [ Developer::Dashboard::CLI::Complete::complete(
+            words => [ 'd2', 'workspace', 'completion-skill.' ],
+            index => 2,
+            ticket_sessions => sub { return () },
+        ) ],
+        [ map { "completion-skill.$_" } qw(a b c d e f g) ],
+        'workspace completion merges Folder->__list__ aliases with skill config aliases',
+    );
+    is_deeply(
+        [ Developer::Dashboard::CLI::Complete::complete(
+            words => [ 'd2', 'workspace', 'completion-skill.c' ],
+            index => 2,
+            ticket_sessions => sub { return () },
+        ) ],
         ['completion-skill.c'],
-        'd2 skill path alias completion filters the module-provided aliases by the current prefix',
+        'workspace path alias completion filters module-provided aliases by the current prefix',
     );
 }
 

@@ -1441,8 +1441,8 @@ like( $paths_output, qr/home_runtime_root/, 'CLI::Paths default table includes t
     is( $stderr, '', 'CLI::Paths complete-cdr writes no stderr for alias-root completion candidates' );
     is_deeply(
         [ grep { length } split /\n/, $stdout ],
-        [qw(team-alpha team-alpha-red)],
-        'CLI::Paths complete-cdr suggests alias-root directory basenames that match the current prefix',
+        [qw(team-alpha)],
+        'CLI::Paths complete-cdr suggests only direct alias-root children matching the current prefix',
     );
 
     ( $stdout, $stderr ) = capture {
@@ -1484,8 +1484,8 @@ like( $paths_output, qr/home_runtime_root/, 'CLI::Paths default table includes t
     is( $stderr, '', 'CLI::Paths complete-cdr writes no stderr for current-directory completion candidates' );
     is_deeply(
         [ grep { length } split /\n/, $stdout ],
-        [qw(docs-alpha docs-alpha-red)],
-        'CLI::Paths complete-cdr suggests current-directory basenames that match the current prefix',
+        ['docs-alpha'],
+        'CLI::Paths complete-cdr lists direct current-directory children without recursively suggesting nested descendants',
     );
 
     ( $stdout, $stderr ) = capture {
@@ -5313,7 +5313,9 @@ __END__
 
 This test closes direct branch coverage for private helper packaging, query
 parsing, runtime results, path registries, isolated skills, and cross-shell
-prompt bootstrap delegation to the common C<dashboard ps1> renderer.
+prompt bootstrap delegation to the common C<dashboard ps1> renderer. Its path
+completion checks also ensure cdr suggestions advance one directory level at
+a time rather than recursively scanning alias targets.
 
 =for comment FULL-POD-DOC START
 
@@ -5327,8 +5329,9 @@ It exists because the hard-to-hit branches that keep library coverage honest has
 
 =head1 WHEN TO USE
 
-Use this file when changing helper packaging, query parsing, path registries,
-skill dispatch, or the generated Bash, Zsh, sh, and PowerShell prompt adapters.
+Use this file when changing helper packaging, query parsing, path registries
+and cdr completion, skill dispatch, or the generated Bash, Zsh, sh, and
+PowerShell prompt adapters.
 The shell bootstrap assertions verify the shell-specific hook delegates to the
 same C<dashboard ps1> output path.
 

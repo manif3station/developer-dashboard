@@ -44,6 +44,8 @@ chdir $home or die "Unable to chdir to $home: $!";
 
 my $repo = File::Spec->catdir( $home, 'projects', 'demo-app' );
 make_path( File::Spec->catdir( $repo, '.git' ) );
+my $auto_repo = File::Spec->catdir( $home, 'projects', 'auto-discovery' );
+make_path( File::Spec->catdir( $auto_repo, '.git' ) );
 open my $compose_fh, '>', File::Spec->catfile( $repo, 'compose.yaml' ) or die $!;
 print {$compose_fh} "services:\n  app:\n    image: perl:latest\n";
 close $compose_fh;
@@ -170,6 +172,13 @@ close $local_green_dev_fh;
 open my $local_green_development_marker_fh, '>', File::Spec->catfile( $local_docker_green_root, 'develop.yml' ) or die $!;
 print {$local_green_development_marker_fh} "---\ndevelopment: 1\n";
 close $local_green_development_marker_fh;
+my $auto_green_root = File::Spec->catdir( $auto_repo, '.developer-dashboard', 'config', 'docker', 'green' );
+make_path($auto_green_root);
+open my $auto_green_dev_fh, '>', File::Spec->catfile( $auto_green_root, 'development.compose.yml' ) or die $!;
+print {$auto_green_dev_fh} "services:\n  green:\n    environment:\n      GREEN_DEV: local\n";
+close $auto_green_dev_fh;
+open my $auto_green_development_marker_fh, '>', File::Spec->catfile( $auto_green_root, 'develop.yml' ) or die $!;
+close $auto_green_development_marker_fh;
 
 my $paths = Developer::Dashboard::PathRegistry->new(
     home => $home,
@@ -410,7 +419,7 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
 
 {
     my $old = Cwd::getcwd();
-    chdir $repo or die $!;
+    chdir $auto_repo or die $!;
     my $docker = Developer::Dashboard::DockerCompose->new(
         config  => $config,
         paths   => $paths,
@@ -443,7 +452,7 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
 
 {
     my $old = Cwd::getcwd();
-    chdir $repo or die $!;
+    chdir $auto_repo or die $!;
     my $docker = Developer::Dashboard::DockerCompose->new(
         config  => $config,
         paths   => $paths,
@@ -592,44 +601,48 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
 
 {
     my $old = Cwd::getcwd();
-    chdir $repo or die $!;
+    chdir $auto_repo or die $!;
     my $docker = Developer::Dashboard::DockerCompose->new(
         config => $config,
         paths  => $paths,
     );
 
-    my $local_blue_root = File::Spec->catdir( $repo, '.developer-dashboard', 'config', 'docker', 'blue' );
+    my $local_blue_root = File::Spec->catdir( $auto_repo, '.developer-dashboard', 'config', 'docker', 'blue' );
     make_path($local_blue_root);
     ok(
-        $docker->_service_folder_is_disabled( project_root => $repo, service => 'blue' ),
+        $docker->_service_folder_is_disabled( project_root => $auto_repo, service => 'blue' ),
         'Problem 31: disabled.yml in a shallower service config layer remains effective when a deeper service folder exists',
     );
-    my $blue_resolved = $docker->resolve( args => ['config'] );
+    my $blue_resolved = $docker->resolve( project_root => $auto_repo, args => ['config'] );
     ok(
         !grep( { $_ eq 'blue' } @{ $blue_resolved->{services} } ),
         'Problem 31: a shallower disabled.yml marker excludes the service from resolved Compose configuration',
     );
 
-    unlink File::Spec->catfile( $local_docker_green_root, 'develop.yml' ) or die $!;
+    my $auto_green_root = File::Spec->catdir( $auto_repo, '.developer-dashboard', 'config', 'docker', 'green' );
+    make_path($auto_green_root);
+    my $auto_green_develop = File::Spec->catfile( $auto_green_root, 'develop.yml' );
+    open my $auto_develop_fh, '>', $auto_green_develop or die $!;
+    close $auto_develop_fh or die $!;
     my $global_green_develop = File::Spec->catfile( $global_docker_root, 'develop.yml' );
     open my $global_develop_fh, '>', $global_green_develop or die $!;
     close $global_develop_fh or die $!;
     ok(
-        $docker->_service_folder_is_development( project_root => $repo, service => 'green' ),
+        $docker->_service_folder_is_development( project_root => $auto_repo, service => 'green' ),
         'Problem 31: develop.yml in a shallower service config layer remains effective when deeper service folders exist',
     );
-    my $green_resolved = $docker->resolve( args => ['config'] );
+    my $green_resolved = $docker->resolve( project_root => $auto_repo, args => ['config'] );
     ok(
         grep( { /green\/development\.compose\.yml$/ } @{ $green_resolved->{files} } ),
         'Problem 31: a shallower develop.yml marker enables the development overlay stack-wide',
     );
-    my $disabled_development = $docker->disable_service_development( project_root => $repo, service => 'green' );
+    my $disabled_development = $docker->disable_service_development( project_root => $auto_repo, service => 'green' );
     ok(
         !-e $global_green_develop && !-e $disabled_development->{marker},
         'Problem 31: disabling development removes develop.yml markers from every service layer',
     );
     ok(
-        !$docker->_service_folder_is_development( project_root => $repo, service => 'green' ),
+        !$docker->_service_folder_is_development( project_root => $auto_repo, service => 'green' ),
         'Problem 31: removing all development markers disables the overlay stack-wide',
     );
     chdir $old or die $!;

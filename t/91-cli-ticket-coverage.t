@@ -725,6 +725,15 @@ like( error_from( sub { session_exists() } ), qr/Missing session name/, 'session
 
 is( session_exists( session => 'DD-1', tmux => ok_tmux() ), 1, 'session_exists reports an existing session' );
 is( session_exists( session => 'DD-1', tmux => tmux_stub( sub { return { exit_code => 1 } } ) ), 0, 'session_exists reports a missing session' );
+{
+    my @session_query;
+    session_exists(
+        session => 'ch.docker',
+        tmux    => tmux_stub( sub { @session_query = @_; return { exit_code => 0 } } ),
+    );
+    is_deeply( \@session_query, [ 'has-session', '-t', 'ch_docker' ],
+        'session_exists uses tmux-normalized names when a workspace contains dots' );
+}
 
 {
     my $err = error_from( sub { session_exists( session => 'DD-1', tmux => tmux_stub( sub { return { exit_code => 2, stderr => "inspect refused\n", stdout => "inspect detail\n" } } ) ) } );
@@ -749,6 +758,15 @@ is_deeply(
     [ 'alpha', 'beta' ],
     'list_sessions splits session names on either line ending and drops blank lines',
 );
+
+is( Developer::Dashboard::CLI::Ticket::_tmux_session_name('ch.docker'), 'ch_docker',
+    '_tmux_session_name mirrors tmux period-to-underscore normalization' );
+is( Developer::Dashboard::CLI::Ticket::_tmux_session_name('DD-123'), 'DD-123',
+    '_tmux_session_name leaves ordinary workspace references unchanged' );
+like( error_from( sub { Developer::Dashboard::CLI::Ticket::_tmux_session_name() } ), qr/Missing session name/,
+    '_tmux_session_name rejects an absent workspace reference' );
+like( error_from( sub { Developer::Dashboard::CLI::Ticket::_tmux_session_name('') } ), qr/Missing session name/,
+    '_tmux_session_name rejects an empty workspace reference' );
 is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } } ) ) ], [], 'list_sessions reports no sessions when tmux has no server running' );
 
 {
@@ -781,11 +799,237 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
     my $create_plan = build_ticket_plan( args => ['DD-3'], cwd => $ws_dir, tmux => tmux_stub( sub { return { exit_code => 1 } } ) );
     is( $create_plan->{cwd},    $ws_dir, 'build_ticket_plan honours an explicit session cwd' );
     is( $create_plan->{create}, 1,       'build_ticket_plan asks for creation when the session does not exist' );
+    is( $create_plan->{tmux_session}, 'DD-3', 'build_ticket_plan records the exact tmux session name separately from the workspace reference' );
     is_deeply( $create_plan->{attach_argv}, [ 'attach-session', '-t', 'DD-3' ], 'build_ticket_plan builds the attach argv for the resolved session' );
     is( $create_plan->{create_argv}[0], 'new-session', 'build_ticket_plan builds a detached new-session argv' );
 }
 
 # --- run_workspace_command / run_ticket_command -----------------------------
+
+{
+    my @calls;
+    my $has_session_calls = 0;
+    my $tmux = sub {
+        my (%args) = @_;
+        my @argv = @{ $args{args} || [] };
+        push @calls, [@argv];
+        if ( $argv[0] eq 'has-session' ) {
+            $has_session_calls++;
+            return { exit_code => $has_session_calls == 1 ? 1 : 0 };
+        }
+        if ( $argv[0] eq 'new-session' ) {
+            return { exit_code => 1, stderr => "duplicate session: ch.docker\n" };
+        }
+        return { exit_code => 0 };
+    };
+    my @attached;
+    my $old_cwd = cwd();
+    my $plan = run_workspace_command(
+        args       => [ 'ch.docker', '-c' ],
+        resolve_dir => sub { return $ws_dir },
+        tmux       => $tmux,
+        attach     => sub { my (%args) = @_; push @attached, $args{args}; return { exit_code => 0 } },
+    );
+    chdir $old_cwd or die "Unable to restore cwd to $old_cwd: $!";
+    is( $plan->{exists}, 1, 'run_workspace_command accepts a duplicate-session response after confirming the session now exists' );
+    is( $plan->{create}, 0, 'run_workspace_command updates its plan when another caller created the session first' );
+    is( $has_session_calls, 2, 'run_workspace_command rechecks session state only after a failed create' );
+    is( scalar( grep { $_->[0] eq 'new-session' } @calls ), 1, 'run_workspace_command makes only one create attempt for a racing session' );
+    my ($create_call) = grep { $_->[0] eq 'new-session' } @calls;
+    my ($session_flag) = grep { $create_call->[$_] eq '-s' } 0 .. $#{$create_call};
+    is( $create_call->[ $session_flag + 1 ], 'ch_docker', 'run_workspace_command creates dotted workspaces under tmux-normalized names' );
+    is_deeply( $attached[0], [ 'attach-session', '-t', 'ch_docker' ], 'run_workspace_command attaches using the tmux-normalized session target' );
+}
+
+{
+    my $has_session_calls = 0;
+    my $tmux = sub {
+        my (%args) = @_;
+        my $operation = $args{args}[0];
+        return { exit_code => ++$has_session_calls <= 2 ? 1 : 0 } if $operation eq 'has-session';
+        return { exit_code => 1, stderr => "duplicate session: ch.docker\n" } if $operation eq 'new-session';
+        return { exit_code => 0 };
+    };
+    like(
+        error_from( sub { run_workspace_command( args => ['ch.docker'], tmux => $tmux, attach => sub { return { exit_code => 0 } } ) } ),
+        qr/Unable to create tmux ticket session 'ch\.docker': duplicate session/,
+        'run_workspace_command reports the duplicate when a successful session recheck still finds no session',
+    );
+}
+
+{
+    my $has_calls = 0;
+    my $tmux = sub {
+        my (%args) = @_;
+        my @argv = @{ $args{args} || [] };
+        if ( $argv[0] eq 'has-session' ) {
+            $has_calls++;
+            return { exit_code => 1 } if $has_calls == 1;
+            return { exit_code => 2, stderr => "server unavailable\n" };
+        }
+        return { exit_code => 1, stderr => "duplicate session: ch.docker\n" }
+          if $argv[0] eq 'new-session';
+        return { exit_code => 0 };
+    };
+    my $err = error_from(
+        sub {
+            run_workspace_command(
+                args        => ['ch.docker'],
+                tmux        => $tmux,
+                resolve_dir => sub { return undef },
+                attach      => sub { return { exit_code => 0 } },
+            );
+        }
+    );
+    like( $err, qr/Unable to create tmux ticket session 'ch\.docker': duplicate session/,
+        'run_workspace_command preserves a duplicate error when the recheck says the session is still absent' );
+}
+
+{
+    my $has_calls = 0;
+    my $tmux = sub {
+        my (%args) = @_;
+        my @argv = @{ $args{args} || [] };
+        if ( $argv[0] eq 'has-session' ) {
+            $has_calls++;
+            return { exit_code => 1 } if $has_calls == 1;
+            return { exit_code => 2, stderr => "server unavailable\n" };
+        }
+        return { exit_code => 1, stderr => "duplicate session: ch.docker\n" }
+          if $argv[0] eq 'new-session';
+        return { exit_code => 2, stderr => "server unavailable\n" };
+    };
+    my $err = error_from(
+        sub {
+            run_workspace_command(
+                args   => ['ch.docker'],
+                tmux   => $tmux,
+                attach => sub { return { exit_code => 0 } },
+            );
+        }
+    );
+    like( $err, qr/duplicate session: ch\.docker.*Session recheck failed: Unable to inspect tmux session 'ch\.docker': server unavailable/s,
+        'run_workspace_command reports both the create race and failed confirmation query' );
+}
+
+{
+    my @attached;
+    my $tmux = sub {
+        my (%args) = @_;
+        my @argv = @{ $args{args} || [] };
+        return { exit_code => 0 }
+          if $argv[0] eq 'has-session';
+        return { exit_code => 0, stdout => "WORKSPACE_REF=ch_docker\n" }
+          if $argv[0] eq 'show-environment' && $argv[-1] eq 'WORKSPACE_REF';
+        return { exit_code => 0 };
+    };
+    my $err = error_from(
+        sub {
+            run_workspace_command(
+                args   => ['ch.docker'],
+                tmux   => $tmux,
+                attach => sub { my (%args) = @_; push @attached, $args{args}; return { exit_code => 0 } },
+            );
+        }
+    );
+    like( $err, qr/Tmux session 'ch_docker' belongs to workspace 'ch_docker', not 'ch\.docker'/,
+        'run_workspace_command refuses to attach to an unrelated workspace that collides after tmux dot normalization' );
+    is( scalar @attached, 0, 'run_workspace_command does not attach after detecting a normalized-name collision' );
+}
+
+{
+    like(
+        error_from( sub { Developer::Dashboard::CLI::Ticket::_verify_workspace_session_identity( tmux_session => 'ch_docker' ) } ),
+        qr/Missing workspace name/,
+        '_verify_workspace_session_identity requires a logical workspace name',
+    );
+    like(
+        error_from( sub { Developer::Dashboard::CLI::Ticket::_verify_workspace_session_identity( workspace => 'ch.docker' ) } ),
+        qr/Missing session name/,
+        '_verify_workspace_session_identity requires a normalized tmux session name',
+    );
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CLI::Ticket::tmux_command = sub { return { exit_code => 1 }; };
+        is(
+            Developer::Dashboard::CLI::Ticket::_verify_workspace_session_identity(
+                workspace    => 'ch.docker',
+                tmux_session => 'ch_docker',
+                tmux         => undef,
+            ),
+            1,
+            '_verify_workspace_session_identity accepts tmux absence as the ordinary missing-session result',
+        );
+    }
+
+    is(
+        Developer::Dashboard::CLI::Ticket::_verify_workspace_session_identity(
+            workspace    => 'ch.docker',
+            tmux_session => 'ch_docker',
+            tmux         => tmux_stub( sub { return { exit_code => 0, stdout => "WORKSPACE_REF=ch.docker\n" } } ),
+        ),
+        1,
+        '_verify_workspace_session_identity accepts the matching logical workspace environment',
+    );
+    is(
+        Developer::Dashboard::CLI::Ticket::_verify_workspace_session_identity(
+            workspace    => 'ch.docker',
+            tmux_session => 'ch_docker',
+            tmux         => tmux_stub( sub { return { exit_code => 0, stdout => "WORKSPACE_REF=\n" } } ),
+        ),
+        1,
+        '_verify_workspace_session_identity accepts a present but empty workspace marker as unowned',
+    );
+    like(
+        error_from(
+            sub {
+                Developer::Dashboard::CLI::Ticket::_verify_workspace_session_identity(
+                    workspace    => 'ch.docker',
+                    tmux_session => 'ch_docker',
+                    tmux         => tmux_stub( sub { return { exit_code => 2, stderr => "query failed\n" } } ),
+                );
+            }
+        ),
+        qr/Unable to verify tmux workspace session 'ch_docker': query failed/,
+        '_verify_workspace_session_identity reports a tmux query error',
+    );
+    like(
+        error_from(
+            sub {
+                Developer::Dashboard::CLI::Ticket::_verify_workspace_session_identity(
+                    workspace    => 'ch.docker',
+                    tmux_session => 'ch_docker',
+                    tmux         => tmux_stub( sub { return { exit_code => 2, stderr => '', stdout => 'query output' } } ),
+                );
+            }
+        ),
+        qr/Unable to verify tmux workspace session 'ch_docker': query output/,
+        '_verify_workspace_session_identity preserves stdout when tmux stderr is empty',
+    );
+    like(
+        error_from(
+            sub {
+                Developer::Dashboard::CLI::Ticket::_verify_workspace_session_identity(
+                    workspace    => 'ch.docker',
+                    tmux_session => 'ch_docker',
+                    tmux         => tmux_stub( sub { return { exit_code => 2, stderr => 'query stderr', stdout => '' } } ),
+                );
+            }
+        ),
+        qr/Unable to verify tmux workspace session 'ch_docker': query stderr/,
+        '_verify_workspace_session_identity preserves stderr when tmux stdout is empty',
+    );
+    is(
+        Developer::Dashboard::CLI::Ticket::_verify_workspace_session_identity(
+            workspace    => 'ch.docker',
+            tmux_session => 'ch_docker',
+            tmux         => tmux_stub( sub { return { exit_code => 1 } } ),
+        ),
+        1,
+        '_verify_workspace_session_identity treats exit status one as a missing session',
+    );
+}
 
 {
     my $tmux = tmux_stub(
@@ -1084,7 +1328,8 @@ coverage.
 =head1 WHEN TO USE
 
 Use this file when changing how the helper picks a workspace name, what tmux
-environment variables a session is seeded with, how the top status row is
+environment variables a session is seeded with, how concurrent duplicate
+session creation is handled, how the top status row is
 composed, how C<-c> resolves a registered directory, or how tmux failures are
 reported back to the user. It also pins path-alias chdir failures for both the
 ordinary and C<-c> forms - and whenever the coverage gate reports an
@@ -1099,7 +1344,10 @@ under C<prove -lr t> and under the Devel::Cover run before release. The test is
 hermetic: it roots HOME at a temporary directory and moves the process into
 it. A public-entrypoint subprocess invokes C<bin/d2> with a fake C<tmux>, so
 C<workspace -c> is verified through the short command without contacting a
-real tmux server.
+real tmux server. A race fixture makes the initial existence query miss a
+session, returns tmux's duplicate-session error on creation, and confirms the
+second query controls whether attachment proceeds; an unconfirmed duplicate
+and a failed confirmation query remain visible errors.
 
 =head1 WHAT USES IT
 

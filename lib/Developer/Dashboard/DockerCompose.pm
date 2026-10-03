@@ -3,7 +3,7 @@ package Developer::Dashboard::DockerCompose;
 use strict;
 use warnings;
 
-our $VERSION = '5.46';
+our $VERSION = '5.49';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -12,6 +12,7 @@ use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp ();
+use YAML::XS ();
 
 use Developer::Dashboard::EnvLoader;
 use Developer::Dashboard::JSON qw(json_encode);
@@ -49,13 +50,15 @@ sub _default_project_root {
 sub resolve {
     my ( $self, %args ) = @_;
     my $project_root = $self->_default_project_root( $args{project_root}, $self->{paths}->current_project_root );
+    my $compose_root = $self->_base_compose_root($project_root);
     my $docker_cfg  = $self->{config}->docker_config;
     my $docker_root = $self->_docker_config_root;
     my @passthrough = @{ $args{args} || [] };
     my @compose_files = ();
     my @layers;
 
-    my @base = $self->_discover_base_files($project_root);
+    my @base = $self->_discover_base_files($compose_root);
+    my $local_compose_services = @base ? $self->_local_compose_services(\@base) : undef;
     push @compose_files, @base;
     push @layers, { name => 'base', files => [@base] };
 
@@ -75,11 +78,19 @@ sub resolve {
     my %service_map = (
         %{ $docker_cfg->{services} || {} },
     );
-    my @services = $self->_resolve_effective_services(
-        requested    => $args{services} || [],
-        passthrough  => \@passthrough,
+    my @requested_services = @{ $args{services} || [] };
+    my @inferred_services = $self->_infer_services_from_args(
+        args         => \@passthrough,
         project_root => $project_root,
         service_map  => \%service_map,
+    );
+    my $has_explicit_services = @requested_services || @inferred_services;
+    my @services = $self->_resolve_effective_services(
+        requested             => \@requested_services,
+        inferred              => \@inferred_services,
+        project_root          => $project_root,
+        service_map           => \%service_map,
+        local_compose_services => $local_compose_services,
     );
 
     # DD-862: file-gathering must use every ENABLED service, not just the
@@ -91,10 +102,12 @@ sub resolve {
     # @services (the requested/effective set) still governs everything else
     # below - env resolution, the resolved "services" field - only the FILE
     # set widens here.
-    my @enabled_services = $self->_discover_enabled_services(
+    my @enabled_services = $has_explicit_services
+      ? $self->_discover_enabled_services(
         project_root => $project_root,
         service_map  => \%service_map,
-    );
+      )
+      : @services;
     my %file_gather_seen;
     my @file_gather_services = grep { !$file_gather_seen{$_}++ } ( @services, @enabled_services );
 
@@ -149,6 +162,7 @@ sub resolve {
 
     return {
         project_root => $project_root,
+        compose_root => $compose_root,
         addons       => \@addons,
         modes        => \@modes,
         services     => \@services,
@@ -165,23 +179,20 @@ sub resolve {
 # Determines the final service list: explicitly requested services, plus any
 # inferred from passthrough args, falling back to auto-discovered enabled
 # services when nothing else names any.
-# Input: requested (array ref), passthrough (array ref), project_root,
-# service_map (hash ref).
+# Input: requested and pre-inferred service arrays, local Compose service map,
+# project_root, and the service definition map.
 # Output: deduplicated list of service names.
 sub _resolve_effective_services {
     my ( $self, %args ) = @_;
     my @services = @{ $args{requested} };
-    my @inferred_services = $self->_infer_services_from_args(
-        args         => $args{passthrough},
-        project_root => $args{project_root},
-        service_map  => $args{service_map},
-    );
+    my @inferred_services = @{ $args{inferred} };
     my %service_seen;
     @services = grep { !$service_seen{$_}++ } ( @services, @inferred_services );
     if ( !@services ) {
         my @auto_services = $self->_discover_enabled_services(
-            project_root => $args{project_root},
-            service_map  => $args{service_map},
+            project_root           => $args{project_root},
+            service_map            => $args{service_map},
+            local_compose_services => $args{local_compose_services},
         );
         @services = grep { !$service_seen{$_}++ } @auto_services;
     }
@@ -381,7 +392,8 @@ sub _discover_enabled_services {
     my ( $self, %args ) = @_;
     my @services = $self->_discover_service_names(%args);
     return grep {
-        !$self->_service_folder_is_disabled(
+        (!ref( $args{local_compose_services} ) || exists $args{local_compose_services}{$_})
+          && !$self->_service_folder_is_disabled(
             project_root => $args{project_root},
             service      => $_,
         )
@@ -846,7 +858,8 @@ sub run {
     return $resolved if $args{dry_run};
 
     my $old = cwd();
-    chdir $resolved->{project_root} or die "Unable to chdir to $resolved->{project_root}: $!";
+    my $compose_root = $resolved->{compose_root};
+    chdir $compose_root or die "Unable to chdir to $compose_root: $!";
     local @ENV{ keys %{ $resolved->{env} } } = values %{ $resolved->{env} } if %{ $resolved->{env} };
     my $run_command = $self->_materialized_command($resolved);
     my ( $stdout, $stderr, $exit_code ) = capture {
@@ -921,6 +934,45 @@ sub _discover_base_files {
     my ( $self, $root ) = @_;
     my @candidates = qw(compose.yml compose.yaml docker-compose.yml docker-compose.yaml);
     return grep { -f $_ } map { File::Spec->catfile( $root, $_ ) } @candidates;
+}
+
+# _base_compose_root($project_root)
+# Prefers an invocation-directory Compose file so the caller's local project
+# defines the base stack; otherwise the discovered project root remains the
+# base directory.
+# Input: resolved project root directory.
+# Output: invocation directory when it contains a standard Compose file, else
+#         the supplied project root.
+sub _base_compose_root {
+    my ( $self, $project_root ) = @_;
+    my $invocation_root = cwd();
+    return $invocation_root if $self->_discover_base_files($invocation_root);
+    return $project_root;
+}
+
+# _local_compose_services($files)
+# Reads service names from local base Compose files to scope automatic runtime
+# overlays to services the local project actually declares.
+# Input: array reference of base Compose file paths.
+# Output: hash reference keyed by declared service names; malformed YAML or
+#         invalid services mappings die with the offending file named.
+sub _local_compose_services {
+    my ( $self, $files ) = @_;
+    die "Compose base files must be an array reference\n" if ref($files) ne 'ARRAY';
+
+    my %services;
+    for my $file ( @{$files} ) {
+        my $document = eval { YAML::XS::LoadFile($file) };
+        die "Unable to parse local Compose file '$file': $@" if $@;
+        die "Local Compose file '$file' must contain a mapping\n" if ref($document) ne 'HASH';
+        next if !exists $document->{services};
+        die "Local Compose file '$file' services must be a mapping\n" if ref( $document->{services} ) ne 'HASH';
+        for my $name ( keys %{ $document->{services} } ) {
+            die "Local Compose file '$file' has an invalid service name\n" if $name eq '';
+            $services{$name} = 1;
+        }
+    }
+    return \%services;
 }
 
 # _contained_service_path($root, $service)
@@ -1038,11 +1090,20 @@ Developer::Dashboard::DockerCompose - compose resolver and launcher
 This module resolves layered docker compose inputs into a final transparent
 docker compose command line and can optionally execute it.
 
+When a standard Compose file exists in the invocation directory, it is used as
+the local base and the command runs from that directory. Unscoped automatic
+runtime overlays are restricted to service names in that base file's
+C<services:> map. Explicit service selectors remain opt-in, while the absence
+of a local Compose file preserves ecosystem-wide service discovery. YAML
+syntax and service-map errors are reported with their source path.
+
 =head1 METHODS
 
 =head2 new, resolve, list_services, run
 
 Construct, resolve, list, and optionally execute compose operations.
+C<resolve> returns both the project discovery root and the effective Compose
+working root so nested invocation directories retain their local project file.
 
 =head2 enable_service_development, disable_service_development
 

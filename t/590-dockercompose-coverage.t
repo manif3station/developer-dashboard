@@ -128,7 +128,13 @@ my $docker = Developer::Dashboard::DockerCompose->new( config => $config, paths 
     make_path($work);
     no warnings 'redefine';
     local *Developer::Dashboard::DockerCompose::resolve = sub {
-        return { project_root => $work, env => {}, files => [], command => ['true'] };
+        return {
+            project_root => $work,
+            compose_root => $work,
+            env          => {},
+            files        => [],
+            command      => ['true'],
+        };
     };
     local *Developer::Dashboard::DockerCompose::_materialized_command = sub { return ['true'] };
 
@@ -177,7 +183,10 @@ t/590-dockercompose-coverage.t - covers the failure-injection and defaulting bra
 
 =head1 PURPOSE
 
-Test file in the Developer Dashboard codebase. It forces close, open and chdir failures and duplicate runtime layers without any uncoverable annotations.
+Test file in the Developer Dashboard codebase. It forces close, open and chdir
+failures and duplicate runtime layers without uncoverable annotations. Its
+mocked C<resolve()> result includes both C<project_root> and C<compose_root>,
+matching the resolved-result contract consumed by C<run()>.
 
 =head1 WHY IT EXISTS
 

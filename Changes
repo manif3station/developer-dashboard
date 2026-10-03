@@ -1,3 +1,42 @@
+5.49  2026-10-03
+
+  - Problem 12, 32, 33, and 34 delivery follow-up: publish the final Docker,
+    coverage, package-build, and blank-container integration evidence in the
+    numbered problem report.
+  - Refresh the release archive to include the completed problem status index.
+
+5.48  2026-10-03
+
+  - Problem 12 follow-up: normalize dotted workspace refs consistently for
+    tmux session lookup and creation, and reuse a duplicate session only after
+    verifying the tagged logical workspace owner.
+  - Problem 32: separate path aliases from command completion and bound cdr
+    candidates to direct children, narrowing one directory per entered term.
+  - Problem 33: add regression coverage confirming an unregistered leading
+    cdr word remains a search term and participates in completion narrowing.
+  - Problem 34: use invocation-directory Compose files as the base project and
+    restrict automatic runtime service merging to services declared there.
+  - Add Docker regression and complete statement, branch, condition, and
+    subroutine coverage verification for the affected library.
+
+5.47  2026-10-03
+
+  - Problem 34: use invocation-directory Compose files as the local project
+    base and limit automatic runtime service overlays to declared local
+    services; keep explicit service selection and no-local-base discovery
+    behavior intact.
+  - Add Problem 33 regressions proving an unregistered first cdr argument
+    remains a search term for both target resolution and later TAB narrowing.
+  - Problem 12 follow-up: map dotted workspaces to tmux's underscore-normalized
+    session names, check existing session ownership, and confirm duplicate
+    create races before reuse.
+  - Problem 32: keep path aliases out of root command completion, offer them
+    beside tmux sessions for `workspace`, and restrict initial `cdr` TAB
+    candidates and subsequent narrowing to one directory level per term to
+    avoid recursive tree scans.
+  - Add regression tests for completion namespaces, direct-child cdr listing,
+    and concurrent workspace session creation; synchronize docs and POD.
+
 5.46  2026-10-03
 
   - Align the main manual with the blank-environment integration behavior:

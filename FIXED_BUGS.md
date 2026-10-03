@@ -1,5 +1,37 @@
 # Fixed Bugs
 
+## 5.49
+
+- Problems 12, 32, 33, and 34: complete the tracked delivery evidence for the
+  already verified behavior, including the successful blank-environment
+  package integration run.
+
+## 5.48
+
+- Problem 12 follow-up: map dotted workspace references to tmux's underscore-
+  normalized session names, verify session ownership, and safely confirm
+  duplicate-creation races before reusing a session.
+- Problem 32: separate command and path alias completion and avoid recursive
+  directory walks for each `cdr` completion step.
+- Problem 33: add an explicit regression proving unknown initial `cdr` words
+  remain search terms for navigation and completion.
+- Problem 34: scope automatic Compose service discovery to the local Compose
+  project's declared services while preserving explicit service selection.
+
+## 5.47
+
+- Problem 34: use a local Compose file as the invocation project's base and
+  scope automatic runtime overlays to its declared service names. Explicit
+  service selectors remain opt-in; no-local-file discovery is unchanged.
+- Problem 33 regression guard: prove an unknown first `cdr` token remains a
+  search term in both navigation and later-argument completion.
+- Problem 12 follow-up: map dotted workspace references to tmux's normalized
+  underscore session names, verify an existing session's `WORKSPACE_REF` to
+  reject name collisions, and confirm duplicate-session races before reuse.
+- Problem 32: separate path aliases from root command completion, expose them
+  with existing sessions under `workspace`, and bound `cdr` completion to one
+  directory level per entered term instead of recursively walking whole trees.
+
 ## 5.46
 
 - Corrected the main manual to describe plain `cpanm` test execution and the

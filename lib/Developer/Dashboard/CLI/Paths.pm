@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Paths;
 use strict;
 use warnings;
 
-our $VERSION = '5.46';
+our $VERSION = '5.49';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(basename);
@@ -568,10 +568,10 @@ sub _cdr_completion {
 
 # _cdr_initial_candidates(%args)
 # Builds first-argument completion candidates for cdr-family shell helpers from
-# saved aliases and directories beneath the current working directory.
+# saved aliases and direct child directories beneath the current directory.
 # Input: hash containing the path registry under "paths", one current-token
 # prefix under "prefix", and an array reference of roots under "include".
-# Output: ordered list of alias or directory candidate strings.
+# Output: ordered list of alias or direct-child directory candidate strings.
 sub _cdr_initial_candidates {
     my (%args) = @_;
     my $paths  = $args{paths}   || die "Missing paths registry\n";
@@ -580,23 +580,30 @@ sub _cdr_initial_candidates {
     die "cdr completion include roots must be an array reference\n" if ref($roots) ne 'ARRAY';
 
     my @candidates = grep { index( $_, $prefix ) == 0 } keys %{ $paths->named_paths || {} };
-    push @candidates, _cdr_directory_candidates(
-        paths  => $paths,
-        root   => $_,
-        terms  => [],
-        prefix => $prefix,
-    ) for grep { defined && $_ ne '' && -d $_ } @{$roots};
+    for my $root ( grep { defined && $_ ne '' && -d $_ } @{$roots} ) {
+        my $dh = _open_completion_directory($root);
+        next if !$dh;
+        while ( my $entry = readdir $dh ) {
+            next if $entry eq '.' || $entry eq '..';
+            next if index( $entry, $prefix ) != 0;
+            my $path = File::Spec->catdir( $root, $entry );
+            next if !-d $path;
+            push @candidates, $entry;
+        }
+        _close_completion_directory( $dh, $root );
+    }
 
     my %seen;
     return sort grep { $_ ne '' && !$seen{$_}++ } @candidates;
 }
 
 # _cdr_directory_candidates(%args)
-# Builds unique directory-basename candidates beneath one root for cdr-family
-# shell completion without exposing unreadable-subtree failures to the shell.
+# Builds unique directory-basename candidates beneath one root without
+# recursively searching unrelated subtrees during shell completion.
 # Input: hash containing the path registry under "paths", one search root under
 # "root", an array reference of already-accepted narrowing terms under "terms",
-# and the current token prefix under "prefix".
+# and the current token prefix under "prefix". Each accepted term narrows one
+# directory level before the next level is inspected.
 # Output: ordered list of directory basename strings.
 sub _cdr_directory_candidates {
     my (%args) = @_;
@@ -606,19 +613,64 @@ sub _cdr_directory_candidates {
     my $prefix = defined $args{prefix} ? $args{prefix} : '';
     die "cdr completion terms must be an array reference\n" if ref($terms) ne 'ARRAY';
 
-    my @matches = $paths->locate_dirs_under( $root, @{$terms} );
+    my @parents = ($root);
+    for my $term ( grep { defined && $_ ne '' } @{$terms} ) {
+        my $regex = eval { qr/$term/i };
+        die "Invalid regex '$term': $@\n" if !$regex;
+        my @next;
+        for my $parent (@parents) {
+            my $dh = _open_completion_directory($parent);
+            next if !$dh;
+            while ( my $entry = readdir $dh ) {
+                next if $entry eq '.' || $entry eq '..';
+                next if $entry !~ $regex;
+                my $path = File::Spec->catdir( $parent, $entry );
+                push @next, $path if -d $path;
+            }
+            _close_completion_directory( $dh, $parent );
+        }
+        @parents = @next;
+        last if !@parents;
+    }
+
     my %seen;
     my @candidates;
-    for my $path (@matches) {
-        next if !defined $path || $path eq '' || $path eq $root;
-        my $name = basename($path);
-        next if !defined $name || $name eq '';
-        next if $prefix ne '' && index( $name, $prefix ) != 0;
-        next if $seen{$name}++;
-        push @candidates, $name;
+    for my $parent (@parents) {
+        my $dh = _open_completion_directory($parent);
+        next if !$dh;
+        while ( my $entry = readdir $dh ) {
+            next if $entry eq '.' || $entry eq '..';
+            next if $prefix ne '' && index( $entry, $prefix ) != 0;
+            my $path = File::Spec->catdir( $parent, $entry );
+            next if !-d $path;
+            next if $seen{$entry}++;
+            push @candidates, $entry;
+        }
+        _close_completion_directory( $dh, $parent );
     }
 
     return sort @candidates;
+}
+
+# _open_completion_directory($path)
+# Opens one directory for bounded cdr completion, returning no handle when the
+# directory disappeared or cannot be read during completion.
+# Input: directory path string.
+# Output: open directory handle, or undef when opendir fails.
+sub _open_completion_directory {
+    my ($path) = @_;
+    opendir my $dh, $path or return;
+    return $dh;
+}
+
+# _close_completion_directory($handle, $path)
+# Closes one directory opened for cdr completion and reports a close failure.
+# Input: open directory handle and its path for diagnostics.
+# Output: true on success; dies naming the path when closedir fails.
+sub _close_completion_directory {
+    my ( $dh, $path ) = @_;
+    closedir $dh or die "Unable to close directory $path: $!";
+    return 1;
 }
 
 # _paths_table($paths_hash)
@@ -700,7 +752,10 @@ alias first, then call the matching method from C<Folder.pm>. If the module
 implements C<__list__>, its list-context alias names are called and merged
 into C<dashboard paths>, C<dashboard path list>, and completion output. This
 is a read-only merge: C<dashboard path add> continues to write aliases only
-to config, where a configured value overrides a same-named module method.
+to config, where a configured value overrides a same-named module method. C<cdr>
+completion includes aliases and only direct child directories; each entered
+term narrows one level before the next candidates are listed. It avoids
+recursive walks of unrelated checkout and dependency trees on every TAB.
 
 =head1 WHAT USES IT
 

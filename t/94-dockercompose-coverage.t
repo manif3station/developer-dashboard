@@ -152,17 +152,95 @@ my ( $docker, $paths ) = build_docker( $home, $repo );
     is_deeply( [ @{ $resolved->{command} }[ 0, 1 ] ], [ 'docker', 'compose' ], 'command starts with docker compose' );
 }
 
-# Auto-discovery path (no explicit services) with plain passthrough.
+# Auto-discovery with a local base is scoped to its declared services.
 {
     my $old = getcwd();
     chdir $repo or die $!;
     my $resolved = $docker->resolve( args => ['config'] );
     chdir $old or die $!;
-    ok( grep( { $_ eq 'green' } @{ $resolved->{services} } ),  'auto-discovers green' );
-    ok( grep( { $_ eq 'purple' } @{ $resolved->{services} } ), 'auto-discovers purple' );
-    ok( !grep( { $_ eq 'blue' } @{ $resolved->{services} } ),  'skips disabled blue' );
-    ok( grep( { $_ eq 'orange' } @{ $resolved->{services} } ), 'auto-discovers skill service orange' );
+    is_deeply( $resolved->{services}, [], 'runtime services absent from local base are not auto-selected' );
+    ok( !grep( { m{config/docker/} } @{ $resolved->{files} } ), 'no runtime service file overlays a local base service that has no matching runtime definition' );
 }
+
+# Without a local Compose base, legacy ecosystem-wide auto-discovery remains.
+{
+    my $auto_repo = File::Spec->catdir( $home, 'projects', 'auto-services' );
+    make_path( File::Spec->catdir( $auto_repo, '.git' ) );
+    my ( $auto_docker, undef ) = build_docker( $home, $auto_repo );
+    my $old = getcwd();
+    chdir $auto_repo or die $!;
+    local $ENV{HOME} = $home;
+    my $resolved = $auto_docker->resolve( args => ['config'] );
+    chdir $old or die $!;
+    ok( grep( { $_ eq 'green' } @{ $resolved->{services} } ), 'without a local Compose file, auto-discovers green' );
+    ok( grep( { $_ eq 'purple' } @{ $resolved->{services} } ), 'without a local Compose file, auto-discovers purple' );
+    ok( !grep( { $_ eq 'blue' } @{ $resolved->{services} } ), 'without a local Compose file, disabled blue remains excluded' );
+    ok( grep( { $_ eq 'orange' } @{ $resolved->{services} } ), 'without a local Compose file, auto-discovers skill service orange' );
+}
+
+# Problem 34: a local Compose project scopes automatic runtime service overlays.
+{
+    my $local_home = tempdir( CLEANUP => 1 );
+    my $local_repo = File::Spec->catdir( $local_home, 'projects', 'local-compose' );
+    my $local_work = File::Spec->catdir( $local_repo, 'work' );
+    make_path( File::Spec->catdir( $local_repo, '.git' ), $local_work );
+    mkfile( File::Spec->catfile( $local_work, 'compose.yml' ), "services:\n  foo:\n    image: local-foo\n" );
+    for my $service (qw(foo bar bob)) {
+        mkfile(
+            File::Spec->catfile( $local_home, '.developer-dashboard', 'config', 'docker', $service, 'compose.yml' ),
+            "services:\n  $service:\n    image: runtime-$service\n",
+        );
+    }
+    my ( $local_docker, undef ) = build_docker( $local_home, $local_repo );
+
+    my $old = getcwd();
+    chdir $local_work or die "Unable to chdir to $local_work: $!";
+    local $ENV{HOME} = $local_home;
+    my $resolved = $local_docker->resolve( args => ['config'] );
+    chdir $old or die "Unable to restore cwd to $old: $!";
+
+    is_deeply( $resolved->{services}, ['foo'], 'automatic service selection is limited to names declared by the local Compose base' );
+    ok( grep( { $_ eq File::Spec->catfile( $local_work, 'compose.yml' ) } @{ $resolved->{files} } ), 'Compose base is discovered from the invocation directory' );
+    ok( grep( { m{/foo/compose\.yml\z} } @{ $resolved->{files} } ), 'matching runtime overlay for local service foo is merged' );
+    ok( !grep( { m{/(?:bar|bob)/compose\.yml\z} } @{ $resolved->{files} } ), 'unlisted runtime services bar and bob are not merged automatically' );
+}
+
+subtest '_local_compose_services unions files and rejects invalid Compose documents' => sub {
+    my $base_one = File::Spec->catfile( $home, 'compose-services-one.yml' );
+    my $base_two = File::Spec->catfile( $home, 'compose-services-two.yml' );
+    my $base_empty = File::Spec->catfile( $home, 'compose-services-empty.yml' );
+    my $base_empty_name = File::Spec->catfile( $home, 'compose-services-empty-name.yml' );
+    my $base_bad_mapping = File::Spec->catfile( $home, 'compose-services-bad-mapping.yml' );
+    my $base_bad_document = File::Spec->catfile( $home, 'compose-services-bad-document.yml' );
+    my $base_bad_yaml = File::Spec->catfile( $home, 'compose-services-bad-yaml.yml' );
+    mkfile( $base_one, "services:\n  alpha: {}\n" );
+    mkfile( $base_two, "services:\n  beta: {}\n" );
+    mkfile( $base_empty, "name: no-services\n" );
+    mkfile( $base_empty_name, "services:\n  \"\": {}\n" );
+    mkfile( $base_bad_mapping, "services: []\n" );
+    mkfile( $base_bad_document, "- not-a-compose-mapping\n" );
+    mkfile( $base_bad_yaml, "services: [\n" );
+
+    is_deeply(
+        $docker->_local_compose_services( [ $base_one, $base_two ] ),
+        { alpha => 1, beta => 1 },
+        'all supported local base files contribute their declared service names',
+    );
+    is_deeply( $docker->_local_compose_services( [$base_empty] ), {}, 'a valid Compose document without services yields an empty allow-list' );
+
+    for my $case (
+        [ {}, qr/^Compose base files must be an array reference/, 'a malformed file-list argument is rejected' ],
+        [ [$base_bad_mapping], qr/^Local Compose file .* services must be a mapping/, 'a non-mapping services field is rejected' ],
+        [ [$base_empty_name], qr/^Local Compose file .* has an invalid service name/, 'an empty service name is rejected' ],
+        [ [$base_bad_document], qr/^Local Compose file .* must contain a mapping/, 'a non-mapping Compose document is rejected' ],
+        [ [$base_bad_yaml], qr/^Unable to parse local Compose file .*:/, 'invalid YAML is rejected with its source path' ],
+    ) {
+        my ( $files, $error, $message ) = @{$case};
+        my $ok = eval { $docker->_local_compose_services($files); 1 };
+        is( $ok, undef, $message );
+        like( $@, $error, "$message with an explicit diagnostic" );
+    }
+};
 
 # ---- DD-862: naming ONE service must not drop another enabled service's ---
 # ---- compose file - a depends_on target needs its file in the merge too --
@@ -866,7 +944,10 @@ Devel::Cover metrics. It exercises rich, empty, and deliberately malformed
 runtime configurations, the isolated-service toggle helpers, the passthrough
 service inference, the development marker/base-overlay contract, the skill
 docker-root discovery, and the direct low-level helpers with edge inputs that
-the higher-level paths never generate.
+the higher-level paths never generate. Local Compose files are checked as the
+invocation project's base, and automatic ecosystem service overlays are
+restricted to their declared services. Explicit service selection and the
+legacy no-local-file auto-discovery path are verified separately.
 
 =head1 WHY IT EXISTS
 
@@ -881,9 +962,9 @@ still pass the suite, and so the coverage gate stays honest for this module.
 
 Use this file when changing compose file discovery, service inference, the
 disabled or development marker helpers, base/overlay ordering, skill docker-root
-resolution, environment export, or the dry-run versus execute behaviour of the
-docker helper. Extend it with a new failing case first whenever a new branch or
-condition appears. Development-marker tests include absent service folders,
+resolution, environment export, local Compose service scoping, or the dry-run
+versus execute behaviour of the docker helper. Extend it with a new failing
+case first whenever a new branch or condition appears. Development-marker tests include absent service folders,
 missing service arguments, idempotent removal, and unlink failures.
 
 =head1 HOW TO USE

@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Complete;
 use strict;
 use warnings;
 
-our $VERSION = '5.46';
+our $VERSION = '5.49';
 
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::Config;
@@ -30,13 +30,9 @@ sub complete {
 
     my @candidates;
     if ( $index <= 1 ) {
-        my @path_aliases = $current =~ /\A(.+)\./
-          ? _skill_path_alias_candidates($1)
-          : ();
         @candidates = (
             $suggest->top_level_candidates,
             $suggest->skill_commands,
-            @path_aliases,
         );
     }
     elsif ( ( $words[1] || '' ) eq 'help' ) {
@@ -44,7 +40,10 @@ sub complete {
     }
     elsif ( ( $words[1] || '' ) eq 'workspace' && $index == 2 && $current !~ /^-/ ) {
         my $provider = $args{ticket_sessions} || \&_ticket_sessions;
-        @candidates = $provider->();
+        @candidates = (
+            _workspace_path_alias_candidates(),
+            $provider->(),
+        );
     }
     elsif (
         ( $words[1] || '' ) =~ /\A(?:restart|stop)\z/
@@ -157,7 +156,7 @@ sub _skill_path_alias_candidates {
     my $paths = build_paths();
     my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
     my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
-    my $configured = $config->path_aliases || {};
+    my $configured = $config->path_aliases;
 
     require Developer::Dashboard::CLI::Paths;
     my $folder = Developer::Dashboard::CLI::Paths::_skill_folder_path_aliases(
@@ -167,6 +166,27 @@ sub _skill_path_alias_candidates {
 
     my $prefix = $skill_name . '.';
     my %names = map { index( $_, $prefix ) == 0 ? ( $_ => 1 ) : () } keys %{$configured};
+    $names{$_} = 1 for keys %{$folder};
+    return sort keys %names;
+}
+
+# _workspace_path_alias_candidates()
+# Returns configured and Folder.pm path aliases for workspace-argument
+# completion, keeping those path names out of the top-level command namespace.
+# Input: none.
+# Output: sorted list of configured or skill-provided path alias names.
+sub _workspace_path_alias_candidates {
+    my $paths = build_paths();
+    my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
+    my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
+    my $configured = $config->path_aliases || {};
+
+    require Developer::Dashboard::CLI::Paths;
+    my $folder = Developer::Dashboard::CLI::Paths::_skill_folder_path_aliases(
+        paths => $paths,
+    );
+
+    my %names = map { $_ => 1 } keys %{$configured};
     $names{$_} = 1 for keys %{$folder};
     return sort keys %names;
 }
@@ -244,7 +264,8 @@ Developer::Dashboard::CLI::Complete - shell completion candidates for dashboard
 
 Builds completion candidates for dashboard subcommands, built-in second-level
 actions, option flags, global help targets, dotted skill commands, and
-skill-qualified path aliases.
+workspace path aliases. Commands and aliases are separated by argument
+position so dotted path names do not appear among command candidates.
 
 =for comment FULL-POD-DOC START
 
@@ -257,18 +278,19 @@ one reusable API. Command and option candidates are read from the shared help
 catalog; global C<dashboard help> completion follows the same nested action
 tree. Docker completion lists C<compose>, C<list>, C<enable>, C<disable>, and
 C<development>, then offers C<enable> and C<disable> after
-C<docker development>. Workspace names are queried only for positional
-completion; completing option flags does not invoke the tmux session provider.
+C<docker development>. Workspace names and configured or skill-provided path
+aliases are queried only for positional completion; option completion does not
+invoke the tmux session provider or path alias providers.
 
 =head1 WHY IT EXISTS
 
 It exists because shell completion should not hardcode command lists inside the
 generated shell snippets. Keeping completion discovery in Perl lets the shell
 bootstrap ask the live DD-OOP-LAYERS runtime what commands and skills are
-available. After a C<skill.> prefix it includes config aliases and alias names
-listed by that skill's C<Folder.pm>. After a command name, the help catalog
-provides valid public actions and recognized option spellings, avoiding a
-second shell-side inventory.
+available. Dotted skill-command candidates are kept separate from path aliases;
+path aliases are offered after C<workspace>, where they are valid targets.
+After a command name, the help catalog provides valid public actions and
+recognized option spellings, avoiding a second shell-side inventory.
 
 =head1 WHEN TO USE
 

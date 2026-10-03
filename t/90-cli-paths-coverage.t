@@ -553,6 +553,23 @@ subtest '_cdr_payload treats a blank alias target as no alias' => sub {
     );
 };
 
+subtest '_cdr_payload keeps the first unregistered word as a search term' => sub {
+    my $search_root = File::Spec->catdir( $home, 'cdr-first-unregistered-term' );
+    my $match = File::Spec->catdir( $search_root, 'alpha-team', 'red-fox' );
+    make_path($match);
+    my $paths = Developer::Dashboard::PathRegistry->new(
+        home        => $home,
+        cwd         => $search_root,
+        named_paths => {},
+    );
+
+    is_deeply(
+        $cdr_payload->( paths => $paths, args => [ 'alpha', 'red' ] ),
+        { target => $match, matches => [] },
+        'the first non-alias argument is AND-matched with later search terms',
+    );
+};
+
 subtest 'skill Folder aliases resolve after config aliases and appear in paths without being persisted' => sub {
     my $skill_root = File::Spec->catdir( $home, '.developer-dashboard', 'skills', 'folder-skill' );
     my $skill_config_dir = File::Spec->catdir( $skill_root, 'config' );
@@ -662,6 +679,26 @@ subtest '_cdr_completion guards its injected arguments' => sub {
         [], 'an empty word list yields no candidates' );
 };
 
+subtest '_cdr_completion uses an unregistered first word to narrow later candidates' => sub {
+    my $root = File::Spec->catdir( $home, 'cdr-completion-first-unregistered-term' );
+    make_path(
+        File::Spec->catdir( $root, 'alpha-team', 'second-match' ),
+        File::Spec->catdir( $root, 'alpha-team', 'other-match' ),
+        File::Spec->catdir( $root, 'beta-team', 'second-match' ),
+    );
+    my $paths = Developer::Dashboard::PathRegistry->new(
+        home        => $home,
+        cwd         => $root,
+        named_paths => {},
+    );
+
+    is_deeply(
+        [ $cdr_completion->( paths => $paths, words => [ 'cdr', 'alpha', 'se' ], index => 2 ) ],
+        ['second-match'],
+        'the unregistered first word narrows completion to its matching directory branch',
+    );
+};
+
 subtest '_cdr_completion handles out-of-range indexes and blank alias roots' => sub {
     my $alias_cwd = File::Spec->catdir( $home, 'completion-cwd' );
     make_path($alias_cwd);
@@ -707,16 +744,18 @@ subtest '_cdr_initial_candidates guards its arguments and empty registries' => s
 
 subtest '_cdr_initial_candidates filters unusable roots and blank aliases' => sub {
     my $root = File::Spec->catdir( $home, 'initial-root' );
-    make_path($root);
+    make_path( File::Spec->catdir( $root, 'beta', 'nested-child' ) );
+    open my $file_fh, '>', File::Spec->catfile( $root, 'plain-file' ) or die $!;
+    close $file_fh or die $!;
     my $stub = Test::CLIPaths::PathsStub->new(
         named_paths => { '' => '/blank-alias-name', 'alpha' => '/alpha' },
-        dirs        => [ File::Spec->catdir( $root, 'beta' ) ],
+        cwd         => $root,
     );
 
     is_deeply(
         [ $initial->( paths => $stub, prefix => '', include => [ undef, '', $root ] ) ],
         [ 'alpha', 'beta' ],
-        'undefined and blank include roots are skipped and blank alias names never become candidates',
+        'initial cdr completion lists direct child directories without recursively scanning nested trees',
     );
 };
 
@@ -734,24 +773,75 @@ subtest '_cdr_directory_candidates guards its arguments' => sub {
     like( $@, qr/^cdr completion terms must be an array reference$/m, 'the term list type error is reported' );
 };
 
-subtest '_cdr_directory_candidates skips unusable and duplicate matches' => sub {
-    my $root = '/directory-candidates-root';
-    my $stub = Test::CLIPaths::PathsStub->new(
-        dirs => [
-            undef,
-            '',
-            $root,
-            "$root/alpha",
-            "$root/nested/alpha",
-            "$root/beta",
-        ],
+subtest '_cdr_directory_candidates walks only the explicitly narrowed branch' => sub {
+    my $root = File::Spec->catdir( $home, 'directory-candidates-root' );
+    make_path(
+        File::Spec->catdir( $root, 'alpha', 'nested', 'deep' ),
+        File::Spec->catdir( $root, 'beta', 'nested', 'other' ),
+        File::Spec->catdir( $root, 'alpha-one', 'same-name' ),
+        File::Spec->catdir( $root, 'alpha-two', 'same-name' ),
     );
+    open my $file_fh, '>', File::Spec->catfile( $root, 'alpha-file' ) or die $!;
+    close $file_fh or die $!;
+    my $stub = Test::CLIPaths::PathsStub->new( cwd => $root );
 
     is_deeply(
         [ $dir_candidates->( paths => $stub, root => $root ) ],
-        [ 'alpha', 'beta' ],
-        'undefined, blank, root-equal, and duplicate-basename matches are all dropped without a prefix filter',
+        [qw(alpha alpha-one alpha-two beta)],
+        'unfiltered completion lists only immediate child directories',
     );
+    is_deeply(
+        [ $dir_candidates->( paths => $stub, root => $root, terms => [ 'alpha', undef, '' ], prefix => 'n' ) ],
+        ['nested'],
+        'a prior completion term narrows to its direct child instead of recursively searching the whole tree',
+    );
+    is_deeply(
+        [ $dir_candidates->( paths => $stub, root => $root, terms => [ 'alpha', 'nested' ], prefix => '' ) ],
+        ['deep'],
+        'each accepted term descends exactly one level before listing the next candidates',
+    );
+    is_deeply(
+        [ $dir_candidates->( paths => $stub, root => $root, terms => ['alpha-'], prefix => '' ) ],
+        ['same-name'],
+        'candidate basenames duplicated under separate matching parents are returned once',
+    );
+};
+
+subtest 'cdr completion handles disappearing and unreadable directories and close failures' => sub {
+    my $root = File::Spec->catdir( $home, 'completion-directory-failures' );
+    make_path( File::Spec->catdir( $root, 'alpha', 'child' ) );
+    my $paths = Test::CLIPaths::PathsStub->new( cwd => $root, named_paths => {} );
+
+    is( Developer::Dashboard::CLI::Paths::_open_completion_directory( File::Spec->catdir( $root, 'missing' ) ), undef,
+        'a missing completion directory has no open handle' );
+
+    for my $stage (qw(initial narrowing candidates)) {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CLI::Paths::_open_completion_directory = sub { return; };
+        my @result = $stage eq 'initial'
+          ? $initial->( paths => $paths, prefix => '', include => [$root] )
+          : $dir_candidates->(
+            paths => $paths,
+            root  => $root,
+            ( $stage eq 'narrowing' ? ( terms => ['alpha'] ) : () ),
+        );
+        is_deeply( \@result, [], "a directory that disappears before the $stage read contributes no candidates" );
+    }
+
+    my $close_root = File::Spec->catdir( $root, 'alpha' );
+    my $dh = Developer::Dashboard::CLI::Paths::_open_completion_directory($close_root);
+    ok($dh, 'completion directory opens before close validation');
+    Developer::Dashboard::CLI::Paths::_close_completion_directory( $dh, $close_root );
+
+    my @close_warnings;
+    my $ok;
+    {
+        local $SIG{__WARN__} = sub { push @close_warnings, $_[0]; return; };
+        $ok = eval { Developer::Dashboard::CLI::Paths::_close_completion_directory( $dh, $close_root ); 1 };
+    }
+    is( $ok, undef, 'closing the same handle twice reports failure' );
+    like( $@, qr/^Unable to close directory \Q$close_root\E:/, 'the close failure names the affected directory' );
+    like( $close_warnings[0] // '', qr/closedir\(\) attempted on invalid dirhandle/i, 'the expected invalid-handle warning is captured by the test' );
 };
 
 subtest 'summary tables tolerate absent payloads' => sub {
@@ -891,23 +981,13 @@ subtest 'Folder alias discovery exercises absent modules, invalid list names, an
 
 };
 
-subtest '_cdr_directory_candidates rejects empty derived names' => sub {
-    my $directory_paths = Test::CLIPaths::PathsStub->new(
-        named_paths => {},
-        cwd         => '/tmp/root',
-        dirs        => ['/tmp/root/child'],
-    );
-    no warnings 'redefine';
-    for my $name ( '', undef ) {
-        local *Developer::Dashboard::CLI::Paths::basename = sub { return $name };
-        is_deeply(
-            [ $dir_candidates->( paths => $directory_paths, root => '/tmp/root', terms => [], prefix => '' ) ],
-            [],
-            defined $name
-              ? 'empty derived basenames are rejected before becoming completion candidates'
-              : 'undefined derived basenames are rejected before becoming completion candidates',
-        );
-    }
+subtest '_cdr_directory_candidates reports malformed narrowing expressions' => sub {
+    my $root = File::Spec->catdir( $home, 'invalid-cdr-regex-root' );
+    make_path($root);
+    my $directory_paths = Test::CLIPaths::PathsStub->new( cwd => $root );
+    my $ok = eval { $dir_candidates->( paths => $directory_paths, root => $root, terms => ['['] ); 1 };
+    is( $ok, undef, 'an invalid prior narrowing expression aborts completion' );
+    like( $@, qr/^Invalid regex '\[':/, 'the malformed completion expression is reported' );
 };
 
 is_deeply( \@warnings, [], 'no warnings escaped the CLI::Paths coverage run' );
@@ -972,8 +1052,12 @@ path CLI runtime use this file to keep the defensive edges of C<dashboard path>
 and C<dashboard paths> behaving as documented. Its skill fixture also pins
 config-first resolution, list-context C<Folder-E<gt>__list__> discovery, and
 the rule that C<path add> writes config without editing an installed skill. It
-also covers absent skill modules, invalid alias return values, unresolved module
-paths, and an empty derived completion basename.
+also verifies that C<cdr> completion lists direct children and descends one
+level per entered term instead of recursively traversing large project trees.
+An unregistered first C<cdr> word remains a search term for target resolution
+and completion of later arguments.
+The file covers absent skill modules, invalid alias return values, and
+unresolved module paths.
 
 =head1 EXAMPLES
 

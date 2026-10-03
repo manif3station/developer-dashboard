@@ -1335,7 +1335,7 @@ my $bash_global_help = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(
 like( $bash_global_help, qr/^compose$/m, 'dashboard bash TAB completion suggests actions after global help target' );
 my $bash_cdr_completion = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(cdr foobar alpha); COMP_CWORD=2; _dashboard_complete_cdr; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
 like( $bash_cdr_completion, qr/^alpha-foo$/m, 'dashboard shell bash cdr completion suggests alias-root narrowing candidates' );
-like( $bash_cdr_completion, qr/^alpha-foo-bar$/m, 'dashboard shell bash cdr completion includes other matching alias-root candidates' );
+unlike( $bash_cdr_completion, qr/^alpha-foo-bar$/m, 'dashboard shell bash cdr completion does not recursively suggest deeper descendants' );
 my $which_dir_bookmarks = _run("bash -lc '. \"$shell_bootstrap_file\"; which_dir bookmarks_root'");
 is_same_path_output( $which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root through the shell helper' );
 my $cdr_bookmarks = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr bookmarks_root; pwd'");
@@ -3743,6 +3743,9 @@ development marker commands through the staged helper without starting real
 containers. Built-in and nested help, catalog-backed actions/options, the
 version command, and generated Bash completion are exercised through the same
 public CLI dispatch; the zsh bootstrap's completion registration is checked.
+The cdr completion case verifies that alias-root suggestions stay at the
+immediate child level instead of recursively walking deeper descendants on
+every TAB.
 The open-file smoke cases also prove that content grep returns matching paths
 instead of treating `grep` and its switches as filename patterns.
 
@@ -3750,7 +3753,7 @@ instead of treating `grep` and its switches as filename patterns.
 
 =head1 PURPOSE
 
-This test is the executable regression contract for the thin CLI, helper staging, low-level runtime contracts, Docker help and completion, Docker service development overlays, and the user-facing `dashboard of grep` invocation. Its shell completion checks cover top-level commands, nested actions, and parser-backed flags such as API's implicit list options. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
+This test is the executable regression contract for the thin CLI, helper staging, low-level runtime contracts, Docker help and completion, Docker service development overlays, and the user-facing `dashboard of grep` invocation. Its shell completion checks cover command-only root candidates, nested actions, parser-backed flags such as API's implicit list options, and bounded cdr directory traversal. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
 
 =head1 WHY IT EXISTS
 
@@ -3758,7 +3761,7 @@ It exists because the thin CLI, helper staging, and low-level runtime contracts 
 
 =head1 WHEN TO USE
 
-Use this file when changing the thin CLI, helper staging, and low-level runtime contracts, when a focused CI failure points here, or when you want a faster regression loop than running the entire suite.
+Use this file when changing the thin CLI, helper staging, completion candidate scope, cdr directory traversal, and low-level runtime contracts, when a focused CI failure points here, or when you want a faster regression loop than running the entire suite.
 
 =head1 HOW TO USE
 

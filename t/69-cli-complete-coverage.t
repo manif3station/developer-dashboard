@@ -39,6 +39,7 @@ my $collector = Developer::Dashboard::Collector->new( paths => $paths );
 # a name shared with a persisted collector, and a normal named job.
 $config->save_global(
     {
+        path_aliases => { 'global-project' => File::Spec->catdir( $home, 'projects' ) },
         collectors => [
             { command => 'echo unnamed' },
             'not-a-hash collector entry',
@@ -61,6 +62,65 @@ for my $spec ( [ 'p_empty', '' ], [ 'p_shared', 'shared' ], [ 'p_valid', 'pvalid
 }
 
 sub complete { return Developer::Dashboard::CLI::Complete::complete(@_) }
+
+# write_fixture($path, $content)
+# Writes one self-contained completion fixture file and creates its parent
+# directories first. Input: target path and file body. Output: written path.
+sub write_fixture {
+    my ( $path, $content ) = @_;
+    require File::Basename;
+    make_path( File::Basename::dirname($path) );
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    print {$fh} $content;
+    close $fh or die "Unable to close $path: $!";
+    return $path;
+}
+
+{
+    my $skill_root = File::Spec->catdir( $home, '.developer-dashboard', 'skills', 'completion-skill' );
+    my $alias_target = File::Spec->catdir( $home, 'projects', 'completion-project' );
+    make_path(
+        File::Spec->catdir( $skill_root, 'config' ),
+        File::Spec->catdir( $skill_root, 'lib' ),
+        File::Spec->catdir( $skill_root, 'cli' ),
+        $alias_target,
+    );
+    write_fixture(
+        File::Spec->catfile( $skill_root, 'config', 'config.json' ),
+        '{"path_aliases":{"project":"' . $alias_target . '"}}',
+    );
+    write_fixture(
+        File::Spec->catfile( $skill_root, 'lib', 'Folder.pm' ),
+        "package Folder; sub __list__ { return qw(work); } sub work { return '$alias_target'; } 1;\n",
+    );
+    write_fixture( File::Spec->catfile( $skill_root, 'cli', 'run' ), "#!/bin/sh\nexit 0\n" );
+    chmod 0755, File::Spec->catfile( $skill_root, 'cli', 'run' )
+      or die "Unable to chmod completion fixture command: $!";
+
+    my @skill_word = complete( words => [ 'd2', 'completion-skill.' ], index => 1 );
+    is_deeply( \@skill_word, ['completion-skill.run'],
+        'skill-command completion does not mix in path aliases with the same dotted spelling' );
+    my @top_level = complete( words => [ 'd2', '' ], index => 1 );
+    ok( !( grep { $_ eq 'global-project' || $_ eq 'completion-skill.project' || $_ eq 'completion-skill.work' } @top_level ),
+        'bare d2 completion excludes path aliases from its command list' );
+
+    my @workspace_aliases = complete(
+        words          => [ 'd2', 'workspace', 'completion-skill.' ],
+        index          => 2,
+        ticket_sessions => sub { return ('completion-skill.session') },
+    );
+    is_deeply( \@workspace_aliases,
+        [ 'completion-skill.project', 'completion-skill.work', 'completion-skill.session' ],
+        'workspace completion offers matching configured and Folder.pm aliases alongside existing sessions' );
+
+    my @global_aliases = complete(
+        words          => [ 'd2', 'workspace', 'global-' ],
+        index          => 2,
+        ticket_sessions => sub { return () },
+    );
+    is_deeply( \@global_aliases, ['global-project'],
+        'workspace completion offers configured unqualified path aliases' );
+}
 
 # --- Top-level completion (index <= 1) ------------------------------------
 
@@ -99,8 +159,8 @@ sub complete { return Developer::Dashboard::CLI::Complete::complete(@_) }
     my @candidates = complete( words => [ 'dashboard', 'workspace' ], index => 2 );
     is_deeply(
         \@candidates,
-        ['stub-session'],
-        'workspace at index 2 falls back to the stubbed ticket-session provider',
+        [ 'completion-skill.project', 'completion-skill.work', 'global-project', 'stub-session' ],
+        'workspace at index 2 combines path aliases with the stubbed ticket-session provider',
     );
 }
 
@@ -110,7 +170,9 @@ sub complete { return Developer::Dashboard::CLI::Complete::complete(@_) }
         index           => 2,
         ticket_sessions => sub { return qw(injected-one injected-two) },
     );
-    is_deeply( \@candidates, [qw(injected-one injected-two)], 'workspace completion accepts an injected ticket-session provider' );
+    is_deeply( \@candidates,
+        [ 'completion-skill.project', 'completion-skill.work', 'global-project', qw(injected-one injected-two) ],
+        'workspace completion accepts an injected ticket-session provider alongside path aliases' );
 }
 
 {
@@ -254,6 +316,17 @@ sub complete { return Developer::Dashboard::CLI::Complete::complete(@_) }
         [ Developer::Dashboard::CLI::Complete::_skill_path_alias_candidates('unconfigured-skill') ],
         [],
         'skill alias completion handles an unavailable config alias map as empty',
+    );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CLI::Paths::_skill_folder_path_aliases = sub { return {}; };
+    local *Developer::Dashboard::Config::path_aliases = sub { return; };
+    is_deeply(
+        [ Developer::Dashboard::CLI::Complete::_workspace_path_alias_candidates() ],
+        [],
+        'workspace alias completion treats an unavailable configured alias map as empty',
     );
 }
 
@@ -428,7 +501,9 @@ This test is the executable coverage contract for
 C<Developer::Dashboard::CLI::Complete>. It drives every dispatch arm of
 C<complete()> - top-level candidates, the workspace session branch, the
 restart/stop and log/logs collector branches, catalog-backed API/file/path
-actions, the Docker development action branch, dotted skill path aliases,
+actions, the Docker development action branch, separated skill-command and
+workspace path-alias candidates, the empty-config fallback for workspace alias
+lookup,
 argument validation, and the current-word prefix filter - together with
 injected and real collector/ticket providers so both sides of each branch and
 short-circuit condition actually execute.
@@ -446,8 +521,9 @@ dropping or changing a completion path.
 
 =head1 WHEN TO USE
 
-Use this file when changing completion dispatch, dotted skill alias lookup, the
-Docker development subcommands, collector/ticket provider wiring, or candidate
+Use this file when changing completion dispatch, the separation between dotted
+skill commands and path aliases, workspace path-alias lookup, the Docker
+development subcommands, collector/ticket provider wiring, or candidate
 de-duplication and prefix-filter behavior.
 
 =head1 HOW TO USE

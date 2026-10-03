@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '5.46';
+our $VERSION = '5.49';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -434,13 +434,13 @@ sub apply_ticket_status {
 # session_exists(%args)
 # Checks whether the requested tmux session already exists.
 # Input: session name and optional tmux runner coderef.
-# Output: 1 when the session exists, 0 when it does not, or dies on tmux errors.
+# Output: 1 when the normalized tmux session exists, 0 when it does not, or dies on tmux errors.
 sub session_exists {
     my (%args) = @_;
     my $session = $args{session} || die 'Missing session name';
     my $tmux = $args{tmux} || \&tmux_command;
     my $result = $tmux->(
-        args => [ 'has-session', '-t', $session ],
+        args => [ 'has-session', '-t', _tmux_session_name($session) ],
     );
 
     return 1 if $result->{exit_code} == 0;
@@ -449,6 +449,44 @@ sub session_exists {
       $session,
       ( $result->{stderr} || '' ),
       ( $result->{stdout} || '' );
+}
+
+# _tmux_session_name($workspace)
+# Converts the logical workspace reference to the tmux session identifier used
+# by tmux, which normalizes periods to underscores and treats a raw period as a
+# session/window target separator. Input: logical workspace name. Output: tmux
+# session name with periods mapped to underscores.
+sub _tmux_session_name {
+    my ($workspace) = @_;
+    die 'Missing session name' if !defined $workspace || $workspace eq '';
+    $workspace =~ s/\./_/g;
+    return $workspace;
+}
+
+# _verify_workspace_session_identity(%args)
+# Rejects reuse of a normalized tmux session already tagged for a different
+# logical workspace. Input: logical workspace, tmux-normalized session name,
+# and optional runner. Output: true if untagged or correctly tagged; dies on a
+# tmux query error or an identity collision.
+sub _verify_workspace_session_identity {
+    my (%args) = @_;
+    my $workspace = $args{workspace} || die 'Missing workspace name';
+    my $session = $args{tmux_session} || die 'Missing session name';
+    my $tmux = $args{tmux} || \&tmux_command;
+    my $result = $tmux->(
+        args => [ 'show-environment', '-t', $session, 'WORKSPACE_REF' ],
+    );
+    return 1 if $result->{exit_code} == 1;
+    die sprintf "Unable to verify tmux workspace session '%s': %s%s",
+      $session,
+      ( $result->{stderr} || '' ),
+      ( $result->{stdout} || '' )
+      if $result->{exit_code} != 0;
+
+    my ($owner) = ( $result->{stdout} || '' ) =~ /^WORKSPACE_REF=(.*)\r?$/m;
+    return 1 if !defined $owner || $owner eq '' || $owner eq $workspace;
+    die sprintf "Tmux session '%s' belongs to workspace '%s', not '%s'; tmux normalizes periods to underscores\n",
+      $session, $owner, $workspace;
 }
 
 # list_sessions(%args)
@@ -474,7 +512,7 @@ sub list_sessions {
 # build_workspace_plan(%args)
 # Builds the tmux create/attach plan for one workspace session request.
 # Input: args array reference, optional cwd/env_ticket/env_workspace values, and optional tmux runner coderef.
-# Output: hash reference describing the session, cwd, environment, and tmux argv lists.
+# Output: hash reference describing the logical workspace, normalized tmux session name, cwd, environment, and tmux argv lists.
 sub build_workspace_plan {
     my (%args) = @_;
     my $workspace = resolve_workspace_request(
@@ -486,6 +524,7 @@ sub build_workspace_plan {
     $plan_cwd = cwd() if !defined $plan_cwd || $plan_cwd eq '';
 
     my $env = workspace_environment( $workspace, cwd => $plan_cwd );
+    my $tmux_session = _tmux_session_name($workspace);
     my $exists = session_exists(
         session => $workspace,
         tmux    => $args{tmux},
@@ -498,6 +537,7 @@ sub build_workspace_plan {
 
     return {
         session     => $workspace,
+        tmux_session => $tmux_session,
         cwd         => $plan_cwd,
         env         => $env,
         exists      => $exists,
@@ -507,12 +547,12 @@ sub build_workspace_plan {
             '-d',
             @env_args,
             '-c', $plan_cwd,
-            '-s', $workspace,
+            '-s', $tmux_session,
             '-n', 'Code1',
         ],
         attach_argv => [
             'attach-session',
-            '-t', $workspace,
+            '-t', $tmux_session,
         ],
     };
 }
@@ -566,21 +606,51 @@ sub run_workspace_command {
 
     if ( $plan->{create} ) {
         my $created = $tmux->( args => $plan->{create_argv} );
-        die sprintf "Unable to create tmux ticket session '%s': %s%s",
-          $plan->{session},
-          ( $created->{stderr} || '' ),
-          ( $created->{stdout} || '' )
-          if $created->{exit_code} != 0;
+        if ( $created->{exit_code} != 0 ) {
+            my $create_detail = ( $created->{stderr} || '' ) . ( $created->{stdout} || '' );
+            if ( $create_detail =~ /duplicate session/i ) {
+                my ( $exists, $check_error );
+                my $checked = eval {
+                    $exists = session_exists(
+                        session => $plan->{session},
+                        tmux    => $tmux,
+                    );
+                    1;
+                };
+                $check_error = $@ if !$checked;
+                die sprintf "Unable to create tmux ticket session '%s': %sSession recheck failed: %s",
+                  $plan->{session}, $create_detail, $check_error
+                  if !$checked;
+                if ($exists) {
+                    $plan->{exists} = 1;
+                    $plan->{create} = 0;
+                }
+                else {
+                    die sprintf "Unable to create tmux ticket session '%s': %s",
+                      $plan->{session}, $create_detail;
+                }
+            }
+            else {
+                die sprintf "Unable to create tmux ticket session '%s': %s",
+                  $plan->{session}, $create_detail;
+            }
+        }
     }
 
+    _verify_workspace_session_identity(
+        workspace    => $plan->{session},
+        tmux_session => $plan->{tmux_session},
+        tmux         => $tmux,
+    ) if $plan->{exists};
+
     apply_workspace_environment(
-        session => $plan->{session},
+        session => $plan->{tmux_session},
         env     => $plan->{env},
         tmux    => $tmux,
     );
 
     apply_ticket_status(
-        session => $plan->{session},
+        session => $plan->{tmux_session},
         tmux    => $tmux,
     );
 
@@ -633,10 +703,15 @@ the dashboard toolchain without installing a public top-level executable.
 
 =head1 PURPOSE
 
-This module owns the ticket-session runtime behind C<dashboard ticket>. It
-resolves the requested ticket reference, builds the C<tmux> environment for
-that ticket, decides whether the session already exists, creates the session
-when needed, and attaches the terminal to the chosen ticket session.
+This module owns the workspace-session runtime behind C<dashboard workspace>.
+It resolves the requested workspace reference, builds the C<tmux> environment,
+decides whether the session already exists, creates the session when needed,
+and attaches the terminal to the chosen workspace session. Logical dotted names
+are mapped to tmux's underscore-normalized names because tmux parses a period as
+a session/window target separator. Existing tagged sessions are checked against
+C<WORKSPACE_REF> to avoid reusing a name collision for another workspace.
+If concurrent callers race to create the same session, a duplicate-session
+response is accepted only after a second tmux query confirms the session exists.
 
 =head1 WHY IT EXISTS
 
@@ -659,7 +734,13 @@ the seeded C<TICKET_REF>/C<B>/C<OB> environment set. Without an explicit
 argument, the module falls back to C<$ENV{TICKET_REF}> when present. If the
 session does not exist it creates a detached C<Code1> window in the current
 working directory before attaching; if the session already exists it skips
-creation and attaches directly.
+creation and attaches directly. Dotted workspace references use underscores in
+the tmux session name while their original dotted value remains in
+C<WORKSPACE_REF>. If a normalized name is tagged for another workspace, the
+command reports the collision instead of attaching to that unrelated session.
+If another caller creates the session between the initial check and create
+request, it rechecks the named session and attaches only after confirming the
+duplicate exists; unrelated create errors remain visible.
 
 The C<-c> option may appear before or after the workspace name. It resolves
 configured path aliases first, then skill-qualified methods from each installed
@@ -668,6 +749,9 @@ loader. Dotted nested-skill names are supported at arbitrary installed depth,
 for example C<parent.child.work>. The session and its layered environment
 refresh both start in the resolved directory. If no alias resolves, C<-c>
 fails with an explicit error.
+If another command creates the session between the initial existence check and
+the create request, the helper rechecks the exact name and attaches only when
+that session is confirmed; other create errors remain visible.
 
 =head1 WHAT USES IT
 

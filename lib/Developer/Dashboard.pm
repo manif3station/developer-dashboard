@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.46';
+our $VERSION = '5.49';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.46
+5.49
 
 =head1 INTRODUCTION
 
@@ -767,6 +767,14 @@ session, attaches through a dashboard-managed private helper, and completes
 already-open tmux session names when
 shell completion is enabled. The older C<dashboard ticket> spelling has been
 removed; use C<dashboard workspace>.
+If another command creates the same named session between the existence check
+and the create request, a duplicate-session response is accepted only after a
+second tmux query confirms that exact session exists; unrelated create errors
+remain visible.
+Logical dotted workspace references map to tmux's underscore-normalized
+session names because tmux treats a period as a session/window separator.
+Existing tagged sessions are checked against C<WORKSPACE_REF> so a name
+collision cannot attach to an unrelated workspace.
 
 When the workspace name is registered in the dashboard paths inventory, the
 command changes into that registered directory before planning the session.
@@ -1065,7 +1073,9 @@ example C<d2 api add --help>, C<d2 api add help>, or the global form
 C<d2 help docker development enable>. The public C<version> command also
 supports C<d2 version --help> and global C<d2 help version>. Bare C<d2 help>,
 C<d2 --help>, and C<d2 -h> print a concise index of public built-in commands
-instead of the full module manual. Help is returned before the built-in
+instead of the full module manual. Top-level TAB completion lists commands and
+dotted skill commands; path aliases are offered in the C<d2 workspace
+E<lt>aliasE<gt>> position instead of being mixed into the command list. Help is returned before the built-in
 command body runs, while the normal main and per-command hook order is
 preserved. The global help form and command help include actionable usage and
 the available action/options where applicable.
@@ -1074,7 +1084,11 @@ The same catalog supplies TAB candidates for public commands, nested actions,
 and supported option flags. Bash and zsh call the live C<dashboard complete>
 helper, so their candidates stay aligned with the command catalog rather than
 maintaining separate shell-side action lists. Existing dynamic completions for
-skills, workspace sessions, collectors, and path aliases remain available.
+skills, workspace sessions, collectors, and workspace path aliases remain
+available. C<cdr> TAB completion lists aliases and direct child directories.
+Each entered narrowing term descends one matching directory level before
+suggesting the next child, avoiding recursive scans of unrelated repository
+and dependency trees.
 When a command has a default action, the root help and completion also expose
 that action's options; for example, C<d2 api --key helper-bot -o json> lists
 API keys without requiring the explicit C<ls> action.
@@ -1788,6 +1802,13 @@ selection logic but only prints the chosen target or match list instead of
 changing directory. Unreadable subdirectories are skipped explicitly during
 that search so one protected tree does not abort the whole lookup.
 
+For C<cdr> completion, the first argument lists aliases and direct child
+directories only. Each following argument narrows one directory level and
+lists that level's direct children; completion never recursively walks
+unrelated descendants. An unregistered first argument remains a search term
+just like later arguments, narrowing both directory lookup and completion.
+This keeps TAB responsive in repositories with large dependency folders.
+
 Both C<cdr> and C<which_dir> therefore use regex narrowing arguments, not
 quoted substring tokens.
 
@@ -2422,6 +2443,17 @@ every C<disabled.yml> marker for that service across active layers.
 To inspect the effective marker state without walking the folders manually,
 use C<dashboard docker list>. Add C<--disabled> to show only disabled
 services or C<--enabled> to show only enabled services.
+
+If the invocation directory contains C<compose.yml>, C<compose.yaml>,
+C<docker-compose.yml>, or C<docker-compose.yaml>, those local files are the
+base stack and the Compose command runs from that directory. For an unscoped
+command such as C<dashboard docker compose config>, automatic runtime-service
+overlays are limited to service names declared by the local C<services:>
+mapping. Other installed service folders are ignored by default. Naming a
+service explicitly opts into its runtime definition and preserves dependency
+file gathering. When no local base file exists, ecosystem-wide auto-discovery
+continues as before. Invalid local Compose YAML or an invalid C<services:>
+mapping is reported with the source file path.
 
 During compose execution the dashboard exports C<DDDC> as the runtime
 C<config/docker> directory for the current runtime, so compose YAML can keep using

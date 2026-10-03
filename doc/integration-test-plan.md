@@ -30,6 +30,7 @@ The integration run covers these command families:
 - short entrypoint: `d2 version` must match the installed tarball version, `d2 of grep --help` must reach GNU grep, and `d2 docker compose config --help` / `d2 docker compose help` must preserve native Compose help arguments
 - bootstrap: `dashboard init`, user-provided `dashboard update`
 - help and prompt: `dashboard`, `dashboard help`, `dashboard ps1`, `dashboard shell bash`, `dashboard shell ps`
+- shell completion: root `d2` TAB candidates contain commands rather than path aliases, `workspace` completion offers configured/Folder.pm aliases and existing sessions, and `cdr` completion descends one directory level per entered term without recursive scans
 - helper staging: rerun a built-in helper command after install and verify the managed helper runtime converges on `~/.developer-dashboard/cli/dd/`; dashboard-managed flat helper files left directly under `~/.developer-dashboard/cli/` by older releases should be removed automatically on that staging pass
 - paths: `dashboard paths`, `dashboard path list`, `dashboard path resolve`, `dashboard path project-root`
 - encoding: `dashboard encode`, `dashboard decode`
