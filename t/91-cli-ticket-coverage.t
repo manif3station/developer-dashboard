@@ -242,11 +242,11 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
         local $ENV{TMUX_TRACE} = $tmux_trace;
         my ( $stdout, $stderr, $exit ) = capture {
             system $^X, "-I" . File::Spec->catdir( $repo, 'lib' ),
-              File::Spec->catfile( $repo, 'bin', 'dashboard' ),
+              File::Spec->catfile( $repo, 'bin', 'd2' ),
               'workspace', 'bar.baz.qux.leaf', '-c';
             return $? >> 8;
         };
-        is( $exit, 0, 'dashboard workspace -c accepts a deepest nested skill Folder.pm alias through the public CLI' );
+        is( $exit, 0, 'd2 workspace -c accepts a deepest nested skill Folder.pm alias through the public short entrypoint' );
         is( $stderr, '', 'public workspace alias resolution emits no error' );
         open my $trace_fh, '<', $tmux_trace or die "Unable to read $tmux_trace: $!";
         local $/;
@@ -1096,9 +1096,10 @@ tmux verifies the actual C<workspace -c> handoff.
 
 Run C<prove -lv t/91-cli-ticket-coverage.t> while iterating, then keep it green
 under C<prove -lr t> and under the Devel::Cover run before release. The test is
-hermetic: it roots HOME at a temporary directory, moves the process into it,
-and resolves both C<tmux> and C<dashboard> through stub executables it writes
-itself, so it never contacts a real tmux server.
+hermetic: it roots HOME at a temporary directory and moves the process into
+it. A public-entrypoint subprocess invokes C<bin/d2> with a fake C<tmux>, so
+C<workspace -c> is verified through the short command without contacting a
+real tmux server.
 
 =head1 WHAT USES IT
 

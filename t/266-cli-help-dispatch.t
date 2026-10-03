@@ -17,13 +17,13 @@ my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
 local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = File::Spec->catdir( $home, 'state' );
 my $perl = $^X;
-my $dashboard = File::Spec->catfile( File::Spec->curdir, 'bin', 'dashboard' );
+my $d2 = File::Spec->catfile( File::Spec->curdir, 'bin', 'd2' );
 my $lib = File::Spec->catdir( File::Spec->curdir, 'lib' );
 
 sub run_cli {
     my (@args) = @_;
     my ( $stdout, $stderr, $exit ) = capture {
-        system $perl, "-I$lib", $dashboard, @args;
+        system $perl, "-I$lib", $d2, @args;
         return $? >> 8;
     };
     return ( $stdout, $stderr, $exit );

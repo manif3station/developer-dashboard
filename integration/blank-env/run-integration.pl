@@ -185,6 +185,29 @@ BOOKMARK
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
     _assert_match( $version->{stdout}, qr/^\Q$expected_version\E$/m, 'dashboard version reports the installed runtime version' );
 
+    my $d2_version = _run_shell( 'd2 version after tarball install', 'd2 version' );
+    _assert_match( $d2_version->{stdout}, qr/^\Q$expected_version\E$/m, 'd2 reports the installed tarball version through the short entrypoint' );
+
+    my $d2_grep_help = _run_shell( 'd2 delegated grep help after tarball install', 'd2 of grep --help' );
+    _assert_match( $d2_grep_help->{stdout}, qr/^Usage: grep\b/m, 'd2 forwards grep help to GNU grep after tarball install' );
+
+    my $fake_docker_bin = File::Spec->catdir( $home, 'fake-docker-bin' );
+    my $fake_docker = File::Spec->catfile( $fake_docker_bin, 'docker' );
+    make_path($fake_docker_bin);
+    _write_text( $fake_docker, "#!/bin/sh\nprintf '%s\\n' \"\$*\"\n" );
+    chmod 0755, $fake_docker or die "Unable to chmod fake Docker CLI $fake_docker: $!";
+    my $fake_docker_path = _shell_quote($fake_docker_bin) . ':$PATH ';
+    my $d2_compose_config_help = _run_shell(
+        'd2 delegated Docker Compose config help after tarball install',
+        'PATH=' . $fake_docker_path . 'd2 docker compose config --help',
+    );
+    _assert_match( $d2_compose_config_help->{stdout}, qr/\bconfig --help\s*\z/, 'd2 forwards Docker Compose config help unchanged after tarball install' );
+    my $d2_compose_help = _run_shell(
+        'd2 delegated Docker Compose literal help after tarball install',
+        'PATH=' . $fake_docker_path . 'd2 docker compose help',
+    );
+    _assert_match( $d2_compose_help->{stdout}, qr/\bhelp\s*\z/, 'd2 forwards Docker Compose literal help unchanged after tarball install' );
+
     my $init = _run_shell( 'dashboard init', 'cd ' . _shell_quote($project) . ' && dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
     _assert_match( $init_data->{runtime_root} || '', qr/\.developer-dashboard/, 'dashboard init returns runtime root' );
@@ -965,7 +988,10 @@ phase stay on the host-built artifact rather than drifting to a CPAN lookup, and
 then exercises the installed C<dashboard> CLI and web runtime against a fake
 project after the source-tree test and coverage gates have already run. The
 installed-runtime help check requires the concise built-in command index and
-an API catalog entry rather than the old full-module POD dump.
+an API catalog entry rather than the old full-module POD dump. It also checks
+that C<d2 version> matches the installed tarball, C<d2 of grep --help> reaches
+GNU grep, and native Docker Compose help arguments survive the installed short
+entrypoint unchanged.
 
 =head1 FUNCTIONS
 
@@ -1020,6 +1046,16 @@ Example 4:
   prove -lv t/13-integration-assets.t
 
 Check the lightweight asset guardrails before launching the heavier integration path.
+
+Example 5:
+
+  d2 version
+  d2 of grep --help
+  d2 docker compose config --help
+
+These installed-command checks are run by the integration harness after
+cpanm finishes, using a fake Docker executable for the Compose passthrough
+assertions.
 
 =for comment FULL-POD-DOC END
 

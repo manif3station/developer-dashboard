@@ -1,3 +1,20 @@
+5.46  2026-10-03
+
+  - Align the main manual with the blank-environment integration behavior:
+    plain cpanm runs the distribution tests, then installed d2 version and
+    delegated grep/Compose help are verified against the archive.
+  - Rebuild the final release artifact and Docker image after documenting the
+    selected-home marker rule and installed short-entrypoint regression gate.
+
+5.45  2026-10-03
+
+  - Strengthen blank-environment release verification through the installed
+    d2 entrypoint: compare its version with the tarball, verify delegated grep
+    help, and preserve native Docker Compose config/help arguments.
+  - Record explicit Problem 31 coverage that all Docker marker creation uses
+    the selected home runtime while marker discovery/removal spans active
+    service layers.
+
 5.44  2026-10-03
 
   - Problem 12: Resolve workspace -c targets through configured aliases and

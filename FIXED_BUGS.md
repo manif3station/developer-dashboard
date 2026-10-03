@@ -1,5 +1,22 @@
 # Fixed Bugs
 
+## 5.46
+
+- Corrected the main manual to describe plain `cpanm` test execution and the
+  installed `d2` version/delegation checks performed by blank-container
+  integration verification.
+- Released the final 5.46 artifact and image after that documentation update,
+  preserving unique versioning.
+
+## 5.45
+
+- Strengthened the blank-environment tarball integration gate to verify the
+  installed `d2` entrypoint reports the tarball version, delegates GNU grep
+  help, and passes Docker Compose config/help arguments through unchanged.
+- Added explicit Problem 31 regression evidence that new marker files are
+  written under the selected home runtime and all active layer markers are
+  removed by enable/disable commands.
+
 ## 5.44
 
 - Fixed Problem 12: `dashboard workspace <skill>.<alias> -c` now resolves

@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.44
+5.46
 
 # INTRODUCTION
 
@@ -1355,11 +1355,13 @@ platform. Add `--dry-run` to print the selected installer URL and execution
 plan without making a network request or changing the host.
 
 The blank-container integration harness applies fake-project dashboard override
-environment variables only after `cpanm --notest` finishes installing the
-tarball so the source-tree test and coverage gates stay responsible for full
-distribution test execution while the later blank-container path verifies
-packaged dependency resolution and installed runtime behavior.
-That same blank-container path now also verifies web stop/restart behavior in a
+environment variables only after plain `cpanm <tarball>` has installed
+and tested the distribution. It then verifies that both `dashboard version`
+and `d2 version` match the archive, that `d2 of grep --help` reaches GNU
+grep, and that `d2 docker compose config --help` and `d2 docker compose help`
+preserve native Compose arguments. This checks installed runtime behavior and
+the packaged short-entrypoint dispatch, not only the checkout-local scripts.
+That same blank-container path also verifies web stop/restart behavior in a
 minimal image where listener ownership may need to be discovered from `/proc`
 instead of `ss`, including a late listener re-probe before
 `dashboard restart` brings the web service back up.

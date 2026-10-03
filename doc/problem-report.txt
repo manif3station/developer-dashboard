@@ -1,7 +1,7 @@
 Codename: problem-report
 
 Historical numbered-problem audit (current source regression status checked
-2026-10-03 in the isolated Compose dev container: 257 test files and 22,259
+2026-10-03 in the isolated Compose dev container: 257 test files and 22,700
 tests passed; all four library coverage metrics are 100.0%). Release references below are from `Changes`. The original
 red-test transcripts were not retained, so a detached pre-fix snapshot was
 reconstructed for the 5.00 dashboard/skill batch: commit `37a5bd77` (parent of
@@ -429,7 +429,7 @@ Release verification: the first 5.40 archive audit found root `cover_db_*` datab
 
 Delivery commit: the Problem 27/28 code was committed as `78d6573d`. The 5.41 archive-hygiene follow-up is committed separately. No push was requested.
 
-Problem 31: Honor Docker service markers at every layer (status: complete; release 5.44)
+Problem 31: Honor Docker service markers at every layer (status: complete; release 5.44; selected-home marker write rule reconfirmed 5.45)
 Expected happy path: any active `config/docker/<service>/disabled.yml` marker
 disables that service; any `develop.yml` marker enables its development overlay.
 `docker enable <service>` removes every matching `disabled.yml`, and

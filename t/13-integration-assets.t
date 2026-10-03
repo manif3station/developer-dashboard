@@ -126,6 +126,9 @@ if ($has_integration_assets) {
     like( $runner, qr/cpanm install host-built tarball.*'cpanm '.*\$install_tarball/s, 'integration runner installs the versioned local tarball copy with cpanm test phase enabled' );
     unlike( $runner, qr/cpanm install host-built tarball.*\$tarball/s, 'integration runner does not hand the generic mounted tarball path directly to cpanm' );
     like( $runner, qr/dashboard update/, 'integration runner exercises dashboard update' );
+    like( $runner, qr/d2 version/, 'integration runner verifies the installed short d2 entrypoint version' );
+    like( $runner, qr/d2 of grep --help/, 'integration runner verifies d2 delegates grep help after tarball installation' );
+    like( $runner, qr/d2 docker compose config --help/, 'integration runner verifies d2 delegates Docker Compose help after tarball installation' );
     like( $runner, qr/Runtime::Result/, 'integration runner exercises Runtime::Result-aware hook chaining' );
     like( $runner, qr/dashboard docker compose --project .* --dry-run config/, 'integration runner exercises docker compose dry-run' );
     like( $runner, qr/dashboard auth add-user helper_login helper-login-pass-123/, 'integration runner exercises helper login path' );
