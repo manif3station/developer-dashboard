@@ -101,10 +101,14 @@ for my $command ( sort keys %expected_actions ) {
             like( $text, qr/\Q$option\E/, "$command $action help documents accepted option '$option'" );
         }
         for my $spelling ( ['--help'], ['-h'], ['help'] ) {
+            my $expected_help =
+              $command eq 'docker' && $action eq 'compose' && $spelling->[0] eq 'help'
+              ? []
+              : [ $command, $action ];
             is_deeply(
                 [ Developer::Dashboard::CLI::Help::help_request( command => $command, args => [ $action, @{$spelling} ] ) ],
-                [ $command, $action ],
-                "$command $action recognizes $spelling->[0] as action help",
+                $expected_help,
+                "$command $action routes $spelling->[0] to its owning CLI",
             );
         }
     }
@@ -162,6 +166,46 @@ is_deeply(
     [ Developer::Dashboard::CLI::Help::help_request(command => 'api', args => ['add', 'unrelated', '--help']) ],
     [ 'api', 'add' ],
     'option values and extra operands cannot override the leading action path',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::help_request(command => 'of', args => ['grep', '--help']) ],
+    [],
+    'delegated grep --help remains owned by grep rather than the dashboard help catalog',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::help_request(command => 'of', args => ['other', '--help']) ],
+    [ 'of', 'other' ],
+    'non-delegated open-file actions still resolve through dashboard help',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::help_request(command => 'not-a-command', args => ['action', '--help']) ],
+    [ 'not-a-command', 'action' ],
+    'unknown command help safely uses an empty help specification',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::_help_path( 'api', ['add'], 'other-marker' ) ],
+    [ 'api', 'add' ],
+    'unrecognized internal marker does not claim a trailing-help request',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::_help_path( 'api', [ 'add', 'extra' ], 'trailing-help' ) ],
+    [ 'api', 'add' ],
+    'trailing-help marker only applies to a single action path',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::_help_path( 'docker', ['compose'], 'trailing-help' ) ],
+    [],
+    'single-action Docker Compose trailing help remains delegated',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::help_request(command => 'docker', args => ['compose', 'config', '--help']) ],
+    [],
+    'Docker Compose subcommand --help remains owned by the Docker CLI',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::help_request(command => 'docker', args => ['compose', 'help']) ],
+    [],
+    'Docker Compose literal help remains owned by the Docker CLI',
 );
 is_deeply(
     [ Developer::Dashboard::CLI::Help::help_request(command => 'docker', args => ['development', 'unknown', '--help']) ],
@@ -361,8 +405,13 @@ It also guards implicit API list flags and terminal paths in global-help TAB.
 
 Help behavior and completion candidates had drifted apart: API and file actions
 were absent from completion, path completion omitted live actions, and multiple
-commands treated C<--help> as an ordinary argument. This contract test makes
-those command surfaces discoverable and consistent.
+commands treated C<--help> as an ordinary argument. It also verifies that help
+for explicitly delegated Docker Compose and grep commands remains with those
+external CLIs instead of being claimed by the built-in help catalog. This
+contract test makes those command surfaces discoverable and consistent.
+It separately exercises matched and unmatched passthrough catalog entries and
+an unknown command, as well as the internal trailing-help marker's valid and
+invalid paths, protecting each decision branch from becoming untested.
 
 =head1 WHEN TO USE
 

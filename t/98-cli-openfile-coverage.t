@@ -1039,6 +1039,22 @@ like( $@, qr/Missing path registry/, 'resolve requires a path registry' );
 eval { run_open_file_command( paths => $reg ) };
 like( $@, qr/^Usage: open-file/, 'run rejects missing arguments' );
 
+# Grep's native help must bypass the file-search parser. Test the handoff
+# directly because the public switchboard normally delegates before reaching
+# this helper, and include an undefined argv slot to cover the grep predicate's
+# defined-value guard.
+{
+    my @exec_argv;
+    eval {
+        local *Developer::Dashboard::CLI::OpenFile::_command_exec = sub {
+            @exec_argv = @_;
+            die "EXEC\n";
+        };
+        run_open_file_command( paths => $reg, args => [ 'grep', undef, '--help' ] );
+    };
+    like( $@, qr/^EXEC/, 'native grep help reaches the command exec handoff' );
+    is_deeply( \@exec_argv, [ 'grep', undef, '--help' ], 'grep help arguments are passed through unchanged' );
+}
 # An unrecognized flag must fail loudly, not silently proceed with defaults.
 {
     my $warn;
@@ -1121,7 +1137,7 @@ like( $@, qr/^Usage: open-file/, 'run rejects missing arguments' );
     like( join( '', @warnings ), qr{Can't exec "/nonexistent-editor-binary-xyz"}, 'the failed exec is reported as a warning naming the editor' );
     like(
         $@,
-        qr{\QUnable to run editor '/nonexistent-editor-binary-xyz'\E},
+        qr{\QUnable to run command '/nonexistent-editor-binary-xyz'\E},
         '_command_exec dies naming the failed editor command'
     );
 }
@@ -1147,7 +1163,8 @@ C<dashboard open-file>. It exercises direct path, C<file:line>, file-alias,
 scoped-relative, complete C<@INC>-based Perl-module and Java-class resolution,
 recursive content-grep dispatch, the numbered chooser flow, editor-command
 selection, and Java source-archive/Maven download lookups, including guard,
-failure, and empty-input branches.
+failure, and empty-input branches. It directly verifies the native grep-help
+handoff even though the public switchboard normally delegates that path first.
 
 =head1 WHY IT EXISTS
 

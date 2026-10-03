@@ -24,7 +24,7 @@ my $dir = tempdir( CLEANUP => 1 );
     no warnings 'redefine';
     local *Developer::Dashboard::CLI::OpenFile::_exec_raw = sub { $! = 2; return 0 };
     eval { Developer::Dashboard::CLI::OpenFile::_command_exec( '/some/editor', 'file.txt' ) };
-    like( $@, qr{\QUnable to run editor '/some/editor'\E}, '_command_exec dies naming the editor when the exec returns' );
+    like( $@, qr{\QUnable to run command '/some/editor'\E}, '_command_exec dies naming the command when the exec returns' );
 }
 
 {

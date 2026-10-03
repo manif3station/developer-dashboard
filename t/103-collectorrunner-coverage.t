@@ -874,21 +874,124 @@ like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? 
 ok( !$runner->_job_is_due( { schedule => 'manual' }, 'cron.c' ), '_job_is_due rejects a manual collector' );
 ok( $runner->_job_is_due( { interval => 10 }, 'cron.c' ),       '_job_is_due accepts an interval collector' );
 ok( $runner->_job_is_due( { schedule => 'interval' }, 'cron.c' ), '_job_is_due accepts an explicit interval schedule' );
-ok( $runner->_cron_due( undef, 'cron.undef' ), '_cron_due treats an undef expression as always due' );
-ok( $runner->_cron_due( '',    'cron.empty' ), '_cron_due treats an empty expression as always due' );
+ok( !$runner->_cron_due( undef, 'cron.undef' ), '_cron_due rejects a missing expression instead of running every tick' );
+ok( !$runner->_cron_due( '',    'cron.empty' ), '_cron_due rejects an empty expression instead of running every tick' );
 ok( !$runner->_cron_due( '60 * * * *', 'cron.min' ),  '_cron_due rejects an unmatchable minute field' );
 ok( !$runner->_cron_due( '* 25 * * *', 'cron.hour' ), '_cron_due rejects an unmatchable hour field' );
 ok( !$runner->_cron_due( '* * 32 * *', 'cron.mday' ), '_cron_due rejects an unmatchable day-of-month field' );
 ok( !$runner->_cron_due( '* * * 13 *', 'cron.mon' ),  '_cron_due rejects an unmatchable month field' );
 ok( !$runner->_cron_due( '* * * * 8', 'cron.wday' ),  '_cron_due rejects an unmatchable weekday field' );
 
+# Problem 30: the five-field config.json cron contract follows crontab field
+# names, steps and the day-of-month/day-of-week OR rule. Pick the current
+# weekday and a different valid day-of-month so this is stable on every date.
+my @cron_now = localtime();
+my $other_month_day = $cron_now[3] == 1 ? 2 : 1;
+ok( $runner->_cron_due( "* * $other_month_day * $cron_now[6]", 'problem30.day-or' ),
+    'Problem 30: cron fires when either day-of-month or day-of-week matches' );
+my $other_weekday = ( $cron_now[6] + 1 ) % 7;
+ok( !$runner->_cron_due( '* * * * ' . $other_weekday, 'problem30.day-no-match' ),
+    'Problem 30: cron does not fire when a restricted weekday does not match' );
+ok( !$runner->_cron_due( "* * $other_month_day * $other_weekday", 'problem30.day-neither-match' ),
+    'Problem 30: when both day fields are restricted, neither match means the cron job is not due' );
+ok( $runner->_cron_due( "* * $cron_now[3] * *", 'problem30.dom-wild-dow' ),
+    'Problem 30: a matching day-of-month applies when day-of-week is a wildcard' );
+my $other_minute = ( $cron_now[1] + 1 ) % 60;
+my $other_hour   = ( $cron_now[2] + 1 ) % 24;
+my $other_month  = ( $cron_now[4] + 1 ) % 12 + 1;
+ok( !$runner->_cron_due( "$other_minute * * * *", 'problem30.minute-no-match' ),
+    'Problem 30: cron rejects a non-matching minute' );
+ok( !$runner->_cron_due( "* $other_hour * * *", 'problem30.hour-no-match' ),
+    'Problem 30: cron rejects a non-matching hour' );
+ok( !$runner->_cron_due( "* * * $other_month *", 'problem30.month-no-match' ),
+    'Problem 30: cron rejects a non-matching month' );
+ok( Developer::Dashboard::CollectorRunner::_cron_match( 'jan', 1, 1, 12,
+        { JAN => 1, FEB => 2, MAR => 3, APR => 4, MAY => 5, JUN => 6, JUL => 7, AUG => 8, SEP => 9, OCT => 10, NOV => 11, DEC => 12 } ),
+    'Problem 30: cron month names are case-insensitive' );
+ok( Developer::Dashboard::CollectorRunner::_cron_match( 'MON-FRI', 3, 0, 7,
+        { SUN => 0, MON => 1, TUE => 2, WED => 3, THU => 4, FRI => 5, SAT => 6 } ),
+    'Problem 30: cron weekday name ranges match their numeric day values' );
+ok( Developer::Dashboard::CollectorRunner::_cron_match( '1-15/2', 3 ),
+    'Problem 30: cron range steps match values within the range' );
+ok( ! $runner->_job_is_due( { schedule => 'cron' }, 'problem30.missing-expression' ),
+    'Problem 30: a cron schedule without its expression is not due on every one-second poll' );
+
+my ( $parsed_cron, $parsed_cron_error ) = Developer::Dashboard::CollectorRunner::_parse_cron_expression('*/5 9-17/2 1,15 JAN,MAR MON-FRI');
+ok( $parsed_cron && !$parsed_cron_error, 'Problem 30: config-style five-field expressions parse into field sets' );
+ok( $parsed_cron->[4]{1} && $parsed_cron->[4]{5}, 'Problem 30: named weekday range expands to its numeric values' );
+ok( !$parsed_cron->[4]{0} && !$parsed_cron->[4]{6}, 'Problem 30: named weekday range excludes values outside the range' );
+for my $bad_cron (
+    [ undef, 'missing expression' ],
+    [ '   ', 'blank expression' ],
+    [ ('* ' x 129) . '*', 'expression length limit' ],
+    [ '* * * *', 'too few fields' ],
+    [ '* * * * * extra', 'too many fields' ],
+    [ '1,,2 * * * *', 'empty comma-list item' ],
+    [ '*/0 * * * *', 'zero step' ],
+    [ '*/x * * * *', 'non-numeric step' ],
+    [ '*/99999 * * * *', 'oversized step' ],
+    [ '1/2 * * * *', 'step attached to a scalar' ],
+    [ '9-1 * * * *', 'descending range' ],
+    [ 'JAN-MON * * * *', 'invalid range endpoint name' ],
+    [ '1-BOGUS * * * *', 'one invalid range endpoint' ],
+    [ '60 * * * *', 'field value outside limits' ],
+    [ '* * 0 * *', 'day-of-month below its field minimum' ],
+    [ '999999 * * * *', 'oversized numeric field' ],
+    [ '1/2/3 * * * *', 'multiple step separators' ],
+) {
+    my ( $expression, $label ) = @{$bad_cron};
+    my ( $fields, $error ) = Developer::Dashboard::CollectorRunner::_parse_cron_expression($expression);
+    ok( !$fields && $error ne '', "Problem 30: rejects $label" );
+}
+ok( ! $runner->_cron_due( 'not a cron expression', 'problem30.invalid-expression' ),
+    'Problem 30: an invalid expression is never due' );
+like(
+    eval { $runner->start_loop( { name => 'problem30.invalid-start', command => 'true', schedule => 'cron', cron => 'bad' } ); 1 } ? '' : $@,
+    qr/invalid cron expression: expected exactly five fields/,
+    'Problem 30: starting a collector with malformed cron fails before spawning a loop',
+);
+my $cron_config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
+$cron_config->save_global(
+    {
+        collectors => [
+            { name => 'problem30.config-json', command => 'true', cwd => $home, cron => '* * * * *' },
+        ],
+    }
+);
+my ($cron_job) = grep { ( $_->{name} || '' ) eq 'problem30.config-json' } @{ $cron_config->collectors };
+ok( $cron_job && $cron_job->{cron} eq '* * * * *', 'Problem 30: config.json collector cron expression survives configuration loading' );
+ok( $runner->_job_is_due( $cron_job, 'problem30.config-json' ), 'Problem 30: a loaded config.json cron collector is due in its matching minute' );
+ok( !$runner->_job_is_due( $cron_job, 'problem30.config-json' ), 'Problem 30: a config.json cron collector runs only once in the matching minute' );
+
 is( Developer::Dashboard::CollectorRunner::_cron_match( undef, 5 ), 1, '_cron_match treats an undef spec as a wildcard' );
 is( Developer::Dashboard::CollectorRunner::_cron_match( '',    5 ), 1, '_cron_match treats an empty spec as a wildcard' );
 is( Developer::Dashboard::CollectorRunner::_cron_match( '*',   5 ), 1, '_cron_match treats a star spec as a wildcard' );
-is( Developer::Dashboard::CollectorRunner::_cron_match( '*/0', 5 ), 0, '_cron_match ignores a zero step divisor' );
+is( Developer::Dashboard::CollectorRunner::_cron_match( '*/0', 5 ), 0, '_cron_match rejects a zero step divisor' );
+is( Developer::Dashboard::CollectorRunner::_cron_match( '1', '999999' ), 0, '_cron_match rejects oversized numeric values without numeric warnings' );
+is( Developer::Dashboard::CollectorRunner::_cron_match( '1', undef ), 0, '_cron_match rejects an undefined current value' );
+is( Developer::Dashboard::CollectorRunner::_cron_match( '1', 'not-a-number' ), 0, '_cron_match rejects a non-numeric current value' );
+is( Developer::Dashboard::CollectorRunner::_cron_match( '1', -1 ), 0, '_cron_match rejects a current value below its field minimum' );
+is( Developer::Dashboard::CollectorRunner::_cron_match( '1', 0, 1, 31 ), 0, '_cron_match rejects a numeric value below a nonzero field minimum' );
+is( Developer::Dashboard::CollectorRunner::_cron_match( '1', 61 ), 0, '_cron_match rejects a current value above its field maximum' );
 is( Developer::Dashboard::CollectorRunner::_cron_match( '*/2', 4 ), 1, '_cron_match matches a step divisor' );
 is( Developer::Dashboard::CollectorRunner::_cron_match( '10-20', 5 ),  0, '_cron_match rejects a value below a range' );
 is( Developer::Dashboard::CollectorRunner::_cron_match( '10-20', 25 ), 0, '_cron_match rejects a value above a range' );
+is( Developer::Dashboard::CollectorRunner::_cron_value('JAN'), undef, '_cron_value rejects a name when no name map is supplied' );
+is( Developer::Dashboard::CollectorRunner::_cron_value( undef, {} ), undef, '_cron_value accepts an undefined token without warnings' );
+is( Developer::Dashboard::CollectorRunner::_cron_value( '9999', {} ), undef, '_cron_value rejects an overlong numeric token' );
+for my $empty_field ( undef, '' ) {
+    my ( $empty_set, $empty_error ) = Developer::Dashboard::CollectorRunner::_parse_cron_field( $empty_field, 0, 59, {} );
+    ok( !$empty_set && $empty_error eq 'field is empty', '_parse_cron_field rejects an absent or empty field' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_adopt_existing_loop_if_running = sub { return 303030 };
+    is(
+        $runner->start_loop( { name => 'problem30.valid-start', command => 'true', cwd => $home, schedule => 'cron', cron => '* * * * *' } ),
+        303030,
+        'Problem 30: valid cron expressions reach existing-loop adoption without forking',
+    );
+}
 is( Developer::Dashboard::CollectorRunner::_cron_match( '10-20', 15 ), 1, '_cron_match accepts a value inside a range' );
 
 # DD-631: crontab(5) allows weekday 0-7 where BOTH 0 and 7 mean Sunday, but
@@ -1875,6 +1978,9 @@ and cron scheduling, process-identity and namespace probing, loop pidfile and
 state lifecycle, the daemonized child and worker fork paths, the Windows
 detached-launch and PowerShell state-replacement fallbacks, and the timeout and
 chdir-restore error paths in the command and code executors.
+Problem 30 cases pin the config.json cron property, five-field parsing, names,
+lists, range steps, crontab day-of-month/day-of-week semantics, invalid-input
+startup errors, and per-minute execution deduplication.
 
 =head1 WHY IT EXISTS
 

@@ -113,7 +113,8 @@ mkfile( File::Spec->catfile( $docker_root, 'green', 'compose.yml' ), "services:\
     my $again = $docker->disable_service_development( service => 'fresh' );
     is( $again->{development}, 0, 'disable_service_development tolerates an already missing marker' );
 
-    my $blocked = File::Spec->catfile( $docker_root, 'blocked', 'develop.yml' );
+    my $blocked = $docker->_service_development_marker_path( service => 'blocked' );
+    die 'Unable to resolve the home development marker path' if !defined $blocked;
     make_path($blocked);
     ok( !eval { $docker->enable_service_development( service => 'blocked' ); 1 } && $@ =~ /Unable to write/, 'enable_service_development dies when the marker cannot be opened for writing' );
     ok( !eval { $docker->disable_service_development( service => 'blocked' ); 1 } && $@ =~ /Unable to remove/, 'disable_service_development dies when the marker cannot be unlinked' );
@@ -121,6 +122,60 @@ mkfile( File::Spec->catfile( $docker_root, 'green', 'compose.yml' ), "services:\
     my $disabled_dir = File::Spec->catfile( $docker_root, 'stuck', 'disabled.yml' );
     make_path($disabled_dir);
     ok( !eval { $docker->enable_service( service => 'stuck' ); 1 } && $@ =~ /Unable to remove/, 'enable_service dies when the disabled marker cannot be unlinked' );
+
+    ok( !eval { $docker->_remove_service_layer_markers( marker_name => 'develop.yml' ); 1 } && $@ =~ /Missing service/,
+        '_remove_service_layer_markers requires a service name' );
+    ok( !eval { $docker->_remove_service_layer_markers( service => 'green' ); 1 } && $@ =~ /Missing service marker name/,
+        '_remove_service_layer_markers requires a marker name' );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::DockerCompose::_service_lookup_roots = sub { return ($docker_root) };
+        ok( !eval {
+                $docker->_remove_service_layer_markers(
+                    service     => '../escape',
+                    marker_name => 'develop.yml',
+                );
+                1;
+            }
+            && $@ =~ /Refusing service name/,
+            '_remove_service_layer_markers rejects service paths outside the config root' );
+    }
+
+    my $removable = File::Spec->catfile( $docker_root, 'removable', 'develop.yml' );
+    mkfile( $removable, "development: 1\n" );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::DockerCompose::_service_lookup_roots = sub { return ($docker_root) };
+        cmp_ok(
+            $docker->_remove_service_layer_markers(
+                project_root => $repo,
+                service      => 'removable',
+                marker_name  => 'develop.yml',
+            ),
+            '>=', 1,
+            '_remove_service_layer_markers unlinks existing markers in discovered layers',
+        );
+    }
+    ok( !-e $removable, 'existing development marker was removed' );
+
+    my $link_target = File::Spec->catfile( $docker_root, 'removable-link', 'target' );
+    my $link_marker = File::Spec->catfile( $docker_root, 'removable-link', 'develop.yml' );
+    make_path( dirname($link_marker) );
+    symlink $link_target, $link_marker or die "Unable to create marker symlink $link_marker: $!";
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::DockerCompose::_service_lookup_roots = sub { return ($docker_root) };
+        is(
+            $docker->_remove_service_layer_markers(
+                project_root => $repo,
+                service      => 'removable-link',
+                marker_name  => 'develop.yml',
+            ),
+            1,
+            '_remove_service_layer_markers unlinks marker symlinks without following them',
+        );
+    }
+    ok( !-l $link_marker && !-e $link_target, 'dangling marker symlink is removed without following its target' );
 }
 
 chdir '/';

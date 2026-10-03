@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.41
+5.44
 
 # INTRODUCTION
 
@@ -539,8 +539,11 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     When the workspace name is registered in the dashboard paths inventory, the
     command changes into that registered directory before planning the session.
     This includes skill-qualified aliases such as `bar.foo`, just like the shell
-    `cdr` helper. For example, `dashboard workspace bar.foo` names the session
-    `bar.foo` and starts it in the registered directory. Passing `-c` before or
+    `cdr` helper, including aliases provided by a skill's `lib/Folder.pm` and
+    deeper names such as `bar.baz.qux.work`. Configured path aliases keep
+    precedence over Folder.pm methods. For example, `dashboard workspace bar.foo
+    \-c` names the session `bar.foo` and starts it in the registered directory.
+    Passing `-c` before or
     after the workspace name remains available to explicitly request this behavior;
     when `-c` is used with an unregistered name, the command fails with an explicit
     error instead of silently starting from the wrong directory. The tmux session
@@ -550,9 +553,13 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     dispatch and shell completion. Use `d2 help` for a concise command index,
     `d2 help docker development` for nested action guidance, or append `--help`,
     `-h`, or `help` to a command/action. TAB offers the same public actions and
-    known option flags. Workspace session names are queried only while completing
-    a positional workspace name; completing an option such as `-c` does not call
-    tmux.
+    known option flags. Help is passed through when it belongs to a delegated
+    tool: `d2 of grep --help` displays grep's usage, while `d2 docker compose
+    config --help` and `d2 docker compose help` reach Docker Compose. Use
+    `d2 docker compose --help` or `d2 help docker compose` for the dashboard's
+    Compose wrapper help. Workspace session names are queried only while
+    completing a positional workspace name; completing an option such as `-c`
+    does not call tmux.
 
 - Runtime Manager
 
@@ -1803,6 +1810,33 @@ Collector jobs support two execution fields:
 `sh -lc` on Unix-like systems and PowerShell on Windows
 - `code` runs Perl code directly inside the collector runtime
 
+A collector may use `interval` polling or a standard five-field local-time
+`cron` expression in `config/config.json`. The fields are minute, hour,
+day-of-month, month, and day-of-week. Numeric values, comma-separated lists,
+ranges, range steps, `*/step`, and case-insensitive month and weekday names
+are supported. When both day-of-month and day-of-week are restricted, either
+matching field makes the date due, following crontab semantics. An explicit
+`schedule` value takes precedence over inferred scheduling; use
+`"schedule": "cron"` with `cron` when you want to state the mode explicitly.
+Missing or malformed cron expressions are rejected when the loop starts rather
+than running once per scheduler poll.
+
+For example, run a report at 09:00 on weekdays:
+
+    {
+      "collectors": [
+        {
+          "name": "weekday.report",
+          "command": "./report",
+          "cwd": "home",
+          "cron": "0 9 * * MON-FRI"
+        }
+      ]
+    }
+
+Cron loops poll once per second and deduplicate execution within each matching
+minute. They use the machine's local time and timezone.
+
 A collector's `cwd` may be an absolute or relative directory, a built-in
 directory accessor such as `home`, a configured `path_aliases` name, or a
 skill-qualified `Folder.pm` alias such as `collectorpaths.workspace`. Config
@@ -1985,23 +2019,25 @@ project it wins; otherwise the resolver falls back to
 inferring service names from the passthrough compose args before the real
 `docker compose` command is assembled. If no service name is passed, the
 resolver scans isolated service folders and preloads every non-disabled folder.
-If a folder contains `disabled.yml` it is skipped. Each enabled isolated folder
+If any matching `config/docker/<service>` directory in the active
+runtime layers contains `disabled.yml`, the service is skipped. Each enabled isolated folder
 contributes `compose.yml` as its base whenever it exists. Its optional
 `development.compose.yml` is layered after the base only when `develop.yml`
-exists in the effective service folder; without that marker, the development
-file is ignored even when present. If the marker exists but the development
+exists in any matching service folder across those layers; without a marker,
+the development file is ignored even when present. If the marker exists but the development
 file does not, only the base is loaded and no error is raised. Toggle
 development mode without creating or deleting the file manually with
 `dashboard docker development enable <service>` or
-`dashboard docker development disable <service>`. The marker is written
-to the deepest runtime service folder. To toggle the disabled marker without
+`dashboard docker development disable <service>`. A newly enabled
+marker is written under the selected home runtime: `~/.developer-dashboard`
+when it exists (or when neither runtime name exists), otherwise `~/.d2`.
+Disabling development removes every `develop.yml` marker for that service
+across active layers. To toggle the disabled marker without
 creating or deleting the file manually, use
 `dashboard docker disable <service>` or
-`dashboard docker enable <service>`. The toggle writes to the
-deepest runtime `config/docker` root, so a child project layer can locally
-disable an inherited home service by creating
-`./.developer-dashboard/config/docker/<service>/disabled.yml` and can
-re-enable it again by removing that same local marker.
+`dashboard docker enable <service>`. The disable toggle uses the same
+selected home runtime root. `dashboard docker enable <service>` removes
+every `disabled.yml` marker for that service across active layers.
 To inspect the effective marker state without walking the folders manually,
 use `dashboard docker list`. Add `--disabled` to show only disabled
 services or `--enabled` to show only enabled services.

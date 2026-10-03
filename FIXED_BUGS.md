@@ -1,5 +1,25 @@
 # Fixed Bugs
 
+## 5.44
+
+- Fixed Problem 12: `dashboard workspace <skill>.<alias> -c` now resolves
+  configured aliases and skill `lib/Folder.pm` methods at any nested skill
+  depth. Configured aliases win collisions, and resolver errors remain visible.
+- Fixed Problem 25: delegated help reaches its owning CLI, including
+  `dashboard of grep --help`, `dashboard of --print grep --help`, and native
+  Docker Compose help even when wrapper selectors precede Compose commands.
+  Dashboard wrapper help remains available explicitly.
+- Fixed Problem 30: collector `cron` expressions in `config.json` now accept
+  standard five-field numbers, names, lists, ranges, and steps; calendar
+  matching follows crontab day-of-month/day-of-week rules, malformed or missing
+  schedules fail before a loop starts, and each matching minute runs once.
+- Fixed Problem 31: Docker service disable and development markers are honored
+  in every active `config/docker/<service>` layer. Enabling a service removes
+  all `disabled.yml` markers; disabling development removes all `develop.yml`
+  markers across those layers.
+- Enabled an init reaper in the blank-install Compose service so packaged
+  process-group tests do not mistake orphaned zombies for live descendants.
+
 ## 5.41
 
 - Prevent Devel::Cover databases with both default and custom names from being

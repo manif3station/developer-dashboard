@@ -1,3 +1,28 @@
+5.44  2026-10-03
+
+  - Problem 12: Resolve workspace -c targets through configured aliases and
+    skill Folder.pm methods at any nested skill depth, preserving config-first
+    precedence and propagating real resolver errors.
+  - Problem 25: Pass delegated grep and Docker Compose help requests through to
+    their owning CLIs even when internal options or Compose selectors come
+    first, while retaining Dashboard's explicit built-in help.
+  - Problem 30: Parse standard five-field collector cron expressions from
+    config.json, apply crontab day matching and named/ranged/stepped fields,
+    deduplicate each minute, and reject missing or invalid schedules before
+    launching a collector loop.
+  - Problem 31: Honor disabled.yml and develop.yml markers from every active
+    service config layer; service-enable and development-disable remove all
+    matching markers across those layers.
+  - Complete the 100% statement, branch, condition, and subroutine coverage
+    gate across the full Perl library.
+  - Run the blank-environment tarball install with plain `cpanm` so the
+    packaged distribution test suite executes after installation.
+  - Validate release installation with `cpanm`'s test phase enabled.
+  - Add Docker regression coverage for skill workspace aliases and downstream
+    help dispatch; synchronize CLI documentation and POD.
+  - Enable an init reaper in the blank-environment test container so process
+    tree assertions observe terminated descendants instead of unreaped zombies.
+
 5.41  2026-10-02
 
   - Exclude all root-level Devel::Cover databases, including custom

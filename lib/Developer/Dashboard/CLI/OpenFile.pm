@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use sort 'stable';
 
-our $VERSION = '5.41';
+our $VERSION = '5.44';
 
 use Cwd qw(cwd);
 use Exporter 'import';
@@ -47,7 +47,7 @@ sub build_path_registry {
 # run_open_file_command(%args)
 # Resolves and opens or prints matching files from a direct path, file:line reference, or search scope.
 # Input: optional path registry object and mutable argv array reference.
-# Output: exits after printing matches or execing the configured editor.
+# Output: prints matches, execs grep for native --help, or execs the configured editor.
 sub run_open_file_command {
     my (%args) = @_;
     my $paths = $args{paths};
@@ -64,6 +64,9 @@ sub run_open_file_command {
     }
     if ( @argv && $argv[0] eq 'grep' ) {
         shift @argv;
+        if ( grep { defined $_ && $_ eq '--help' } @argv ) {
+            _command_exec( 'grep', @argv );
+        }
         my @matches = grep_matching_files( args => \@argv );
         die "No files found\n" if !@matches;
         if ($grep_print) {
@@ -466,8 +469,8 @@ sub _command_exit {
 # _command_exec(@command)
 # Wraps process exec so tests can override it and inspect the final editor command.
 # A failed exec() returns false rather than dying, so without this check a
-# missing or unexecutable editor binary would fall through silently and the
-# whole command would exit 0 as though the editor had actually run (DD-910).
+# missing or unexecutable external command would fall through silently and the
+# whole command could exit 0 as though it had run (DD-910).
 # Input: shell command array.
 # Output: never returns during normal command execution.
 sub _command_exec {
@@ -478,7 +481,7 @@ sub _command_exec {
     # exec lives in its own tiny helper because Devel::Cover cannot attribute
     # a statement that follows a failed exec in the same sub; tests replace
     # _exec_raw to reach this die in-process.
-    die "Unable to run editor '$command[0]': $!\n";
+    die "Unable to run command '$command[0]': $!\n";
 }
 
 # _exec_raw(@command)
@@ -539,6 +542,9 @@ and shown as a chooser or plain list. C<dashboard of grep -nr PATTERN DIR>
 instead searches file contents and opens each unique matching file; adding
 C<--print> before C<grep> prints those paths without launching an editor. The
 grep arguments are passed directly to the executable, not through a shell.
+When C<--help> is supplied after C<grep>, the helper execs grep unchanged so
+its native usage text and exit status reach the caller rather than being
+parsed as search results.
 Perl module lookup maps C<Foo::Bar> to C<Foo/Bar.pm> under every existing
 directory in the running process's C<@INC>; Java lookup maps dotted class
 names to C<.java> source files or

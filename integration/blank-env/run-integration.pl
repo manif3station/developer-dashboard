@@ -171,8 +171,8 @@ BOOKMARK
 
     _run_shell( 'init fake project git repo', 'git init ' . _shell_quote($project) );
 
-    my $install = _run_shell( 'cpanm install host-built tarball', 'cpanm --notest ' . _shell_quote($install_tarball) );
-    _assert( $install->{exit_code} == 0, 'cpanm --notest installed host-built distribution tarball after the source-tree test gates passed' );
+    my $install = _run_shell( 'cpanm install host-built tarball', 'cpanm ' . _shell_quote($install_tarball) );
+    _assert( $install->{exit_code} == 0, 'cpanm installed and tested the host-built distribution tarball after the source-tree test gates passed' );
 
     my $bare = _run_shell( 'dashboard bare usage', 'dashboard', allow_fail => 1 );
     _assert( $bare->{exit_code} != 0, 'bare dashboard returns non-zero usage exit' );
@@ -960,8 +960,8 @@ run-integration.pl - blank-environment Docker integration runner for a host-buil
 
 This script expects a host-built C<Developer-Dashboard> tarball to be mounted
 into the container. It extracts that tarball to a temporary source tree,
-stages a versioned local tarball copy for C<cpanm --notest> so the install
-stays on the host-built artifact rather than drifting to a CPAN lookup, and
+stages a versioned local tarball copy for C<cpanm> so the install and its test
+phase stay on the host-built artifact rather than drifting to a CPAN lookup, and
 then exercises the installed C<dashboard> CLI and web runtime against a fake
 project after the source-tree test and coverage gates have already run. The
 installed-runtime help check requires the concise built-in command index and

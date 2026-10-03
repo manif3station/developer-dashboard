@@ -3,7 +3,7 @@ package Developer::Dashboard::DockerCompose;
 use strict;
 use warnings;
 
-our $VERSION = '5.41';
+our $VERSION = '5.44';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -544,7 +544,7 @@ sub _discover_service_names {
 # _service_folder_is_disabled(%args)
 # Checks whether an isolated service folder opts out of automatic compose inclusion.
 # Input: service name and optional project_root.
-# Output: boolean true when the service folder contains a disabled.yml marker.
+# Output: boolean true when any matching service layer contains disabled.yml.
 sub _service_folder_is_disabled {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return 0;
@@ -553,16 +553,17 @@ sub _service_folder_is_disabled {
         project_root => $project_root,
         service      => $service,
     );
-    return 0 if !@roots;
-    # Lookup roots only ever contain existing service folders, so the deepest one decides.
-    my $service_root = File::Spec->catdir( $roots[-1], $service );
-    return -f File::Spec->catfile( $service_root, q{disabled.yml} ) ? 1 : 0;
+    for my $root (@roots) {
+        my $service_root = File::Spec->catdir( $root, $service );
+        return 1 if -f File::Spec->catfile( $service_root, q{disabled.yml} );
+    }
+    return 0;
 }
 
 # _service_folder_is_development(%args)
 # Checks whether the effective isolated service folder opts into its development compose overlay.
 # Input: service name and optional project_root.
-# Output: boolean true when the deepest existing service folder contains develop.yml.
+# Output: boolean true when any matching service layer contains develop.yml.
 sub _service_folder_is_development {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return 0;
@@ -571,9 +572,9 @@ sub _service_folder_is_development {
         project_root => $project_root,
         service      => $service,
     );
-    for my $root ( reverse @roots ) {
+    for my $root (@roots) {
         my $service_root = File::Spec->catdir( $root, $service );
-        return -f File::Spec->catfile( $service_root, 'develop.yml' ) ? 1 : 0;
+        return 1 if -f File::Spec->catfile( $service_root, 'develop.yml' );
     }
     return 0;
 }
@@ -685,7 +686,7 @@ sub _infer_services_from_args {
 }
 
 # disable_service(%args)
-# Writes the isolated-service disabled marker into the deepest runtime docker root for one service.
+# Writes the isolated-service disabled marker into the selected home runtime docker root.
 # Input: service name and optional project_root.
 # Output: hash reference describing the toggled service and marker path.
 sub disable_service {
@@ -711,7 +712,7 @@ sub disable_service {
 }
 
 # enable_service(%args)
-# Removes the isolated-service disabled marker from the deepest runtime docker root for one service.
+# Removes every active-layer disabled marker from one isolated service.
 # Input: service name and optional project_root.
 # Output: hash reference describing the toggled service and marker path.
 sub enable_service {
@@ -723,7 +724,12 @@ sub enable_service {
     );
     die "Refusing service name that escapes the docker config root: $service\n"
       if !defined $marker;
-    unlink $marker or die "Unable to remove $marker: $!" if -e $marker;
+    _remove_service_layer_markers(
+        $self,
+        project_root => $args{project_root},
+        service      => $service,
+        marker_name  => 'disabled.yml',
+    );
     return {
         action   => 'enable',
         disabled => 0,
@@ -733,7 +739,7 @@ sub enable_service {
 }
 
 # enable_service_development(%args)
-# Writes the opt-in marker that enables a service's development compose overlay.
+# Writes the opt-in marker in the selected home runtime for a service's development compose overlay.
 # Input: service name and optional project_root.
 # Output: hash reference describing the enabled development state and marker path.
 sub enable_service_development {
@@ -759,7 +765,7 @@ sub enable_service_development {
 }
 
 # disable_service_development(%args)
-# Removes the opt-in marker that enables a service's development compose overlay.
+# Removes every active-layer marker that enables a service's development compose overlay.
 # Input: service name and optional project_root.
 # Output: hash reference describing the disabled development state and marker path.
 sub disable_service_development {
@@ -771,7 +777,12 @@ sub disable_service_development {
     );
     die "Refusing service name that escapes the docker config root: $service\n"
       if !defined $marker;
-    unlink $marker or die "Unable to remove $marker: $!" if -e $marker;
+    _remove_service_layer_markers(
+        $self,
+        project_root => $args{project_root},
+        service      => $service,
+        marker_name  => 'develop.yml',
+    );
     return {
         action      => 'development-disable',
         development => 0,
@@ -941,7 +952,7 @@ sub _contained_service_path {
 }
 
 # _service_disabled_marker_path(%args)
-# Resolves the disabled.yml marker path in the deepest runtime docker root for one isolated service.
+# Resolves the disabled.yml marker path in the selected home runtime docker root.
 # Input: service name and optional project_root.
 # Output: absolute disabled.yml marker file path string, or undef when the
 #         service name escapes the docker toggle root.
@@ -968,15 +979,42 @@ sub _service_development_marker_path {
 }
 
 # _service_toggle_root(%args)
-# Returns the deepest participating config/docker root where isolated-service
-# toggle markers should be written.
-# Input: optional project_root.
+# Returns the selected home config/docker root where toggle markers are written.
+# Input: optional project_root accepted for call-site symmetry; marker writes stay home-scoped.
 # Output: absolute docker root directory path string.
 sub _service_toggle_root {
     my ( $self, %args ) = @_;
-    my @layers = $self->{paths}->runtime_layers;
-    my $runtime_root = @layers ? $layers[-1] : $self->{paths}->home_runtime_root;
-    return File::Spec->catdir( $runtime_root, 'config', 'docker' );
+    return File::Spec->catdir( $self->{paths}->home_runtime_root, 'config', 'docker' );
+}
+
+# _remove_service_layer_markers($self, %args)
+# Removes one supported marker from every existing runtime layer for a service.
+# Input: DockerCompose object, service name, optional project root, and the
+#        internal marker filename (disabled.yml or develop.yml).
+# Output: count of removed marker files; dies with the affected path on failure.
+sub _remove_service_layer_markers {
+    my ( $self, %args ) = @_;
+    my $service = $args{service} || die 'Missing service';
+    my $marker_name = $args{marker_name} || die 'Missing service marker name';
+    die "Unsupported service marker '$marker_name'\n"
+      if $marker_name ne 'disabled.yml' && $marker_name ne 'develop.yml';
+
+    my @roots = $self->_service_lookup_roots(
+        project_root => $args{project_root},
+        service      => $service,
+    );
+    my $removed = 0;
+    for my $root (@roots) {
+        my $service_root = _contained_service_path( $root, $service );
+        die "Refusing service name that escapes the docker config root: $service\n"
+          if !defined $service_root;
+        my $marker = File::Spec->catfile( $service_root, $marker_name );
+        next if !-e $marker && !-l $marker;
+        unlink $marker or die "Unable to remove $marker: $!";
+        $removed++;
+    }
+
+    return $removed;
 }
 
 1;
@@ -1008,11 +1046,16 @@ Construct, resolve, list, and optionally execute compose operations.
 
 =head2 enable_service_development, disable_service_development
 
-Create or remove the deepest-layer C<develop.yml> marker for one isolated
-service. The marker controls only whether C<development.compose.yml> is added;
-an existing C<compose.yml> remains the base and is loaded first. If the marker
-is present but the development file is absent, resolution continues with the
-base file and does not report an error.
+Create or remove the selected-home-runtime C<develop.yml> marker for one
+isolated service. A marker in any matching service folder across active runtime
+layers enables C<development.compose.yml> overlays for the service. Removing
+the marker removes every C<develop.yml> file for that service across those
+layers. New markers use C<~/.developer-dashboard> when it exists (or when
+neither runtime name exists), and C<~/.d2> only when that is the existing home
+runtime name.
+An existing C<compose.yml> remains the base and is loaded first. If development
+is enabled but its file is absent, resolution continues with the base file and
+does not report an error.
 
   $docker->enable_service_development( service => 'web' );
   $docker->disable_service_development( service => 'web' );
@@ -1020,14 +1063,19 @@ base file and does not report an error.
 =head2 disable_service, enable_service
 
 Write and remove the C<disabled.yml> marker for one isolated service, below the
-deepest runtime C<config/docker> root.
+selected home runtime C<config/docker> root.
+Any matching service layer containing C<disabled.yml> disables the service;
+enabling removes every such marker before reporting success. New markers use
+the same home runtime name selection as development markers.
 
 The service name reaches these methods straight from the command line and is
 therefore untrusted. It is resolved below the toggle root and any name that
 escapes that root is B<refused> - both methods die rather than fall back to the
 unchecked path. Resolution is lexical and never consults the filesystem, so the
 containment decision cannot change between the check and the write or unlink
-that follows it.
+that follows it. Marker removal walks only existing service folders discovered
+by the layered service resolver, and marker names are restricted to the two
+internal toggle files.
 
 The refusal protects two distinct sinks, and the second is the one usually
 underestimated: C<disable_service> creates directories and writes a file, while

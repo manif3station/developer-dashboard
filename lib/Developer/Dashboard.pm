@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.41';
+our $VERSION = '5.44';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.41
+5.44
 
 =head1 INTRODUCTION
 
@@ -771,8 +771,11 @@ removed; use C<dashboard workspace>.
 When the workspace name is registered in the dashboard paths inventory, the
 command changes into that registered directory before planning the session.
 This includes skill-qualified aliases such as C<bar.foo>, just like the shell
-C<cdr> helper. For example, C<dashboard workspace bar.foo> names the session
-C<bar.foo> and starts it in the registered directory. Passing C<-c> before or
+C<cdr> helper, including aliases provided by a skill's C<lib/Folder.pm> and
+deeper names such as C<bar.baz.qux.work>. Configured path aliases keep
+precedence over Folder.pm methods. For example, C<dashboard workspace bar.foo
+-c> names the session C<bar.foo> and starts it in the registered directory.
+Passing C<-c> before or
 after the workspace name remains available to explicitly request this behavior;
 when C<-c> is used with an unregistered name, the command fails with an explicit
 error instead of silently starting from the wrong directory. The tmux session
@@ -782,9 +785,13 @@ Built-in commands and actions share a help catalog used by both command
 dispatch and shell completion. Use C<d2 help> for a concise command index,
 C<d2 help docker development> for nested action guidance, or append C<--help>,
 C<-h>, or C<help> to a command/action. TAB offers the same public actions and
-known option flags. Workspace session names are queried only while completing
-a positional workspace name; completing an option such as C<-c> does not call
-tmux.
+known option flags. Help is passed through when it belongs to a delegated
+tool: C<d2 of grep --help> displays grep's usage, while C<d2 docker compose
+config --help> and C<d2 docker compose help> reach Docker Compose. Use
+C<d2 docker compose --help> or C<d2 help docker compose> for the dashboard's
+Compose wrapper help. Workspace session names are queried only while
+completing a positional workspace name; completing an option such as C<-c>
+does not call tmux.
 
 =item * Runtime Manager
 
@@ -2158,6 +2165,33 @@ C<code> runs Perl code directly inside the collector runtime
 
 =back
 
+A collector may use C<interval> polling or a standard five-field local-time
+C<cron> expression in F<config/config.json>. The fields are minute, hour,
+day-of-month, month, and day-of-week. Numeric values, comma-separated lists,
+ranges, range steps, C<*/step>, and case-insensitive month and weekday names
+are supported. When both day-of-month and day-of-week are restricted, either
+matching field makes the date due, following crontab semantics. An explicit
+C<schedule> value takes precedence over inferred scheduling; use
+C<"schedule": "cron"> with C<cron> when you want to state the mode explicitly.
+Missing or malformed cron expressions are rejected when the loop starts rather
+than running once per scheduler poll.
+
+For example, run a report at 09:00 on weekdays:
+
+  {
+    "collectors": [
+      {
+        "name": "weekday.report",
+        "command": "./report",
+        "cwd": "home",
+        "cron": "0 9 * * MON-FRI"
+      }
+    ]
+  }
+
+Cron loops poll once per second and deduplicate execution within each matching
+minute. They use the machine's local time and timezone.
+
 A collector's C<cwd> may be an absolute or relative directory, a built-in
 directory accessor such as C<home>, a configured C<path_aliases> name, or a
 skill-qualified C<Folder.pm> alias such as C<collectorpaths.workspace>. Config
@@ -2364,23 +2398,25 @@ C<dashboard docker compose up green> will pick it up automatically by
 inferring service names from the passthrough compose args before the real
 C<docker compose> command is assembled. If no service name is passed, the
 resolver scans isolated service folders and preloads every non-disabled folder.
-If a folder contains C<disabled.yml> it is skipped. Each enabled isolated folder
+If any matching C<config/docker/E<lt>serviceE<gt>> directory in the active
+runtime layers contains C<disabled.yml>, the service is skipped. Each enabled isolated folder
 contributes C<compose.yml> as its base whenever it exists. Its optional
 C<development.compose.yml> is layered after the base only when C<develop.yml>
-exists in the effective service folder; without that marker, the development
-file is ignored even when present. If the marker exists but the development
+exists in any matching service folder across those layers; without a marker,
+the development file is ignored even when present. If the marker exists but the development
 file does not, only the base is loaded and no error is raised. Toggle
 development mode without creating or deleting the file manually with
 C<dashboard docker development enable E<lt>serviceE<gt>> or
-C<dashboard docker development disable E<lt>serviceE<gt>>. The marker is written
-to the deepest runtime service folder. To toggle the disabled marker without
+C<dashboard docker development disable E<lt>serviceE<gt>>. A newly enabled
+marker is written under the selected home runtime: C<~/.developer-dashboard>
+when it exists (or when neither runtime name exists), otherwise C<~/.d2>.
+Disabling development removes every C<develop.yml> marker for that service
+across active layers. To toggle the disabled marker without
 creating or deleting the file manually, use
 C<dashboard docker disable E<lt>serviceE<gt>> or
-C<dashboard docker enable E<lt>serviceE<gt>>. The toggle writes to the
-deepest runtime C<config/docker> root, so a child project layer can locally
-disable an inherited home service by creating
-C<./.developer-dashboard/config/docker/E<lt>serviceE<gt>/disabled.yml> and can
-re-enable it again by removing that same local marker.
+C<dashboard docker enable E<lt>serviceE<gt>>. The disable toggle uses the same
+selected home runtime root. C<dashboard docker enable E<lt>serviceE<gt>> removes
+every C<disabled.yml> marker for that service across active layers.
 To inspect the effective marker state without walking the folders manually,
 use C<dashboard docker list>. Add C<--disabled> to show only disabled
 services or C<--enabled> to show only enabled services.

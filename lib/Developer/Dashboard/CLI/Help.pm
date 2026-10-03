@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Help;
 use strict;
 use warnings;
 
-our $VERSION = '5.41';
+our $VERSION = '5.44';
 
 use Developer::Dashboard::InternalCLI ();
 
@@ -99,6 +99,11 @@ my %COMMANDS = (
             disable => [ 'dashboard docker development disable <service> [service ...]', 'Remove development markers for services.' ],
         },
     },
+    'docker compose' => {
+        usage => 'dashboard docker compose [selectors] <compose-arguments...>',
+        description => 'Resolve layered Compose configuration and pass remaining arguments to Docker Compose.',
+        passthrough_arguments => 1,
+    },
     doctor => { usage => 'dashboard doctor [--fix]', description => 'Check the installation and optionally repair supported drift.' },
     encode => { usage => 'dashboard encode <text from standard input>', description => 'Encode input as a dashboard payload token.' },
     file => {
@@ -134,7 +139,11 @@ my %COMMANDS = (
             collector => [ 'dashboard log collector [name]', 'Read one or all collector logs.' ],
         },
     },
-    of => { usage => 'dashboard of [options] <file-or-scope> [pattern ...] | grep <grep-args...>', description => 'Open, print, or content-search matching files.' },
+    of => {
+        usage => 'dashboard of [options] <file-or-scope> [pattern ...] | grep <grep-args...>',
+        description => 'Open, print, or content-search matching files.',
+        passthrough_actions => { grep => 1 },
+    },
     'open-file' => { usage => 'dashboard open-file [options] <file-or-scope> [pattern ...]', description => 'Alias for the file-opening helper.' },
     page => {
         usage => 'dashboard page <new|save|list|show|encode|decode|urls|render|source> [arguments]',
@@ -396,6 +405,7 @@ sub help_request {
         }
     }
     if ( defined $help_index ) {
+        return () if _delegated_cli_owns_help( _canonical_command($command), \@args, $help_index );
         my @before = $help_index > 0 ? @args[ 0 .. $help_index - 1 ] : ();
         my @path = _leading_action_path(\@before);
         return _help_path( _canonical_command($command), \@path );
@@ -407,9 +417,54 @@ sub help_request {
         return _help_path( _canonical_command($command), \@path );
     }
     return () if $args[-1] ne 'help';
+    return () if _delegated_cli_owns_help( _canonical_command($command), \@args, $#args );
     my @before = @args[ 0 .. $#args - 1 ];
     my @path = _leading_action_path(\@before);
-    return _help_path( _canonical_command($command), \@path );
+    return _help_path( _canonical_command($command), \@path, 'trailing-help' );
+}
+
+# _delegated_cli_owns_help($command, $args, $help_index)
+# Detects help tokens that occur after argument parsing has crossed into a
+# delegated external CLI, even when Dashboard wrapper options precede it.
+# Input: canonical Dashboard command, argument array reference, and the index
+# of an explicit --help/-h or trailing literal help token.
+# Output: true when the external CLI must receive the help request.
+sub _delegated_cli_owns_help {
+    my ( $command, $args, $help_index ) = @_;
+    return 0 if ref($args) ne 'ARRAY' || !defined $help_index || $help_index < 0;
+
+    my $spec = $COMMANDS{$command} || {};
+    if ( ref( $spec->{passthrough_actions} ) eq 'HASH' ) {
+        for my $index ( 0 .. $help_index - 1 ) {
+            return 1 if $spec->{passthrough_actions}{ $args->[$index] || '' };
+        }
+    }
+
+    my $compose = $COMMANDS{"$command compose"};
+    # The catalog only has one <command> compose entry: Docker Compose. Its
+    # passthrough contract is defined directly in that catalog entry.
+    return 0 if !$compose;
+    return 0 if !@{$args} || $args->[0] ne 'compose';
+
+    my $index = 1;
+    while ( $index < $help_index ) {
+        my $argument = $args->[$index] // '';
+        if ( $argument =~ /\A--(?:addon|mode|service|project)\z/ ) {
+            # Dashboard's Compose wrapper consumes these selectors and their
+            # separate values. A help token before any Docker command remains
+            # Dashboard help even when selectors were supplied.
+            $index += 2;
+            next;
+        }
+        if ( $argument =~ /\A--(?:addon|mode|service|project)=/ || $argument eq '--dry-run' || $argument eq '--no-dry-run' ) {
+            $index++;
+            next;
+        }
+        # Any remaining token is part of Docker Compose's own argv. Forward
+        # later help markers unchanged rather than substituting wrapper help.
+        return 1;
+    }
+    return 0;
 }
 
 # _leading_action_path($args)
@@ -427,19 +482,29 @@ sub _leading_action_path {
     return @path;
 }
 
-# _help_path($command, $path)
+# _help_path($command, $path, $marker)
 # Resolves the public action path preceding a help token into a catalog key.
-# Input: canonical command string and array reference of positional action names.
-# Output: canonical command plus optional action, or the containing command for an empty path.
+# Input: canonical command string, array reference of positional names, and
+# optional marker kind identifying a literal trailing "help" token.
+# Output: canonical command plus optional action, the containing command for
+# an empty path, or an empty list when a delegated CLI owns the help request.
 sub _help_path {
-    my ( $command, $path ) = @_;
+    my ( $command, $path, $marker ) = @_;
     return ( $command, undef ) if !$path || !@{$path};
+    my $spec = $COMMANDS{$command} || {};
+    return () if ref($spec->{passthrough_actions}) eq 'HASH'
+      && $spec->{passthrough_actions}{ $path->[0] };
     if ( @{$path} > 1 ) {
         my $nested = "$command $path->[0]";
         if ( exists $COMMANDS{$nested} ) {
+            return () if $COMMANDS{$nested}{passthrough_arguments};
             return ( $nested, $path->[1] ) if exists $COMMANDS{$nested}{actions}{ $path->[1] };
             return ( $command, $path->[0] );
         }
+    }
+    if ( $marker && $marker eq 'trailing-help' && @{$path} == 1 ) {
+        my $nested = "$command $path->[0]";
+        return () if $COMMANDS{$nested} && $COMMANDS{$nested}{passthrough_arguments};
     }
     return ( $command, $path->[0] );
 }
@@ -558,7 +623,14 @@ subcommand, a compatibility alias, or changing the public CLI syntax.
   my $overview = Developer::Dashboard::CLI::Help::overview_text();
 
 The help request result is empty when the arguments do not explicitly ask for
-help; otherwise it contains the canonical command and an optional action name.
+help or when a delegated command owns the request, even if Dashboard wrapper
+options precede the delegated command; otherwise it contains the
+canonical command and an optional action name. In particular,
+C<dashboard of grep --help> and C<dashboard docker compose config --help>
+leave their trailing help options with grep or Docker Compose. That ownership
+is preserved when C<of --print> or Docker Compose selectors occur before the
+delegated command. The built-in Compose synopsis remains available as
+C<dashboard docker compose --help> or C<dashboard help docker compose>.
 
 =head1 WHAT USES IT
 
@@ -571,6 +643,10 @@ actions, flags, and targets following global help.
 
   dashboard api --help
   dashboard path cdr --help
+  dashboard of --print grep --help
+  dashboard docker compose config --help
+  dashboard docker compose --service dev exec dev docker --help
+  dashboard of grep --help
   dashboard help docker development
   dashboard complete 3 dashboard api add -
   prove -lv t/265-cli-help-completion-contract.t

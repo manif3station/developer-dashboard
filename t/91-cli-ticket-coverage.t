@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
+use Capture::Tiny qw(capture);
 use Test::More;
 use Cwd qw(abs_path cwd);
 use File::Basename qw(dirname);
@@ -39,6 +40,8 @@ use Developer::Dashboard::Config      ();
 use Developer::Dashboard::FileRegistry ();
 use Developer::Dashboard::PathRegistry ();
 use Developer::Dashboard::JSON qw(json_encode);
+
+my $repo = abs_path('.');
 
 # Warnings are fatal in this repository: collect any and assert none escaped.
 my @warnings;
@@ -152,6 +155,16 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
 }
 
 {
+    no warnings 'redefine';
+    local *Developer::Dashboard::PathRegistry::resolve_dir = sub { die "unexpected resolver failure\n" };
+    like(
+        error_from( sub { registered_workspace_dir('bar.root') } ),
+        qr/unexpected resolver failure/,
+        'registered_workspace_dir propagates real path resolver errors instead of treating them as absent aliases',
+    );
+}
+
+{
     my $skill_target = File::Spec->catdir( $home, 'skill-project' );
     my $skill_config = File::Spec->catfile( $home, '.developer-dashboard', 'skills', 'bar', 'config', 'config.json' );
     make_path($skill_target);
@@ -169,6 +182,79 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
     is( $plan->{session}, 'bar.foo', 'workspace keeps the qualified skill alias as the tmux session name' );
     is( $plan->{cwd}, $skill_target, 'workspace alias starts the session in its resolved skill path without requiring -c' );
     chdir $old_cwd or die "Unable to restore cwd to $old_cwd: $!";
+}
+
+{
+    my $skill_root = File::Spec->catdir( $home, '.developer-dashboard', 'skills', 'bar' );
+    my $nested_root = File::Spec->catdir( $skill_root, 'skills', 'baz' );
+    my $deep_root = File::Spec->catdir( $nested_root, 'skills', 'qux' );
+    my $skill_target = File::Spec->catdir( $home, 'folder-project' );
+    my $nested_target = File::Spec->catdir( $home, 'nested-folder-project' );
+    my $deep_target = File::Spec->catdir( $home, 'deep-folder-project' );
+    my $configured_target = File::Spec->catdir( $home, 'configured-folder-project' );
+    make_path( $skill_target, $nested_target, $deep_target, $configured_target );
+    write_file(
+        File::Spec->catfile( $skill_root, 'lib', 'Folder.pm' ),
+        "package Folder; sub __list__ { return qw(root collision); } sub root { return '$skill_target'; } sub collision { return '$skill_target'; } 1;\n",
+    );
+    write_file(
+        File::Spec->catfile( $skill_root, 'config', 'config.json' ),
+        json_encode( { path_aliases => { collision => $configured_target } } ),
+    );
+    write_file(
+        File::Spec->catfile( $nested_root, 'lib', 'Folder.pm' ),
+        "package Folder; sub __list__ { return qw(nested); } sub nested { return '$nested_target'; } 1;\n",
+    );
+    write_file(
+        File::Spec->catfile( $deep_root, 'lib', 'Folder.pm' ),
+        "package Folder; sub __list__ { return qw(leaf); } sub leaf { return '$deep_target'; } 1;\n",
+    );
+
+    for my $case (
+        [ 'bar.root',       $skill_target,  'top-level skill Folder.pm alias' ],
+        [ 'bar.baz.nested', $nested_target, 'nested skill Folder.pm alias' ],
+        [ 'bar.baz.qux.leaf', $deep_target, 'deeper nested skill Folder.pm alias' ],
+    ) {
+        my ( $alias, $target, $label ) = @{$case};
+        is( registered_workspace_dir($alias), $target, "registered_workspace_dir resolves $label" );
+        my $old_cwd = cwd();
+        my $plan = run_workspace_command(
+            args   => [ $alias, '-c' ],
+            tmux   => ok_tmux(),
+            attach => sub { return { exit_code => 0 } },
+        );
+        is( $plan->{cwd}, $target, "workspace -c starts in the $label target" );
+        chdir $old_cwd or die "Unable to restore cwd to $old_cwd: $!";
+    }
+    is( registered_workspace_dir('bar.collision'), $configured_target,
+        'configured skill path aliases take precedence over same-named Folder.pm methods' );
+
+    my $fake_bin = File::Spec->catdir( $home, 'fake-tmux-bin' );
+    my $tmux_trace = File::Spec->catfile( $home, 'tmux.trace' );
+    my $fake_tmux = File::Spec->catfile( $fake_bin, 'tmux' );
+    write_file(
+        $fake_tmux,
+        "#!/bin/sh\nprintf '%s|%s\\n' \"\$PWD\" \"\$*\" >> \"\$TMUX_TRACE\"\n[ \"\$1\" = has-session ] && exit 1\nexit 0\n",
+    );
+    chmod 0755, $fake_tmux or die "Unable to chmod $fake_tmux: $!";
+    {
+        local $ENV{PATH} = "$fake_bin:$ENV{PATH}";
+        local $ENV{TMUX_TRACE} = $tmux_trace;
+        my ( $stdout, $stderr, $exit ) = capture {
+            system $^X, "-I" . File::Spec->catdir( $repo, 'lib' ),
+              File::Spec->catfile( $repo, 'bin', 'dashboard' ),
+              'workspace', 'bar.baz.qux.leaf', '-c';
+            return $? >> 8;
+        };
+        is( $exit, 0, 'dashboard workspace -c accepts a deepest nested skill Folder.pm alias through the public CLI' );
+        is( $stderr, '', 'public workspace alias resolution emits no error' );
+        open my $trace_fh, '<', $tmux_trace or die "Unable to read $tmux_trace: $!";
+        local $/;
+        my $trace = <$trace_fh>;
+        close $trace_fh or die "Unable to close $tmux_trace: $!";
+        like( $trace, qr/\Q$deep_target\E\|new-session .* -c \Q$deep_target\E/s,
+            'public workspace CLI creates its tmux session in the deepest Folder.pm target' );
+    }
 }
 
 {
@@ -1002,7 +1088,9 @@ environment variables a session is seeded with, how the top status row is
 composed, how C<-c> resolves a registered directory, or how tmux failures are
 reported back to the user. It also pins path-alias chdir failures for both the
 ordinary and C<-c> forms - and whenever the coverage gate reports an
-uncovered branch or condition in the ticket helper.
+uncovered branch or condition in the ticket helper. Skill aliases are checked
+at root, nested, and deeper skill levels; a public CLI subprocess with a fake
+tmux verifies the actual C<workspace -c> handoff.
 
 =head1 HOW TO USE
 

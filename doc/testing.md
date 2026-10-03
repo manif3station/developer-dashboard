@@ -514,7 +514,7 @@ integration/blank-env/run-host-integration.sh
 This integration path builds the distribution tarball on the host with
 `dzil build`, rebuilds `dd-int-test:latest` from the current
 `integration/blank-env/Dockerfile`, runs that container with only the tarball
-mounted into it, installs the tarball with `cpanm --notest`, and then
+mounted into it, installs and tests the tarball with `cpanm`, and then
 exercises the installed `dashboard` command inside the clean Perl container.
 The blank-environment image must also carry the native CPAN build baseline
 needed by packaged installs, including `libexpat1-dev`, `libssl-dev`,

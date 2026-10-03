@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use Capture::Tiny qw(capture);
+use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use Test::More;
@@ -98,6 +99,93 @@ like( $api_out, qr/--key/, 'API root help documents the implicit list key filter
 like( $api_out, qr/--output/, 'API root help documents the implicit list output option' );
 unlike( $api_out, qr/^Key\s+Secret\s+Route/m, 'API help does not continue into the API listing action' );
 ok( !-e File::Spec->catfile( $home, '.developer-dashboard', 'config', 'api.json' ), 'help does not create or mutate the API registry' );
+
+my ( $grep_help_out, $grep_help_err, $grep_help_exit ) = run_cli( 'of', 'grep', '--help' );
+is( $grep_help_exit, 0, 'delegated grep --help exits with grep success status' );
+like( $grep_help_out, qr/^Usage: grep/m, 'delegated grep --help prints the system grep usage' );
+is( $grep_help_err, '', 'delegated grep --help does not emit dashboard routing errors' );
+
+my ( $grep_after_options_out, $grep_after_options_err, $grep_after_options_exit ) =
+  run_cli( 'of', '--print', 'grep', '--help' );
+is( $grep_after_options_exit, 0, 'grep help following an internal open-file option reaches grep' );
+like( $grep_after_options_out, qr/^Usage: grep/m, 'grep help following --print renders native grep help' );
+unlike( $grep_after_options_out, qr/^Usage: dashboard of/m, 'grep help following --print is not intercepted as dashboard help' );
+is( $grep_after_options_err, '', 'grep help following --print emits no dashboard parser error' );
+
+my $fake_bin = File::Spec->catdir( $home, 'fake-bin' );
+make_path($fake_bin);
+my $fake_docker = File::Spec->catfile( $fake_bin, 'docker' );
+open my $docker_fh, '>', $fake_docker or die "Unable to write $fake_docker: $!";
+print {$docker_fh} "#!/bin/sh\nprintf 'docker-argv='\nprintf '%s ' \"\$@\"\nprintf '\\n'\n";
+close $docker_fh or die "Unable to close $fake_docker: $!";
+chmod 0755, $fake_docker or die "Unable to chmod $fake_docker: $!";
+{
+    local $ENV{PATH} = "$fake_bin:$ENV{PATH}";
+    for my $case (
+        [ [ 'docker', 'compose', 'config', '--help' ], qr/config --help\s*\n/, 'Docker Compose config --help' ],
+        [ [ 'docker', 'compose', 'help' ], qr/help\s*\n/, 'Docker Compose literal help' ],
+        [ [ 'docker', 'compose', '--service', 'dev', 'exec', 'dev', 'dashboard', 'of', 'grep', '--help' ], qr/exec dev dashboard of grep --help\s*\n/, 'nested external CLI help after Compose wrapper selectors' ],
+    ) {
+        my ( $args, $expected, $label ) = @{$case};
+        my ( $stdout, $stderr, $exit ) = run_cli( @{$args} );
+        is( $exit, 0, "$label reaches the external Docker CLI successfully" );
+        like( $stdout, $expected, "$label preserves the external CLI argv" );
+        is( $stderr, '', "$label does not print dashboard help or routing errors" );
+    }
+}
+
+is(
+    Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'of', [ '', '--help' ], 1 ),
+    0,
+    'delegated-help lookup tolerates an empty action token before help',
+);
+is(
+    Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'of', [ undef, '--help' ], 1 ),
+    0,
+    'delegated-help lookup tolerates an undefined action token before help',
+);
+is( Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'of', undef, 1 ), 0,
+    'delegated-help lookup rejects a non-array argument collection' );
+is( Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'of', [], undef ), 0,
+    'delegated-help lookup rejects a missing help index' );
+is( Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'of', [], -1 ), 0,
+    'delegated-help lookup rejects a negative help index' );
+is( Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'docker', [ 'compose', '--service', 'dev', '--help' ], 3 ), 0,
+    'Compose selector values do not transfer wrapper help to Docker' );
+is( Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'docker', [ 'compose', '--dry-run', '--help' ], 2 ), 0,
+    'Compose dry-run selector does not transfer wrapper help to Docker' );
+is( Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'docker', [ 'compose', '--no-dry-run', '--help' ], 2 ), 0,
+    'Compose no-dry-run selector does not transfer wrapper help to Docker' );
+is( Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'docker', [ 'compose', '--service=dev', '--help' ], 2 ), 0,
+    'Compose inline selector does not transfer wrapper help to Docker' );
+is( Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'docker', [ 'exec', '--help' ], 1 ), 0,
+    'non-Compose Docker help remains owned by the Dashboard wrapper' );
+is( Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'docker', [ 'compose', undef, '--help' ], 2 ), 1,
+    'undefined delegated argument is safely treated as a Docker argument' );
+is( Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'docker', [], 0 ), 0,
+    'an empty argument list cannot belong to Docker Compose help' );
+is( Developer::Dashboard::CLI::Help::_delegated_cli_owns_help( 'docker', [ 'config', '--help' ], 1 ), 0,
+    'non-compose Docker arguments are not classified as Compose passthrough' );
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::help_request( command => 'of', args => [ 'grep', 'help' ] ) ],
+    [],
+    'trailing grep help is left for the delegated command',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::help_request( command => 'docker', args => [ 'compose', '--help' ] ) ],
+    [ 'docker', 'compose' ],
+    'direct Compose help resolves to Dashboard wrapper help',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::_help_path( 'of', ['grep'] ) ],
+    [],
+    'help-path resolution leaves the delegated grep action to grep',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::Help::_help_path( 'docker', [ 'compose', 'config' ] ) ],
+    [],
+    'help-path resolution leaves Docker Compose passthrough arguments to Docker',
+);
 done_testing;
 
 __END__
@@ -112,13 +200,16 @@ t/266-cli-help-dispatch.t - explicit built-in command help dispatch
 
 Verifies helper and direct-version help spellings reach the shared catalog
 before command execution, including nested actions, the global help form, and
-root API help for the implicit list action.
+root API help for the implicit list action. It also checks native help
+passthrough for grep and Docker Compose using a fake Docker executable,
+including external help markers after Dashboard or Compose wrapper options.
 
 =head1 WHY IT EXISTS
 
 Some internal commands treated C<--help> as ordinary input, printed an error,
 or continued into a real operation. This regression ensures representative
-commands return successful help output without touching their underlying data.
+commands return successful help output without touching their underlying data,
+while delegated tools receive their own C<help>/C<--help> arguments.
 
 =head1 WHEN TO USE
 

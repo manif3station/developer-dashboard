@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '5.41';
+our $VERSION = '5.44';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -55,8 +55,7 @@ sub split_workspace_change_dir_args {
 }
 
 # registered_workspace_dir($name)
-# Resolves one workspace name through the same registered-paths inventory the
-# shell cdr helper uses: the path registry plus configured path aliases.
+# Resolves configured path aliases and skill Folder.pm methods like shell cdr.
 # Input: workspace name string.
 # Output: registered directory path string, or empty string when the name is
 # not registered.
@@ -76,7 +75,20 @@ sub registered_workspace_dir {
     my $files  = Developer::Dashboard::FileRegistry->new( paths => $paths );
     my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
     $paths->register_named_paths( $config->path_aliases );
+    # An unregistered name is the expected signal to try Folder.pm; all other
+    # PathRegistry failures must remain visible to the caller.
     my $target = eval { $paths->resolve_dir($name) };
+    my $resolve_error = $@;
+    die $resolve_error if $resolve_error ne '' && $resolve_error !~ /\AUnknown directory name /;
+    return $target if defined $target;
+
+    # Config aliases have first refusal. Resolve a skill Folder.pm method only
+    # after the normal registry lookup has no result.
+    require Developer::Dashboard::CLI::Paths;
+    $target = Developer::Dashboard::CLI::Paths::_skill_folder_alias_target(
+        paths => $paths,
+        name  => $name,
+    );
     return defined $target ? $target : '';
 }
 
@@ -649,6 +661,14 @@ session does not exist it creates a detached C<Code1> window in the current
 working directory before attaching; if the session already exists it skips
 creation and attaches directly.
 
+The C<-c> option may appear before or after the workspace name. It resolves
+configured path aliases first, then skill-qualified methods from each installed
+skill's C<lib/Folder.pm> through the shared validated C<d2 paths>/C<cdr>
+loader. Dotted nested-skill names are supported at arbitrary installed depth,
+for example C<parent.child.work>. The session and its layered environment
+refresh both start in the resolved directory. If no alias resolves, C<-c>
+fails with an explicit error.
+
 =head1 WHAT USES IT
 
 It is used by the C<dashboard ticket> helper, by prompt/bootstrap flows that
@@ -662,6 +682,7 @@ create/attach error handling.
   dashboard ticket
   TICKET_REF=DD-123 dashboard ticket
   dashboard ticket feature-branch-42
+  dashboard workspace parent.child.work -c
   perl -Ilib -MDeveloper::Dashboard::CLI::Ticket=list_sessions -e 'print join qq(\n), list_sessions()'
 
 =for comment FULL-POD-DOC END

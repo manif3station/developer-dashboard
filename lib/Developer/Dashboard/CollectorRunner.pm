@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '5.41';
+our $VERSION = '5.44';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -363,6 +363,10 @@ sub start_loop {
     my $name = $job->{name} || die 'Collector job missing name';
     my $schedule_mode = $self->_schedule_mode($job);
     die "Collector '$name' uses manual schedule and should be run on demand" if $schedule_mode eq 'manual';
+    if ( $schedule_mode eq 'cron' ) {
+        my ( undef, $cron_error ) = _parse_cron_expression( $job->{cron} );
+        die "Collector '$name' has invalid cron expression: $cron_error\n" if $cron_error;
+    }
 
     # DD-737: a collector with neither 'command' nor 'code' used to be forked
     # into a loop anyway, which then died on its very first tick inside
@@ -1584,20 +1588,28 @@ sub _job_is_due {
 # Output: boolean due flag.
 sub _cron_due {
     my ( $self, $expr, $name ) = @_;
-    # A missing expression means "always due". A fully-wildcard "* * * * *" must
-    # NOT short-circuit here: it has to fall through to the per-minute
-    # last_cron_slot de-duplication below, otherwise it fires on every
-    # one-second cron scheduling tick (~60x/minute) instead of once per minute.
-    return 1 if !defined $expr || $expr eq '';
+    # A missing or malformed cron expression must not become an every-second
+    # schedule. A fully-wildcard "* * * * *" still reaches the per-minute
+    # last_cron_slot de-duplication below.
+    my ( $fields, $error ) = _parse_cron_expression($expr);
+    return 0 if $error;
     my @now = localtime();
-    my @parts = split /\s+/, $expr;
-    return 0 if @parts < 5;
-    my ( $min, $hour, $mday, $mon, $wday ) = @parts[ 0 .. 4 ];
-    return 0 if !_cron_match( $min,  $now[1] );
-    return 0 if !_cron_match( $hour, $now[2] );
-    return 0 if !_cron_match( $mday, $now[3] );
-    return 0 if !_cron_match( $mon,  $now[4] + 1 );
-    return 0 if !_cron_match( _cron_wday_normalize($wday), $now[6] );
+    return 0 if !$fields->[0]{ $now[1] };
+    return 0 if !$fields->[1]{ $now[2] };
+    return 0 if !$fields->[3]{ $now[4] + 1 };
+
+    my $day_of_month_matches = $fields->[2]{ $now[3] } ? 1 : 0;
+    my $day_of_week_matches  = $fields->[4]{ $now[6] } ? 1 : 0;
+    my $dom_is_wildcard = $fields->[2]{_wildcard} ? 1 : 0;
+    my $dow_is_wildcard = $fields->[4]{_wildcard} ? 1 : 0;
+    my $day_matches = $dom_is_wildcard && $dow_is_wildcard
+      ? 1
+      : $dom_is_wildcard
+        ? $day_of_week_matches
+        : $dow_is_wildcard
+          ? $day_of_month_matches
+          : $day_of_month_matches || $day_of_week_matches;
+    return 0 if !$day_matches;
 
     my $state = $self->loop_state($name) || {};
     my $stamp = strftime( '%Y-%m-%dT%H:%M%z', @now );
@@ -1606,37 +1618,116 @@ sub _cron_due {
     return 1;
 }
 
+# _parse_cron_expression($expr)
+# Validates a five-field crontab expression and expands each field into a set
+# of matching values, including standard names, lists, ranges and step values.
+# Input: cron expression string.
+# Output: array reference of five match-set hashes and an empty error string,
+# or undef and a visible validation message.
+sub _parse_cron_expression {
+    my ($expr) = @_;
+    return ( undef, 'expression is missing' ) if !defined $expr || $expr !~ /\S/;
+    return ( undef, 'expression is longer than 256 characters' ) if length($expr) > 256;
+    $expr =~ s/\A\s+|\s+\z//g;
+    my @specs = split /\s+/, $expr;
+    return ( undef, 'expected exactly five fields' ) if @specs != 5;
+
+    my @limits = ( [ 0, 59, {} ], [ 0, 23, {} ], [ 1, 31, {} ],
+        [ 1, 12, { JAN => 1, FEB => 2, MAR => 3, APR => 4, MAY => 5, JUN => 6, JUL => 7, AUG => 8, SEP => 9, OCT => 10, NOV => 11, DEC => 12 } ],
+        [ 0, 7, { SUN => 0, MON => 1, TUE => 2, WED => 3, THU => 4, FRI => 5, SAT => 6 } ], );
+    my @fields;
+    for my $index ( 0 .. 4 ) {
+        my ( $set, $error ) = _parse_cron_field( $specs[$index], @{$limits[$index]} );
+        return ( undef, sprintf( 'field %d (%s): %s', $index + 1, $specs[$index], $error ) ) if $error;
+        $set->{_wildcard} = $specs[$index] eq '*' ? 1 : 0;
+        if ( $index == 4 && delete $set->{7} ) {
+            $set->{0} = 1;
+        }
+        push @fields, $set;
+    }
+    return ( \@fields, '' );
+}
+
+# _parse_cron_field($spec, $minimum, $maximum, $names)
+# Parses one crontab field and returns its finite set of matching numeric values.
+# Input: field string, inclusive numeric bounds, and optional name-to-number map.
+# Output: hash reference and empty error string, or undef and validation message.
+sub _parse_cron_field {
+    my ( $spec, $minimum, $maximum, $names ) = @_;
+    return ( undef, 'field is empty' ) if !defined $spec || $spec eq '';
+    my %values;
+    for my $item ( split /,/, $spec, -1 ) {
+        return ( undef, 'empty list item' ) if $item eq '';
+        my ( $base, $step ) = split m{/}, $item, -1;
+        return ( undef, 'multiple step separators' ) if $item =~ m{/.*\/};
+        if ( defined $step ) {
+            return ( undef, 'step must be a positive integer' )
+              if length($step) > 4 || $step !~ /\A\d+\z/ || $step < 1;
+        }
+        else {
+            $step = 1;
+        }
+
+        my ( $start, $end );
+        if ( $base eq '*' ) {
+            ( $start, $end ) = ( $minimum, $maximum );
+        }
+        elsif ( $base =~ /\A([^,-]+)-([^,-]+)\z/ ) {
+            ( $start, $end ) = ( _cron_value( $1, $names ), _cron_value( $2, $names ) );
+            return ( undef, 'range endpoint is not a valid number or name' ) if !defined $start || !defined $end;
+            return ( undef, 'range start exceeds range end' ) if $start > $end;
+        }
+        else {
+            $start = _cron_value( $base, $names );
+            return ( undef, 'value is not a valid number or name' ) if !defined $start;
+            # Wildcards and ranges were handled above, so a slash remaining
+            # here can only be an invalid scalar step (for example, 5/2).
+            return ( undef, 'a step requires a wildcard or range' ) if $item =~ m{/};
+            $end = $start;
+        }
+
+        return ( undef, 'value is outside the field limits' ) if $start < $minimum || $end > $maximum;
+        for ( my $value = $start; $value <= $end; $value += $step ) {
+            $values{$value} = 1;
+        }
+    }
+    return ( \%values, '' );
+}
+
+# _cron_value($token, $names)
+# Resolves a numeric token or case-insensitive crontab name.
+# Input: field token and optional name-to-number hash reference.
+# Output: numeric value, or undef when the token is invalid.
+sub _cron_value {
+    my ( $token, $names ) = @_;
+    return 0 + $token if defined($token) && length($token) <= 3 && $token =~ /\A\d+\z/;
+    return undef if ref($names) ne 'HASH';
+    return $names->{ uc($token // '') };
+}
+
 # _cron_wday_normalize($spec)
-# Aliases the crontab(5) weekday token '7' to '0' - both mean Sunday, but
-# localtime's wday (used as _cron_due's match value) is always 0..6, so a
-# literal '7' can never equal it without this. Kept separate from the
-# generic _cron_match, which the other four cron fields also use and where
-# a bare '7' has no such alias.
-# Input: weekday field spec string (may be undef).
-# Output: normalized weekday field spec string (undef stays undef).
+# Aliases crontab's weekday value 7 to 0 (Sunday) in numeric lists.
+# Input: weekday field string, possibly undefined.
+# Output: weekday string with each bare 7 token normalized to 0.
 sub _cron_wday_normalize {
     my ($spec) = @_;
     return $spec if !defined $spec;
     return join( ',', map { $_ eq '7' ? '0' : $_ } split /,/, $spec );
 }
 
-# _cron_match($spec, $value)
-# Matches one cron field spec against a numeric value.
-# Input: cron field string and numeric value.
+# _cron_match($spec, $value, $minimum, $maximum, $names)
+# Matches one cron field by parsing its numeric, name, range or step syntax.
+# Input: field string, numeric value, optional inclusive bounds, and name map.
 # Output: boolean match flag.
 sub _cron_match {
-    my ( $spec, $value ) = @_;
-    return 1 if !defined $spec || $spec eq '*' || $spec eq '';
-    for my $part ( split /,/, $spec ) {
-        return 1 if $part =~ /^\d+$/ && $part == $value;
-        if ( $part =~ m{^\*/(\d+)$} ) {
-            return 1 if $1 && $value % $1 == 0;
-        }
-        if ( $part =~ /^(\d+)-(\d+)$/ ) {
-            return 1 if $value >= $1 && $value <= $2;
-        }
-    }
-    return 0;
+    my ( $spec, $value, $minimum, $maximum, $names ) = @_;
+    $minimum = 0 if !defined $minimum;
+    $maximum = 60 if !defined $maximum;
+    return 0 if !defined($value) || length($value) > 3 || $value !~ /\A\d+\z/ || $value < $minimum || $value > $maximum;
+    return 1 if !defined($spec) || $spec eq '' || $spec eq '*';
+    my ( $values, $error ) = _parse_cron_field( $spec, $minimum, $maximum, $names );
+    return 0 if $error;
+    return $values->{$value} ? 1 : 0;
 }
 
 # DD-947: this cluster (run_command through exit_code_from_status) was
@@ -1761,6 +1852,22 @@ state, shell-command collectors, Perl-code collectors, and TT-backed
 collector indicator icon rendering from stdout JSON. Collector working
 directories resolve built-in accessors and configured path aliases, followed
 by skill-qualified aliases provided by installed C<lib/Folder.pm> modules.
+
+=head1 CRON SCHEDULING
+
+Managed loops infer cron mode from a non-empty C<cron> property or accept the
+explicit C<schedule =E<gt> 'cron'> setting. The expression must contain exactly
+five fields: minute, hour, day of month, month, and day of week. The parser
+supports numeric values, comma-separated lists, ranges, range steps,
+C<*/step>, and case-insensitive month and weekday names. Sunday may be 0 or 7.
+When both date fields are restricted, either a day-of-month or day-of-week
+match makes the date due. The loop evaluates machine-local time once per
+second and persists the last matching minute to prevent duplicate runs.
+
+Missing, empty, malformed, out-of-range, or overlong expressions are rejected
+before a loop process is spawned. This keeps a bad configuration from turning
+into an every-second job. See the user-facing dashboard documentation for the
+C<config/config.json> example and accepted syntax.
 
 =head1 METHODS
 
