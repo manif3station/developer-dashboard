@@ -222,3 +222,25 @@ branch-protection setting additionally requires GitHub administrator access;
 this environment currently has no `gh` API login. Re-run Scorecard after the
 external actions above and keep this result open until every actionable check
 reaches `10 / 10` or its external limitation is evidenced.
+
+## 2026-10-04 — Post-push Scorecard audit for documentation and update hooks
+
+Ran the required command after pushing `5b265409c8ffbd20cc36d17633d54f69a6d74da3`.
+The remote `master` ref resolved to that commit before the Scorecard run.
+
+```text
+Aggregate score: 8.2 / 10
+```
+
+`CI-Tests` now reports `10 / 10` (`1 out of 1 merged PRs checked by a CI test`).
+The remaining results below `10 / 10` are:
+
+- `Branch-Protection`: `0 / 10` — branch protection is not enabled.
+- `CII-Best-Practices`: `0 / 10` — no OpenSSF Best Practices badge is detected.
+- `Code-Review`: `0 / 10` — `Found 0/17 approved changesets`.
+- `Contributors`: `3 / 10` — Scorecard counts one contributing organization.
+
+All other reported checks are `10 / 10`. This environment still has no GitHub
+CLI API login, so repository settings cannot be changed here. Branch protection,
+external badge enrollment, reviewed PR history, and additional organization
+contributors remain external actions rather than code tasks.

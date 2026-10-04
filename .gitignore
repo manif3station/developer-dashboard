@@ -3,3 +3,4 @@ nytprof.out
 nytprof/
 .worktrees/
 dogfood-output/
+.env
