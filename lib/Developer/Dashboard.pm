@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.54';
+our $VERSION = '5.56';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.54
+5.56
 
 =head1 INTRODUCTION
 
@@ -147,6 +147,12 @@ supervisor for the targeted collector set while the lifecycle command is in
 flight, then restore supervision for the remaining watched fleet afterwards.
 That prevents the watchdog from racing a manual collector restart and spawning
 another replacement loop underneath the CLI.
+
+Collector watchdog stall checks distinguish cron scheduler liveness from job
+execution time. A cron collector may correctly wait hours between matching
+minutes; while its loop heartbeat is fresh, that quiet period does not count as
+a stalled collector or consume the automatic-restart budget. A stale scheduler
+heartbeat remains eligible for watchdog recovery.
 
 It provides a small ecosystem for:
 
@@ -2477,7 +2483,12 @@ volume paths and the default project identity continue to come from the local
 Compose project rather than the temporary file's directory. An explicit
 C<--project-directory> supplied by the user is preserved. An undefined Compose
 argument or an empty/missing project-directory value is rejected before the
-Compose executable is called.
+Compose executable is called. The public helper routes these actions through
+the materializing runner (not directly through the unresolved C<-f> list),
+keeps the temporary merged file until the operation exits, and streams Compose
+stdout and stderr normally. This applies to C<build>, C<up>, C<down>, and other
+Compose operations; C<config> remains available for inspection without starting
+containers.
 
 During compose execution the dashboard exports C<DDDC> as the runtime
 C<config/docker> directory for the current runtime, so compose YAML can keep using

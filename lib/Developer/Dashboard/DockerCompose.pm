@@ -3,7 +3,7 @@ package Developer::Dashboard::DockerCompose;
 use strict;
 use warnings;
 
-our $VERSION = '5.54';
+our $VERSION = '5.56';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -876,6 +876,41 @@ sub run {
     };
 }
 
+# run_streaming(%args)
+# Executes a resolved Docker Compose operation with inherited stdout/stderr so
+# interactive and long-running Compose commands retain their normal terminal
+# behavior. It materializes layered files first and removes the temporary merge
+# only after Compose exits.
+# Input: normal resolve() arguments, or a resolved hash reference under resolved.
+# Output: resolution hash reference with exit_code from the operational command.
+sub run_streaming {
+    my ( $self, %args ) = @_;
+    local $?;
+    my $resolved = delete $args{resolved};
+    $resolved = $self->resolve(%args) if !defined $resolved;
+    return $resolved if $args{dry_run};
+
+    my $old = cwd();
+    my ( $result, $error );
+    my $ok = eval {
+        my $compose_root = $resolved->{compose_root};
+        chdir $compose_root or die "Unable to chdir to $compose_root: $!";
+        local @ENV{ keys %{ $resolved->{env} } } = values %{ $resolved->{env} } if %{ $resolved->{env} };
+        my $command = $self->_materialized_command($resolved);
+        my $status = system @{$command};
+        die "Unable to execute Docker Compose: $!\n" if $status == -1;
+        my $signal = $status & 127;
+        my $exit_code = $signal ? 128 + $signal : $status >> 8;
+        $result = { %$resolved, exit_code => $exit_code };
+        1;
+    };
+    $error = $@ if !$ok;
+
+    chdir $old or die "Unable to restore cwd to $old: $!";
+    die $error if defined $error;
+    return $result;
+}
+
 # _materialized_command($resolved)
 # Pre-merges a resolved multi -f docker compose layer stack into one file via
 # `docker compose ... config`, then returns a command that points at just
@@ -1130,15 +1165,24 @@ This keeps lifecycle operations such as C<build>, C<up>, and C<down> anchored
 to the invocation project rather than the temporary merged file. A user's
 explicit C<--project-directory> takes precedence. Missing or empty values for
 that option, and undefined argument values, are rejected before invoking
-Compose.
+Compose. The public Docker helper executes operational requests through
+C<run_streaming>, which uses the materialized merge, preserves the resolved
+project directory, inherits stdout and stderr, and keeps the temporary file
+available until the Compose child exits. This preserves live output for long
+operations such as C<build>, C<up>, and log-following commands.
 
 =head1 METHODS
 
-=head2 new, resolve, list_services, run
+=head2 new, resolve, list_services, run, run_streaming
 
 Construct, resolve, list, and optionally execute compose operations.
 C<resolve> returns both the project discovery root and the effective Compose
 working root so nested invocation directories retain their local project file.
+C<run> captures output for callers that need a result payload. C<run_streaming>
+executes the operational command with inherited stdout and stderr and returns
+its exit code; it accepts the usual resolution arguments or a previously
+resolved hash under C<resolved>. The public CLI uses this method so the
+materialized file remains present until Compose completes.
 
 =head2 enable_service_development, disable_service_development
 
@@ -1187,7 +1231,7 @@ reopen the time-of-check-to-time-of-use window this approach closes.
 
 =head1 PURPOSE
 
-This module resolves and runs dashboard-managed Docker Compose stacks. It maps wrapper flags to compose files under layered runtime C<config/docker> roots, infers service names, exports the effective docker config root, and builds the final C<docker compose> command that the wrapper C<exec>s.
+This module resolves and runs dashboard-managed Docker Compose stacks. It maps wrapper flags to compose files under layered runtime C<config/docker> roots, infers service names, exports the effective docker config root, and builds the final C<docker compose> command. Operational CLI requests use C<run_streaming> so layered configuration is materialized before execution and normal terminal output remains live.
 
 =head1 WHY IT EXISTS
 

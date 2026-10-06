@@ -677,6 +677,25 @@ future standard image builds may reproduce the shadowing until its install
 target is corrected. Security scans and required targeted tests passed. Commit
 `aeabf0a8` records the Problem 34 code and release updates.
 
+Problem 34 public-helper regression (2026-10-06): a follow-up audit found that
+the public `_dashboard-core docker compose` branch called `resolve()` and then
+directly executed its raw multi-`-f` command. That bypassed the materialization
+path in `DockerCompose::run()`, so the prior tests for `run()` did not verify
+the real CLI's build/up/down path. The red-first regression in
+`t/30-dashboard-loader.t` failed because the helper did not call the streaming
+runner; `t/94-dockercompose-coverage.t` also failed because the method did not
+exist. The helper now calls `run_streaming()` with the already resolved
+command. This runner materializes the layers, keeps its temporary merged file
+alive until Compose exits, inherits stdout/stderr for normal streaming, and
+returns the child exit code. In the isolated `dd-problem34-red` Docker dev
+container, both focused tests passed (2 files / 295 assertions). Its Docker
+client is absent, so actual engine-backed build/up/down was not attempted; a
+stub Compose executable verified for each action that the real operational
+call uses one existing merged file, retains `--project-directory`, streams
+output, and returns the operation status. `doc/problem-report.md` now records
+this distinction instead of implying the prior `run()` tests covered public
+dispatch.
+
 Current-cycle final audit (2026-10-03): `t/90`, `t/91`, and `t/94` passed in
 Docker (3 files / 359 assertions); the added completion defensive-branch test
 passed `t/69` (71 assertions); corrected `t/590` passed 17 assertions. The full
@@ -861,3 +880,58 @@ Code-Review 0/10 reflects 0 of 20 approved historical changesets; Contributors
 repository-only edit can change the latter two historical facts. These four
 items are recorded as external follow-ups; the Scorecard output showed no
 additional repo-fixable failure.
+
+Problem 37: False collector watchdog restart warning during cron quiet hours
+(status: implementation verified in focused Docker tests; release gates pending)
+
+Expected outcome: when a collector has a valid cron schedule whose next matching
+run is hours away, a live scheduler loop with a fresh heartbeat remains healthy.
+It must not be stopped, restarted, have its watchdog restart count incremented,
+or be marked attention_required merely because its last job execution is old.
+A cron scheduler whose own heartbeat is stale remains eligible for watchdog
+recovery. Interval collectors continue to use job execution progress.
+
+Reproduction in the isolated Docker dev service: configure
+`nightly.cron` with `cron: '0 7-8 * * *'`; use a live running-loop record with a
+fresh `heartbeat_at`; set collector `last_completed_at` to an old timestamp;
+seed `watchdog_restart_count` at its configured limit (3) and a restart-window
+start less than 300 seconds old; run one `_supervise_collectors_once` pass for
+that collector. Before the fix, `t/09-runtime-manager.t` failed four assertions:
+the watchdog returned an attention entry, stopped the loop, changed the count
+from 3 to 4, and set `watchdog_status` to `attention_required`. In the Docker
+service, `TZ=Pacific/Kiritimati date` showed 22:40 local while
+`_cron_due('0 7-8 * * *', ...)` returned `not due`, confirming the reported
+after-hours schedule condition.
+
+Root cause: `_collector_stalled_for_watchdog` compared only collector-level
+`last_completed_at`, `last_started_at`, or `last_run` against a short
+interval-derived threshold. It did not account for cron being intentionally
+idle between matching schedule minutes. The watchdog therefore classified a
+healthy loop as stalled and consumed its restart budget on every subsequent
+supervisor pass.
+
+Fix: cron jobs now use the persisted loop state's `heartbeat_at` to determine
+scheduler liveness. Missing or malformed cron heartbeat state does not fall
+back to the old job execution timestamp, since that timestamp cannot establish
+cron-loop failure during a legitimate quiet period. Non-cron collector behavior
+is unchanged.
+
+TDD and Docker verification: the regression was added first and failed in the
+isolated `dd-problem37` container with the state transition above. After the
+implementation, focused Docker tests passed: `t/09-runtime-manager.t` and
+`t/100-runtimemanager-coverage.t`, 2 files / 1,005 assertions. The four-metric
+coverage run passed the instrumented full suite (258 files / 22,497 tests) and
+reported 100.0% statement, branch, condition, and subroutine coverage across
+`lib/` (45,455 detail rows; no stale uncoverable annotations). The required
+security web tests also passed (3 files / 459 tests). Devel::Cover emitted
+warnings for temporary skill fixture files removed by tests before report
+digestion; the coverage gate still completed successfully. `dzil clean` and
+`dzil build` produced `Developer-Dashboard-5.56.tar.gz`; `d2
+docker.images.build` exited successfully. The blank-environment integration
+container installed that archive with `cpanm` tests enabled and completed the
+full integration script. One separate image-version check remains noteworthy:
+the built image contains `Developer::Dashboard` 5.56 under
+`/usr/local/share/perl/5.40.1`, but `PERL5LIB=/root/perl5/lib/perl5` selects an
+older 5.54 copy for `dashboard version`. Thus the archive install is verified,
+but the existing image runtime's local-library shadowing is not claimed fixed by
+Problem 37.

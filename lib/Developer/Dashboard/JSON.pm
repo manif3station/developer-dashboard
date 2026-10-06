@@ -3,7 +3,7 @@ package Developer::Dashboard::JSON;
 use strict;
 use warnings;
 
-our $VERSION = '5.54';
+our $VERSION = '5.56';
 
 use Exporter 'import';
 use JSON::XS ();

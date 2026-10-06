@@ -1,3 +1,15 @@
+5.56  2026-10-06
+
+  - Problem 37: use a cron collector's scheduler heartbeat for watchdog stall
+    detection instead of treating the quiet time between scheduled executions
+    as repeated collector failures.
+  - Add a Docker regression proving a live cron loop awaiting its 7–8am run
+    does not raise the watchdog's repeated-restart warning at 10pm.
+  - Problem 34 follow-up: route public Docker Compose operations through the
+    materializing runner instead of directly executing the unresolved file list.
+  - Keep the merged file alive until Compose exits and preserve streamed output
+    for build, up, down, and other operational commands.
+
 5.54  2026-10-05
 
   - Problem 34 follow-up: keep the invocation Compose project directory when

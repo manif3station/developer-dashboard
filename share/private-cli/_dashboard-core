@@ -932,10 +932,8 @@ DOCKER_USAGE
             print json_encode($result);
             exit 0;
         }
-        chdir $result->{project_root} or die "Unable to chdir to $result->{project_root}: $!";
-        local @ENV{ keys %{ $result->{env} } } = values %{ $result->{env} } if %{ $result->{env} };
-        exec @{ $result->{command} };
-        die "Unable to exec docker compose: $!";
+        my $execution = $docker->run_streaming( resolved => $result );
+        exit $execution->{exit_code};
     }
     if ( $sub eq 'development' ) {
         my $action = @ARGV ? shift @ARGV : '';
@@ -1914,6 +1912,14 @@ C<development.compose.yml> after it. The Docker helper's C<--help>, C<-h>,
 C<help>, and no-subcommand forms print its usage without starting Docker.
 Completion offers the Docker service subcommands and the nested development
 actions.
+
+For non-dry-run Compose commands, this helper passes the already-resolved
+request to C<DockerCompose::run_streaming>. That method materializes layered
+files before C<build>, C<up>, C<down>, or another Compose action, preserves the
+invocation project directory, and holds the merged file until the child exits.
+The child inherits stdout and stderr, so progress and follow-mode output remain
+visible while the command runs. C<--dry-run> continues to print the resolved
+payload without starting Compose.
 
 Before dispatching a public built-in body, this runtime checks explicit
 C<--help>, C<-h>, and trailing C<help> requests against

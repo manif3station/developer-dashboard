@@ -33,6 +33,11 @@ like( $source, qr/Developer::Dashboard::PerlEnv->bootstrap_perl5lib/, 'dashboard
 
 my $private_core = _slurp( File::Spec->catfile( $repo_root, 'share', 'private-cli', '_dashboard-core' ) );
 like( $private_core, qr/Developer::Dashboard::PerlEnv->bootstrap_perl5lib/, 'private helper core bootstraps a safe Perl library order before loading command modules' );
+like(
+    $private_core,
+    qr/\$docker->run_streaming\(/,
+    'docker compose operational commands use the materializing streaming runner instead of bypassing it with raw exec',
+);
 
 my $share_seeded_root = File::Spec->catdir( $repo_root, 'share', 'seeded-pages' );
 ok(

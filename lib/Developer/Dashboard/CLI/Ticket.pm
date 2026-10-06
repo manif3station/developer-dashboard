@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '5.54';
+our $VERSION = '5.56';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);

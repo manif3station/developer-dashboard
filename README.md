@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.54
+5.56
 
 # INTRODUCTION
 
@@ -86,6 +86,12 @@ supervisor for the targeted collector set while the lifecycle command is in
 flight, then restore supervision for the remaining watched fleet afterwards.
 That prevents the watchdog from racing a manual collector restart and spawning
 another replacement loop underneath the CLI.
+
+Collector watchdog stall checks distinguish cron scheduler liveness from job
+execution time. A cron collector may correctly wait hours between matching
+minutes; while its loop heartbeat is fresh, that quiet period does not count as
+a stalled collector or consume the automatic-restart budget. A stale scheduler
+heartbeat remains eligible for watchdog recovery.
 
 It provides a small ecosystem for:
 
@@ -2098,7 +2104,12 @@ volume paths and the default project identity continue to come from the local
 Compose project rather than the temporary file's directory. An explicit
 `--project-directory` supplied by the user is preserved. An undefined Compose
 argument or an empty/missing project-directory value is rejected before the
-Compose executable is called.
+Compose executable is called. The public helper routes these actions through
+the materializing runner (not directly through the unresolved `-f` list),
+keeps the temporary merged file until the operation exits, and streams Compose
+stdout and stderr normally. This applies to `build`, `up`, `down`, and other
+Compose operations; `config` remains available for inspection without starting
+containers.
 
 During compose execution the dashboard exports `DDDC` as the runtime
 `config/docker` directory for the current runtime, so compose YAML can keep using

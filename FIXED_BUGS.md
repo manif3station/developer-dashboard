@@ -1,5 +1,19 @@
 # Fixed Bugs
 
+## 5.56
+
+- Fixed Problem 37: cron collectors awaiting their next scheduled run are no
+  longer considered stalled based on an old `last_completed_at` value. The
+  watchdog checks the live scheduler-loop heartbeat instead, still recovering
+  a cron loop whose heartbeat itself becomes stale.
+
+## 5.55
+
+- Problem 34 follow-up: make the public Docker Compose helper use the same
+  layered-config materialization path as the resolver's operational runner.
+  Compose operations now consume the merged file, retain the invocation
+  project directory, and stream stdout/stderr until completion.
+
 ## 5.54
 
 - Problem 34 follow-up: layered Compose `build`, `up`, `down`, and other

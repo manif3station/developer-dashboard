@@ -9,6 +9,7 @@ use File::Path qw(make_path);
 use File::Basename qw(dirname);
 use File::Spec;
 use File::Temp qw(tempdir);
+use Capture::Tiny qw(capture);
 use Test::More;
 
 use lib 'lib';
@@ -291,6 +292,158 @@ chmod 0755, File::Spec->catfile( $stubbin, 'docker' );
     $docker->run( args => ['config'] );
     is( $? >> 8, 12, 'run does not leak its own subprocess status into the caller global $?' );
 
+    chdir $old or die $!;
+}
+
+# The public helper needs an operational runner that preserves the normal
+# streaming CLI behavior while keeping the materialized Compose file alive
+# until the real Compose command has completed.
+{
+    my $streambin = File::Spec->catdir( $home, 'streambin' );
+    make_path($streambin);
+    my $removed_restore_cwd = File::Spec->catdir( $home, 'streaming-removed-restore-cwd' );
+    make_path($removed_restore_cwd);
+    my $stream_log = File::Spec->catfile( $home, 'docker-streaming-invocations.log' );
+    mkfile(
+        File::Spec->catfile( $streambin, 'docker' ),
+        <<STUB
+#!/bin/sh
+printf '%s\\n' "\$*" >> '$stream_log'
+last=''
+for a in "\$@"; do last="\$a"; done
+if [ "\$last" = 'config' ]; then
+  printf 'services:\n  merged-marker:\n    image: stub\n'
+  exit 0
+fi
+if [ "\$last" = 'remove-old-cwd' ]; then
+  rmdir '$removed_restore_cwd' || exit 31
+  exit 0
+fi
+expect_file=''
+previous=''
+for a in "\$@"; do
+  if [ "\$previous" = '-f' ]; then expect_file="\$a"; fi
+  previous="\$a"
+done
+[ -n "\$expect_file" ] && [ -f "\$expect_file" ] || exit 19
+if [ "\$last" = 'terminate' ]; then kill -TERM "\$\$"; fi
+printf 'STREAM-MARKER\n'
+exit 7
+STUB
+    );
+    chmod 0755, File::Spec->catfile( $streambin, 'docker' );
+
+    my $old = getcwd();
+    chdir $repo or die $!;
+    local $ENV{PATH} = "$streambin:$ENV{PATH}";
+    my $stream_dry = $docker->run_streaming( args => ['up'], dry_run => 1 );
+    ok( !exists $stream_dry->{exit_code}, 'streaming runner dry-run returns resolution data without executing Compose' );
+    unlink $stream_log if -e $stream_log;
+    for my $action (
+        [ up    => [ 'up', '-d', 'app' ] ],
+        [ build => [ 'build', 'app' ] ],
+        [ down  => ['down'] ],
+    ) {
+        my ( $label, $args ) = @{$action};
+        my ( $stdout, $stderr, $result );
+        ( $stdout, $stderr ) = capture {
+            my $resolved = $label eq 'build' ? $docker->resolve( args => $args ) : undef;
+            $result = defined $resolved
+              ? $docker->run_streaming( resolved => $resolved )
+              : $docker->run_streaming( args => $args );
+        };
+        is( $result->{exit_code}, 7, "streaming $label operation returns the Compose command exit status" );
+        like( $stdout, qr/STREAM-MARKER/, "streaming $label operation exposes Compose stdout" );
+        is( $stderr, '', "streaming $label operation leaves Compose stderr available without swallowing it" );
+    }
+    my ( $signal_stdout, $signal_stderr, $signal_result );
+    ( $signal_stdout, $signal_stderr ) = capture {
+        $signal_result = $docker->run_streaming( args => ['terminate'] );
+    };
+    is( $signal_result->{exit_code}, 143, 'streaming runner reports a Compose child terminated by SIGTERM as exit 143' );
+
+    open my $stream_fh, '<', $stream_log or die "Unable to read $stream_log: $!";
+    my @stream_calls = <$stream_fh>;
+    close $stream_fh;
+    chomp @stream_calls;
+    is( scalar @stream_calls, 8, 'streaming up, build, down, and another action each materialize and invoke Compose' );
+    for my $index ( 0, 2, 4, 6 ) {
+        like( $stream_calls[$index], qr/(?:^| )config$/, 'each streaming action first materializes its layered Compose files' );
+    }
+    for my $index ( 1, 3, 5, 7 ) {
+        my @file_flags = ( $stream_calls[$index] =~ /-f (\S+)/g );
+        is( scalar @file_flags, 1, 'each streaming operational action uses one merged Compose file' );
+        like( $stream_calls[$index], qr/--project-directory \Q$repo\E/, 'each streaming operational action retains the invocation project directory' );
+    }
+
+    my $fileless_compose = File::Spec->catfile( $home, 'streaming-fileless-compose.yml' );
+    mkfile( $fileless_compose, "services: {}\n" );
+    my ( $no_env_stdout, $no_env_stderr, $no_env_result );
+    ( $no_env_stdout, $no_env_stderr ) = capture {
+        $no_env_result = $docker->run_streaming(
+            resolved => {
+                command      => [ 'docker', 'compose', '-f', $fileless_compose, 'no-env-action' ],
+                compose_root => $repo,
+                env          => {},
+                files        => [],
+            },
+        );
+    };
+    is( $no_env_result->{exit_code}, 7, 'streaming runner executes a fileless resolved command with no environment overrides' );
+    like( $no_env_stdout, qr/STREAM-MARKER/, 'fileless streaming commands preserve inherited output' );
+    is( $no_env_stderr, '', 'fileless streaming commands leave stderr untouched' );
+
+    my $missing_command_error = '';
+    my ( $missing_command_stdout, $missing_command_stderr ) = capture {
+        eval {
+            $docker->run_streaming(
+                resolved => {
+                    command      => [ File::Spec->catfile( $home, 'no-such-compose-executable' ) ],
+                    compose_root => $repo,
+                    env          => {},
+                    files        => [],
+                },
+            );
+            1;
+        } or $missing_command_error = $@;
+    };
+    like( $missing_command_error, qr/Unable to execute Docker Compose/, 'streaming runner reports a command that the operating system cannot execute' );
+    like( $missing_command_stderr, qr/Can't exec/, 'streaming runner leaves the operating system execution diagnostic visible' );
+    is( getcwd(), $repo, 'streaming runner restores cwd after the operational command cannot start' );
+
+    my $missing_root_error = '';
+    eval {
+        $docker->run_streaming(
+            resolved => {
+                command      => [ 'docker', 'compose', 'unused' ],
+                compose_root => File::Spec->catdir( $home, 'no-such-compose-root' ),
+                env          => {},
+                files        => [],
+            },
+        );
+        1;
+    } or $missing_root_error = $@;
+    like( $missing_root_error, qr/Unable to chdir/, 'streaming runner reports a missing Compose working directory' );
+    is( getcwd(), $repo, 'streaming runner restores cwd after a working-directory error' );
+
+    SKIP: {
+        skip 'an open working directory cannot be removed on Windows', 1 if $^O eq 'MSWin32';
+        chdir $removed_restore_cwd or die $!;
+        my $restore_error = '';
+        eval {
+            $docker->run_streaming(
+                resolved => {
+                    command      => [ 'docker', 'compose', 'remove-old-cwd' ],
+                    compose_root => $repo,
+                    env          => {},
+                    files        => [],
+                },
+            );
+            1;
+        } or $restore_error = $@;
+        like( $restore_error, qr/Unable to restore cwd/, 'streaming runner reports failure to restore a removed invocation directory' );
+        chdir $repo or die $!;
+    }
     chdir $old or die $!;
 }
 
