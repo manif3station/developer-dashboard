@@ -1,3 +1,43 @@
+5.63  2026-10-06
+
+  - Complete Problem 38's config-first Compose release with README, module,
+    distribution, and package versions aligned after the image guard rejected
+    reusing version 5.62.
+
+5.62  2026-10-06
+
+  - Complete Problem 38 verification records: every Compose operation builds
+    the effective base config first, then runs against the materialized file.
+  - Record the successful Docker coverage, release-image, and blank-container
+    install/integration gates without reusing version 5.61.
+
+5.61  2026-10-06
+
+  - Fix Problem 38's source-side UTF-8 gap: parse a normalized raw-byte copy
+    of each local Compose base before service discovery, without rewriting it.
+  - Add a Docker regression that carries a legacy pound byte from the source
+    base through config materialization and into the operational Compose file.
+
+5.60  2026-10-06
+
+  - Rebuild the final Problem 38 package with the completed verification report
+    included; keep all module and distribution versions aligned.
+
+5.59  2026-10-06
+
+  - Keep the D2 image's active /root/perl5 library aligned with the release
+    tarball by installing the archive into that runtime-first local library.
+  - Add regression coverage for the local image recipe's explicit local-lib
+    target so a fresh image runs the version it just built.
+
+5.58  2026-10-06
+
+  - Problem 38 follow-up: materialize the effective base Compose config before
+    every Docker Compose operation, including when no explicit layered files
+    were resolved; execute the requested verb using that merged file.
+  - Add regression coverage proving a fileless `ps` request first invokes
+    `docker compose config` and then uses the generated config file.
+
 5.57  2026-10-06
 
   - Problem 38: normalize captured merged Docker Compose YAML to valid UTF-8,

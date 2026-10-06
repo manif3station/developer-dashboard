@@ -258,6 +258,9 @@ commands backed by `cli/<command>.py` and `cli/<command>.js`, and the release
 loop also rechecks those two command shapes inside the
 `developer-dashboard:latest` container image so packaged Python and Node
 dispatch stays aligned with the source-tree suite.
+After `d2 docker.images.build`, verify `d2 version` from a fresh one-off image
+container; the image archive must be installed into the local Perl library
+that runtime lookup checks before the system library.
 The release-metadata checks also reject repeated FULL-POD-DOC template prose in shipped Perl assets, so contributors have to document the actual responsibility of each module or staged helper instead of pasting one generic block across the tree. The release gate also treats one-line or placeholder POD as a failure: shipped Perl docs must cover real inputs, outputs or side effects, command/runtime position, and multiple concrete examples.
 The tarball release gate now also includes `t/36-release-kwalitee.t`, which
 reads the built `Developer-Dashboard-X.XX.tar.gz` through

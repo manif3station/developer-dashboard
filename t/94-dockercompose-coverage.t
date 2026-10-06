@@ -231,6 +231,19 @@ subtest '_local_compose_services unions files and rejects invalid Compose docume
     );
     is_deeply( $docker->_local_compose_services( [$base_empty] ), {}, 'a valid Compose document without services yields an empty allow-list' );
 
+    my $missing_base = File::Spec->catfile( $home, 'compose-services-missing.yml' );
+    my $read_ok = eval { $docker->_local_compose_services( [$missing_base] ); 1 };
+    is( $read_ok, undef, 'a missing local base file is rejected before parsing' );
+    like( $@, qr/^Unable to read local Compose file .*:/, 'a source read failure names the local Compose file' );
+
+    my $close_error = '';
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::DockerCompose::_close_local_compose_source = sub { return; };
+        eval { $docker->_local_compose_services( [$base_one] ); 1 } or $close_error = $@;
+    }
+    like( $close_error, qr/^Unable to close local Compose file .*:/, 'a source close failure is reported with its path' );
+
     for my $case (
         [ {}, qr/^Compose base files must be an array reference/, 'a malformed file-list argument is rejected' ],
         [ [$base_bad_mapping], qr/^Local Compose file .* services must be a mapping/, 'a non-mapping services field is rejected' ],
@@ -597,8 +610,10 @@ chmod 0755, File::Spec->catfile( $logbin, 'docker' );
     chdir $old or die $!;
 }
 
-# run() when resolve() names zero compose files - materialization is skipped
-# and the original (file-less) command runs directly. Uses its OWN fresh,
+# run() when resolve() names zero explicit compose files - Compose still gets
+# a config phase from the invocation root before the requested operation. This
+# isolated case verifies call ordering; the source-base case below verifies the
+# actual local-file discovery and byte normalization. Uses its OWN fresh,
 # isolated home - the shared $home above has home-layer docker services
 # (green/blue/purple) that resolve() auto-discovers for ANY repo beneath it,
 # so it can never itself produce a zero-files resolution.
@@ -616,11 +631,24 @@ chmod 0755, File::Spec->catfile( $logbin, 'docker' );
     my $result = $empty_docker->run( args => ['ps'] );
     chdir $old or die $!;
 
-    is( $result->{exit_code}, 0, 'run with zero compose files still succeeds' );
+    is( $result->{exit_code}, 0, 'run with zero explicit compose files still succeeds' );
     open my $log_fh, '<', $invocation_log or die "Unable to read $invocation_log: $!";
     my @lines = <$log_fh>;
     close $log_fh;
-    is( scalar(@lines), 1, 'run with zero files invokes docker exactly once - no materialize step' );
+    is( scalar(@lines), 2, 'run with zero explicit files materializes config before invoking the requested operation' );
+    like( $lines[0], qr/\bconfig\s*\n\z/, 'zero-file resolution first asks Compose to materialize from the invocation root' );
+    like( $lines[1], qr/\s-f\s+\S+\s+ps\s*\n\z/, 'zero-file resolution then runs the requested operation against the materialized config' );
+
+    for my $command (
+        [ File::Spec->catfile( $home, 'standalone-helper' ) ],
+        [ 'standalone-helper', 'argument' ],
+        [ 'docker', 'not-compose', 'argument' ],
+    ) {
+        my $unchanged = $empty_docker->_materialized_command(
+            { files => [], command => $command, compose_root => $empty_repo }
+        );
+        is_deeply( $unchanged, $command, 'a non-Compose command is returned unchanged when no files were resolved' );
+    }
 }
 
 # run() dies with the merge's own stderr when the materialize-via-config call
@@ -714,6 +742,85 @@ STUB
         is( $result->{exit_code}, 0, "materialized UTF-8 YAML is consumed successfully by Compose $action" );
     }
     chdir $old or die $!;
+}
+
+# A legacy byte in the user's source Compose file must not make the resolver's
+# early service-discovery parse fail before `docker compose config` can
+# materialize and normalize the effective YAML.
+{
+    my $legacy_repo = File::Spec->catdir( $home, 'projects', 'legacy-byte-base' );
+    make_path( File::Spec->catdir( $legacy_repo, '.git' ) );
+    my $base_file = File::Spec->catfile( $legacy_repo, 'compose.yaml' );
+    open my $base_fh, '>:raw', $base_file or die "Unable to write $base_file: $!";
+    print {$base_fh} "services:\n  app:\n    image: stub\n    labels:\n      - price=" . pack( 'C', 0xA3 ) . "\n";
+    close $base_fh or die "Unable to close $base_file: $!";
+
+    my ( $legacy_docker, undef ) = build_docker( $home, $legacy_repo );
+    my $legacy_bin = File::Spec->catdir( $home, 'compose-legacy-byte-bin' );
+    make_path($legacy_bin);
+    my $legacy_log = File::Spec->catfile( $home, 'compose-legacy-byte.log' );
+    my $materialized_copy = File::Spec->catfile( $home, 'compose-legacy-byte-materialized.yml' );
+    my $legacy_stub = File::Spec->catfile( $legacy_bin, 'docker' );
+    mkfile(
+        $legacy_stub,
+        <<STUB
+#!/bin/sh
+printf '%s\\n' "\$*" >> '$legacy_log'
+last=''
+for argument in "\$@"; do last="\$argument"; done
+if [ "\$last" = 'config' ]; then
+  cat '$base_file'
+  exit \$?
+fi
+merged=''
+previous=''
+for argument in "\$@"; do
+  if [ "\$previous" = '-f' ]; then merged="\$argument"; fi
+  previous="\$argument"
+done
+[ -n "\$merged" ] && [ -f "\$merged" ] || exit 41
+cp "\$merged" '$materialized_copy' || exit 42
+exit 0
+STUB
+    );
+    chmod 0755, $legacy_stub or die "Unable to chmod $legacy_stub: $!";
+
+    my $old = getcwd();
+    chdir $legacy_repo or die $!;
+    local $ENV{PATH} = "$legacy_bin:$ENV{PATH}";
+    my $error = '';
+    my $result;
+    eval { $result = $legacy_docker->run_streaming( args => ['ps'] ); 1 } or $error = $@;
+    chdir $old or die $!;
+
+    is( $error, '', 'legacy byte in the local base survives resolver service discovery' );
+    is( $result->{exit_code}, 0, 'Compose operation succeeds after local-base UTF-8 normalization' ) if !$error;
+    my @calls;
+    if ( open my $log_fh, '<', $legacy_log ) {
+        @calls = <$log_fh>;
+        close $log_fh or die "Unable to close $legacy_log: $!";
+    }
+    else {
+        diag("The Compose stub was not reached: $!");
+    }
+    is( scalar @calls, 2, 'local base is materialized before the requested Compose operation' );
+    like( $calls[0] || '', qr/(?:^| )config\s*\n\z/, 'first call is Compose config over the raw local base' );
+    like( $calls[0] || '', qr/ -f \Q$base_file\E config\s*\n\z/, 'first call includes the source base file' );
+    like( $calls[1] || '', qr/ -f \S+ ps\s*\n\z/, 'second call uses the materialized file for ps' );
+
+    my $materialized_bytes = '';
+    if ( open my $copy_fh, '<:raw', $materialized_copy ) {
+        { local $/; $materialized_bytes = <$copy_fh> }
+        close $copy_fh or die "Unable to close $materialized_copy: $!";
+    }
+    else {
+        diag("No materialized file reached the operational command: $!");
+    }
+    is(
+        $materialized_bytes,
+        encode( 'UTF-8', "services:\n  app:\n    image: stub\n    labels:\n      - price=\x{00A3}\n" ),
+        'the actual source-file legacy byte is normalized in the file passed to the operation',
+    );
 }
 
 # UTF-8 normalization preserves already-valid UTF-8 of each sequence length,
@@ -1285,9 +1392,10 @@ the higher-level paths never generate. Local Compose files are checked as the
 invocation project's base, and automatic ecosystem service overlays are
 restricted to their declared services. Explicit service selection and the
 legacy no-local-file auto-discovery path are verified separately. Problem 38
-coverage injects a legacy single-byte pound sign into captured Compose output,
-checks the actual temporary merged file is valid UTF-8 YAML, and confirms the
-same normalized file reaches config, up, down, build, ps, and logs operations.
+coverage injects a single-byte pound sign both into a local source base and
+captured Compose output, checks the actual temporary merged file is valid
+UTF-8 YAML, confirms the normalized file reaches config, up, down, build, ps,
+and logs, and exercises local source read/close failures explicitly.
 
 =head1 WHY IT EXISTS
 
@@ -1304,8 +1412,12 @@ Use this file when changing compose file discovery, service inference, the
 disabled or development marker helpers, base/overlay ordering, skill docker-root
 resolution, environment export, local Compose service scoping, or the dry-run
 versus execute behaviour of the docker helper. It also guards the materialized
-YAML byte-normalization boundary so malformed legacy octets from layered input
-cannot create a broken merged file. Extend it with a new failing case first
+YAML byte-normalization boundary so malformed single-byte octets in source Compose
+files or captured merged output cannot fail early service discovery or create
+a broken merged file. It verifies that every Compose verb
+materializes the effective base config even when no explicit overlay files
+were resolved, while non-Compose commands still bypass materialization. Extend
+it with a new failing case first
 whenever a new branch or condition appears. Development-marker tests include absent service folders,
 missing service arguments, idempotent removal, and unlink failures.
 

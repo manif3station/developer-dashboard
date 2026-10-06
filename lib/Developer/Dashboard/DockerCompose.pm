@@ -3,7 +3,7 @@ package Developer::Dashboard::DockerCompose;
 use strict;
 use warnings;
 
-our $VERSION = '5.57';
+our $VERSION = '5.63';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -913,14 +913,14 @@ sub run_streaming {
 }
 
 # _materialized_command($resolved)
-# Pre-merges a resolved multi -f docker compose layer stack into one file via
-# `docker compose ... config`, then returns a command that points at just
-# that one merged file instead of the original -f list.
+# Materializes the effective Compose configuration through `docker compose
+# config`, then returns a command that points at the resulting merged file.
 # Input: resolution hash ref (as returned by resolve() - files, command,
 # compose_root).
-# Output: command array ref to run in place of $resolved->{command}. When
-# resolve() named no compose files at all, the original command is returned
-# unchanged - there is nothing to merge.
+# Output: command array ref to run in place of $resolved->{command}. The
+# materialization includes resolved layer files when present; with no explicit
+# files, Compose discovers its default base config from compose_root. A
+# non-Docker-Compose resolved command is returned unchanged.
 #
 # WHY THIS EXISTS (DD-857): the layered runtime stack (~/.developer-dashboard,
 # installed skills, the project's own .developer-dashboard, service/addon/mode
@@ -944,9 +944,10 @@ sub _materialized_command {
     # returns, regardless of the exit code already captured locally below.
     local $?;
     my @files = @{ $resolved->{files} };
-    return $resolved->{command} if !@files;
+    my @full = @{ $resolved->{command} };
+    return $resolved->{command}
+        if !@files && ( @full < 2 || $full[0] ne 'docker' || $full[1] ne 'compose' );
 
-    my @full     = @{ $resolved->{command} };
     my $prefix_n = 2 + 2 * scalar(@files);    # 'docker' 'compose' then one ('-f',$file) pair per layer
     my @passthrough = @full[ $prefix_n .. $#full ];
     my @operation_args = @passthrough;
@@ -1026,6 +1027,15 @@ sub _compose_yaml_utf8_bytes {
     return $normalized;
 }
 
+# _close_local_compose_source($fh)
+# Closes a raw local Compose source handle after its bytes have been read.
+# Input: open filehandle glob.
+# Output: the close result from Perl's built-in close operation.
+sub _close_local_compose_source {
+    my ($fh) = @_;
+    return close $fh;
+}
+
 # _discover_base_files($root)
 # Finds standard base compose files under a project root.
 # Input: project root directory path.
@@ -1052,17 +1062,26 @@ sub _base_compose_root {
 
 # _local_compose_services($files)
 # Reads service names from local base Compose files to scope automatic runtime
-# overlays to services the local project actually declares.
+# overlays to services the local project actually declares. It normalizes a
+# raw read-copy before parsing so legacy single-byte text cannot fail before
+# Compose itself materializes the effective configuration.
 # Input: array reference of base Compose file paths.
 # Output: hash reference keyed by declared service names; malformed YAML or
-#         invalid services mappings die with the offending file named.
+#         invalid services mappings die with the offending file named; file
+#         read and close failures also die with the source path.
 sub _local_compose_services {
     my ( $self, $files ) = @_;
     die "Compose base files must be an array reference\n" if ref($files) ne 'ARRAY';
 
     my %services;
     for my $file ( @{$files} ) {
-        my $document = eval { YAML::XS::LoadFile($file) };
+        open my $fh, '<:raw', $file or die "Unable to read local Compose file '$file': $!";
+        my $source;
+        { local $/; $source = <$fh> }
+        _close_local_compose_source($fh) or die "Unable to close local Compose file '$file': $!";
+        $source = _compose_yaml_utf8_bytes($source);
+
+        my $document = eval { YAML::XS::Load($source) };
         die "Unable to parse local Compose file '$file': $@" if $@;
         die "Local Compose file '$file' must contain a mapping\n" if ref($document) ne 'HASH';
         next if !exists $document->{services};
@@ -1197,8 +1216,12 @@ C<services:> map. Explicit service selectors remain opt-in, while the absence
 of a local Compose file preserves ecosystem-wide service discovery. YAML
 syntax and service-map errors are reported with their source path.
 
-When several Compose layers are materialized for an operation, the effective
-project directory is explicitly passed to both the merge and final command.
+Every Docker Compose operation is materialized before execution, even when
+resolution selected no explicit layered files: Compose first discovers and
+emits its effective base config from the Compose working directory, then the
+requested verb consumes that generated temporary file. When Compose layers
+are selected, the effective project directory is explicitly passed to both
+the merge and final command.
 This keeps lifecycle operations such as C<build>, C<up>, and C<down> anchored
 to the invocation project rather than the temporary merged file. A user's
 explicit C<--project-directory> takes precedence. Missing or empty values for

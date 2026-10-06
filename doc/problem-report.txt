@@ -980,3 +980,49 @@ change was introduced. `dzil clean` followed by `dzil build` produced
 blank-environment flow installed and tested the archive with plain `cpanm`
 (without `--notest`) and completed its installed CLI/web checks. The reported
 `/tmp/here.yml` was not read or used as a fixture.
+
+Problem 38 source-byte follow-up: Normalize local base YAML before service
+discovery (status: done; release 5.63)
+
+Expected outcome: every Docker Compose operation runs `docker compose config`
+against the effective base plus resolved overlays, normalizes the generated
+YAML to UTF-8, and runs the requested verb against that materialized file.
+Local source files must not be edited, and non-Compose commands remain direct.
+
+Root cause and exact reproduction: `resolve()` called
+`YAML::XS::LoadFile` on local base Compose files to determine their service
+names before `_materialized_command` could normalize Compose's output. A
+source `compose.yaml` containing byte `0xA3` therefore failed at resolution
+with `invalid leading UTF-8 octet`, before the Docker/Compose stub was
+invoked. This was a distinct path from the already-fixed case where captured
+`docker compose config` output itself contained an isolated byte. The test
+first wrote a raw Windows-1252 pound byte into an isolated local base and ran
+`t/94-dockercompose-coverage.t` in Docker; the new assertion failed with that
+exact parse diagnostic and zero Compose calls. The fix reads the source as raw
+bytes, normalizes only an in-memory copy for service discovery, and leaves the
+original source untouched. The red regression then verifies the operation
+sequence is `config` followed by `ps -f <temporary-file>` and that the copied
+materialized YAML contains valid UTF-8 `£`. The same test retains coverage for
+config/up/down/build/ps/logs and confirms non-Compose commands bypass
+materialization. `/tmp/here.yml` was not opened or used as a fixture.
+
+Verification: Docker full coverage passed 258 files / 22,550 tests;
+statement, branch, condition, and subroutine totals were each 100.0%, with
+45,519 coverage detail rows and no stale uncoverable annotations. Focused
+release/Compose verification passed 3 files / 5,965 tests, and the required
+focused web-security trio passed 459 tests. The coverage run skipped optional
+browser/QEMU/kwalitee tooling that is unavailable in the dev image, and
+`cpan-audit` advisory-fixture coverage was explicitly skipped because that
+tool is absent; neither skip failed the coverage gate. Devel::Cover printed
+warnings for ephemeral fixture files deleted before report digestion; the
+gate completed successfully.
+
+The release build and image version were verified at 5.61, and the blank
+environment installed that tarball with `cpanm` (without `--notest`) and
+completed the full integration script. The final report and generated README
+were synchronized, and the release metadata advanced to 5.63 rather than
+reusing version 5.62.
+Earlier Problem 38 release work also corrected an image version-shadowing
+issue: the ignored operator-local D2 Dockerfile installs the archive into the
+runtime-first `/root/perl5` library, and an integration assertion guards that
+recipe when present. No commit or push was requested.

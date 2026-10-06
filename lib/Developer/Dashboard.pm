@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.57';
+our $VERSION = '5.63';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.57
+5.63
 
 =head1 INTRODUCTION
 
@@ -1742,6 +1742,10 @@ and C<d2 version> match the archive, that C<d2 of grep --help> reaches GNU
 grep, and that C<d2 docker compose config --help> and C<d2 docker compose help>
 preserve native Compose arguments. This checks installed runtime behavior and
 the packaged short-entrypoint dispatch, not only the checkout-local scripts.
+The repository's C<d2 docker.images.build> workflow also installs the archive
+into the image's active local Perl library, so the rebuilt image runs the same
+release version rather than an older bootstrap copy shadowing the system
+library.
 That same blank-container path also verifies web stop/restart behavior in a
 minimal image where listener ownership may need to be discovered from F</proc>
 instead of C<ss>, including a late listener re-probe before
@@ -2473,8 +2477,12 @@ overlays are limited to service names declared by the local C<services:>
 mapping. Other installed service folders are ignored by default. Naming a
 service explicitly opts into its runtime definition and preserves dependency
 file gathering. When no local base file exists, ecosystem-wide auto-discovery
-continues as before. Invalid local Compose YAML or an invalid C<services:>
-mapping is reported with the source file path.
+continues as before. Local base files are read as raw bytes for service
+discovery, and an in-memory copy is normalized to valid UTF-8 before YAML
+parsing; the source file is never rewritten. Thus isolated single-byte
+Windows-1252 characters do not prevent service discovery, while malformed YAML
+after normalization or an invalid C<services:> mapping is still reported with
+the source file path.
 
 For operational actions such as C<build>, C<up>, and C<down>, layered files are
 first materialized into a temporary Compose file. The final Compose invocation
@@ -2497,6 +2505,13 @@ the same clean merged YAML is used by C<config>, C<up>, C<down>, C<build>,
 C<ps>, C<logs>, and other Compose operations. Undefined Windows-1252 octets
 become the Unicode replacement character rather than being written as invalid
 UTF-8.
+
+This materialization also runs when the dashboard resolver found no explicit
+layered files. In that case Docker Compose discovers its ordinary base file
+from the configured Compose working directory, emits the effective config,
+and the requested operation consumes the generated temporary file. This keeps
+the UTF-8 normalization and common execution path consistent for C<build>,
+C<ps>, and other verbs even when no runtime overlay was selected.
 
 During compose execution the dashboard exports C<DDDC> as the runtime
 C<config/docker> directory for the current runtime, so compose YAML can keep using

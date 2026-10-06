@@ -174,6 +174,11 @@ When preparing the next release version, follow this order exactly:
    d2 docker.images.build
    ```
 
+After the image build, verify its active runtime version with a fresh isolated
+container invocation. The image builder installs the archive into the local
+Perl library used first by `d2`; a system-library-only install can otherwise
+leave an older bootstrap copy shadowing the new release.
+
 Do not skip the version alignment or README/POD synchronization steps. The
 release metadata tests are expected to fail if any module, POD, changelog, or
 generated manual still carries the previous version.

@@ -1,5 +1,48 @@
 # Fixed Bugs
 
+## 5.63
+
+- Finalized Problem 38's config-first release as a distinct version after the
+  image build guard rejected reuse of 5.62; the generated README and all
+  module versions now match the package.
+
+## 5.62
+
+- Completed Problem 38's config-first verification: all Compose verbs now have
+  recorded Docker coverage proving the effective base plus overlays are
+  materialized before the requested operation.
+- Recorded successful full coverage, release image version, and blank-container
+  tarball installation/integration results.
+
+## 5.61
+
+- Fixed the remaining Problem 38 failure before materialization: local base
+  YAML is read as raw bytes and a normalized in-memory copy is used for service
+  discovery. The original source file remains unchanged; regression coverage
+  verifies the captured materialized config is UTF-8 before an operation uses
+  it.
+
+## 5.60
+
+- Rebuilt the Problem 38 release with the completed problem report included and
+  all Perl module versions aligned at 5.60.
+
+## 5.59
+
+- Fixed the D2 image version-shadowing follow-up: the release tarball is
+  installed into `/root/perl5`, which is the runtime-first Perl library, rather
+  than only into the system library. A fresh image now uses the same version it
+  was built from. Checkout test coverage verifies the local image recipe when
+  present; the ignored operator recipe is intentionally absent from tarballs.
+
+## 5.58
+
+- Problem 38 follow-up: Docker Compose operations no longer skip config
+  materialization when the resolver found no explicit layered files. Compose's
+  automatically discovered base config is materialized first, and the requested
+  operation then runs against the generated file. Non-Compose commands retain
+  direct execution. A container regression test verifies the two-step flow.
+
 ## 5.57
 
 - Fixed Problem 38: normalize captured merged Docker Compose YAML to valid
