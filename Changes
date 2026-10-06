@@ -1,3 +1,14 @@
+5.57  2026-10-06
+
+  - Problem 38: normalize captured merged Docker Compose YAML to valid UTF-8,
+    preserving valid UTF-8 and converting isolated Windows-1252 bytes before
+    the temporary file is consumed by config, up, down, build, ps, logs, or
+    other Compose operations.
+  - Add Docker regression coverage for the malformed-byte producer case and
+    verify the normalized merged YAML parses while preserving the pound sign.
+  - Make the nav I/O-failure test assert that its blocked layer contributes no
+    entries while allowing other active runtime layers to contribute nav.
+
 5.56  2026-10-06
 
   - Problem 37: use a cron collector's scheduler heartbeat for watchdog stall

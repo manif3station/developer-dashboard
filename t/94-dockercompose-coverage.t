@@ -10,6 +10,8 @@ use File::Basename qw(dirname);
 use File::Spec;
 use File::Temp qw(tempdir);
 use Capture::Tiny qw(capture);
+use Encode qw(encode);
+use YAML::XS ();
 use Test::More;
 
 use lib 'lib';
@@ -637,6 +639,99 @@ chmod 0755, File::Spec->catfile( $logbin, 'docker' );
     like( $err, qr/Unable to materialize merged docker compose config \(3\): boom: bad compose file/, 'run dies with the materialize command\'s own exit code and stderr when config itself fails' );
 }
 
+# Materialized Compose YAML must be UTF-8 even when a Compose/plugin output
+# string contains a legacy single-byte character. This is the producer path
+# behind Problem 38: `d2 docker compose config` captures Compose output and
+# writes it as the temporary merged file consumed by later commands.
+{
+    my $utf8bin = File::Spec->catdir( $home, 'compose-utf8-bin' );
+    make_path($utf8bin);
+    my $compose_stub = File::Spec->catfile( $utf8bin, 'docker' );
+    mkfile( $compose_stub, "#!/bin/sh\nprintf \"services:\\\\n  app:\\\\n    labels:\\\\n      - 'price=\\\\243'\\\\n\"\n" );
+    chmod 0755, $compose_stub or die "Unable to chmod $compose_stub: $!";
+
+    my $old = getcwd();
+    chdir $repo or die $!;
+    local $ENV{PATH} = "$utf8bin:$ENV{PATH}";
+    my $resolved = $docker->resolve( args => ['config'] );
+    my $command = $docker->_materialized_command($resolved);
+    chdir $old or die $!;
+
+    my $merged_file;
+    for ( my $index = 0; $index < @{$command} - 1; $index++ ) {
+        $merged_file = $command->[ $index + 1 ] if $command->[$index] eq '-f';
+    }
+    ok( defined $merged_file && -f $merged_file, 'materialization creates the merged Compose YAML file' );
+    my $merged_bytes;
+    open my $merged_fh, '<:raw', $merged_file or die "Unable to read $merged_file: $!";
+    { local $/; $merged_bytes = <$merged_fh> }
+    close $merged_fh or die "Unable to close $merged_file: $!";
+    is( $merged_bytes, encode( 'UTF-8', "services:\n  app:\n    labels:\n      - 'price=\x{00A3}'\n" ), 'materialized YAML converts the legacy pound byte to UTF-8' );
+    my $merged_document = eval { YAML::XS::Load($merged_bytes) };
+    is( $@, '', 'YAML::XS accepts the generated merged YAML without a UTF-8 error' );
+    is( $merged_document->{services}{app}{labels}[0], 'price=£', 'generated merged configuration preserves the pound sign' );
+}
+
+# The same byte-clean merged file must be used for every operational command,
+# not just `config`: run_streaming is the public path for up/down/build and other
+# Compose operations.
+{
+    my $all_actions_bin = File::Spec->catdir( $home, 'compose-utf8-actions-bin' );
+    make_path($all_actions_bin);
+    my $action_state = File::Spec->catfile( $home, 'compose-utf8-action-count' );
+    my $compose_stub = File::Spec->catfile( $all_actions_bin, 'docker' );
+    mkfile(
+        $compose_stub,
+        <<STUB
+#!/bin/sh
+count=0
+[ -f '$action_state' ] && count=\$(cat '$action_state')
+count=\$((count + 1))
+printf '%s' "\$count" > '$action_state'
+if [ "\$count" -eq 1 ]; then
+  printf "services:\\n  app:\\n    labels:\\n      - 'price=\\243'\\n"
+  exit 0
+fi
+merged=''
+previous=''
+for argument in "\$@"; do
+  if [ "\$previous" = '-f' ]; then merged="\$argument"; fi
+  previous="\$argument"
+done
+[ -n "\$merged" ] && [ -f "\$merged" ] || exit 41
+LC_ALL=C grep -Fq 'price=' "\$merged" || exit 42
+exit 0
+STUB
+    );
+    chmod 0755, $compose_stub or die "Unable to chmod $compose_stub: $!";
+
+    my $old = getcwd();
+    chdir $repo or die $!;
+    local $ENV{PATH} = "$all_actions_bin:$ENV{PATH}";
+    for my $action ( qw(config up down build ps logs) ) {
+        unlink $action_state if -e $action_state;
+        my $result = $docker->run_streaming( args => [$action] );
+        is( $result->{exit_code}, 0, "materialized UTF-8 YAML is consumed successfully by Compose $action" );
+    }
+    chdir $old or die $!;
+}
+
+# UTF-8 normalization preserves already-valid UTF-8 of each sequence length,
+# converts isolated Windows-1252 bytes, and also handles Unicode Perl strings.
+{
+    my $normalizer = \&Developer::Dashboard::DockerCompose::_compose_yaml_utf8_bytes;
+    is( $normalizer->('plain ASCII'), 'plain ASCII', 'Compose YAML normalizer keeps ASCII bytes unchanged' );
+    for my $unicode ( "\x{00A3}", "\x{20AC}", "\x{1F433}" ) {
+        my $encoded = encode( 'UTF-8', $unicode );
+        is( $normalizer->($encoded), $encoded, 'Compose YAML normalizer preserves valid UTF-8 sequences' );
+    }
+    my $unicode_output = "price=\x{00A3}";
+    utf8::upgrade($unicode_output);
+    ok( utf8::is_utf8($unicode_output), 'normalizer fixture is held as a Unicode character string' );
+    is( $normalizer->($unicode_output), encode( 'UTF-8', "price=\x{00A3}" ), 'Compose YAML normalizer encodes Unicode-flagged output as UTF-8 bytes' );
+    is( $normalizer->(undef), '', 'Compose YAML normalizer treats undefined output as empty text' );
+}
+
 # run() with a chdir target that does not exist -> chdir failure die path.
 {
     my $bad = File::Spec->catdir( $home, 'no', 'such', 'project', 'root' );
@@ -1189,7 +1284,10 @@ docker-root discovery, and the direct low-level helpers with edge inputs that
 the higher-level paths never generate. Local Compose files are checked as the
 invocation project's base, and automatic ecosystem service overlays are
 restricted to their declared services. Explicit service selection and the
-legacy no-local-file auto-discovery path are verified separately.
+legacy no-local-file auto-discovery path are verified separately. Problem 38
+coverage injects a legacy single-byte pound sign into captured Compose output,
+checks the actual temporary merged file is valid UTF-8 YAML, and confirms the
+same normalized file reaches config, up, down, build, ps, and logs operations.
 
 =head1 WHY IT EXISTS
 
@@ -1205,16 +1303,19 @@ still pass the suite, and so the coverage gate stays honest for this module.
 Use this file when changing compose file discovery, service inference, the
 disabled or development marker helpers, base/overlay ordering, skill docker-root
 resolution, environment export, local Compose service scoping, or the dry-run
-versus execute behaviour of the docker helper. Extend it with a new failing
-case first whenever a new branch or condition appears. Development-marker tests include absent service folders,
+versus execute behaviour of the docker helper. It also guards the materialized
+YAML byte-normalization boundary so malformed legacy octets from layered input
+cannot create a broken merged file. Extend it with a new failing case first
+whenever a new branch or condition appears. Development-marker tests include absent service folders,
 missing service arguments, idempotent removal, and unlink failures.
 
 =head1 HOW TO USE
 
-Run C<perl -Ilib t/94-dockercompose-coverage.t> or C<prove -lv
-t/94-dockercompose-coverage.t> while iterating. Keep it green under C<prove -lr
-t> and confirm the module still reports 100% branch and condition coverage under
-the repository Devel::Cover gate before release.
+Run C<d2 docker compose exec -T dev prove -lv
+t/94-dockercompose-coverage.t> while iterating in the isolated development
+container. Keep it green under the full Docker test suite and confirm the module
+still reports 100% branch and condition coverage under the repository
+Devel::Cover gate before release.
 
 =head1 WHAT USES IT
 
@@ -1226,9 +1327,9 @@ defensive paths exercised.
 
 Example 1:
 
-  perl -Ilib t/94-dockercompose-coverage.t
+  d2 docker compose exec -T dev prove -lv t/94-dockercompose-coverage.t
 
-Run the coverage-closure test standalone from the repository root.
+Run the coverage-closure test inside the Compose development container.
 
 Example 2:
 

@@ -3,10 +3,11 @@ package Developer::Dashboard::DockerCompose;
 use strict;
 use warnings;
 
-our $VERSION = '5.56';
+our $VERSION = '5.57';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
+use Encode qw(decode encode_utf8 FB_DEFAULT);
 use Developer::Dashboard::DirEntries qw(sorted_dir_entries);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
@@ -979,13 +980,50 @@ sub _materialized_command {
     };
     die "Unable to materialize merged docker compose config ($exit_code): $stderr" if $exit_code != 0;
 
+    $merged = _compose_yaml_utf8_bytes($merged);
+
     my $tmp_dir  = File::Temp::tempdir( CLEANUP => 1 );
     my $tmp_file = File::Spec->catfile( $tmp_dir, 'merged-compose.yml' );
-    open my $fh, '>', $tmp_file or die "Unable to write $tmp_file: $!";
+    open my $fh, '>:raw', $tmp_file or die "Unable to write $tmp_file: $!";
     print {$fh} $merged;
     close $fh or die "Unable to close $tmp_file: $!";
 
     return [ 'docker', 'compose', @project_directory, '-f', $tmp_file, @operation_args ];
+}
+
+# _compose_yaml_utf8_bytes($output)
+# Keeps valid UTF-8 sequences unchanged and upgrades isolated legacy single-byte
+# characters in Compose output to UTF-8 before the merged file is written.
+# Input: captured Compose config output as a Perl scalar.
+# Output: byte string containing well-formed UTF-8.
+sub _compose_yaml_utf8_bytes {
+    my ($output) = @_;
+    $output = '' if !defined $output;
+    my $bytes = utf8::is_utf8($output) ? encode_utf8($output) : $output;
+    my $normalized = '';
+
+    while ( length $bytes ) {
+        if ( $bytes =~ /\A( [\x00-\x7F]
+                          | [\xC2-\xDF][\x80-\xBF]
+                          | \xE0[\xA0-\xBF][\x80-\xBF]
+                          | [\xE1-\xEC\xEE-\xEF][\x80-\xBF]{2}
+                          | \xED[\x80-\x9F][\x80-\xBF]
+                          | \xF0[\x90-\xBF][\x80-\xBF]{2}
+                          | [\xF1-\xF3][\x80-\xBF]{3}
+                          | \xF4[\x80-\x8F][\x80-\xBF]{2}
+                        )/x ) {
+            my $sequence = $1;
+            $normalized .= $sequence;
+            substr $bytes, 0, length($sequence), '';
+            next;
+        }
+
+        my $legacy_octet = substr $bytes, 0, 1, '';
+        my $character = decode( 'Windows-1252', $legacy_octet, FB_DEFAULT );
+        $normalized .= encode_utf8($character);
+    }
+
+    return $normalized;
 }
 
 # _discover_base_files($root)
@@ -1170,6 +1208,13 @@ C<run_streaming>, which uses the materialized merge, preserves the resolved
 project directory, inherits stdout and stderr, and keeps the temporary file
 available until the Compose child exits. This preserves live output for long
 operations such as C<build>, C<up>, and log-following commands.
+
+Captured merge output is normalized before it becomes a temporary file:
+already-valid UTF-8 is preserved, isolated Windows-1252 bytes are converted to
+UTF-8, and undefined Windows-1252 octets become the Unicode replacement
+character. The temporary YAML file is written in raw mode, so every action
+using the materializing runner receives valid UTF-8 rather than invalid bytes
+inherited from one of its Compose layers.
 
 =head1 METHODS
 

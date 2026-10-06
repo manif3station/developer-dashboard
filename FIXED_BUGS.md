@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 5.57
+
+- Fixed Problem 38: normalize captured merged Docker Compose YAML to valid
+  UTF-8 before writing the temporary file. Valid UTF-8 sequences are preserved;
+  isolated Windows-1252 bytes are converted, and undefined octets become the
+  Unicode replacement character. Regression coverage verifies both YAML
+  parsing and the shared `config`, `up`, `down`, `build`, `ps`, and `logs` path.
+
 ## 5.56
 
 - Fixed Problem 37: cron collectors awaiting their next scheduled run are no

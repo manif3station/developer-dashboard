@@ -935,3 +935,48 @@ the built image contains `Developer::Dashboard` 5.56 under
 older 5.54 copy for `dashboard version`. Thus the archive install is verified,
 but the existing image runtime's local-library shadowing is not claimed fixed by
 Problem 37.
+
+Problem 38: Normalize captured merged Docker Compose YAML to valid UTF-8
+(status: done; release 5.57)
+
+Expected outcome: every merged Compose file written by
+`Developer::Dashboard::DockerCompose::_materialized_command` is valid UTF-8,
+including when an input contributes a legacy single-byte character. The
+normalized file must be used by `config`, `up`, `down`, `build`, `ps`, `logs`,
+and other Compose operations through the shared materialization path.
+
+Problem understanding and root cause: the reported `d2 yq` diagnostic is the
+visible symptom, but the failing artifact was produced earlier. The resolver
+captured the output from `docker compose ... config` and wrote those bytes
+straight into the temporary merged YAML file. An isolated Windows-1252 pound
+byte (`0xA3`) therefore remained an invalid UTF-8 octet; `YAML::XS` rejected
+that generated file with `invalid leading UTF-8 octet`. The original
+`/tmp/here.yml` was unavailable in this checkout, so it was not read or reused
+as a fixture; the producer path was reproduced synthetically inside Docker.
+
+Reproduction: run the Docker test `t/94-dockercompose-coverage.t` with a stub
+Compose executable that emits otherwise-valid YAML containing byte `0xA3` in a
+label. Before the fix, the merged file retained `0xA3`, and loading it with
+`YAML::XS::Load` failed with the same invalid-leading-octet error. After the
+fix, the byte is converted to UTF-8 for `£`, the output file parses, and the
+parsed label retains the pound sign. The test also exercises `config`, `up`,
+`down`, `build`, `ps`, and `logs` through `run_streaming` to prove they all
+consume the materialized output. Existing valid UTF-8 of two-, three-, and
+four-byte sequences is retained; undefined Windows-1252 octets become the
+Unicode replacement character.
+
+Verification: the final Docker run of `script/coverage-gate` passed the full
+suite (258 files / 22,514 tests). The coverage gate reported statement,
+branch, condition, and subroutine totals at 100.0%. The focused Compose test
+also passed, including its regression for invalid captured bytes, YAML parsing,
+and operational commands sharing the materialization path. The full suite
+required a separate test-only adjustment in `t/680-io-failure-s7-coverage.t`:
+the assertion now checks that the deliberately blocked nav layer contributes
+no entry while allowing other active runtime layers to contribute. Security
+review found only existing expected references in policy checks, test fixtures,
+and docs; no unsafe execution, interpolation, path handling, or dependency
+change was introduced. `dzil clean` followed by `dzil build` produced
+`Developer-Dashboard-5.57.tar.gz`; `d2 docker.images.build` succeeded. The
+blank-environment flow installed and tested the archive with plain `cpanm`
+(without `--notest`) and completed its installed CLI/web checks. The reported
+`/tmp/here.yml` was not read or used as a fixture.

@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.56
+5.57
 
 # INTRODUCTION
 
@@ -2110,6 +2110,14 @@ keeps the temporary merged file until the operation exits, and streams Compose
 stdout and stderr normally. This applies to `build`, `up`, `down`, and other
 Compose operations; `config` remains available for inspection without starting
 containers.
+
+Before saving that merged output, the resolver preserves valid UTF-8 sequences
+and converts isolated non-UTF-8 Windows-1252 bytes from the combined inputs to
+UTF-8. The temporary file is written as raw bytes only after normalization, so
+the same clean merged YAML is used by `config`, `up`, `down`, `build`,
+`ps`, `logs`, and other Compose operations. Undefined Windows-1252 octets
+become the Unicode replacement character rather than being written as invalid
+UTF-8.
 
 During compose execution the dashboard exports `DDDC` as the runtime
 `config/docker` directory for the current runtime, so compose YAML can keep using
