@@ -626,7 +626,7 @@ already retained all words when alias lookup failed; new assertions in
 The Docker regression passed. No production change was necessary for this item.
 
 Problem 34: Limit ecosystem Compose services to the local Compose project
-(git ref: master) (status: implementation and release gates pass; fresh image runtime verification pending)
+(git ref: master) (status: implementation, release gates, and runtime image verification pass; ignored local image recipe still has a repeatability caveat)
 Expected outcome: if the invocation directory contains a supported local
 `compose.yml`, `compose.yaml`, `docker-compose.yml`, or `docker-compose.yaml`,
 that file is the base project. Runtime-discovered services absent from the
@@ -643,8 +643,8 @@ Compose service map. The Docker red test reproduced that mismatch. The resolver
 now parses local base service names, filters automatic discovery, preserves
 explicit selectors and no-local-file behavior, and reports malformed YAML.
 The initial Docker regressions and full suite passed for the original behavior.
-The later operational-command follow-up, full release gates, and remaining
-image-version discrepancy are recorded immediately below.
+The later operational-command follow-up, full release gates, and image-version
+verification are recorded immediately below.
 
 Problem 34 operational-command follow-up (2026-10-05): before the fix, the
 materialized command for `up`, `build`, and `down` used only
@@ -652,7 +652,7 @@ materialized command for `up`, `build`, and `down` used only
 directory and relative-path root from the temporary file instead of the
 invocation directory. A red-first Docker regression failed for all three
 actions. The final command now supplies the resolved invocation directory via
-`--project-directory`, unless the user supplied that option explicitly. A
+`--project-directory`, unless the user supplied that option explicitly.
 Red-first tests also exposed missing validation for malformed project-directory
 and undefined arguments; these now fail before Compose runs. The focused Docker
 run passed `t/94-dockercompose-coverage.t` (188 assertions). An isolated real
@@ -667,11 +667,15 @@ smart-router Docker guard passed 7 assertions after installing Docker CLI in a
 socket-mounted disposable test container. The blank-environment integration
 installed the exact 5.54 tarball using plain `cpanm` with tests enabled and
 reported `Blank-environment integration run passed`. `d2 docker.images.build`
-exited successfully, but a fresh run of `developer-dashboard:latest` reported
-module version 5.53 rather than 5.54. The image build command alone therefore
-does not prove the updated module is the one loaded at runtime; resolving the
-local Perl-library shadowing and rechecking the image remain outstanding.
-Security scans and required targeted tests passed. Commit remains outstanding.
+exited successfully, but its first fresh image run reported module version
+5.53 rather than 5.54. The ignored local Dockerfile installs into a system
+library directory while `/root/perl5` remains first in the runtime search
+path. An isolated `d2 docker compose` rebuild installed the 5.54 archive into
+`/root/perl5`; fresh `d2 version` and direct `Developer::Dashboard::VERSION`
+probes both reported 5.54. The ignored local Dockerfile was not changed, so
+future standard image builds may reproduce the shadowing until its install
+target is corrected. Security scans and required targeted tests passed. Commit
+`aeabf0a8` records the Problem 34 code and release updates.
 
 Current-cycle final audit (2026-10-03): `t/90`, `t/91`, and `t/94` passed in
 Docker (3 files / 359 assertions); the added completion defensive-branch test
