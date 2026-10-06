@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '5.53';
+our $VERSION = '5.54';
 
 use Cwd qw(abs_path);
 use File::Basename qw(dirname);

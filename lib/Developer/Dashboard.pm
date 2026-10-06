@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.53';
+our $VERSION = '5.54';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.53
+5.54
 
 =head1 INTRODUCTION
 
@@ -2469,6 +2469,15 @@ service explicitly opts into its runtime definition and preserves dependency
 file gathering. When no local base file exists, ecosystem-wide auto-discovery
 continues as before. Invalid local Compose YAML or an invalid C<services:>
 mapping is reported with the source file path.
+
+For operational actions such as C<build>, C<up>, and C<down>, layered files are
+first materialized into a temporary Compose file. The final Compose invocation
+also receives the original project directory explicitly, so relative build and
+volume paths and the default project identity continue to come from the local
+Compose project rather than the temporary file's directory. An explicit
+C<--project-directory> supplied by the user is preserved. An undefined Compose
+argument or an empty/missing project-directory value is rejected before the
+Compose executable is called.
 
 During compose execution the dashboard exports C<DDDC> as the runtime
 C<config/docker> directory for the current runtime, so compose YAML can keep using

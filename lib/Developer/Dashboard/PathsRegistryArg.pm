@@ -3,7 +3,7 @@ package Developer::Dashboard::PathsRegistryArg;
 use strict;
 use warnings;
 
-our $VERSION = '5.53';
+our $VERSION = '5.54';
 
 use Exporter 'import';
 

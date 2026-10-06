@@ -3,7 +3,7 @@ package Developer::Dashboard::DockerCompose;
 use strict;
 use warnings;
 
-our $VERSION = '5.53';
+our $VERSION = '5.54';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -880,7 +880,8 @@ sub run {
 # Pre-merges a resolved multi -f docker compose layer stack into one file via
 # `docker compose ... config`, then returns a command that points at just
 # that one merged file instead of the original -f list.
-# Input: resolution hash ref (as returned by resolve() - files, command).
+# Input: resolution hash ref (as returned by resolve() - files, command,
+# compose_root).
 # Output: command array ref to run in place of $resolved->{command}. When
 # resolve() named no compose files at all, the original command is returned
 # unchanged - there is nothing to merge.
@@ -895,7 +896,9 @@ sub run {
 # whatever Compose would have merged is now sitting in one file before the
 # operational command ever runs, so a service defined only by the combination
 # of several partial layers cannot come out "not found" because one layer
-# happened to be looked up in the wrong place or the wrong order.
+# happened to be looked up in the wrong place or the wrong order. The final
+# command also retains the original Compose project directory so Compose does
+# not derive project identity or relative paths from the temporary merged file.
 sub _materialized_command {
     my ( $self, $resolved ) = @_;
 
@@ -910,9 +913,33 @@ sub _materialized_command {
     my @full     = @{ $resolved->{command} };
     my $prefix_n = 2 + 2 * scalar(@files);    # 'docker' 'compose' then one ('-f',$file) pair per layer
     my @passthrough = @full[ $prefix_n .. $#full ];
+    my @operation_args = @passthrough;
+    my @project_directory = ( '--project-directory', $resolved->{compose_root} );
+    for ( my $index = 0; $index < @operation_args; $index++ ) {
+        my $argument = $operation_args[$index];
+        die "Docker Compose argument " . ( $index + 1 ) . " is undefined\n" if !defined $argument;
+        if ( $argument eq '--project-directory' ) {
+            my $path = $index + 1 < @operation_args ? $operation_args[ $index + 1 ] : undef;
+            die "Docker Compose --project-directory requires a path\n"
+                if !defined $path || $path eq '' || $path =~ /^-/;
+            @project_directory = ( $argument );
+            push @project_directory, $path;
+            splice @operation_args, $index, 2;
+            last;
+        }
+        if ( $argument =~ /^--project-directory=(.*)$/ ) {
+            die "Docker Compose --project-directory requires a path\n" if $1 eq '';
+            @project_directory = ($argument);
+            splice @operation_args, $index, 1;
+            last;
+        }
+    }
+
+    my @materialize_command = @full[ 0 .. ( $prefix_n - 1 ) ];
+    splice @materialize_command, 2, 0, @project_directory;
 
     my ( $merged, $stderr, $exit_code ) = capture {
-        system( @full[ 0 .. ( $prefix_n - 1 ) ], 'config' );
+        system( @materialize_command, 'config' );
         return $? >> 8;
     };
     die "Unable to materialize merged docker compose config ($exit_code): $stderr" if $exit_code != 0;
@@ -923,7 +950,7 @@ sub _materialized_command {
     print {$fh} $merged;
     close $fh or die "Unable to close $tmp_file: $!";
 
-    return [ 'docker', 'compose', '-f', $tmp_file, @passthrough ];
+    return [ 'docker', 'compose', @project_directory, '-f', $tmp_file, @operation_args ];
 }
 
 # _discover_base_files($root)
@@ -1096,6 +1123,14 @@ runtime overlays are restricted to service names in that base file's
 C<services:> map. Explicit service selectors remain opt-in, while the absence
 of a local Compose file preserves ecosystem-wide service discovery. YAML
 syntax and service-map errors are reported with their source path.
+
+When several Compose layers are materialized for an operation, the effective
+project directory is explicitly passed to both the merge and final command.
+This keeps lifecycle operations such as C<build>, C<up>, and C<down> anchored
+to the invocation project rather than the temporary merged file. A user's
+explicit C<--project-directory> takes precedence. Missing or empty values for
+that option, and undefined argument values, are rejected before invoking
+Compose.
 
 =head1 METHODS
 

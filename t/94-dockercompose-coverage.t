@@ -353,6 +353,95 @@ chmod 0755, File::Spec->catfile( $logbin, 'docker' );
     like( $final_call, qr/ app$/, 'the executed call still carries the original passthrough args (app)' );
 }
 
+# Operational commands must retain the invocation Compose root after layered
+# files are materialized into a temporary merged file. Without an explicit
+# project directory, Compose derives relative paths and the default project
+# name from that temporary file instead of the user's local Compose project.
+{
+    my $old = getcwd();
+    chdir $repo or die $!;
+    local $ENV{PATH} = "$logbin:$ENV{PATH}";
+
+    for my $action (
+        [ up    => [ 'up', '-d', 'app' ] ],
+        [ build => [ 'build', 'app' ] ],
+        [ down  => ['down'] ],
+    ) {
+        unlink $invocation_log if -e $invocation_log;
+        my ( $label, $args ) = @{$action};
+        my $result = $docker->run( args => $args );
+        is( $result->{exit_code}, 0, "$label operation succeeds after layered config materialization" );
+
+        open my $log_fh, '<', $invocation_log or die "Unable to read $invocation_log: $!";
+        my @lines = <$log_fh>;
+        close $log_fh;
+        chomp @lines;
+        like( $lines[0] || '', qr/--project-directory \Q$repo\E/, "$label materialization uses the invocation Compose directory" );
+        my $final_call = $lines[-1] || '';
+        like(
+            $final_call,
+            qr/--project-directory \Q$repo\E/,
+            "$label operation keeps the invocation directory as Compose project directory",
+        );
+        like( $final_call, qr/(?:^| )\Q$label\E(?: |$)/, "$label operation remains the requested Compose action" );
+    }
+
+    chdir $old or die $!;
+}
+
+{
+    my $custom_project_dir = File::Spec->catdir( $home, 'explicit-compose-project' );
+    make_path($custom_project_dir);
+    my $old = getcwd();
+    chdir $repo or die $!;
+    local $ENV{PATH} = "$logbin:$ENV{PATH}";
+
+    for my $project_option (
+        [ separate => [ '--project-directory', $custom_project_dir ] ],
+        [ equals   => [ "--project-directory=$custom_project_dir" ] ],
+    ) {
+        unlink $invocation_log if -e $invocation_log;
+        my ( $label, $option_args ) = @{$project_option};
+        $docker->run( args => [ @{$option_args}, 'up', 'app' ] );
+        open my $log_fh, '<', $invocation_log or die "Unable to read $invocation_log: $!";
+        my @lines = <$log_fh>;
+        close $log_fh;
+        chomp @lines;
+        like( $lines[0] || '', qr/--project-directory(?:=| )\Q$custom_project_dir\E/, "explicit $label project directory also applies while materializing" );
+        my $final_call = $lines[-1] || '';
+        like( $final_call, qr/--project-directory(?:=| )\Q$custom_project_dir\E/, "explicit $label project-directory option is preserved" );
+        unlike( $final_call, qr/--project-directory \Q$repo\E/, "explicit $label project-directory option is not overridden" );
+    }
+
+    chdir $old or die $!;
+}
+
+# Materialization must reject malformed project-directory and undefined argv
+# values before invoking Compose, instead of letting the temporary -f file
+# change how a malformed invocation is interpreted.
+{
+    my $old = getcwd();
+    chdir $repo or die $!;
+    local $ENV{PATH} = "$logbin:$ENV{PATH}";
+
+    for my $case (
+        [ missing_value => ['--project-directory'], qr/--project-directory requires a path/ ],
+        [ empty_separate => [ '--project-directory', '' ], qr/--project-directory requires a path/ ],
+        [ empty_value   => [ '--project-directory=', 'up' ], qr/--project-directory requires a path/ ],
+        [ flag_value    => [ '--project-directory', '--bogus', 'up' ], qr/--project-directory requires a path/ ],
+        [ undefined_arg => [ undef, 'up' ], qr/argument 1 is undefined/ ],
+    ) {
+        my ( $label, $args, $expected_error ) = @{$case};
+        unlink $invocation_log if -e $invocation_log;
+        my $error = '';
+        eval { $docker->run( args => $args ); 1 } or $error = $@;
+        like( $error, $expected_error, "$label is rejected with a clear error" );
+        ok( !-e $invocation_log, "$label is rejected before invoking Docker Compose" );
+    }
+
+    chdir $old or die $!;
+}
+
 # run() when resolve() names zero compose files - materialization is skipped
 # and the original (file-less) command runs directly. Uses its OWN fresh,
 # isolated home - the shared $home above has home-layer docker services

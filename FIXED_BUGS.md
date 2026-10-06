@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 5.54
+
+- Problem 34 follow-up: layered Compose `build`, `up`, `down`, and other
+  operations retain the invocation project's directory after configuration
+  materialization, so project identity and relative paths do not shift to the
+  temporary merged file. Explicit `--project-directory` remains authoritative;
+  malformed or undefined arguments fail visibly before Compose is invoked.
+
 ## 5.53
 
 - Fixed Problems 25 and 36: preserve native help for dotted skill CLIs and

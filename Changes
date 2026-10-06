@@ -1,3 +1,10 @@
+5.54  2026-10-05
+
+  - Problem 34 follow-up: keep the invocation Compose project directory when
+    layered files are materialized for build, up, down, and other operations.
+  - Preserve an explicit user-supplied --project-directory, reject malformed
+    Compose arguments before execution, and cover up, build, and down in Docker.
+
 5.53  2026-10-03
 
   - Implement Problem 25's external skill-help passthrough and Problem 36's
