@@ -849,3 +849,15 @@ required `nytprof.out`, `nytprof/`, `.worktrees/`, and `dogfood-output/`
 patterns while retaining `.claude/`. The 5,344-assertion release metadata
 test and the subsequent full suite both pass with those rules. No commit or
 push was made.
+
+Problem 34 post-push security gate (2026-10-06): pushed commits through
+`17cbbb56` and ran the required interactive-shell Scorecard command. Aggregate
+score: 8.2/10. All checks tied to the code and packaging changes scored 10/10.
+The remaining scores are repository-administration or historical-activity
+items, not source fixes: Branch-Protection 0/10 requires GitHub branch settings;
+CII-Best-Practices 0/10 requires external badge-program enrollment;
+Code-Review 0/10 reflects 0 of 20 approved historical changesets; Contributors
+3/10 reflects the repository's one contributing organization. No legitimate
+repository-only edit can change the latter two historical facts. These four
+items are recorded as external follow-ups; the Scorecard output showed no
+additional repo-fixable failure.
