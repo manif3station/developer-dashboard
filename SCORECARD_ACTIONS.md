@@ -101,31 +101,28 @@ Current live result observed on `2026-06-11` after the `v4.14` push:
 
 ### Repository-side fixes
 
-- [ ] add a tracked top-level `LICENSE`
-- [ ] add a tracked top-level `SECURITY.md`
-- [ ] add `.github/dependabot.yml`
-- [ ] add a SAST workflow
-- [ ] add a fuzzing signal that Scorecard can detect
-- [ ] reduce workflow token permissions to the minimum required
-- [ ] pin every GitHub Action by full commit SHA
-- [ ] remove weak workflow bootstrap patterns where practical
-- [ ] add a packaging workflow Scorecard can detect
-- [ ] publish a real GitHub release with attached tarball, checksum, and detached signature assets
-- [ ] add tests that lock these guardrails in place
+- [x] add a tracked top-level `LICENSE` — Scorecard License is 10/10
+- [x] add a tracked top-level `SECURITY.md` — Scorecard Security-Policy is 10/10
+- [x] add `.github/dependabot.yml` — Scorecard Dependency-Update-Tool is 10/10
+- [x] add a SAST workflow — Scorecard SAST is 10/10
+- [x] add a fuzzing signal that Scorecard can detect — Scorecard Fuzzing is 10/10
+- [x] reduce workflow token permissions to the minimum required — Token-Permissions is 10/10
+- [x] pin every GitHub Action by full commit SHA — Pinned-Dependencies is 10/10
+- [x] remove weak workflow bootstrap patterns where practical — Dangerous-Workflow is 10/10
+- [x] add a packaging workflow Scorecard can detect — Packaging is 10/10
+- [x] publish signed GitHub release artifacts — Signed-Releases is 10/10
+- [x] add tests that lock these guardrails in place — repository security/Scorecard tests pass
 
 ### GitHub-side fixes that need API access or settings changes
 
 - [ ] enable branch protection or a ruleset on `master`
 - [ ] ensure pull-request review is required before merge
-- [ ] create at least one PR-backed CI run that Scorecard can observe
+- [x] create at least one PR-backed CI run that Scorecard can observe — CI-Tests is 10/10
 - [ ] create reviewed PR history that Scorecard can observe
-- [ ] create GitHub releases with attached artifacts and signatures
+- [x] create GitHub releases with attached artifacts and signatures — Signed-Releases is 10/10
 
 ### Checks that may remain externally blocked
 
-- [ ] `Maintained`
-  because the repo was created on `2026-03-30`, which is inside the Scorecard
-  90-day new-project window
 - [ ] `Contributors`
   because Scorecard counts contributing organizations, not code quality
 - [ ] `CII-Best-Practices`
@@ -244,3 +241,28 @@ All other reported checks are `10 / 10`. This environment still has no GitHub
 CLI API login, so repository settings cannot be changed here. Branch protection,
 external badge enrollment, reviewed PR history, and additional organization
 contributors remain external actions rather than code tasks.
+
+## 2026-10-07 — Post-push Scorecard audit for Problem 40
+
+Ran the required authenticated-shell command after pushing commit
+`d4a9c987f058179db53b66cd73906e17c95d9214`:
+
+```text
+bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"
+Aggregate score: 8.2 / 10
+```
+
+All reported checks except the following scored `10 / 10`:
+
+| Check | Score | Current reason | Required action |
+|---|---:|---|---|
+| Branch-Protection | 0 / 10 | Protection is not enabled on development/release branches. | A GitHub repository administrator must configure a ruleset or branch protection. |
+| CII-Best-Practices | 0 / 10 | No OpenSSF Best Practices badge is detected. | A maintainer must complete external OpenSSF enrollment and its criteria. |
+| Code-Review | 0 / 10 | `Found 0/25 approved changesets`. | A non-author reviewer must approve PR-based changes; direct pushes cannot create review evidence. |
+| Contributors | 3 / 10 | One contributing organization, normalized to 3. | Historical contributor makeup cannot be changed by a code patch. |
+
+`bash -ic 'gh auth status'` reports that this environment is not logged into
+GitHub, so it cannot change repository settings or complete external badge
+enrollment. The outstanding items remain in the GitHub-side and external
+blocker task lists above. No attempt was made to fabricate approvals or alter
+historical contributor attribution.
