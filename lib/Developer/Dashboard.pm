@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.63';
+our $VERSION = '5.65';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.63
+5.65
 
 =head1 INTRODUCTION
 
@@ -2441,11 +2441,18 @@ dashboard JSON config. If
 C<./.developer-dashboard/config/docker/green/compose.yml> exists in the current
 project it wins; otherwise the resolver falls back to
 C<~/.developer-dashboard/config/docker/green/compose.yml>.
-C<dashboard docker compose config green> or
-C<dashboard docker compose up green> will pick it up automatically by
-inferring service names from the passthrough compose args before the real
-C<docker compose> command is assembled. If no service name is passed, the
-resolver scans isolated service folders and preloads every non-disabled folder.
+C<dashboard docker compose config> and operational commands first resolve the
+base Compose config, including configured non-service project/addon/mode
+files, and read its resulting C<services:> map. Only those service names are
+used to discover isolated service folders; a service name appearing only in
+the CLI arguments or in an unrelated runtime folder cannot introduce an
+overlay. The base config resolution is a real C<docker compose config> call,
+not a raw YAML parse, so Compose's own includes, interpolation, and merge
+rules determine the authoritative list. The selected per-service files are
+then layered and materialized before the requested operation runs.
+Service names emitted by Compose must be non-empty single path segments;
+names containing separators or directory-navigation segments are rejected
+before runtime folders are searched.
 If any matching C<config/docker/E<lt>serviceE<gt>> directory in the active
 runtime layers contains C<disabled.yml>, the service is skipped. Each enabled isolated folder
 contributes C<compose.yml> as its base whenever it exists. Its optional
@@ -2471,18 +2478,20 @@ services or C<--enabled> to show only enabled services.
 
 If the invocation directory contains C<compose.yml>, C<compose.yaml>,
 C<docker-compose.yml>, or C<docker-compose.yaml>, those local files are the
-base stack and the Compose command runs from that directory. For an unscoped
-command such as C<dashboard docker compose config>, automatic runtime-service
-overlays are limited to service names declared by the local C<services:>
-mapping. Other installed service folders are ignored by default. Naming a
-service explicitly opts into its runtime definition and preserves dependency
-file gathering. When no local base file exists, ecosystem-wide auto-discovery
-continues as before. Local base files are read as raw bytes for service
-discovery, and an in-memory copy is normalized to valid UTF-8 before YAML
-parsing; the source file is never rewritten. Thus isolated single-byte
-Windows-1252 characters do not prevent service discovery, while malformed YAML
-after normalization or an invalid C<services:> mapping is still reported with
-the source file path.
+base stack and the Compose command runs from that directory. For execution,
+the first C<docker compose config> runs against the base and other configured
+non-service layers. Its resolved services—not service names guessed from
+command arguments—control isolated-service lookup across home, project, and
+nested skill runtime roots. The selected service files are added only after
+that first config succeeds; disabled folders are excluded and development
+files require a matching C<develop.yml> marker. In a dry run, Docker is not
+invoked, so the resolver reports a source-based preview instead of a
+Compose-resolved service list. This distinction keeps dry-run non-executing
+while ensuring real operations follow Compose's own effective service map. If
+no local base or explicit Compose file exists but isolated runtime service
+files do, the enabled files seed the first config pass to preserve
+ecosystem-wide auto-discovery; Compose's resulting service map still controls
+the final stack.
 
 For operational actions such as C<build>, C<up>, and C<down>, layered files are
 first materialized into a temporary Compose file. The final Compose invocation

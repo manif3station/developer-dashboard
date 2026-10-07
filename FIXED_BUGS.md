@@ -1,5 +1,33 @@
 # Fixed Bugs
 
+## 5.65
+
+- Problem 40 follow-up: when no conventional project Compose file exists, treat
+  an explicit leading `-f`/`--file` input as the base and defer runtime service
+  discovery until Docker Compose resolves its service map.
+- Add regression coverage proving runtime service folders and skill
+  environment are not preloaded before that explicit base config succeeds.
+- Verify the complete 258-file Docker suite (22,609 tests) at 100.0% across all
+  four coverage metrics.
+- Build the 5.65 tarball and runtime image; verify `dashboard version` reports
+  5.65 and the tarball passes 100% CPANTS kwalitee.
+- Install the tarball with `cpanm` (without `--notest`) in a blank Docker
+  environment and pass the complete installed-runtime integration script.
+- Pass the source POD syntax gate for all 348 discovered Perl files.
+
+## 5.64
+
+- Problem 40: run the base `docker compose config` before discovering isolated
+  service overlays. Use only its resolved service names, preserve explicit
+  Compose file/project-directory arguments, honor layered disabled/development
+  markers, and reject path-shaped service names before runtime lookup.
+- Add hermetic Docker regression coverage for the base-config selection order,
+  nested skill overlays, CLI-only service names, explicit-file-only bases,
+  native Compose help, and malformed config/argument/materialization failures.
+- Verify 258 test files / 22,615 tests and 100.0% coverage for statements,
+  branches, conditions, and subroutines; the focused web-security trio passes
+  all 459 tests.
+
 ## 5.63
 
 - Finalized Problem 38's config-first release as a distinct version after the

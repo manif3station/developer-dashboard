@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use sort 'stable';
 
-our $VERSION = '5.63';
+our $VERSION = '5.65';
 
 use Cwd qw(cwd);
 use Exporter 'import';

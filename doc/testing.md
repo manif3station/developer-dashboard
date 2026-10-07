@@ -664,6 +664,22 @@ These settings are disposable container state. If a previous container created
 root-owned files under the local runtime configuration, restore readability
 before invoking `d2` again; never replace or discard the user's configuration.
 
+For Docker Compose resolver changes, keep the worktree at `/work` in the dev
+container and use a unique Compose project name. The Problem 40 regression
+exercises the two-stage resolution directly: its stubbed base `config` output
+(from either a discovered local base or an explicit `-f`-only base) is
+authoritative for service selection, then selected home/project/skill overlays
+are checked against disable and development markers. Run it with:
+
+```sh
+d2 docker compose --project-name dd-problem40-dev exec -T dev prove -lv \
+  t/30-dashboard-loader.t t/94-dockercompose-coverage.t
+```
+
+The first resolver call must not contain isolated service files. A selected
+overlay triggers a second `config`; the final command uses the materialized
+file and retains the original project-directory and explicit `-f` inputs.
+
 The repository-wide gate also executes operator-local specifications under
 `.claude/tools/`. A clean Docker result for the product suite does not imply
 those external checks can pass: `t-ci-health` requires a valid live GitHub

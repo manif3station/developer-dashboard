@@ -38,6 +38,11 @@ like(
     qr/\$docker->run_streaming\(/,
     'docker compose operational commands use the materializing streaming runner instead of bypassing it with raw exec',
 );
+like(
+    $private_core,
+    qr/_defer_service_discovery\s*=>\s*\$dry_run\s*\?\s*0\s*:\s*1/,
+    'docker execution defers service discovery until the base Compose config has been resolved',
+);
 
 my $share_seeded_root = File::Spec->catdir( $repo_root, 'share', 'seeded-pages' );
 ok(

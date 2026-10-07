@@ -154,3 +154,70 @@ problem fixes are committed; no push was performed.
 
 ### Problem 38: Normalize merged Docker Compose YAML encoding — done (5.63)
 Expected: every Docker Compose operation first materializes the effective base and overlays with `docker compose config`, then runs the requested verb against that merged file. Re-audit found a second root cause after the earlier fixes: `resolve()` parsed each local base with `YAML::XS::LoadFile` before materialization, so an isolated Windows-1252 byte in source `compose.yaml` failed with `invalid leading UTF-8 octet` before Compose could produce its merged config. A red-first Docker regression writes a raw `0xA3` into a local base, reproduces that failure before any Compose invocation, then verifies the fix uses a normalized in-memory copy for service discovery, leaves the source file untouched, runs `config` first, and passes a valid UTF-8 merged file to the requested operation. The zero-explicit-file operation-order case and all config/up/down/build/ps/logs materialization paths remain covered; non-Compose commands stay direct. Docker coverage passed 258 files / 22,550 tests with statement, branch, condition, and subroutine metrics all 100.0% (45,519 detail rows, no stale uncoverable annotations). The focused release/Compose tests passed 5,965 assertions and the focused web security trio passed 459. `dzil build`, image build/version verification, and blank-environment `cpanm` installation without `--notest` plus its full integration script passed. The coverage image lacked optional browser/QEMU/kwalitee tools and `cpan-audit`; those checks were skipped by the gate. Devel::Cover emitted visible warnings for temporary fixtures removed before report digestion. Final release metadata is 5.63 because the image build guard rejects reusing 5.62; the original `/tmp/here.yml` was not read or used as a fixture.
+### Problem 40: Resolve the base Compose service list before loading service overlays — done (5.65)
+
+Expected: for every real Compose operation, run `docker compose config` first
+using the local base and configured non-service layers. Parse that resolved
+output's `services` map, then search active home, project, and nested-skill
+Docker config roots for only those service names. Apply disabled and
+development markers before materializing the selected overlays and executing
+the requested operation. Explicit `--project-directory` and user `-f` inputs
+must be preserved without relying on a calculated argv offset.
+
+Root cause: execution previously called `resolve()` before Compose, where
+service files were selected from raw local YAML and names inferred from command
+arguments. `_materialized_command` then sliced the composed argv using
+`2 + 2 * number_of_files`, assuming every generated `-f` pair was a contiguous
+prefix. The initial config therefore contained overlays for services that had
+not been established by Compose, and option/file arguments made the positional
+slice fragile.
+
+Reproduction: in an isolated Docker dev container, create a base compose file
+with `source_only` and `blocked`, a configured non-service overlay defining
+`present`, home and nested-skill `present/compose.yml` files, a `blocked`
+service folder with `disabled.yml`, and a `present/develop.yml` marker with
+development overlays. Invoke the resolver with an explicit project directory,
+an extra `-f` file, and `build ghost`; make the Compose stub's first `config`
+output list `present` and `blocked`. Before the fix, the red assertions showed
+only two calls, the first call already contained both `ghost` and `present`
+service folders, and there was no later config call selecting overlays from
+the first output. The test also forced the raw YAML service parser to die,
+proving that execution must not consult it before Compose.
+
+A follow-up red test covered projects without a conventional Compose filename
+where the only base is supplied through `-f`. Before the correction, the first
+config call preloaded runtime service folders and omitted the selected skill
+environment; two assertions failed. `resolve()` now parses leading Compose
+options to detect explicit `-f`/`--file` inputs and defers service lookup for
+that case too. The fixture then passed with only the explicit base in the first
+call, matching overlays in the later config, and service environment applied
+only after Compose returned its base service map.
+
+Fix and verification: execution now defers service discovery. It explicitly
+constructs a base-config argv, parses the resolved service map, gathers only
+matching service files with existing layered marker logic, and materializes
+the final config only when service overlays were found. Compose-returned names
+must be valid single path segments; empty names, `.`/`..`, and path separators
+are rejected before runtime lookup. Argument parsing separates global
+options, explicit base files, project directory, and the requested operation
+instead of slicing `@full`. The six changed focused regressions (`t/05`,
+`t/10`, `t/11`, `t/30`, `t/94`, and `t/266`) first passed 2,105 assertions;
+after the 5.64 metadata update, all seven focused files including
+`t/15-release-metadata.t` passed 7,540 tests. The resolver file independently
+passed 305 assertions, including the explicit-file-only base case. The fresh
+full Docker coverage gate passed 258 files / 22,609 tests with 100.0%
+statement, branch, condition, and subroutine coverage (45,787 detail rows; no
+stale uncoverable annotations). The required focused
+web-security trio passed 459 tests. The 5.65 tarball passed CPANTS kwalitee
+at 100% (7/7 assertions) and the source POD gate (348 files, 355 assertions).
+`dzil build` produced `Developer-Dashboard-5.65.tar.gz`; the image build
+succeeded and a one-off Compose run reported `dashboard version` as `5.65`.
+The blank-environment container installed the tarball using `cpanm` without
+`--notest`, then its complete installed-runtime integration script passed.
+`perlsec` was reviewed from the container's `perlsec.pod` with `pod2text`
+because the image's `perldoc` has no formatter.
+Required security searches found no Problem 40 shell-string execution or
+production use of a forbidden library; broad search hits were existing audit
+expressions and test fixtures. Devel::Cover warnings for temporary generated
+fixture files removed during tests remain visible in its report output, while
+the coverage gate exits successfully and reports all four metrics at 100.0%.

@@ -3,7 +3,7 @@ package Developer::Dashboard::DockerCompose;
 use strict;
 use warnings;
 
-our $VERSION = '5.63';
+our $VERSION = '5.65';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -46,10 +46,12 @@ sub _default_project_root {
 
 # resolve(%args)
 # Resolves the effective docker compose context and overlay stack.
-# Input: optional project_root, addons, modes, services, and compose args.
+# Input: optional project_root, addons, modes, services, compose args, and an
+#        internal execution flag that defers runtime service discovery.
 # Output: hash reference describing files, env, layers, precedence, and final command.
 sub resolve {
     my ( $self, %args ) = @_;
+    my $defer_service_discovery = delete $args{_defer_service_discovery} ? 1 : 0;
     my $project_root = $self->_default_project_root( $args{project_root}, $self->{paths}->current_project_root );
     my $compose_root = $self->_base_compose_root($project_root);
     my $docker_cfg  = $self->{config}->docker_config;
@@ -59,7 +61,17 @@ sub resolve {
     my @layers;
 
     my @base = $self->_discover_base_files($compose_root);
-    my $local_compose_services = @base ? $self->_local_compose_services(\@base) : undef;
+    # A supplied -f/--file can be the complete base stack even when no
+    # conventional Compose file exists in the project directory. Only retain
+    # legacy runtime-file seeding when neither source provides a base.
+    if ( $defer_service_discovery && !@base ) {
+        my $argument_parts = $self->_compose_argument_parts(
+            args         => \@passthrough,
+            compose_root => $compose_root,
+        );
+        $defer_service_discovery = 0 if !@{ $argument_parts->{files} };
+    }
+    my $local_compose_services = !$defer_service_discovery && @base ? $self->_local_compose_services(\@base) : undef;
     push @compose_files, @base;
     push @layers, { name => 'base', files => [@base] };
 
@@ -80,13 +92,13 @@ sub resolve {
         %{ $docker_cfg->{services} || {} },
     );
     my @requested_services = @{ $args{services} || [] };
-    my @inferred_services = $self->_infer_services_from_args(
+    my @inferred_services = $defer_service_discovery ? () : $self->_infer_services_from_args(
         args         => \@passthrough,
         project_root => $project_root,
         service_map  => \%service_map,
     );
     my $has_explicit_services = @requested_services || @inferred_services;
-    my @services = $self->_resolve_effective_services(
+    my @services = $defer_service_discovery ? () : $self->_resolve_effective_services(
         requested             => \@requested_services,
         inferred              => \@inferred_services,
         project_root          => $project_root,
@@ -103,7 +115,7 @@ sub resolve {
     # @services (the requested/effective set) still governs everything else
     # below - env resolution, the resolved "services" field - only the FILE
     # set widens here.
-    my @enabled_services = $has_explicit_services
+    my @enabled_services = $defer_service_discovery ? () : $has_explicit_services
       ? $self->_discover_enabled_services(
         project_root => $project_root,
         service_map  => \%service_map,
@@ -154,7 +166,6 @@ sub resolve {
         modes       => \@modes,
         mode_map    => \%mode_map,
     );
-
     my @command = ('docker', 'compose');
     for my $file (@files) {
         push @command, '-f', $file;
@@ -168,6 +179,21 @@ sub resolve {
         modes        => \@modes,
         services     => \@services,
         files        => \@files,
+        base_files   => [@base],
+        project_files => [@project_overlays],
+        service_files => [ @{$service_files} ],
+        addon_files  => [ @{$addon_files} ],
+        mode_files   => [ @{$mode_files} ],
+        compose_args => [@passthrough],
+        service_map  => \%service_map,
+        docker_env_inputs => {
+            docker_cfg  => $docker_cfg,
+            docker_root => $docker_root,
+            addons      => [@addons],
+            addon_map   => \%addon_map,
+            modes       => [@modes],
+            mode_map    => \%mode_map,
+        },
         env          => \%env,
         command      => \@command,
         env_files    => $skill_env->{files},
@@ -855,7 +881,10 @@ sub run {
     # sub returns, regardless of the exit code already captured in this
     # sub's own return value.
     local $?;
-    my $resolved = $self->resolve(%args);
+    my $resolved = $self->resolve(
+        %args,
+        _defer_service_discovery => $args{dry_run} ? 0 : 1,
+    );
     return $resolved if $args{dry_run};
 
     my $old = cwd();
@@ -863,6 +892,7 @@ sub run {
     chdir $compose_root or die "Unable to chdir to $compose_root: $!";
     local @ENV{ keys %{ $resolved->{env} } } = values %{ $resolved->{env} } if %{ $resolved->{env} };
     my $run_command = $self->_materialized_command($resolved);
+    local @ENV{ keys %{ $resolved->{env} } } = values %{ $resolved->{env} } if %{ $resolved->{env} };
     my ( $stdout, $stderr, $exit_code ) = capture {
         system @{$run_command};
         return $? >> 8;
@@ -888,7 +918,10 @@ sub run_streaming {
     my ( $self, %args ) = @_;
     local $?;
     my $resolved = delete $args{resolved};
-    $resolved = $self->resolve(%args) if !defined $resolved;
+    $resolved = $self->resolve(
+        %args,
+        _defer_service_discovery => $args{dry_run} ? 0 : 1,
+    ) if !defined $resolved;
     return $resolved if $args{dry_run};
 
     my $old = cwd();
@@ -898,6 +931,7 @@ sub run_streaming {
         chdir $compose_root or die "Unable to chdir to $compose_root: $!";
         local @ENV{ keys %{ $resolved->{env} } } = values %{ $resolved->{env} } if %{ $resolved->{env} };
         my $command = $self->_materialized_command($resolved);
+        local @ENV{ keys %{ $resolved->{env} } } = values %{ $resolved->{env} } if %{ $resolved->{env} };
         my $status = system @{$command};
         die "Unable to execute Docker Compose: $!\n" if $status == -1;
         my $signal = $status & 127;
@@ -913,19 +947,20 @@ sub run_streaming {
 }
 
 # _materialized_command($resolved)
-# Materializes the effective Compose configuration through `docker compose
-# config`, then returns a command that points at the resulting merged file.
-# Input: resolution hash ref (as returned by resolve() - files, command,
-# compose_root).
-# Output: command array ref to run in place of $resolved->{command}. The
-# materialization includes resolved layer files when present; with no explicit
-# files, Compose discovers its default base config from compose_root. A
-# non-Docker-Compose resolved command is returned unchanged.
+# Resolves the base Compose service set, discovers only those services' runtime
+# overlays, materializes the final YAML, and constructs the requested command.
+# Input: resolution hash ref with explicit base/non-service file groups,
+# passthrough args, runtime roots, and Compose project root.
+# Output: command array ref using one temporary merged file; a non-Compose
+# command is returned unchanged.
 #
-# WHY THIS EXISTS (DD-857): the layered runtime stack (~/.developer-dashboard,
-# installed skills, the project's own .developer-dashboard, service/addon/mode
-# overlays) can spread one service's definition across several files. Passing
-# every layer as its own -f flag makes the operational command depend on
+# WHY THIS EXISTS (Problem 40 / DD-857): Docker Compose must first resolve the
+# base stack so its resulting services mapping, rather than raw source parsing
+# or command-line service guesses, decides which per-service overlays exist in
+# this invocation. The layered runtime stack (~/.developer-dashboard, installed
+# skills, the project's own .developer-dashboard, service/addon/mode overlays)
+# can spread one service's definition across several files. Passing every layer
+# as its own -f flag makes the operational command depend on
 # Compose's own multi-file merge resolving that service correctly on every
 # invocation; materializing once via `config` and running the real command
 # against a single, already-resolved file removes that dependency entirely -
@@ -943,53 +978,228 @@ sub _materialized_command {
     # (run(), and anything run() is itself called from) after this sub
     # returns, regardless of the exit code already captured locally below.
     local $?;
-    my @files = @{ $resolved->{files} };
-    my @full = @{ $resolved->{command} };
-    return $resolved->{command}
-        if !@files && ( @full < 2 || $full[0] ne 'docker' || $full[1] ne 'compose' );
+    my $command = $resolved->{command} || [];
+    return $command if @{$command} < 2 || $command->[0] ne 'docker' || $command->[1] ne 'compose';
 
-    my $prefix_n = 2 + 2 * scalar(@files);    # 'docker' 'compose' then one ('-f',$file) pair per layer
-    my @passthrough = @full[ $prefix_n .. $#full ];
-    my @operation_args = @passthrough;
-    my @project_directory = ( '--project-directory', $resolved->{compose_root} );
-    for ( my $index = 0; $index < @operation_args; $index++ ) {
-        my $argument = $operation_args[$index];
-        die "Docker Compose argument " . ( $index + 1 ) . " is undefined\n" if !defined $argument;
-        if ( $argument eq '--project-directory' ) {
-            my $path = $index + 1 < @operation_args ? $operation_args[ $index + 1 ] : undef;
-            die "Docker Compose --project-directory requires a path\n"
-                if !defined $path || $path eq '' || $path =~ /^-/;
-            @project_directory = ( $argument );
-            push @project_directory, $path;
-            splice @operation_args, $index, 2;
-            last;
-        }
-        if ( $argument =~ /^--project-directory=(.*)$/ ) {
-            die "Docker Compose --project-directory requires a path\n" if $1 eq '';
-            @project_directory = ($argument);
-            splice @operation_args, $index, 1;
-            last;
-        }
+    my @compose_args = @{ $resolved->{compose_args} || [] };
+    if ( !exists $resolved->{compose_args} ) {
+        @compose_args = @{$command}[ 2 .. $#{$command} ] if @{$command} > 2;
+    }
+    my $argument_parts = $self->_compose_argument_parts(
+        args         => \@compose_args,
+        compose_root => $resolved->{compose_root},
+    );
+    my @project_directory = @{ $argument_parts->{project_directory} };
+    my @global_args       = @{ $argument_parts->{global_args} };
+    my @explicit_files    = @{ $argument_parts->{files} };
+    my @operation_args    = @{ $argument_parts->{operation_args} };
+    my $help_requested = ( grep { defined $_ && ( $_ eq '--help' || $_ eq '-h' ) } @operation_args )
+      || ( @operation_args && defined $operation_args[0] && $operation_args[0] eq 'help' );
+    return $command if $help_requested;
+
+    my @initial_files;
+    if ( exists $resolved->{base_files} ) {
+        @initial_files = (
+            @{ $resolved->{base_files} || [] },
+            @{ $resolved->{project_files} || [] },
+            ( @{ $resolved->{base_files} || [] } ? () : @{ $resolved->{service_files} || [] } ),
+            @{ $resolved->{addon_files} || [] },
+            @{ $resolved->{mode_files} || [] },
+            @explicit_files,
+        );
+        @initial_files = $self->_finalize_compose_files(
+            compose_files => \@initial_files,
+            project_root  => $resolved->{project_root},
+        );
+    }
+    else {
+        @initial_files = ( @{ $resolved->{files} || [] }, @explicit_files );
     }
 
-    my @materialize_command = @full[ 0 .. ( $prefix_n - 1 ) ];
-    splice @materialize_command, 2, 0, @project_directory;
-
-    my ( $merged, $stderr, $exit_code ) = capture {
-        system( @materialize_command, 'config' );
+    my @initial_file_args;
+    for my $file (@initial_files) {
+        push @initial_file_args, '-f', $file;
+    }
+    my @base_config_command = ( 'docker', 'compose', @global_args, @project_directory, @initial_file_args, 'config' );
+    my ( $base_output, $base_stderr, $base_exit ) = capture {
+        system @base_config_command;
         return $? >> 8;
     };
-    die "Unable to materialize merged docker compose config ($exit_code): $stderr" if $exit_code != 0;
+    die "Unable to materialize merged docker compose config ($base_exit): $base_stderr" if $base_exit != 0;
 
-    $merged = _compose_yaml_utf8_bytes($merged);
+    $base_output = _compose_yaml_utf8_bytes($base_output);
+    my $base_document = eval { YAML::XS::Load($base_output) };
+    die "Unable to parse resolved base docker compose config: $@" if $@;
+    die "Resolved base docker compose config must contain a mapping\n" if ref($base_document) ne 'HASH';
+    my $base_services = exists $base_document->{services} ? $base_document->{services} : {};
+    die "Resolved base docker compose services must be a mapping\n" if ref($base_services) ne 'HASH';
+    my @services = sort keys %{$base_services};
+    my ($invalid_service) = grep {
+        $_ eq '' || $_ eq '.' || $_ eq '..' || m{[\\/\0]}
+    } @services;
+    die "Resolved base docker compose contains an invalid service name '$invalid_service'\n"
+      if defined $invalid_service;
+
+    my @service_files;
+    if ( exists $resolved->{base_files} ) {
+        my $service_map = $resolved->{service_map} || {};
+        my $modes       = $resolved->{modes} || [];
+        my $service_file_list = $self->_gather_service_files(
+            services     => \@services,
+            service_map  => $service_map,
+            project_root => $resolved->{project_root},
+            modes        => $modes,
+        );
+        @service_files = @{$service_file_list};
+    }
+
+    my @final_files = @initial_files;
+    if ( exists $resolved->{base_files} ) {
+        @final_files = $self->_finalize_compose_files(
+            compose_files => [
+                @{ $resolved->{base_files} || [] },
+                @{ $resolved->{project_files} || [] },
+                @service_files,
+                @{ $resolved->{addon_files} || [] },
+                @{ $resolved->{mode_files} || [] },
+                @explicit_files,
+            ],
+            project_root => $resolved->{project_root},
+        );
+    }
+
+    $resolved->{services} = \@services;
+    $resolved->{service_files} = \@service_files;
+    $resolved->{files} = \@final_files;
+    if ( my $env_inputs = $resolved->{docker_env_inputs} ) {
+        my $skill_env = $self->_resolve_skill_service_env(
+            project_root => $resolved->{project_root},
+            services     => \@services,
+        );
+        my %env = $self->_resolve_docker_env(
+            skill_env   => $skill_env,
+            docker_cfg  => $env_inputs->{docker_cfg},
+            docker_root => $env_inputs->{docker_root},
+            addons      => $env_inputs->{addons},
+            addon_map   => $env_inputs->{addon_map},
+            modes       => $env_inputs->{modes},
+            mode_map    => $env_inputs->{mode_map},
+        );
+        $resolved->{env} = \%env;
+        $resolved->{env_files} = $skill_env->{files};
+    }
+
+    my $merged = $base_output;
+    if (@service_files) {
+        my @final_file_args;
+        for my $file (@final_files) {
+            push @final_file_args, '-f', $file;
+        }
+        my @final_config_command = ( 'docker', 'compose', @global_args, @project_directory, @final_file_args, 'config' );
+        local @ENV{ keys %{ $resolved->{env} } } = values %{ $resolved->{env} } if %{ $resolved->{env} || {} };
+        my ( $effective_output, $stderr, $exit_code ) = capture {
+            system @final_config_command;
+            return $? >> 8;
+        };
+        die "Unable to materialize merged docker compose config ($exit_code): $stderr" if $exit_code != 0;
+        $merged = _compose_yaml_utf8_bytes($effective_output);
+    }
 
     my $tmp_dir  = File::Temp::tempdir( CLEANUP => 1 );
     my $tmp_file = File::Spec->catfile( $tmp_dir, 'merged-compose.yml' );
     open my $fh, '>:raw', $tmp_file or die "Unable to write $tmp_file: $!";
     print {$fh} $merged;
-    close $fh or die "Unable to close $tmp_file: $!";
+    _close_materialized_compose_file($fh) or die "Unable to close $tmp_file: $!";
 
-    return [ 'docker', 'compose', @project_directory, '-f', $tmp_file, @operation_args ];
+    return [ 'docker', 'compose', @global_args, @project_directory, '-f', $tmp_file, @operation_args ];
+}
+
+# _close_materialized_compose_file($handle)
+# Closes the temporary YAML file handle and reports the operating system result
+# so the caller can preserve a clear path-specific error message.
+# Input: open file handle for the materialized Compose YAML.
+# Output: true on successful close, false on close failure.
+sub _close_materialized_compose_file {
+    my ($handle) = @_;
+    return close $handle;
+}
+
+# _compose_argument_parts(%args)
+# Separates Docker Compose global options, explicit base files, project directory,
+# and the requested operation without relying on file-count offsets in argv.
+# Input: Compose passthrough args array ref and compose root path.
+# Output: hash reference containing global_args, files, project_directory, and operation_args.
+sub _compose_argument_parts {
+    my ( $self, %args ) = @_;
+    my @args = @{ $args{args} || [] };
+    my @global_args;
+    my @files;
+    my @operation_args;
+    my @project_directory = ( '--project-directory', $args{compose_root} );
+    my %takes_value = map { $_ => 1 } qw(-f --file -p --project-name --project-directory --env-file --profile --ansi --progress --parallel);
+    my $operation_started = 0;
+    my $argument_index = 0;
+
+    while (@args) {
+        my $argument = shift @args;
+        $argument_index++;
+        die "Docker Compose argument $argument_index is undefined\n" if !defined $argument;
+        if ($operation_started) {
+            push @operation_args, $argument;
+            next;
+        }
+        if ( $argument eq '--' ) {
+            $operation_started = 1;
+            push @operation_args, @args;
+            last;
+        }
+        if ( $argument eq '--project-directory' ) {
+            my $path = @args ? shift @args : undef;
+            die "Docker Compose --project-directory requires a path\n"
+                if !defined $path || $path eq '' || $path =~ /^-/;
+            @project_directory = ( $argument, $path );
+            next;
+        }
+        if ( $argument =~ /^--project-directory=(.*)$/ ) {
+            die "Docker Compose --project-directory requires a path\n" if $1 eq '';
+            @project_directory = ($argument);
+            next;
+        }
+        if ( $argument eq '-f' || $argument eq '--file' ) {
+            my $path = @args ? shift @args : undef;
+            die "Docker Compose $argument requires a path\n" if !defined $path || $path eq '';
+            push @files, $path;
+            next;
+        }
+        if ( $argument =~ /^--file=(.*)$/ ) {
+            die "Docker Compose --file requires a path\n" if $1 eq '';
+            push @files, $1;
+            next;
+        }
+        if ( $argument =~ /^--(?:project-name|env-file|profile|ansi|progress|parallel)=/ || $argument =~ /^-p./ ) {
+            push @global_args, $argument;
+            next;
+        }
+        if ( $takes_value{$argument} ) {
+            my $value = @args ? shift @args : undef;
+            die "Docker Compose $argument requires a value\n" if !defined $value || $value eq '';
+            push @global_args, $argument, $value;
+            next;
+        }
+        if ( $argument =~ /^-/ ) {
+            push @global_args, $argument;
+            next;
+        }
+        $operation_started = 1;
+        push @operation_args, $argument;
+    }
+
+    return {
+        global_args       => \@global_args,
+        files             => \@files,
+        project_directory => \@project_directory,
+        operation_args    => \@operation_args,
+    };
 }
 
 # _compose_yaml_utf8_bytes($output)
@@ -1209,12 +1419,25 @@ Developer::Dashboard::DockerCompose - compose resolver and launcher
 This module resolves layered docker compose inputs into a final transparent
 docker compose command line and can optionally execute it.
 
-When a standard Compose file exists in the invocation directory, it is used as
-the local base and the command runs from that directory. Unscoped automatic
-runtime overlays are restricted to service names in that base file's
-C<services:> map. Explicit service selectors remain opt-in, while the absence
-of a local Compose file preserves ecosystem-wide service discovery. YAML
-syntax and service-map errors are reported with their source path.
+When standard Compose files exist in the invocation directory, they are used
+as the local base and the command runs from that directory. At execution time,
+the resolver first runs C<docker compose config> using the base and configured
+non-service layers, then reads the resulting C<services:> map. That resolved
+service list is authoritative: CLI service names and service folders not
+present in the base config cannot cause overlays to be loaded. Matching
+service folders are then searched through home, project, and nested skill
+runtime layers; C<disabled.yml> excludes a service overlay, while
+C<development.compose.yml> is added only when a matching C<develop.yml>
+marker exists. The resolver materializes the selected service overlays and
+only then runs the requested Compose operation. Dry-run output remains a
+non-executing preview. When no local base file exists, Compose resolves its
+normal working-directory config before the same service-selection step. When
+no local base or explicit Compose file exists but runtime service files do,
+those enabled files seed the first config pass to preserve ecosystem-wide
+auto-discovery; the emitted services map still determines the final stack.
+Native Compose help requests and help arguments belonging to commands nested
+under C<exec> bypass materialization and pass through unchanged, because their
+output is not YAML config data.
 
 Every Docker Compose operation is materialized before execution, even when
 resolution selected no explicit layered files: Compose first discovers and
@@ -1299,7 +1522,13 @@ reopen the time-of-check-to-time-of-use window this approach closes.
 
 =head1 PURPOSE
 
-This module resolves and runs dashboard-managed Docker Compose stacks. It maps wrapper flags to compose files under layered runtime C<config/docker> roots, infers service names, exports the effective docker config root, and builds the final C<docker compose> command. Operational CLI requests use C<run_streaming> so layered configuration is materialized before execution and normal terminal output remains live.
+This module resolves and runs dashboard-managed Docker Compose stacks. For real
+operations it resolves the base config first and selects layered
+C<config/docker> service files only from Compose's resulting services map;
+dry-run previews can infer candidate services without starting Compose. It also
+exports the effective docker config root and constructs the final command.
+Operational CLI requests use C<run_streaming> so layered configuration is
+materialized before execution and normal terminal output remains live.
 
 =head1 WHY IT EXISTS
 

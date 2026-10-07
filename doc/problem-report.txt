@@ -1026,3 +1026,88 @@ Earlier Problem 38 release work also corrected an image version-shadowing
 issue: the ignored operator-local D2 Dockerfile installs the archive into the
 runtime-first `/root/perl5` library, and an integration assertion guards that
 recipe when present. No commit or push was requested.
+
+Problem 40: Resolve the base Compose service list before loading service overlays
+Status: implementation, full tests, coverage, packaging, image, and blank-container integration passed.
+Date: 2026-10-07
+
+Expected outcome: run `docker compose config` first with the local base and
+configured non-service layers. Parse that output's `services` map, then search
+active home, project, and nested skill runtime roots for only those service
+names. Apply `disabled.yml` and `develop.yml` marker behavior before adding
+service files to the final config. Preserve explicit project-directory and
+user-supplied `-f` options without calculating the operation argv position
+from a number of generated file pairs.
+
+Root cause: `resolve()` selected isolated service compose files before Docker
+Compose had resolved the base config. It used raw local YAML, command-line
+service inference, and an ecosystem-wide enabled service scan; consequently
+the initial `config` call could contain unrelated service overlays. Then
+`_materialized_command` sliced `@full` at `2 + 2 * number_of_files`, which
+assumed every generated `-f` pair was a contiguous argv prefix and broke when
+other compose-global options or user file arguments were present.
+
+Reproduction steps: a new hermetic fixture is built inside the project dev
+container. Its source base names `source_only` and `blocked`; a project
+non-service overlay defines `present`; runtime files provide home and nested
+skill layers for `present`; the `blocked` service is disabled; and `present`
+has a development marker. Call `run()` with an explicit project directory,
+one additional `-f` base file, and `build ghost`. The docker stub's first
+`config` output lists `present` and `blocked`. The test makes
+`_local_compose_services` die if execution calls it, then checks the first
+invocation has no runtime service overlay, the next config contains only
+matching enabled overlays (including opted-in development), and the last
+operation uses the merged file while retaining its arguments and project
+directory.
+
+A follow-up red test covered a project without a conventional Compose filename
+where the only base is supplied through `-f`. Before the correction, the first
+config call preloaded runtime service folders and omitted the selected skill
+environment; two assertions failed. `resolve()` now parses leading Compose
+options to detect explicit `-f`/`--file` inputs and defers service lookup for
+that case too. The fixture passes with the explicit base alone in the first
+call, matching overlays in the later config, and service environment applied
+only after Compose returned the service map.
+
+Red-before-fix evidence: the first Docker run of the new regression failed
+four assertions. It observed two calls rather than three; the initial config
+already contained `config/docker/ghost/compose.yml` and
+`config/docker/present/compose.yml`; the later config lacked the selected
+`present` overlay; and the expected operation log entry was absent. This
+matched the reported incorrect order. After the fix, the focused red/green
+regression passed with the full resolver file. The six changed focused
+regressions (`t/05`, `t/10`, `t/11`, `t/30`, `t/94`, and `t/266`) first passed
+2,105 assertions; after version alignment, all seven focused files including
+`t/15-release-metadata.t` passed 7,540 tests. The resolver file independently
+passed 305 assertions, including the explicit-file-only base case.
+
+Implementation: execution now passes an internal deferred-discovery flag
+through the private Docker helper. `_materialized_command` explicitly splits
+global compose options, explicit `-f` base files, project-directory, and the
+requested operation; no file-count argv slicing remains. It runs base config,
+parses the service mapping, gathers the matching service files using the
+existing layered disable/development rules, then runs a final config when
+service overlays were selected. Existing base/project/service/addon/mode
+precedence is maintained. Compose-returned service names must be non-empty
+single path segments; `.`/`..` and names containing path separators are
+rejected before filesystem lookup. Dry-run remains non-executing and is
+documented as a source-based preview.
+
+Security review for this change: the command still passes argument vectors to
+`system` and does not compose a shell string; config-derived service names only
+select existing runtime-root paths. No new dependencies, SQL, HTTP routes,
+credentials, or authentication behavior were introduced. The fresh full Docker
+gate passed 258 files / 22,609 tests at 100.0% statement, branch, condition,
+and subroutine coverage (45,787 detail rows and no stale uncoverable
+annotations). The required focused web-security trio passed 459 tests.
+`perlsec` was reviewed from the container's `perlsec.pod` with `pod2text`
+because `perldoc` has no formatter. The 5.65 archive passed CPANTS kwalitee
+(100%, 7/7 assertions) and POD syntax (348 source files, 355 assertions).
+`dzil build` produced `Developer-Dashboard-5.65.tar.gz`; its image reported
+version 5.65 in a one-off Compose run. A blank-environment container installed
+the archive with `cpanm` without `--notest` and passed the full integration
+script. Required security searches found no Problem 40 shell-string execution
+or production use of a forbidden library; broad matches were existing audit
+strings and test fixtures. Devel::Cover warnings for temporary generated
+fixtures removed during tests remain visible, while the coverage gate exits
+successfully with all four metrics at 100.0%.

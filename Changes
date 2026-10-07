@@ -1,3 +1,34 @@
+5.65  2026-10-07
+
+  - Complete Problem 40 for explicit-file-only projects: detect leading -f and
+    --file inputs as the base when no conventional compose file exists, then
+    defer isolated service and service-environment discovery until the base
+    Compose config returns its service map.
+  - Add a red-first Docker regression for explicit-file-only base resolution,
+    CLI-only service names, selected overlays, and delayed skill environment.
+  - Re-run all 258 Docker test files (22,609 tests) at 100.0% statement,
+    branch, condition, and subroutine coverage before the 5.65 release build.
+  - Build the 5.65 tarball and image, verify the image runtime version, and
+    pass 100% CPANTS kwalitee on the archive.
+  - Install the tarball with cpanm without --notest in a blank Docker image and
+    pass its complete installed-runtime integration script.
+
+5.64  2026-10-07
+
+  - Fix Problem 40: resolve the base Compose config before selecting isolated
+    service overlays, so only services present in Compose's effective base
+    configuration can activate home, project, or nested-skill overlays.
+  - Preserve explicit Compose global options, -f inputs, and project-directory
+    settings without slicing the generated argv by file count.
+  - Reject Compose service names that are empty, directory-navigation names,
+    or contain path separators before runtime service lookup.
+  - Add Docker regressions for config-first selection, marker behavior, nested
+    skill overlays, CLI-only service names, explicit-file-only bases, native
+    help passthrough, and parser and materialization error paths.
+  - Verify the complete Docker suite (258 files, 22,615 tests) at 100.0%
+    statement, branch, condition, and subroutine coverage; the focused web
+    security tests also pass (459 tests).
+
 5.63  2026-10-06
 
   - Complete Problem 38's config-first Compose release with README, module,
