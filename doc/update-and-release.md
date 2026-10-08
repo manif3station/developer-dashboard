@@ -339,11 +339,17 @@ perl -Ilib bin/dashboard doctor
 perl -Ilib bin/dashboard doctor --fix
 ```
 
-Refresh generic built-in indicators:
+Refresh local project and Git indicators:
 
 ```bash
 perl -Ilib bin/dashboard indicator refresh-core
 ```
+
+The core refresh does not probe for Docker or create a Docker indicator. A
+Docker status indicator is available only when a collector is explicitly
+configured for it. Older persisted records matching the former built-in Docker
+indicator are removed during core refresh; customized or collector-managed
+records named `docker` are preserved.
 
 Inspect collector state:
 

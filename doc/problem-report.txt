@@ -1111,3 +1111,47 @@ or production use of a forbidden library; broad matches were existing audit
 strings and test fixtures. Devel::Cover warnings for temporary generated
 fixtures removed during tests remain visible, while the coverage gate exits
 successfully with all four metrics at 100.0%.
+
+Problem 41: Remove Docker from built-in indicators (status: done, version 5.67)
+
+Expected outcome: core indicator refresh does not probe for the docker
+executable and does not create a Docker status indicator. Docker status remains
+available when the user explicitly configures a Docker collector. A previously
+persisted core Docker record is removed, while customized and collector-owned
+records named docker are preserved.
+
+Root cause: refresh_core_indicators() called command_in_path('docker') and
+persisted a Docker indicator at priority 20. A configured collector named
+docker then shared that record, which made Docker appear first in the prompt.
+
+Reproduction: run d2 ps1 without tmux indicator suppression. The old path
+probed the Docker executable and created a whale indicator even in a runtime
+without a Docker collector. In the Docker dev service, t/95 was changed first
+to make the executable probe fatal; its red run exited at that probe. The test
+also seeds the old built-in record and verifies migration cleanup while keeping
+an explicitly configured collector-owned docker record.
+
+Implementation removes the Docker probe and write from core refresh and adds
+signature-based cleanup for the old core record only. Shared-lock cleanup
+passes both focused Docker test files (1,042 assertions), preserving custom and
+collector-owned statuses.
+Three additional red assertions exposed missing writer-lock protection and
+lock-failure reporting. Shared-lock cleanup now passes both focused Docker test
+files (1,042 assertions), including layered/custom ownership preservation.
+The first full run failed four tracked-document assertions because container
+Git rejected the /work bind mount's ownership. A disposable test Compose file
+sets safe.directory only inside the container. The affected integration asset
+and indicator tests passed 491 assertions, and the full gate was restarted.
+
+Final verification: all 258 Docker test files passed (22,645 tests); Devel::Cover
+reported 100.0% statement, branch, condition, and subroutine coverage across
+the library (45,841 detail rows, no stale uncoverable annotations). Its report
+included missing-digest diagnostics for temporary generated helpers already
+removed by their tests; the canonical gate exited successfully. The focused
+web/security tests passed 459 assertions. Kwalitee, POD, and release metadata
+passed 5,783 assertions, including 100% CPANTS kwalitee. The final 5.67 archive
+excluded cover_db. The blank Docker environment installed the same 5.67 release
+code through cpanm with tests enabled and passed the complete installed-runtime
+integration runner. Perl's perlsec documentation was reviewed inside the
+runtime container. No new executable, dependency, SQL, endpoint, credential,
+or authentication surface was added.

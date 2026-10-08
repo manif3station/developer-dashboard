@@ -235,7 +235,11 @@ actually set, and it must resolve the trailing git branch from `.git/HEAD`
 metadata without spawning `git branch`. The prompt-only core indicator refresh
 path also skips the hidden `project` and `git` status subprocess checks, so
 slow hosts such as iSH do not pay for those background details on every prompt
-render.
+render. It must not probe Docker or seed a built-in Docker indicator. Retired
+Docker cleanup holds the status writer lock while checking ownership and
+removing only the retired signature; explicit collectors and custom indicators
+must survive. Tests exercise lock-open, lock-acquisition, and deletion failures
+as visible errors, plus preservation across runtime layers.
 Custom route coverage now also includes the runtime-level `config/routes.json`
 surface, not only installed skills. A flat alias such as `"/java":
 "/app/learn.ai"` must resolve to the same saved bookmark body as

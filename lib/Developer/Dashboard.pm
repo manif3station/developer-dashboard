@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.65';
+our $VERSION = '5.67';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.65
+5.67
 
 =head1 INTRODUCTION
 
@@ -695,8 +695,9 @@ prompt status, and operational pages.
 
 C<Developer::Dashboard::IndicatorStore> and C<Developer::Dashboard::Prompt>
 expose cached state to shell prompts and dashboards, including compact versus
-extended prompt rendering, stale-state marking, generic built-in indicator
-refresh, and page-header status payloads for the web UI.
+extended prompt rendering, stale-state marking, local project/Git indicator
+refresh, and page-header status payloads for the web UI. Docker is not a
+built-in indicator; Docker status appears only when configured as a collector.
 
 =item * Web Layer
 

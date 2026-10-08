@@ -221,3 +221,78 @@ production use of a forbidden library; broad search hits were existing audit
 expressions and test fixtures. Devel::Cover warnings for temporary generated
 fixture files removed during tests remain visible in its report output, while
 the coverage gate exits successfully and reports all four metrics at 100.0%.
+
+### Problem 41: Remove Docker from built-in indicators — done (5.67)
+
+Expected: core indicator refresh works on systems without Docker and does not
+probe for the `docker` executable or create a Docker indicator. A Docker status
+indicator remains supported when the user explicitly defines a Docker
+collector. Legacy persisted core Docker records should be removed without
+deleting customized or collector-owned records with the same name.
+
+Root cause: `refresh_core_indicators()` in
+`Developer::Dashboard::IndicatorStore` called `command_in_path('docker')` and
+persisted a `docker` indicator at priority 20. The configured collector in the
+operator's home config uses the same name, so both behaviors converged on one
+record and made Docker appear first in the prompt.
+
+Reproduction: run `d2 ps1` in a shell without tmux indicator suppression, or
+unset `TMUX`, `WORKSPACE_REF`, `TICKET_REF`, and
+`DEVELOPER_DASHBOARD_TMUX_STATUS` for the command. Before the change, core
+refresh probes for Docker and creates a whale status even with no configured
+Docker collector. The focused Docker test reproduced the old behavior by
+replacing the executable probe with a fatal test stub; the first red run exited
+early at that probe. A second fixture seeds the exact old core record and
+checks that core refresh removes it while preserving a collector-managed
+`docker` record.
+
+Implementation removes the executable probe and built-in status write. Core
+refresh recognizes and removes only the former exact built-in record signature;
+customized and collector-managed Docker indicators remain intact. The focused
+Docker regressions pass after the change.
+
+Safety regression: three red assertions exposed missing writer-lock protection
+and invisible lock failures in cleanup. Cleanup now acquires the same lock as
+status writers before reading ownership. Rerunning both focused test files in
+Docker passed 1,042 assertions, including layered/custom collector preservation
+and visible filesystem failures.
+
+Container setup correction: the first full run hit Git's dubious-ownership
+guard for the bind-mounted `/work` checkout, failing four tracked-document
+assertions. A disposable Compose test definition adds `/work` to Git's
+safe-directory list inside the test container only. The affected integration
+asset tests and indicator tests then passed 491 assertions; the full gate was
+restarted with that same isolated setup. Host Git settings were not changed.
+The release-metadata gate then caught a stale main-POD version and a disallowed
+word in the new testing guidance. Both were corrected; README was regenerated
+from POD. Release metadata, integration assets, and indicator regressions passed
+5,913 assertions before the next full run.
+
+Security applicability review (ASVS V1–V14): V1/V11 preserve the opt-in
+indicator contract; V5 uses a fixed name and presentation signature, not
+user-supplied command or path text; V7 reports lock/open/remove errors;
+V8/V12 preserve configured records and serialize filesystem cleanup; V14
+removes an unwanted default without changing configuration. V2/V3/V4,
+V6/V9/V10/V13 introduce no authentication, session, authorization,
+cryptography, communication, executable-code, or API changes. Top 10 review:
+A04/A05/A08/A09 apply to safe defaults, data ownership, concurrent writes,
+and visible failures; A01/A02/A03/A06/A07/A10 have no new access-control,
+crypto, injection, dependency, authentication, or outbound-request surface.
+Required source searches found only existing audit expressions, documentation,
+and synthetic test fixtures for prohibited/sensitive patterns; no new raw SQL,
+shell execution, dependency, or credential data was added.
+
+Verification: the complete Docker suite passed 258 files / 22,645 tests and
+the library report reached 100.0% statement, branch, condition, and subroutine
+coverage (45,841 detail rows, no stale uncoverable annotations). Devel::Cover
+also printed missing-digest diagnostics for temporary test-generated helpers
+that had already been removed; the canonical gate exited 0 and confirmed the
+complete library metrics. The focused security/web trio passed 459 assertions;
+the release kwalitee, source POD, and release-metadata gates passed 5,783
+assertions, including 100% kwalitee. The final 5.67 archive contains no
+`cover_db`. The blank Docker environment installed the same 5.67 release code
+with `cpanm` and its normal test execution (no `--notest`); the complete
+installed-runtime integration runner reported success. The installed Perl
+`perlsec` documentation was reviewed after the gate. No new command execution,
+dependency, SQL, endpoint, credential, or authentication surface was
+introduced.

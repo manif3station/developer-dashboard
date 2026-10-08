@@ -1,5 +1,16 @@
 # Fixed Bugs
 
+## 5.67
+
+- Problem 41: remove the built-in Docker indicator and executable availability
+  probe. Docker status is now shown only through an explicitly configured
+  collector.
+- Clean up only persisted records that exactly match the former core Docker
+  indicator signature; preserve customized and collector-managed indicators
+  named `docker`.
+- Add regression coverage proving core refresh does not probe for Docker and
+  does not recreate its indicator.
+
 ## 5.65
 
 - Problem 40 follow-up: when no conventional project Compose file exists, treat

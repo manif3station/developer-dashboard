@@ -1,3 +1,22 @@
+5.67  2026-10-08
+
+  - Complete Problem 41: Docker is no longer a built-in indicator; stale core
+    Docker records are removed safely while configured collector/custom records
+    are retained.
+  - Record full Docker test/coverage, security, release archive, blank-container
+    installation, kwalitee, and runtime-image verification for version 5.67.
+
+5.66  2026-10-07
+
+  - Problem 41: remove Docker availability probing and the Docker status record
+    from built-in indicator refresh; Docker remains available as an explicitly
+    configured collector.
+  - Remove stale persisted records matching the retired built-in Docker
+    signature without deleting collector-owned or customized docker indicators;
+    serialize cleanup with status writers to protect concurrent collector updates.
+  - Add Docker-container regressions for absence of the built-in, safe legacy
+    record cleanup, collector ownership preservation, and prompt-only refresh.
+
 5.65  2026-10-07
 
   - Complete Problem 40 for explicit-file-only projects: detect leading -f and

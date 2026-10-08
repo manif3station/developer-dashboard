@@ -39,7 +39,9 @@ instead of a loose pile of utilities.
   Starts the web service in the background, stops or restarts both web and collectors, sends numeric POSIX shutdown signals for Alpine/iSH-compatible process control, and falls back to `pkill` plus process scanning instead of trusting pid files alone.
 
 - `Developer::Dashboard::IndicatorStore`
-  Stores prompt/dashboard indicators as file-backed state and can refresh generic built-in indicators.
+  Stores prompt/dashboard indicators as file-backed state and refreshes local
+  project/Git state. Docker is not a built-in indicator; it appears only when
+  explicitly configured as a collector.
 
 - `Developer::Dashboard::Auth`
   Manages helper users and enforces the exact-loopback trust tier so local

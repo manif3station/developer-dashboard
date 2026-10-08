@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.65
+5.67
 
 # INTRODUCTION
 
@@ -463,8 +463,9 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
 
     `Developer::Dashboard::IndicatorStore` and `Developer::Dashboard::Prompt`
     expose cached state to shell prompts and dashboards, including compact versus
-    extended prompt rendering, stale-state marking, generic built-in indicator
-    refresh, and page-header status payloads for the web UI.
+    extended prompt rendering, stale-state marking, local project/Git indicator
+    refresh, and page-header status payloads for the web UI. Docker is not a
+    built-in indicator; Docker status appears only when configured as a collector.
 
 - Web Layer
 

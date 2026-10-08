@@ -34,7 +34,7 @@ The integration run covers these command families:
 - helper staging: rerun a built-in helper command after install and verify the managed helper runtime converges on `~/.developer-dashboard/cli/dd/`; dashboard-managed flat helper files left directly under `~/.developer-dashboard/cli/` by older releases should be removed automatically on that staging pass
 - paths: `dashboard paths`, `dashboard path list`, `dashboard path resolve`, `dashboard path project-root`
 - encoding: `dashboard encode`, `dashboard decode`
-- indicators: `dashboard indicator set`, `dashboard indicator list`, `dashboard indicator refresh-core`
+- indicators: `dashboard indicator set`, `dashboard indicator list`, `dashboard indicator refresh-core`; verify core refresh does not add a Docker indicator, while an explicitly configured Docker collector retains its own indicator
 - collectors: `dashboard collector write-result`, `run`, `list`, `job`, `status`, `output`, `inspect`, `log`, `start`, `restart`, `stop`
 - config: `dashboard config init`, `dashboard config show`
 - auth: `dashboard auth add-user`, `list-users`, `remove-user`
