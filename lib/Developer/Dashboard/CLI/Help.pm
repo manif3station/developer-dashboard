@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Help;
 use strict;
 use warnings;
 
-our $VERSION = '5.70';
+our $VERSION = '5.71';
 
 use Developer::Dashboard::InternalCLI ();
 

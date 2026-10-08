@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.70';
+our $VERSION = '5.71';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.70
+5.71
 
 =head1 INTRODUCTION
 
@@ -2553,6 +2553,14 @@ normalized to underscores and pointing that variable at the owning
 F<config/docker/> root. Nested skill services additionally export the full
 cumulative skill path alias such as C<foo_bar_zzz_DDDC> for the same compose
 root, while the leaf alias stays available as C<zzz_DDDC>.
+When one or more Compose services are explicitly selected, skill env files
+are resolved only for those selected services during interpolation; unrelated
+skill service folders cannot replace a selected service's same-named env key
+merely because they are enumerated later. If no selected service is present
+in the effective base config, or the operation selects no service, env files
+for all effective base services are used. This keeps sequential commands such
+as C<d2 docker compose up foo> and C<d2 docker compose up bar> scoped to the
+matching skill env while preserving all-service operations.
 When C<--dry-run> is omitted, the dashboard hands off with C<exec> so the
 terminal sees the normal streaming output from C<docker compose> itself
 instead of a dashboard JSON wrapper.

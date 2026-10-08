@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.70
+5.71
 
 # INTRODUCTION
 
@@ -2174,6 +2174,14 @@ normalized to underscores and pointing that variable at the owning
 `config/docker/` root. Nested skill services additionally export the full
 cumulative skill path alias such as `foo_bar_zzz_DDDC` for the same compose
 root, while the leaf alias stays available as `zzz_DDDC`.
+When one or more Compose services are explicitly selected, skill env files
+are resolved only for those selected services during interpolation; unrelated
+skill service folders cannot replace a selected service's same-named env key
+merely because they are enumerated later. If no selected service is present
+in the effective base config, or the operation selects no service, env files
+for all effective base services are used. This keeps sequential commands such
+as `d2 docker compose up foo` and `d2 docker compose up bar` scoped to the
+matching skill env while preserving all-service operations.
 When `--dry-run` is omitted, the dashboard hands off with `exec` so the
 terminal sees the normal streaming output from `docker compose` itself
 instead of a dashboard JSON wrapper.

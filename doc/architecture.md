@@ -111,6 +111,9 @@ instead of a loose pile of utilities.
   It discovers isolated service folders from layered `config/docker` roots,
   including project-local `./.developer-dashboard/config/docker`, and exports `DDDC` for
   compose-time references to the runtime `config/docker` directory inside YAML.
+  For `up`, `build`, and similar operations, skill `.env` interpolation follows
+  the selected service rather than allowing another service's same-named key
+  to win because its skill was enumerated later.
 
 ## Runtime Model
 

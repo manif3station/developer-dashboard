@@ -1,3 +1,13 @@
+5.71  2026-10-08
+
+  - Complete Problem 43: resolve Docker Compose skill env using only the
+    explicitly selected effective service(s), preventing another skill's
+    same-named value from overwriting interpolation during materialization.
+  - Preserve deferred local-base inference and the existing all-base-service
+    behavior when no selected service matches or the operation selects none.
+  - Add red-first sequential foo/bar Compose environment regressions and update
+    the Docker Compose and release verification documentation.
+
 5.70  2026-10-08
 
   - Finalize Problem 44's release evidence in a distinct package version after

@@ -605,6 +605,100 @@ P40_STUB
 
 }
 
+# Problem 43: an explicitly selected skill service must own interpolation for
+# that invocation even when the base config contains several skill services.
+# ---------------------------------------------------------------------------
+{
+    my $p43_home = File::Spec->catdir( $home, 'p43-home' );
+    my $p43_repo = File::Spec->catdir( $home, 'p43-project' );
+    my $p43_bin  = File::Spec->catdir( $home, 'p43-bin' );
+    my $p43_log  = File::Spec->catfile( $home, 'p43-compose-env.log' );
+    make_path($p43_repo, $p43_bin);
+
+    for my $pair ( [ foo => 'I am foo' ], [ bar => 'I am bar' ] ) {
+        my ( $skill, $value ) = @{$pair};
+        my $skill_root = File::Spec->catdir( $p43_home, '.developer-dashboard', 'skills', $skill );
+        mkfile( File::Spec->catfile( $skill_root, '.env' ), "SKILL_WILL_OVERWRITE_THIS=$value\n" );
+        mkfile(
+            File::Spec->catfile( $skill_root, 'config', 'docker', $skill, 'compose.yml' ),
+            "services:\n  $skill:\n    image: alpine\n    environment:\n      MESSAGE: \${SKILL_WILL_OVERWRITE_THIS:-UNDEFINED}\n",
+        );
+    }
+
+    mkfile(
+        File::Spec->catfile( $p43_bin, 'docker' ),
+        <<P43_STUB,
+#!/bin/sh
+last=''
+for arg in "\$@"; do last="\$arg"; done
+printf '%s|%s\\n' "\${SKILL_WILL_OVERWRITE_THIS-UNSET}" "\$*" >> '$p43_log'
+if [ "\$last" = config ]; then
+  printf 'services:\\n  bar:\\n    image: alpine\\n  foo:\\n    image: alpine\\n'
+fi
+exit 0
+P43_STUB
+    );
+    chmod 0755, File::Spec->catfile( $p43_bin, 'docker' );
+
+    my ($p43_docker) = build_docker( $p43_home, $p43_repo );
+    is_deeply(
+        [ $p43_docker->_compose_environment_services() ],
+        [],
+        'Problem 43: omitted selector arguments safely resolve to an empty service set',
+    );
+    is_deeply(
+        [ $p43_docker->_compose_environment_services(
+            requested_services => [],
+            operation_args     => [ 'up', 'bar' ],
+            base_services      => [ 'bar', 'foo' ],
+            project_root       => $p43_repo,
+        ) ],
+        ['bar'],
+        'Problem 43: deferred service discovery infers the selected base service for env interpolation',
+    );
+    is_deeply(
+        [ $p43_docker->_compose_environment_services(
+            requested_services => [],
+            operation_args     => ['up'],
+            base_services      => [ 'bar', 'foo' ],
+            project_root       => $p43_repo,
+        ) ],
+        [ 'bar', 'foo' ],
+        'Problem 43: an operation without a service selection uses all effective base services',
+    );
+    is_deeply(
+        [ $p43_docker->_compose_environment_services(
+            requested_services => ['missing'],
+            operation_args     => [],
+            base_services      => [ 'bar', 'foo' ],
+            project_root       => $p43_repo,
+        ) ],
+        [ 'bar', 'foo' ],
+        'Problem 43: a CLI service absent from Compose does not suppress effective base env layers',
+    );
+
+    my $old = getcwd();
+    chdir $p43_repo or die $!;
+    local $ENV{PATH} = "$p43_bin:$ENV{PATH}";
+
+    for my $case ( [ foo => 'I am foo' ], [ bar => 'I am bar' ] ) {
+        my ( $service, $expected ) = @{$case};
+        unlink $p43_log if -e $p43_log;
+        my $result = $p43_docker->run_streaming( args => [ 'up', $service ] );
+        is( $result->{exit_code}, 0, "Problem 43: Compose up $service completes" );
+
+        open my $observed_fh, '<', $p43_log or die "Unable to read $p43_log: $!";
+        my @observed = <$observed_fh>;
+        close $observed_fh or die "Unable to close $p43_log: $!";
+        chomp @observed;
+        is( scalar @observed, 3, "Problem 43: Compose up $service probes base, materializes, and runs" );
+        like( $observed[1] || '', qr/^\Q$expected\E\|.* config\z/, "Problem 43: $service value is used while materializing the merged config" );
+        like( $observed[2] || '', qr/^\Q$expected\E\|.* up \Q$service\E\z/, "Problem 43: $service value reaches the selected operation" );
+    }
+
+    chdir $old or die $!;
+}
+
 # ---------------------------------------------------------------------------
 # DD-857: run() pre-materializes multiple -f layers via `docker compose
 # ... config` into one temp file, then runs the real command against just
@@ -1778,6 +1872,12 @@ coverage injects a single-byte pound sign both into a local source base and
 captured Compose output, checks the actual temporary merged file is valid
 UTF-8 YAML, confirms the normalized file reaches config, up, down, build, ps,
 and logs, and exercises local source read/close failures explicitly.
+Problem 43 reproduces sequential `up foo` and `up bar` calls when two skill
+services define the same interpolation key. It checks that the selected
+service's environment supplies the final materialization and operation,
+deferred selections are inferred from parsed Compose arguments, and operations
+with no effective service selection retain all-base-service environment
+resolution.
 
 =head1 WHY IT EXISTS
 

@@ -3,7 +3,7 @@ package Developer::Dashboard::DockerCompose;
 use strict;
 use warnings;
 
-our $VERSION = '5.70';
+our $VERSION = '5.71';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -993,6 +993,7 @@ sub _materialized_command {
     my @global_args       = @{ $argument_parts->{global_args} };
     my @explicit_files    = @{ $argument_parts->{files} };
     my @operation_args    = @{ $argument_parts->{operation_args} };
+    my @requested_services = @{ $resolved->{services} || [] };
     my $help_requested = ( grep { defined $_ && ( $_ eq '--help' || $_ eq '-h' ) } @operation_args )
       || ( @operation_args && defined $operation_args[0] && $operation_args[0] eq 'help' );
     return $command if $help_requested;
@@ -1074,7 +1075,12 @@ sub _materialized_command {
     if ( my $env_inputs = $resolved->{docker_env_inputs} ) {
         my $skill_env = $self->_resolve_skill_service_env(
             project_root => $resolved->{project_root},
-            services     => \@services,
+            services     => [ $self->_compose_environment_services(
+                requested_services => \@requested_services,
+                operation_args     => \@operation_args,
+                base_services      => \@services,
+                project_root       => $resolved->{project_root},
+            ) ],
         );
         my %env = $self->_resolve_docker_env(
             skill_env   => $skill_env,
@@ -1112,6 +1118,34 @@ sub _materialized_command {
     _close_materialized_compose_file($fh) or die "Unable to close $tmp_file: $!";
 
     return [ 'docker', 'compose', @global_args, @project_directory, '-f', $tmp_file, @operation_args ];
+}
+
+# _compose_environment_services(%args)
+# Selects the service-specific skill env layers used for this invocation's
+# global Compose interpolation, rather than letting an unrelated service's
+# same-named variable win merely because its layer was enumerated last.
+# Input: requested services, parsed operation arguments, effective base
+# services, and the project root.
+# Output: ordered service names used to resolve skill env files; falls back to
+# all base services when the request names none of them.
+sub _compose_environment_services {
+    my ( $self, %args ) = @_;
+    my @base_services = @{ $args{base_services} || [] };
+    my %base_service = map { $_ => 1 } @base_services;
+    my @requested = @{ $args{requested_services} || [] };
+
+    if ( !@requested ) {
+        my %base_service_map = map { $_ => {} } @base_services;
+        @requested = $self->_infer_services_from_args(
+            args         => $args{operation_args} || [],
+            project_root => $args{project_root},
+            service_map  => \%base_service_map,
+        );
+    }
+
+    my %seen;
+    my @selected = grep { $base_service{$_} && !$seen{$_}++ } @requested;
+    return @selected ? @selected : @base_services;
 }
 
 # _close_materialized_compose_file($handle)

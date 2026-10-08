@@ -341,6 +341,71 @@ files / 355 assertions. The blank Perl 5.44 container installed the archive via
 installed-runtime integration script successfully. `d2 docker.images.build`
 completed, and an isolated run of the built `d2` image reported version 5.68.
 
+### Problem 43: Keep Docker Compose skill env scoped to the selected service (done in 5.71)
+
+Expected: when two installed skills each contribute a Docker Compose service
+and define the same variable in their skill `.env`, `d2 docker compose up
+<service>` interpolates using that service's own skill value. Running `foo`
+must not cause a later `bar` command to inherit `foo`'s value. An operation
+without a selected service continues to use the environment from all effective
+base services. Caller-exported values remain higher priority under Problem 44.
+
+Reproduction from `/tmp/capture-1476.txt`: create `foo/.env` with
+`SKILL_WILL_OVERWRITE_THIS=I am foo` and `bar/.env` with
+`SKILL_WILL_OVERWRITE_THIS=I am bar`; add matching `config/docker/foo/compose.yml`
+and `config/docker/bar/compose.yml` services whose `message` uses
+`${SKILL_WILL_OVERWRITE_THIS:-UNDEFINED}`. Run `d2 docker compose up foo`,
+remove the home `.env`, and run `d2 docker compose up bar`. Before the fix,
+the second container printed `I am foo` although `bar/.env` contained
+`I am bar`.
+
+Root cause: `_materialized_command()` replaced the initially requested service
+list with every service returned by the base Compose config, then loaded all
+of their skill env files into Compose's single global interpolation
+environment. With colliding keys, the last enumerated skill won. The red-first
+Docker test in `t/94-dockercompose-coverage.t` reproduced this sequence: the
+bar materialization and operation both received `I am foo`. The fix preserves
+the original selection, intersects it with effective base services, and uses
+only those service skill layers for interpolation. Deferred local-base
+requests infer selected services from parsed operation arguments; requests
+with no matching service retain the established all-base-services behavior.
+Compose file gathering and dependency overlays are unchanged.
+
+The focused Docker regression passes 317 assertions, including selected
+service isolation, deferred selection, no-service fallback, and the exact
+sequential foo/bar case. The full Docker suite passed 258 files / 23,044
+tests. The isolated four-metric coverage gate passed with statement, branch,
+condition, and subroutine coverage all at 100.0% (46,002 detail rows; no stale
+uncoverable annotations). The required web/security trio passed 459 tests.
+The gate output includes existing Devel::Cover diagnostics for temporary
+fixtures removed by tests and expected output from negative archive fixtures;
+the full suite and coverage gate both exited successfully. Security review:
+ASVS V1/V11 cover service-scoped interpolation and the tested selection rules;
+V5/V12/V14 cover validated service identifiers, service-specific environment
+file discovery, and precedence; V7 preserves visible failures. V2/V3/V4/V6/V9/V13
+are untouched (authentication, sessions, authorization, cryptography,
+transport, and web APIs). V8 has no new secret persistence or logging path.
+V10 command construction is unchanged and continues to pass Compose arguments
+as an argv list, not through a shell. OWASP Top 10 A03, A04, A05, A08, and A09
+were considered; no new injection, authorization, deployment-security,
+integrity, or logging surface was added. Perl's `perlsec` documentation was
+reviewed in the D2 container. Required source scans found no new production
+forbidden-library, credential, SQL, redirect, traversal, or security-header
+issue; broad matches were in test fixtures and documented scan commands. The
+focused web/security trio passed 459 tests.
+
+`dzil clean` preceded the 5.71 bump. `dzil build` produced only
+`Developer-Dashboard-5.71.tar.gz`, with no `cover_db` content. The release
+metadata gate passed 5,428 assertions, and CPANTS kwalitee passed all 7
+indicators (100%). The exact archive installed in a blank Perl 5.44 container
+with plain `cpanm` (no `--notest`), ran the packaged distribution tests, and
+reported `Successfully installed Developer-Dashboard-5.71` / `121
+distributions installed`. `d2 docker.images.build` succeeded, and an isolated
+run of the built image reported version 5.71. The optional t/44 post-build
+guard skipped because the dev container has no nested Docker CLI; the direct
+blank-container install-and-test flow above completed successfully instead.
+No source file under `OLD_CODE` was modified.
+
 ### Problem 44: Preserve explicit command-line environment overrides (done in 5.70)
 
 When a caller runs `NAME=value d2 <skill>.<command>`, the command must see

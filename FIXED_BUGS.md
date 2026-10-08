@@ -1,5 +1,14 @@
 # Fixed Bugs
 
+## 5.71
+
+- Problem 43: scope Compose skill `.env` interpolation to the selected service
+  instead of letting an unrelated skill service overwrite a colliding key.
+- Keep deferred service inference and all-effective-service environment
+  behavior for operations without a matching service selection.
+- Add sequential foo/bar Docker regressions for merged-config and operation
+  environments.
+
 ## 5.70
 
 - Finalize Problem 44 after the image-build version guard marked 5.69 as used;
