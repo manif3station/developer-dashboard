@@ -1155,3 +1155,43 @@ code through cpanm with tests enabled and passed the complete installed-runtime
 integration runner. Perl's perlsec documentation was reviewed inside the
 runtime container. No new executable, dependency, SQL, endpoint, credential,
 or authentication surface was added.
+
+Problem 42: Let skill environment values override home defaults (status: done, 5.68)
+
+Expected outcome: matching values from a skill's `.env` or `.env.pl` override
+home runtime values from `~/.d2` or `~/.developer-dashboard`. Deeper project
+runtime layers keep final precedence. Non-skill environment behavior is
+unchanged.
+
+Root cause: SkillDispatcher loaded skill and skill-CLI files before loading
+the whole runtime chain. The final runtime load replayed the home `.env` and
+overwrote the skill's value.
+
+Reproduction: in an isolated Docker dev container, create `foo/.env` with
+`SKILL_WILL_OVERWRITE_THIS=I am foo`, `bar/.env` with
+`SKILL_WILL_OVERWRITE_THIS=I am bar`, and
+`~/.developer-dashboard/.env` with `SKILL_WILL_OVERWRITE_THIS=HOME`. Run
+`d2 foo.bash -c` and `d2 bar.bash -c` with each command printing the variable.
+Before the fix both print `HOME`; after the fix they print their own skill
+value. Remove the home file and rerun, then set the key in a deeper project
+runtime file and confirm that deeper value wins.
+
+Red/green: the new skill dispatch assertion failed in Docker before the code
+change (`got home-runtime`, expected `skill`). Focused skill and EnvLoader
+tests pass after implementation, including home `.d2` plus
+`.developer-dashboard` ordering and deeper project precedence. The full Docker
+suite passed 258 files / 22,656 tests with 100.0% statement, branch, condition,
+and subroutine coverage (45,874 detail rows; no stale uncoverable annotations).
+The required web/security trio passed 459 tests. Devel::Cover emitted visible
+missing-digest diagnostics for temporary fixtures removed during tests, and
+existing negative-fixture tests print expected shell/archive diagnostics; the
+run is not called warning-free. README and main POD remain synced. The required
+security scans found no new forbidden library usage, sensitive information,
+unsafe auth behavior, raw SQL, or missing security-header implementation;
+perlsec was reviewed in the same runtime image. `dzil build` produced the sole
+archive `Developer-Dashboard-5.68.tar.gz`, with no `cover_db` entry. CPANTS
+kwalitee passed 7/7 checks at 100%, and POD syntax passed 348 source files / 355
+assertions. The blank Perl 5.44 container installed the tarball using `cpanm`
+without `--notest`, ran distribution tests, and completed the installed-runtime
+integration script. `d2 docker.images.build` completed; a scoped run of its
+image reported `d2 version` 5.68. No release upload was performed.

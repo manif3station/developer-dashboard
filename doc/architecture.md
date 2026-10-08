@@ -212,6 +212,11 @@ The core supports compatibility-style environment overrides for project customiz
 - `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS`
   Opt-in flag for browser execution of transient `token=` and `atoken=` payloads.
 
+For skill CLI commands and hooks, home runtime `.env`/`.env.pl` files are
+defaults; skill-root and skill-CLI environment files override matching home
+keys, and deeper project runtime layers retain final precedence. Normal
+non-skill commands continue to load only the root-to-leaf runtime chain.
+
 
 The runtime also supports user CLI extensions:
 

@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.67';
+our $VERSION = '5.68';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.67
+5.68
 
 =head1 INTRODUCTION
 
@@ -1230,9 +1230,9 @@ F<.env.pl>, which is run directly and may set C<%ENV> programmatically.
 
 Skill-local env files are loaded only when a skill command or skill hook is
 actually running. A normal non-skill command inherits only the root-to-leaf
-runtime env chain. A skill command inherits that same runtime chain first and
-then loads each participating skill root from the base installed skill layer
-to the deepest matching child skill layer, applying:
+runtime env chain. For a skill command, home-level runtime env files load
+first as defaults, then each participating skill root loads from the base
+installed skill layer to the deepest matching child skill layer, applying:
 
 =over 4
 
@@ -1246,15 +1246,18 @@ F<E<lt>skill-rootE<gt>/.env.pl>
 
 =back
 
-This means a deeper skill env can override a shared runtime key, but that
-override stays isolated to the skill execution path and does not leak into
-unrelated commands.
+Skill C<.env> and C<.env.pl> values override matching values from the home
+runtime. Skill C<cli/.env> and C<cli/.env.pl> values are applied after the skill
+root files. Any deeper project runtime layers are applied last, so the nearest
+project runtime still has final precedence. Skill overrides stay isolated to
+the skill execution path and do not leak into unrelated commands.
 
 The runtime chain is collected from the DD-OOP layers rooted at the current
-working directory, walking its existing parent directories toward the leaf,
-before the skill chain is applied. Therefore a nested command such as
-C<d2 foo.bar.bob> receives both the current directory's inherited
-C<.env>/C<.env.pl> values and the C<foo> then C<bar> skill values.
+working directory, walking its existing parent directories toward the leaf.
+For skill execution, the home runtime portion is applied before the skill
+chain and deeper runtime layers after it. Therefore a nested command such as
+C<d2 foo.bar.bob> receives home defaults, then the C<foo> and C<bar> skill
+overrides, then any nearer project runtime values.
 
 For nested skill commands such as C<dashboard foo.bar.zzz.show>, the skill env
 chain expands from the root nested skill to the leaf skill before the command

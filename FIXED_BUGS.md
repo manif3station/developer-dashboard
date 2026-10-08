@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 5.68
+
+- Problem 42: load home runtime `.env` and `.env.pl` files as defaults before
+  skill-root and skill-CLI env files, allowing skill settings to override home
+  values while preserving final precedence for deeper project runtime layers.
+- Add regression coverage for the captured home-versus-skill overwrite and for
+  project runtime values remaining the deepest override.
+
 ## 5.67
 
 - Problem 41: remove the built-in Docker indicator and executable availability

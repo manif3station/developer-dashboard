@@ -1,3 +1,11 @@
+5.68  2026-10-08
+
+  - Complete Problem 42: load home runtime environment files before skill
+    environment files so skill values override matching home defaults; retain
+    deeper project runtime precedence.
+  - Add red-first container regressions for home-versus-skill precedence and
+    preservation of project runtime overrides.
+
 5.67  2026-10-08
 
   - Complete Problem 41: Docker is no longer a built-in indicator; stale core

@@ -296,3 +296,47 @@ installed-runtime integration runner reported success. The installed Perl
 `perlsec` documentation was reviewed after the gate. No new command execution,
 dependency, SQL, endpoint, credential, or authentication surface was
 introduced.
+
+### Problem 42: Let skill environment values override home defaults (done in 5.68)
+
+Expected: when a skill command runs, matching values from that skill's `.env`
+or `.env.pl` override home runtime values from `~/.d2` or
+`~/.developer-dashboard`. A deeper project runtime layer continues to override
+both. Non-skill commands keep their current runtime-layer behavior.
+
+Root cause: `SkillDispatcher` loaded skill and skill-CLI files, then called
+`load_runtime_layers()` over the entire chain. That reapplied home `.env` files
+after the skill and replaced the skill's value. The capture's exact outcome
+was `(FOO) ...=HOME` and `(BAR) ...=HOME`, despite each skill having its own
+different value; without the home file, both skills printed their own value.
+
+Reproduction: in an isolated Docker dev container, create `foo/.env` with
+`SKILL_WILL_OVERWRITE_THIS=I am foo`, `bar/.env` with
+`SKILL_WILL_OVERWRITE_THIS=I am bar`, and
+`~/.developer-dashboard/.env` with
+`SKILL_WILL_OVERWRITE_THIS=HOME`. Run `d2 foo.bash -c` with a command that
+prints `$SKILL_WILL_OVERWRITE_THIS`, then repeat for `bar.bash`. Before the
+fix both print `HOME`; after the fix they print `I am foo` and `I am bar`.
+Remove the home `.env` and rerun to verify the skill-specific values remain.
+Also seed the same key in a deeper project runtime `.env` and verify that
+project value remains the final override.
+
+Red/green evidence: a regression was added to `t/19-skill-system.t` before
+implementation. In Docker, it failed with actual `home-runtime` versus
+expected `skill`. After the change, the focused skill and EnvLoader tests pass,
+including both home runtime directory names, the skill override, and deeper
+project precedence.
+
+Verification: the complete Docker suite passed 258 files / 22,656 tests. The
+coverage gate passed at 100.0% statement, branch, condition, and subroutine
+coverage (45,874 detail rows; no stale uncoverable annotations). The required
+web/security trio passed 459 tests. The gate emitted Devel::Cover missing-
+digest diagnostics for temporary fixture helpers removed by their tests; some
+existing negative-fixture tests also print expected shell/archive diagnostics.
+These are visible and are not described as a warning-free run. `dzil build`
+produced the sole archive `Developer-Dashboard-5.68.tar.gz`, with no `cover_db`
+entry. CPANTS kwalitee passed 7/7 checks at 100%; POD syntax passed 348 source
+files / 355 assertions. The blank Perl 5.44 container installed the archive via
+`cpanm` without `--notest`, ran the distribution test suite, and completed its
+installed-runtime integration script successfully. `d2 docker.images.build`
+completed, and an isolated run of the built `d2` image reported version 5.68.

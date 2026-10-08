@@ -91,6 +91,16 @@ sub write_file {
 {
     my $err = eval { $EL->load_runtime_layers; 1 } ? '' : $@;
     like( $err, qr/Missing paths/, 'load_runtime_layers dies when paths are missing' );
+    my $scope_err = eval {
+        $EL->load_runtime_layers(
+            paths => Developer::Dashboard::PathRegistry->new( home => $home, cwd => $home ),
+            scope => 'invalid',
+        );
+        1;
+    } ? '' : $@;
+    like( $scope_err, qr/Unsupported runtime environment scope 'invalid'/, 'load_runtime_layers rejects an unknown scope explicitly' );
+    my $skill_runtime_err = eval { $EL->load_skill_runtime_layers; 1 } ? '' : $@;
+    like( $skill_runtime_err, qr/Missing paths/, 'load_skill_runtime_layers dies when paths are missing' );
 }
 
 {
@@ -100,6 +110,41 @@ sub write_file {
     my $paths = Developer::Dashboard::PathRegistry->new( home => $home, cwd => $home );
     my $loaded = $EL->load_runtime_layers( paths => $paths );
     is( ref($loaded), 'ARRAY', 'load_runtime_layers returns an ordered file list for a valid registry' );
+    my $skill_runtime_loaded = $EL->load_skill_runtime_layers( paths => $paths );
+    is( ref($skill_runtime_loaded), 'ARRAY', 'load_skill_runtime_layers defaults to an empty skill list' );
+}
+
+{
+    my $scope_home    = tempdir( CLEANUP => 1 );
+    my $scope_project = File::Spec->catdir( $scope_home, 'project' );
+    my $scope_skill   = File::Spec->catdir( $scope_home, 'skill' );
+    my $paths = Developer::Dashboard::PathRegistry->new( home => $scope_home, cwd => $scope_project );
+    my @files = (
+        [ File::Spec->catfile( $scope_home, '.env' ), "DD_T87_HOME_PLAIN=home\n" ],
+        [ File::Spec->catfile( $scope_home, '.d2', '.env' ), "DD_T87_HOME_RUNTIME=d2\n" ],
+        [ File::Spec->catfile( $scope_home, '.developer-dashboard', '.env' ), "DD_T87_HOME_RUNTIME=dashboard\nDD_T87_HOME_SKILL=home-runtime\n" ],
+        [ File::Spec->catfile( $scope_home, '.developer-dashboard', '.env.pl' ), "\$ENV{DD_T87_HOME_SKILL} = 'home-runtime-pl';\n1;\n" ],
+        [ File::Spec->catfile( $scope_project, '.env' ), "DD_T87_PROJECT_PLAIN=project\n" ],
+        [ File::Spec->catfile( $scope_project, '.d2', '.env' ), "DD_T87_PROJECT_RUNTIME=d2\n" ],
+        [ File::Spec->catfile( $scope_project, '.developer-dashboard', '.env' ), "DD_T87_PROJECT_RUNTIME=dashboard\n" ],
+        [ File::Spec->catfile( $scope_skill, '.env' ), "DD_T87_HOME_SKILL=skill\n" ],
+        [ File::Spec->catfile( $scope_skill, '.env.pl' ), "\$ENV{DD_T87_HOME_SKILL} = 'skill-pl';\n1;\n" ],
+    );
+    write_file( @{$_} ) for @files;
+    local %ENV                                   = %ENV;
+    local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT}    = undef;
+    local %Developer::Dashboard::EnvAudit::AUDIT = ();
+    my $loaded = $EL->load_skill_runtime_layers( paths => $paths, skill_layers => [$scope_skill] );
+    is( $ENV{DD_T87_HOME_SKILL}, 'skill-pl', 'skill .env.pl overrides matching home runtime .env and .env.pl values' );
+    is( $ENV{DD_T87_HOME_RUNTIME}, 'dashboard', 'canonical home runtime environment remains later than the .d2 alias' );
+    is( $ENV{DD_T87_PROJECT_PLAIN}, 'project', 'plain project environment still loads after skill environment' );
+    is( $ENV{DD_T87_PROJECT_RUNTIME}, 'dashboard', 'deeper project runtime environment still has final precedence' );
+    my @expected_loaded = map { $_->[0] } ( @files[ 0 .. 3 ], @files[ 7 .. 8 ], @files[ 4 .. 6 ] );
+    is_deeply(
+        $loaded,
+        \@expected_loaded,
+        'load_skill_runtime_layers returns files in home, skill, then descendant precedence order',
+    );
 }
 
 {
@@ -544,8 +589,10 @@ C<.env> parser failure paths, the C<.env.pl> defined-ness transition
 detection, and the overlay difference classes of
 C<load_skill_layers_into_hash> - a changed base key must surface in the
 overlay with its new value, an added key must surface, and identical or
-untouched base keys must stay out. Read it to see the concrete inputs that reach each branch and
-condition instead of inferring them from the module source.
+untouched base keys must stay out. It also covers home/descendant runtime
+scoping and verifies that skill values override home defaults without changing
+deeper-project precedence. Read it to see the concrete inputs that reach each
+branch and condition instead of inferring them from the module source.
 
 =head1 WHY IT EXISTS
 
