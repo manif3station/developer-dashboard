@@ -135,7 +135,7 @@ a reviewed-PR workflow before Scorecard can reach 10/10 on these checks.
 
 - [ ] enable branch protection or a ruleset on `master`
 - [ ] ensure pull-request review is required before merge
-- [x] create at least one PR-backed CI run that Scorecard can observe — CI-Tests is 10/10
+- [ ] ensure the latest Scorecard run has a PR-backed CI result — the 2026-10-08 run reports `?` / `no pull request found`; an earlier run had `10 / 10`
 - [ ] create reviewed PR history that Scorecard can observe
 - [x] create GitHub releases with attached artifacts and signatures — Signed-Releases is 10/10
 
@@ -284,3 +284,30 @@ GitHub, so it cannot change repository settings or complete external badge
 enrollment. The outstanding items remain in the GitHub-side and external
 blocker task lists above. No attempt was made to fabricate approvals or alter
 historical contributor attribution.
+
+## 2026-10-08 — Post-push Scorecard audit for documentation release commit
+
+Ran the required authenticated-shell command after pushing commit
+`fd7e460b53767c2c3ea3fbe0574cdf5e2373b9ff` to `master`:
+
+```text
+bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"
+Aggregate score: 8.1 / 10
+```
+
+Every actionable repository-side check scored `10 / 10`. The remaining results
+are not repairable by a source-only change:
+
+| Check | Score | Live reason | Evidence / remaining owner action |
+|---|---:|---|---|
+| Branch-Protection | 0 / 10 | Protection is not enabled on development/release branches. | Existing GitHub API evidence records `403 Resource not accessible by personal access token`; a repository administrator must enable a ruleset. |
+| CII-Best-Practices | 0 / 10 | No OpenSSF Best Practices badge was detected. | Enrollment and badge progress are controlled by the external OpenSSF service and project maintainers. |
+| Code-Review | 0 / 10 | `Found 0/30 approved changesets`. | Direct pushes cannot create review approvals; future changes require reviewed PRs and a non-author reviewer. |
+| Contributors | 3 / 10 | One contributing organization, normalized to 3. | The score reflects historical contributor makeup and requires genuine contributions from another organization. |
+| CI-Tests | ? | No pull request found. | The latest direct push has no PR-associated CI evidence; Scorecard can only observe this through a real PR-backed CI run. |
+
+All other reported checks scored `10 / 10`, including Dangerous-Workflow,
+Dependency-Update-Tool, Fuzzing, Pinned-Dependencies, SAST, Signed-Releases,
+Token-Permissions, and Vulnerabilities. No approvals, organizations, or badge
+state were fabricated. Re-run Scorecard after the owner-controlled actions
+above; this result is not a `10 / 10` report.
