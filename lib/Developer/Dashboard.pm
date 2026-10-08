@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.68';
+our $VERSION = '5.70';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.68
+5.70
 
 =head1 INTRODUCTION
 
@@ -1249,8 +1249,12 @@ F<E<lt>skill-rootE<gt>/.env.pl>
 Skill C<.env> and C<.env.pl> values override matching values from the home
 runtime. Skill C<cli/.env> and C<cli/.env.pl> values are applied after the skill
 root files. Any deeper project runtime layers are applied last, so the nearest
-project runtime still has final precedence. Skill overrides stay isolated to
-the skill execution path and do not leak into unrelated commands.
+project runtime still has final precedence among file-based values. Values
+explicitly inherited from the invoking shell have highest precedence and are
+preserved across every env-file layer; a file may populate a variable that the
+caller did not set, but cannot replace an exported caller value. Skill
+overrides stay isolated to the skill execution path and do not leak into
+unrelated commands.
 
 The runtime chain is collected from the DD-OOP layers rooted at the current
 working directory, walking its existing parent directories toward the leaf.

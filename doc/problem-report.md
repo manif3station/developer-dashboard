@@ -340,3 +340,40 @@ files / 355 assertions. The blank Perl 5.44 container installed the archive via
 `cpanm` without `--notest`, ran the distribution test suite, and completed its
 installed-runtime integration script successfully. `d2 docker.images.build`
 completed, and an isolated run of the built `d2` image reported version 5.68.
+
+### Problem 44: Preserve explicit command-line environment overrides (done in 5.70)
+
+When a caller runs `NAME=value d2 <skill>.<command>`, the command must see
+`value`, even when home or skill `.env`/`.env.pl` files define `NAME`. File
+values still fill unset variables, and skill files continue to override home
+defaults for variables the caller did not export. Regression coverage:
+`t/30-dashboard-loader.t`, `t/87-envloader-coverage.t`.
+The EnvLoader regression first failed in Docker (`got from-file`, expected
+`from-caller`). The implementation captures caller-provided environment key
+names at the public switchboard, carries them through helper handoff, and
+restores caller values after both runtime and direct skill-file loading. Files
+still populate unset keys, skill files still override home defaults where the
+caller did not export a value, and env-audit provenance is removed for
+caller-owned winning values. Loader errors remain visible after restoring the
+caller environment.
+
+The full Docker suite passed 258 files / 22,690 tests with 100.0% statement,
+branch, condition, and subroutine coverage (45,961 detail rows; no stale
+uncoverable annotations). The required web/security trio passed 459 tests.
+Devel::Cover reported temporary fixture files removed by tests; negative
+fixtures also print expected shell/archive diagnostics, so the run is not
+described as warning-free. Security review found no new forbidden library,
+secret, raw SQL path, or missing security-header issue; the environment
+handoff adds no shell evaluation or path interpretation. README and main POD
+are synced. CPANTS kwalitee passed 7/7 indicators (100%), and POD syntax passed
+all 348 discovered source files. `dzil build` produced the sole archive
+`Developer-Dashboard-5.70.tar.gz`, which contains no `cover_db`. The blank
+Perl 5.44 Compose container installed that archive with `cpanm` without
+`--notest`, ran the distribution test suite, and passed the installed-runtime
+integration flow. Headless Chromium printed expected missing-D-Bus diagnostics
+and the browser probe logged an expected non-2xx response while checking the
+unauthenticated route; the integration assertions passed. `d2 docker.images.build`
+completed, and an isolated Compose run of that image
+reported `d2 version` 5.70. The image-build guard had already recorded 5.69
+as used, so the finalized report and repeat artifact checks were assigned this
+distinct version. No release upload was performed.

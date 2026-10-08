@@ -214,8 +214,10 @@ The core supports compatibility-style environment overrides for project customiz
 
 For skill CLI commands and hooks, home runtime `.env`/`.env.pl` files are
 defaults; skill-root and skill-CLI environment files override matching home
-keys, and deeper project runtime layers retain final precedence. Normal
-non-skill commands continue to load only the root-to-leaf runtime chain.
+keys, and deeper project runtime layers retain final precedence among file
+values. Variables explicitly inherited from the invoking process remain above
+all `.env` and `.env.pl` layers. Normal non-skill commands continue to load
+only the root-to-leaf runtime chain while preserving those caller values.
 
 
 The runtime also supports user CLI extensions:

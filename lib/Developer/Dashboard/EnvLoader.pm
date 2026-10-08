@@ -3,19 +3,23 @@ package Developer::Dashboard::EnvLoader;
 use strict;
 use warnings;
 
-our $VERSION = '5.68';
+our $VERSION = '5.70';
 
 use Cwd qw(cwd);
 use File::Basename qw(dirname);
 use File::Spec;
 
+use Developer::Dashboard::JSON qw(json_decode);
 use Developer::Dashboard::EnvAudit;
 use Developer::Dashboard::PathIdentity ();
+
+our $INHERITED_ENV_KEYS = '_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS';
 
 # load_runtime_layers(%args)
 # Loads every participating plain-directory and DD-OOP-LAYER runtime env file
 # from the configured root toward the current working directory. Optional scope
 # selects all layers, home defaults only, or non-home descendant overrides.
+# Caller-exported variables remain above all file values.
 # Input: hash with paths => Developer::Dashboard::PathRegistry object and
 # optional scope => all|home|descendants.
 # Output: ordered array reference of loaded env file paths.
@@ -125,28 +129,77 @@ sub load_skill_layers_into_hash {
 
 # load_files(%args)
 # Loads a specific ordered list of .env and .env.pl files, updating both %ENV
-# and the shared EnvAudit inventory.
+# and the shared EnvAudit inventory while preserving caller-exported variables.
 # Input: hash with files => array reference of candidate file paths.
 # Output: ordered array reference of the env files that were actually loaded.
 sub load_files {
     my ( $class, %args ) = @_;
     my @files = @{ $args{files} || [] };
+    my $protected_env = $class->_capture_inherited_env;
     my @loaded;
     my %seen;
-    for my $file (@files) {
-        next if !defined $file || $file eq '';
-        my $identity = $class->_path_identity($file);
-        next if $seen{$identity}++;
-        next if !-f $file;
-        if ( $file =~ /\.env\.pl\z/ ) {
-            $class->_load_env_pl_file($file);
+    my $ok = eval {
+        for my $file (@files) {
+            next if !defined $file || $file eq '';
+            my $identity = $class->_path_identity($file);
+            next if $seen{$identity}++;
+            next if !-f $file;
+            if ( $file =~ /\.env\.pl\z/ ) {
+                $class->_load_env_pl_file($file);
+                push @loaded, $file;
+                next;
+            }
+            $class->_load_env_file($file);
             push @loaded, $file;
-            next;
         }
-        $class->_load_env_file($file);
-        push @loaded, $file;
-    }
+        1;
+    };
+    my $error = $@;
+    $class->_restore_inherited_env($protected_env);
+    die $error if !$ok;
     return \@loaded;
+}
+
+# _capture_inherited_env()
+# Saves caller-exported variables named by the private switchboard key list so
+# env files cannot replace or delete explicit shell assignments.
+# Input: none; reads the private inherited-key list from %ENV.
+# Output: hash reference containing inherited values plus the private marker's
+# current state, including absence.
+sub _capture_inherited_env {
+    my ($class) = @_;
+    my $raw = $ENV{$INHERITED_ENV_KEYS};
+    my %protected = ( $INHERITED_ENV_KEYS => $raw );
+    return \%protected if !defined $raw || $raw eq '';
+    my $keys = json_decode($raw);
+    die "$INHERITED_ENV_KEYS must contain a JSON array of environment keys\n"
+      if ref($keys) ne 'ARRAY';
+    for my $key ( @{$keys} ) {
+        die "$INHERITED_ENV_KEYS contains an invalid environment key\n"
+          if !defined $key || ref($key) || $key !~ /\A[A-Za-z_][A-Za-z0-9_]*\z/;
+        $protected{$key} = $ENV{$key} if exists $ENV{$key};
+    }
+    return \%protected;
+}
+
+# _restore_inherited_env($protected)
+# Restores inherited caller variables after env files have run and removes
+# their misleading file-origin audit records.
+# Input: hash reference of environment key/value pairs captured before loading.
+# Output: true value after restoring values or removing keys that were absent.
+sub _restore_inherited_env {
+    my ( $class, $protected ) = @_;
+    return 1 if ref($protected) ne 'HASH';
+    for my $key ( keys %{$protected} ) {
+        if ( defined $protected->{$key} ) {
+            $ENV{$key} = $protected->{$key};
+        }
+        else {
+            delete $ENV{$key};
+        }
+        Developer::Dashboard::EnvAudit->forget($key) if $key ne $INHERITED_ENV_KEYS;
+    }
+    return 1;
 }
 
 # load_files_into_hash(%args)
@@ -243,9 +296,9 @@ sub _env_file_candidates {
 }
 
 # _load_skill_layer_specs(%args)
-# Loads the ordered nested skill env chain while preserving overwritten parent
-# values under their cumulative skill-name aliases before deeper skill segments
-# replace them.
+# Loads the ordered nested skill env chain while preserving caller-exported
+# variables and overwritten parent values under cumulative skill-name aliases
+# before deeper skill segments replace them.
 # Trust note (DD-612, Q-027): preservation only applies to a key first set by a
 # PREFIXED layer - the root/unprefixed layer's prefix is '' and never gets
 # recorded in %key_prefix, so a root-set key later overwritten by any skill
@@ -271,12 +324,19 @@ sub _load_skill_layer_specs {
 
             my %before_env = %ENV;
             my $before_audit = Developer::Dashboard::EnvAudit->keys;
-            if ( $file =~ /\.env\.pl\z/ ) {
-                $class->_load_env_pl_file($file);
-            }
-            else {
-                $class->_load_env_file($file);
-            }
+            my $protected_env = $class->_capture_inherited_env;
+            my $ok = eval {
+                if ( $file =~ /\.env\.pl\z/ ) {
+                    $class->_load_env_pl_file($file);
+                }
+                else {
+                    $class->_load_env_file($file);
+                }
+                1;
+            };
+            my $error = $@;
+            $class->_restore_inherited_env($protected_env);
+            die $error if !$ok;
 
             for my $key ( sort keys %ENV ) {
                 next if $key eq 'DEVELOPER_DASHBOARD_ENV_AUDIT';
@@ -641,7 +701,11 @@ participating skill roots as well.
 For skill execution the effective order is home runtime files, skill-root
 files, skill C<cli/> files, then deeper project runtime files. Thus a skill
 can override a same-named home default, while a closer project runtime layer
-still has final precedence.
+still has final precedence among file-based values. Values explicitly
+inherited from the invoking process have higher precedence than every file
+layer; files may set unset keys but cannot replace those caller values. The
+switchboard carries only the names of those inherited keys to helper
+processes, never their values.
 
 Plain C<.env> files load before C<.env.pl> at every participating directory.
 The plain-file parser accepts C<KEY=VALUE> lines, ignores blank lines, whole
@@ -674,6 +738,7 @@ entrypoint after the command token is known and before helper or custom-command
 execution. Call C<load_skill_runtime_layers(paths =E<gt> $paths,
 skill_layers =E<gt> \@layers)> inside skill dispatch before executing hooks or
 the final skill command; it applies the home/skill/project precedence order.
+Both entrypoints preserve caller-exported values above the files they load.
 
 =head1 WHAT USES IT
 

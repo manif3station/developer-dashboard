@@ -1195,3 +1195,63 @@ assertions. The blank Perl 5.44 container installed the tarball using `cpanm`
 without `--notest`, ran distribution tests, and completed the installed-runtime
 integration script. `d2 docker.images.build` completed; a scoped run of its
 image reported `d2 version` 5.68. No release upload was performed.
+
+Problem 44: Preserve explicit command-line environment overrides
+(status: done in 5.70)
+
+Expected outcome: `NAME=value d2 <skill>.<command>` passes `value` unchanged to
+the command, even when home and skill `.env` or `.env.pl` files define `NAME`.
+When the caller leaves a key unset, normal file precedence remains: skill
+settings override home defaults and deeper project runtime settings override
+skill settings. The same rule applies to ordinary dashboard commands and skill
+commands.
+
+Reproduction from `/tmp/capture-1747.txt`: run a disposable skill command that
+prints `SKILL_WILL_OVERWRITE_THIS` with a home runtime `.env` setting it to
+`HOME`, then invoke it as `SKILL_WILL_OVERWRITE_THIS=here1 d2 foo.bash`. Repeat
+for a second skill and remove the home file before invoking with `foo3` and
+`foo4`. Before the fix, the home value replaced both explicit assignments
+(`here1`/`here2`), and then each skill value replaced explicit assignments
+(`foo3`/`foo4`). The capture also confirmed that ordinary skill values should
+remain active when no caller override is present.
+
+Root cause: the public switchboard loaded runtime env files directly into
+`%ENV`, replacing inherited caller values before it exec'd a helper. Skill
+dispatch then loaded skill env files through `_load_skill_layer_specs()`, a
+separate code path that bypassed `load_files()` and replaced those caller
+values a second time. The two loaders also left env-audit provenance claiming
+that a file supplied a value that actually came from the invoking process.
+
+Red tests: `t/87-envloader-coverage.t` first failed with `from-file` instead of
+`from-caller`; `t/30-dashboard-loader.t` exercises the public switchboard and
+dotted skill command in an isolated home inside the Docker development
+container. Tracing the first partial fix showed that the skill-dispatch test
+still failed because `_load_skill_layer_specs()` independently ran each skill
+file. The final correction preserves caller values at both loading
+boundaries. Focused Docker verification passed 2 files / 216 assertions. It
+also verifies unset keys still populate from files, skill values still
+override home defaults, error paths restore caller values, and errors remain
+visible.
+
+The full Docker suite passed 258 files / 22,690 tests. The all-metric coverage
+gate reported 100.0% statement, branch, condition, and subroutine coverage
+(45,961 detail rows; no stale uncoverable annotations). The required
+web/security trio passed 459 tests. Devel::Cover emitted visible missing-
+digest diagnostics for temporary fixture sources removed during tests, and
+negative-fixture tests printed their expected shell/archive errors; the run is
+not called warning-free. Static security scans found no new forbidden
+libraries, auth/redirect/header issue, raw SQL execution path, or secret in the
+change. The `perlsec` guidance was reviewed against this environment handoff:
+key names are validated, actual caller values remain in `%ENV`, and no
+untrusted value is interpreted as shell syntax or a path.
+
+Release verification: CPANTS kwalitee passed 7/7 indicators (100%), and the
+POD syntax gate passed all 348 discovered Perl source files. The final 5.70 tarball
+passed `dzil build` and contains no `cover_db`; `cpanm` installed and tested it
+without `--notest` in a blank Perl 5.44 Compose container, whose installed-
+runtime integration flow passed. Headless Chromium printed missing-D-Bus
+diagnostics and the expected unauthenticated-route response during browser
+checks; assertions passed. `d2 docker.images.build` completed, and a scoped
+Compose run reported `d2 version` 5.70. An earlier 5.69 image had already been
+built in this cycle; the final report therefore uses a distinct 5.70 version.
+No release upload was performed.

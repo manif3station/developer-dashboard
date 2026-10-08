@@ -1,5 +1,26 @@
 # Fixed Bugs
 
+## 5.70
+
+- Finalize Problem 44 after the image-build version guard marked 5.69 as used;
+  rebuild the artifact and runtime image with the completed problem report.
+- Repeat the blank-environment `cpanm` install/test and integration flow for
+  the final 5.70 archive.
+
+## 5.69
+
+- Problem 44: preserve caller-exported environment values above home, skill,
+  and project `.env`/`.env.pl` files across public command and skill dispatch.
+- Keep unset values and normal layer precedence working; clear inaccurate
+  env-audit provenance when a caller value wins.
+- Add direct EnvLoader and isolated public-switchboard/skill CLI regression
+  coverage, including restoration and visible errors on broken env files.
+- Verify 258 Docker test files / 22,690 tests with 100.0% statement, branch,
+  condition, and subroutine coverage, plus the 459-test web/security trio.
+- Pass 7/7 CPANTS kwalitee indicators and all 348 POD syntax checks; build
+  the 5.69 tarball and image, confirm the image reports 5.69, and complete the
+  blank-container `cpanm` installation and installed-runtime integration.
+
 ## 5.68
 
 - Problem 42: load home runtime `.env` and `.env.pl` files as defaults before

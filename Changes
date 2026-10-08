@@ -1,3 +1,26 @@
+5.70  2026-10-08
+
+  - Finalize Problem 44's release evidence in a distinct package version after
+    the image-build guard rejected reusing the already-built 5.69 version.
+  - Rebuild the documented tarball and runtime image as 5.70; repeat the
+    blank-environment installation and integration gates against that exact
+    final artifact.
+
+5.69  2026-10-08
+
+  - Complete Problem 44: caller-exported environment values take precedence
+    over home, skill, and project .env/.env.pl files while unset keys retain
+    the documented layer precedence.
+  - Preserve caller environment values through both the public dashboard
+    switchboard and the direct nested-skill environment loader; keep env-audit
+    provenance accurate and restore caller values when a file fails to load.
+  - Pass all 258 Docker test files / 22,690 tests with 100.0% statement,
+    branch, condition, and subroutine coverage; pass the 459-test web/security
+    trio, 7/7 CPANTS kwalitee indicators, and all 348 POD syntax checks.
+  - Build the 5.69 tarball and image, verify the image version, and install
+    and test the tarball with cpanm (without --notest) in a blank container;
+    the installed-runtime integration flow passes.
+
 5.68  2026-10-08
 
   - Complete Problem 42: load home runtime environment files before skill

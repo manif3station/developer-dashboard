@@ -15,6 +15,7 @@ use lib 'lib';
 use Developer::Dashboard::EnvLoader;
 use Developer::Dashboard::EnvAudit;
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::JSON qw(json_encode);
 
 my $EL = 'Developer::Dashboard::EnvLoader';
 
@@ -132,6 +133,8 @@ sub write_file {
     );
     write_file( @{$_} ) for @files;
     local %ENV                                   = %ENV;
+    local $ENV{DD_T87_EXPLICIT_SHELL}            = 'caller-wins';
+    local $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS} = json_encode( ['DD_T87_EXPLICIT_SHELL'] );
     local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT}    = undef;
     local %Developer::Dashboard::EnvAudit::AUDIT = ();
     my $loaded = $EL->load_skill_runtime_layers( paths => $paths, skill_layers => [$scope_skill] );
@@ -139,12 +142,26 @@ sub write_file {
     is( $ENV{DD_T87_HOME_RUNTIME}, 'dashboard', 'canonical home runtime environment remains later than the .d2 alias' );
     is( $ENV{DD_T87_PROJECT_PLAIN}, 'project', 'plain project environment still loads after skill environment' );
     is( $ENV{DD_T87_PROJECT_RUNTIME}, 'dashboard', 'deeper project runtime environment still has final precedence' );
+    is( $ENV{DD_T87_EXPLICIT_SHELL}, 'caller-wins', 'caller-exported values stay above home, skill, and project env files' );
     my @expected_loaded = map { $_->[0] } ( @files[ 0 .. 3 ], @files[ 7 .. 8 ], @files[ 4 .. 6 ] );
     is_deeply(
         $loaded,
         \@expected_loaded,
         'load_skill_runtime_layers returns files in home, skill, then descendant precedence order',
     );
+    ok(
+        !defined $Developer::Dashboard::EnvAudit::AUDIT{DD_T87_EXPLICIT_SHELL},
+        'an explicit caller value is not attributed to a dashboard env file',
+    );
+}
+
+{
+    local %ENV                                   = %ENV;
+    local $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS} = undef;
+    local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT}    = undef;
+    local %Developer::Dashboard::EnvAudit::AUDIT = ();
+    $EL->load_files( files => [] );
+    ok( !defined $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT}, 'restoring the absent internal marker does not create an empty env-audit record' );
 }
 
 {
@@ -222,6 +239,106 @@ sub write_file {
 }
 
 # --- load_files ------------------------------------------------------------
+
+{
+    my $caller_value = 'from-caller';
+    my $override_file = write_file(
+        File::Spec->catfile( $home, 'caller-precedence', '.env' ),
+        "DD_T87_CALLER_PRECEDENCE=from-file\nDD_T87_FILE_ONLY=loaded\n_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS=not-json\n",
+    );
+    my $override_perl_file = write_file(
+        File::Spec->catfile( $home, 'caller-precedence', '.env.pl' ),
+        "\$ENV{DD_T87_CALLER_PRECEDENCE} = 'from-perl-file';\n1;\n",
+    );
+    local %ENV                                   = %ENV;
+    local $ENV{DD_T87_CALLER_PRECEDENCE}         = $caller_value;
+    my $caller_key_marker = json_encode( ['DD_T87_CALLER_PRECEDENCE'] );
+    local $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS} = $caller_key_marker;
+    local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT}    = undef;
+    local %Developer::Dashboard::EnvAudit::AUDIT = ();
+
+    $EL->load_files( files => [ $override_file, $override_perl_file ] );
+    is(
+        $ENV{DD_T87_CALLER_PRECEDENCE},
+        $caller_value,
+        'an explicitly inherited environment value takes precedence over a loaded env file',
+    );
+    is( $ENV{DD_T87_FILE_ONLY}, 'loaded', 'unexported values still load from env files' );
+    is( $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS}, $caller_key_marker, 'env files cannot overwrite the private inherited-key marker' );
+
+    local $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS} = '';
+    ok( exists $EL->_capture_inherited_env->{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS}, 'an empty inherited-key marker is preserved as empty' );
+}
+
+{
+    local %ENV                                   = %ENV;
+    local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT}    = undef;
+    local %Developer::Dashboard::EnvAudit::AUDIT = ();
+    ok( exists $EL->_capture_inherited_env->{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS}, '_capture_inherited_env preserves marker absence' );
+    ok( $EL->_restore_inherited_env(undef), '_restore_inherited_env safely ignores a non-hash input' );
+
+    local $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS} = json_encode( ['DD_T87_ABSENT_SHELL'] );
+    my $absent_file = write_file(
+        File::Spec->catfile( $home, 'absent-caller', '.env' ),
+        "DD_T87_ABSENT_SHELL=file-may-populate\n",
+    );
+    $EL->load_files( files => [$absent_file] );
+    is( $ENV{DD_T87_ABSENT_SHELL}, 'file-may-populate', 'a caller-unset variable may still be supplied by an env file' );
+
+    local $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS} = json_encode( {} );
+    my $shape_error = eval { $EL->_capture_inherited_env; 1 } ? '' : $@;
+    like( $shape_error, qr/must contain a JSON array/, 'invalid marker shape fails explicitly' );
+
+    local $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS} = json_encode( ['DD-BAD-NAME'] );
+    my $key_error = eval { $EL->_capture_inherited_env; 1 } ? '' : $@;
+    like( $key_error, qr/contains an invalid environment key/, 'invalid inherited key fails explicitly' );
+
+    local $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS} = json_encode( [{}] );
+    my $reference_key_error = eval { $EL->_capture_inherited_env; 1 } ? '' : $@;
+    like( $reference_key_error, qr/contains an invalid environment key/, 'non-scalar inherited keys fail explicitly' );
+
+    local $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS} = json_encode( [undef] );
+    my $undefined_key_error = eval { $EL->_capture_inherited_env; 1 } ? '' : $@;
+    like( $undefined_key_error, qr/contains an invalid environment key/, 'undefined inherited keys fail explicitly' );
+
+    local $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS} = json_encode( ['DD_T87_RESTORE_ON_ERROR'] );
+    local $ENV{DD_T87_RESTORE_ON_ERROR} = 'caller-survives-error';
+    my $bad_file = write_file(
+        File::Spec->catfile( $home, 'caller-error', '.env' ),
+        "DD_T87_RESTORE_ON_ERROR=file-overwrite\n/* unterminated\n",
+    );
+    my $load_error = eval { $EL->load_files( files => [$bad_file] ); 1 } ? '' : $@;
+    like( $load_error, qr/Unterminated block comment/, 'load_files still reports a broken env file' );
+    is( $ENV{DD_T87_RESTORE_ON_ERROR}, 'caller-survives-error', 'caller values are restored even when env loading fails' );
+}
+
+{
+    my $skill_error_root = File::Spec->catdir( $home, 'skills', 'skill-error' );
+    write_file(
+        File::Spec->catfile( $skill_error_root, '.env' ),
+        "DD_T87_SKILL_ERROR=skill-value\n/* unterminated\n",
+    );
+    local %ENV                                   = %ENV;
+    local $ENV{DD_T87_SKILL_ERROR}               = 'caller-survives-skill-error';
+    local $ENV{_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS} = json_encode( ['DD_T87_SKILL_ERROR'] );
+    local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT}    = undef;
+    local %Developer::Dashboard::EnvAudit::AUDIT = ();
+    my $skill_error = eval { $EL->load_skill_layers( skill_layers => [$skill_error_root] ); 1 } ? '' : $@;
+    like( $skill_error, qr/Unterminated block comment/, 'skill layer loading reports a broken env file' );
+    is( $ENV{DD_T87_SKILL_ERROR}, 'caller-survives-skill-error', 'skill layer loading restores caller values before reporting failure' );
+}
+
+{
+    local %ENV                                   = %ENV;
+    local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT}    = undef;
+    local %Developer::Dashboard::EnvAudit::AUDIT = ( DD_T87_FORGET => { value => 'old', envfile => '/tmp/old.env' } );
+    ok( Developer::Dashboard::EnvAudit->forget('DD_T87_FORGET'), 'forget removes env-file provenance' );
+    ok( !defined Developer::Dashboard::EnvAudit->key('DD_T87_FORGET'), 'forgotten provenance is no longer reported' );
+    my $forget_error = eval { Developer::Dashboard::EnvAudit->forget(''); 1 } ? '' : $@;
+    like( $forget_error, qr/Missing env audit key/, 'forget rejects an empty key explicitly' );
+    my $undefined_forget_error = eval { Developer::Dashboard::EnvAudit->forget(undef); 1 } ? '' : $@;
+    like( $undefined_forget_error, qr/Missing env audit key/, 'forget rejects an undefined key explicitly' );
+}
 
 {
     local %ENV                                   = %ENV;
