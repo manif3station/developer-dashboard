@@ -1,16 +1,16 @@
 Codename: problem-report
 
-Historical numbered-problem audit (latest active-change verification checked
-2026-10-03 in the isolated Compose dev container: 257 test files and 22,371
-tests passed. The full run initially measured 99.9% condition coverage; after
-adding and running the missing completion branch under Devel::Cover, the
-aggregate checker reported 100.0% statement, branch, condition, and subroutine
-coverage. The coverage-gate invocation exited 1 before that final test-only
-addition, so the complete suite has not been rerun with the expanded test.
-Problems 12, 32, and 34 have passing implementation regressions; release
-delivery remains in progress. Problem 33's current behavior is verified by a
-new regression and required no production-code change. Earlier release
-references below are from `Changes`. The original
+This file is the chronological evidence log; `doc/problem-report.md` is the
+current numbered status index. Historical status snapshots below are retained
+as historical evidence and are superseded by later release entries. For
+example, the 2026-10-03 verification snapshot recorded 257 test files and
+22,371 tests passing; it first measured 99.9% condition coverage, then reached
+100.0% on all four metrics after a test-only addition. At that point the full
+suite had not been rerun with that addition, and Problems 12, 32, and 34 still
+had release delivery in progress. Later entries record subsequent verification
+and release outcomes; do not treat this opening snapshot as the current status.
+
+Earlier release references below are from `Changes`. The original
 red-test transcripts were not retained, so a detached pre-fix snapshot was
 reconstructed for the 5.00 dashboard/skill batch: commit `37a5bd77` (parent of
 `2a09c53b`), with the regression-test changes from `2a09c53b` applied, ran in
@@ -473,7 +473,7 @@ Reproduction: configure a collector with `cwd` set to a configured alias whose t
 Root cause: `CollectorRunner::run_once` dispatched only the fixed accessor allowlist and never loaded configured aliases or the secured skill Folder alias provider. Red-first tests now exercise both alias sources, invalid aliases, and the registry contract. The resolver registers config aliases first, then consults the existing guarded Folder.pm resolver; aliases from skills remain read-only.
 Verification: the Docker regression harness exercised both alias sources and unknown-alias failure; full-suite, coverage, security, and packaging results are recorded below.
 
-Problem 29 historical record gap: Collector stop propagation (status: needs investigation)
+Problem 29: Collector stop propagation (status: needs investigation)
 The user asked whether `d2 stop`, `d2 stop collector`, and stopping a named
 collector terminate collector-spawned child processes. The historical report
 does not contain the requested Docker reproduction result or a final status.
@@ -1026,6 +1026,14 @@ Earlier Problem 38 release work also corrected an image version-shadowing
 issue: the ignored operator-local D2 Dockerfile installs the archive into the
 runtime-first `/root/perl5` library, and an integration assertion guards that
 recipe when present. No commit or push was requested.
+
+Problem 39: Numbering gap — no problem description recorded (status: unassigned)
+
+The supplied problem sequence and repository records contain Problem 38
+followed by Problem 40, with no Problem 39 description, capture, expected
+outcome, or implementation request found. This entry records the gap without
+inventing a bug or claiming a fix. If Problem 39 was assigned elsewhere, its
+source report is needed before this slot can be classified further.
 
 Problem 40: Resolve the base Compose service list before loading service overlays
 Status: implementation, full tests, coverage, packaging, image, and blank-container integration passed.

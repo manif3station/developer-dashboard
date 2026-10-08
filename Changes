@@ -1,3 +1,14 @@
+5.73  2026-10-08
+
+  - Audit and repair the numbered problem report: entries 1–44 now appear in
+    order, and Problem 39 is explicitly recorded as an unassigned numbering gap.
+  - Label the October 3 status paragraph in the historical report as a
+    superseded snapshot so it cannot be mistaken for current delivery status.
+  - Add release-metadata regression checks for complete, unique, ordered
+    problem-index entries and historical evidence coverage.
+  - Exclude generated terminal transcript logs from source distributions so
+    operator-local output cannot leak into a release archive.
+
 5.71  2026-10-08
 
   - Complete Problem 43: resolve Docker Compose skill env using only the

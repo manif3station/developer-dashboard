@@ -1,5 +1,15 @@
 # Fixed Bugs
 
+## 5.73
+
+- Make the problem report index explicitly cover Problems 1–44 in numeric order;
+  record Problem 39 as unassigned instead of leaving an unexplained gap.
+- Mark the October 3 problem-report introduction as a historical snapshot and
+  clarify that later release entries supersede it.
+- Add a release-metadata test that guards numbered problem-report coverage.
+- Exclude generated terminal transcript logs from Dist::Zilla archives and
+  guard that packaging rule with the release-metadata test.
+
 ## 5.71
 
 - Problem 43: scope Compose skill `.env` interpolation to the selected service
