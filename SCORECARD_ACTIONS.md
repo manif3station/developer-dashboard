@@ -97,12 +97,12 @@ Current live result observed on `2026-06-11` after the `v4.14` push:
   below (token permissions, badge-program enrollment, solo-maintainer history,
   and the 90-day repo-age window measured from `2026-03-30`)
 
-Current live result observed on `2026-10-08` after commit `35d73a2e` was pushed:
+Current live result observed on `2026-10-08` after commit `5c88e11d` was pushed:
 
 - aggregate `8.2 / 10`
 - `Branch-Protection` `0 / 10`: branch protection is not enabled on `master`
 - `CII-Best-Practices` `0 / 10`: no OpenSSF Best Practices badge was detected
-- `Code-Review` `0 / 10`: Scorecard found `0/28 approved changesets`
+- `Code-Review` `0 / 10`: Scorecard found `0/29 approved changesets`
 - `Contributors` `3 / 10`: only one contributing organization was detected
 - every other reported check is `10 / 10`, including `CI-Tests`,
   `Signed-Releases`, `Maintained`, `Pinned-Dependencies`, and `Vulnerabilities`
