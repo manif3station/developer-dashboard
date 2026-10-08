@@ -97,6 +97,24 @@ Current live result observed on `2026-06-11` after the `v4.14` push:
   below (token permissions, badge-program enrollment, solo-maintainer history,
   and the 90-day repo-age window measured from `2026-03-30`)
 
+Current live result observed on `2026-10-08` after commit `35d73a2e` was pushed:
+
+- aggregate `8.2 / 10`
+- `Branch-Protection` `0 / 10`: branch protection is not enabled on `master`
+- `CII-Best-Practices` `0 / 10`: no OpenSSF Best Practices badge was detected
+- `Code-Review` `0 / 10`: Scorecard found `0/28 approved changesets`
+- `Contributors` `3 / 10`: only one contributing organization was detected
+- every other reported check is `10 / 10`, including `CI-Tests`,
+  `Signed-Releases`, `Maintained`, `Pinned-Dependencies`, and `Vulnerabilities`
+
+The remaining checks require GitHub administration, OpenSSF badge enrollment,
+reviewed pull-request history, or contributions from additional organizations;
+they cannot be repaired by this source change. Existing evidence below records
+that this machine's available GitHub token cannot administer branch protection.
+Do not fabricate review approvals or contributor identities. The operator must
+choose whether to enable branch protection, enroll for the badge, and establish
+a reviewed-PR workflow before Scorecard can reach 10/10 on these checks.
+
 ## Task Breakdown
 
 ### Repository-side fixes
