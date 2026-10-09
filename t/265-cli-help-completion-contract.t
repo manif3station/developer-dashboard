@@ -71,6 +71,9 @@ is_deeply(
     'legacy command aliases resolve through the same help catalog',
 );
 
+my @log_options = Developer::Dashboard::CLI::Help::options_for('log');
+ok( ( grep { $_ eq '--tail' } @log_options ), 'log help and completion catalog expose --tail' );
+
 for my $command (@public_commands) {
     like( $global_overview, qr/^\s*dashboard\s+\Q$command\E\b/m, "$command appears in the global help overview" );
 }

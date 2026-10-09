@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::RuntimeControl;
 use strict;
 use warnings;
 
-our $VERSION = '5.73';
+our $VERSION = '5.75';
 
 use Getopt::Long qw(GetOptionsFromArray);
 
@@ -126,7 +126,7 @@ sub _run_lifecycle_command {
 
 # _run_log_command(%args)
 # Parses one top-level dashboard log or logs request and prints the requested
-# log stream.
+# log stream, optionally limited to a trailing line count.
 # Input: command name, argv array reference, runtime manager, config object,
 # and collector store.
 # Output: numeric process exit code.
@@ -137,38 +137,43 @@ sub _run_log_command {
     my $config     = $args{config};
     my $collectors = $args{collectors};
 
+    my $follow = 0;
+    my $lines;
+    my $options_ok = GetOptionsFromArray(
+        \@argv,
+        'f'        => \$follow,
+        'tail|n=i' => \$lines,
+    );
+    die _log_usage() if !$options_ok;
+    die _log_usage() if defined $lines && $lines < 0;
+
     my $scope = @argv && $argv[0] !~ /^-/ ? shift @argv : 'all';
     my $name;
     if ( $scope eq 'collector' && @argv && $argv[0] !~ /^-/ ) {
         $name = shift @argv;
     }
 
-    my $follow = 0;
-    my $lines;
-    GetOptionsFromArray(
-        \@argv,
-        'f'   => \$follow,
-        'n=i' => \$lines,
-    );
     die _log_usage() if @argv;
     die _log_usage() if $scope !~ /\A(?:all|web|collector)\z/;
 
     if ( $scope eq 'web' ) {
-        print $runtime->web_log(
+        my $web_log = $runtime->web_log(
             follow => $follow,
             ( defined $lines ? ( lines => $lines ) : () ),
         );
+        print defined $lines ? _tail_log_text( $web_log, $lines ) : $web_log;
         return 0;
     }
 
     die "Follow mode is only supported for dashboard log web\n" if $follow;
 
     if ( $scope eq 'collector' ) {
-        print _collector_logs_text(
+        my $collector_log = _collector_logs_text(
             collectors => $collectors,
             config     => $config,
             name       => $name,
         );
+        print defined $lines ? _tail_log_text( $collector_log, $lines ) : $collector_log;
         return 0;
     }
 
@@ -183,8 +188,28 @@ sub _run_log_command {
     # branch returns either the requested log or one of its own non-empty
     # placeholder strings, so there is nothing to guard here.
     push @parts, $collector_log;
-    print join "\n", @parts;
+    my $output = join "\n", @parts;
+    print defined $lines ? _tail_log_text( $output, $lines ) : $output;
     return 0;
+}
+
+# _tail_log_text($text, $lines)
+# Returns the last requested number of complete output lines.
+# Input: log text string and a non-negative integer line count.
+# Output: the trailing log text, preserving whether it ended in a newline.
+sub _tail_log_text {
+    my ( $text, $lines ) = @_;
+    return '' if !defined $text || $text eq '' || $lines == 0;
+
+    my @parts = split /\n/, $text, -1;
+    my $had_trailing_newline = $parts[-1] eq '' ? 1 : 0;
+    pop @parts if $had_trailing_newline;
+    my $start = @parts - $lines;
+    $start = 0 if $start < 0;
+    my @tail_parts = @parts[ $start .. $#parts ];
+    my $tail = join "\n", @tail_parts;
+    $tail .= "\n" if $had_trailing_newline;
+    return $tail;
 }
 
 # _collector_logs_text(%args)
@@ -355,7 +380,7 @@ sub _lifecycle_usage {
 # Input: none.
 # Output: usage text string.
 sub _log_usage {
-    return "Usage: dashboard log[s] [web|collector [name]] [-n <lines>] [-f]\n";
+    return "Usage: dashboard log[s] [web|collector [name]] [--tail <lines>|--tail=<lines>] [-n <lines>] [-f]\n";
 }
 
 1;
@@ -384,6 +409,13 @@ Developer::Dashboard::CLI::RuntimeControl - shared restart, stop, and log comman
 Owns the command parsing and default human-facing output for the built-in
 runtime control commands: C<dashboard restart>, C<dashboard stop>,
 C<dashboard log>, and C<dashboard logs>.
+
+Log commands accept C<--tail N> and C<--tail=N> to limit the printed output to
+the last N lines. C<-n N> remains an alias. The limit applies to the selected
+web or collector stream; with the default combined scope, it applies to the
+final combined output. A count of zero prints no lines. Negative and malformed
+counts are rejected with usage text. C<-f> remains available only for the web
+log scope.
 
 =for comment FULL-POD-DOC START
 
@@ -427,6 +459,9 @@ runtime-manager tests that verify scoped restart and stop progress plans.
   dashboard restart collector housekeeper -o json
   dashboard stop collector
   dashboard log
+  dashboard logs --tail 100
+  dashboard logs --tail=100
+  dashboard log web -n 20 -f
   dashboard log collector alpha.collector
   dashboard log web -n 50
 

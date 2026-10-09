@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.73';
+our $VERSION = '5.75';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.73
+5.75
 
 =head1 INTRODUCTION
 
@@ -2916,17 +2916,27 @@ plus collector logs
 
 =item *
 
-C<dashboard log web> prints only the dashboard web log and still supports
-C<-n> and C<-f>
+C<dashboard logs --tail 100> or C<dashboard logs --tail=100> prints only the
+last 100 lines of the combined output. The same C<--tail> option accepts both
+spellings for C<dashboard log web>, C<dashboard log collector>, and a named
+collector log. C<-n N> remains a compatible short form. C<--tail=0> prints no
+lines; negative or non-integer counts are rejected with usage information.
 
 =item *
 
-C<dashboard log collector> prints only collector logs
+C<dashboard log web> prints only the dashboard web log and still supports
+C<--tail N>, C<--tail=N>, C<-n N>, and C<-f>
+
+=item *
+
+C<dashboard log collector> prints only collector logs and accepts the same
+trailing-line limit
 
 =item *
 
 C<dashboard log collector E<lt>nameE<gt>> prints only the requested collector
-log, and collector-name shell completion suggests registered collector names
+log, accepts C<--tail N> and C<--tail=N>, and collector-name shell completion
+suggests registered collector names
 
 =item *
 

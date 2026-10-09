@@ -908,6 +908,16 @@ if ( !$UNDER_COVER ) {
     like( $everything_log, qr/web one/, 'dashboard logs includes the dashboard web log in the all-logs view' );
     like( $everything_log, qr/cli\.collector/, 'dashboard logs includes collector logs in the all-logs view' );
 
+    my $everything_tail_equal = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' logs --tail=2" );
+    my @everything_tail_equal_lines = split /\n/, $everything_tail_equal;
+    is( scalar @everything_tail_equal_lines, 2, 'dashboard logs --tail=N prints exactly the requested final number of lines' );
+    my $everything_tail_spaced = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' logs --tail 2" );
+    is( $everything_tail_spaced, $everything_tail_equal, 'dashboard logs --tail N is equivalent to --tail=N' );
+    my $web_tail = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' log web --tail=1" );
+    is( $web_tail, "web two\n", 'dashboard log web --tail=N tails the web log' );
+    my $logs_no_lines = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' logs --tail=0" );
+    is( $logs_no_lines, '', 'dashboard logs --tail=0 emits no lines' );
+
     my $templated_run = json_decode( _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector run templated.collector" ) );
     is( $templated_run->{exit_code}, 0, 'dashboard collector run keeps TT-icon collectors successful when stdout contains valid JSON' );
     my $templated_indicators = json_decode( _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' indicator list" ) );
@@ -3754,6 +3764,8 @@ immediate child level instead of recursively walking deeper descendants on
 every TAB.
 The open-file smoke cases also prove that content grep returns matching paths
 instead of treating `grep` and its switches as filename patterns.
+Top-level log tests also exercise both `--tail N` and `--tail=N` through public
+helper dispatch, including combined web/collector output and zero-line requests.
 
 =for comment FULL-POD-DOC START
 

@@ -1,5 +1,18 @@
 # Fixed Bugs
 
+## 5.75
+
+- Finalize Problem 45's package and image using a fresh version after the
+  5.74 image version was already consumed; the implementation is unchanged.
+
+## 5.74
+
+- Problem 45: add `--tail N` and `--tail=N` to the top-level dashboard log
+  commands, including the combined output, web scope, and collector scopes.
+- Keep `-n N` compatible, allow zero lines, and reject negative or malformed
+  limits with clear usage output.
+- Add public CLI, parser, help-catalog, and packaging metadata regressions.
+
 ## 5.73
 
 - Make the problem report index explicitly cover Problems 1–44 in numeric order;

@@ -1,3 +1,17 @@
+5.75  2026-10-09
+
+  - Finalize Problem 45's 5.75 package and runtime image after the 5.74 image
+    version was consumed; keep the Docker-style log tail implementation and
+    its completed verification report aligned in the final artifacts.
+
+5.74  2026-10-09
+
+  - Problem 45: add Docker-style --tail N and --tail=N limits to dashboard logs.
+  - Apply the line limit to combined web/collector output and scoped log views;
+    retain -n as a compatible alias and reject malformed or negative counts.
+  - Cover the public CLI, zero-line handling, invalid input, and command help
+    with Docker-executed regressions; document the behavior in the manual.
+
 5.73  2026-10-08
 
   - Audit and repair the numbered problem report: entries 1–44 now appear in

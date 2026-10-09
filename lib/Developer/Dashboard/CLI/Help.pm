@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Help;
 use strict;
 use warnings;
 
-our $VERSION = '5.73';
+our $VERSION = '5.75';
 
 use Developer::Dashboard::InternalCLI ();
 
@@ -132,11 +132,11 @@ my %COMMANDS = (
     init => { usage => 'dashboard init', description => 'Initialize the user runtime and stage managed helper assets.' },
     jq => { usage => 'dashboard jq [file] [query]', description => 'Query JSON input from a file or standard input.' },
     log => {
-        usage => 'dashboard log [web|collector [name]] [-n <lines>] [-f]',
-        description => 'Print dashboard or collector logs.',
+        usage => 'dashboard log [web|collector [name]] [--tail <lines>|--tail=<lines>] [-n <lines>] [-f]',
+        description => 'Print dashboard or collector logs, optionally limited to the final number of lines.',
         actions => {
-            web       => [ 'dashboard log web [-n <lines>] [-f]', 'Read or follow the web service log.' ],
-            collector => [ 'dashboard log collector [name]', 'Read one or all collector logs.' ],
+            web       => [ 'dashboard log web [--tail <lines>|--tail=<lines>] [-n <lines>] [-f]', 'Read or follow the web service log.' ],
+            collector => [ 'dashboard log collector [name] [--tail <lines>|--tail=<lines>]', 'Read one or all collector logs.' ],
         },
     },
     of => {
@@ -284,9 +284,9 @@ my %OPTIONS = (
     'stop web'                => [qw(--output -o --host --port --workers --ssl --no-ssl)],
     'stop collector'          => [qw(--output -o --host --port --workers --ssl --no-ssl)],
     stop                      => [qw(--output -o --host --port --workers --ssl --no-ssl)],
-    'log web'                 => [qw(-f -n)],
-    'log collector'           => [qw(-n)],
-    log                       => [qw(-f -n)],
+    'log web'                 => [qw(-f -n --tail)],
+    'log collector'           => [qw(-n --tail)],
+    log                       => [qw(-f -n --tail)],
     'serve logs'              => [qw(-f -n)],
     'serve workers'           => [qw(--host --port)],
     serve                     => [qw(--host --port --workers --ssl --no-ssl --editor --no-editor --endit --no-endit --indicator --no-indicator --indicators --no-indicators --foreground --no-foreground)],

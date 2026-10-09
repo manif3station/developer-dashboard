@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Files;
 use strict;
 use warnings;
 
-our $VERSION = '5.73';
+our $VERSION = '5.75';
 
 use Cwd qw(cwd);
 use Getopt::Long qw(GetOptionsFromArray);

@@ -1327,3 +1327,31 @@ checks; assertions passed. `d2 docker.images.build` completed, and a scoped
 Compose run reported `d2 version` 5.70. An earlier 5.69 image had already been
 built in this cycle; the final report therefore uses a distinct 5.70 version.
 No release upload was performed.
+
+Problem 45: Add Docker-style tail options to dashboard logs
+(status: done in 5.75)
+
+Expected outcome: `d2 logs --tail N` and `d2 logs --tail=N` return only the
+final N lines from combined, web-only, collector-only, and named-collector log
+views. `-n N` remains compatible; zero returns no lines; invalid and negative
+counts produce usage text. Existing web-only follow mode remains intact.
+
+Red-first reproduction: an isolated unit fixture supplied several web and
+collector lines and ran the `--tail=2` form. Before implementation it returned
+the full log output rather than only the final two lines. A public CLI smoke
+fixture also exercises both flag spellings, web scope, and a zero-line request.
+
+Root cause: the runtime-control parser had only `-n`, and its line limiting
+was wired to the web log but not collector or combined output. The fix adds
+both Docker-style `--tail` forms and applies the requested line limit after
+the selected/combined log text is assembled. Verification: 258 files / 23,149
+tests passed; coverage gate passed at 100.0% statement, branch, condition,
+and subroutine coverage (258 files / 23,080 tests). The normal full suite had
+also passed 258 files / 23,149 tests before the final version-only bump. The
+required web/security trio passed 459 tests. `dzil clean`, `dzil build`, and
+`d2 docker.images.build` completed for 5.75; a fresh image reported version
+5.75. The exact 5.75 tarball installed in a blank container with ordinary
+cpanm tests enabled, and installed-runtime integration passed. CPANTS kwalitee
+passed 7/7 indicators. The post-build smart-router guard skipped because the
+dev image lacks Docker CLI. Scorecard remains a post-push check; no push was
+requested.

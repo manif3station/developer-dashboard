@@ -36,6 +36,7 @@ my $lifecycle_progress  = \&Developer::Dashboard::CLI::RuntimeControl::_lifecycl
 my $summary_table       = \&Developer::Dashboard::CLI::RuntimeControl::_lifecycle_summary_table;
 my $render_table        = \&Developer::Dashboard::CLI::RuntimeControl::_render_table;
 my $pad_row             = \&Developer::Dashboard::CLI::RuntimeControl::_pad_row;
+my $tail_log_text       = \&Developer::Dashboard::CLI::RuntimeControl::_tail_log_text;
 my $lifecycle_usage     = \&Developer::Dashboard::CLI::RuntimeControl::_lifecycle_usage;
 my $log_usage           = \&Developer::Dashboard::CLI::RuntimeControl::_log_usage;
 
@@ -310,6 +311,80 @@ sub base_args {
 # ---------------------------------------------------------- _run_log_command
 
 {
+    my %a = base_args(
+        runtime    => Test::RC::Runtime->new( web_log_result => "web old\nweb newest\n" ),
+        collectors => Test::RC::Collectors->new( existing => { alpha => 1 }, logs => { alpha => "collector old\ncollector newest\n" } ),
+        config     => Test::RC::Config->new( collectors => [ { name => 'alpha' } ] ),
+    );
+    my ( $out, $err, $rc ) = capture { $run_log->( args => ['--tail=2'], %a ); };
+    is( $rc, 0, 'logs accepts Docker-style --tail=N syntax' );
+    is( $out, "collector old\ncollector newest\n", '--tail=N limits combined logs to the final N output lines' );
+}
+
+{
+    my %a = base_args(
+        runtime => Test::RC::Runtime->new( web_log_result => "web oldest\nweb middle\nweb newest\n" ),
+    );
+    my ( $out, $err, $rc ) = capture { $run_log->( args => [ 'web', '--tail', '2' ], %a ); };
+    is( $rc, 0, 'logs accepts --tail N syntax for an explicit web scope' );
+    is( $out, "web middle\nweb newest\n", '--tail N prints only the requested trailing web lines' );
+}
+
+{
+    my %a = base_args(
+        collectors => Test::RC::Collectors->new( existing => { alpha => 1 }, logs => { alpha => "old\nmiddle\nnewest\n" } ),
+        config     => Test::RC::Config->new( collectors => [ { name => 'alpha' } ] ),
+    );
+    my ( $out, $err, $rc ) = capture { $run_log->( args => [ 'collector', 'alpha', '--tail', '1' ], %a ); };
+    is( $rc, 0, 'tail can be scoped to one collector log' );
+    is( $out, "newest\n", 'collector scope prints only its requested trailing lines' );
+}
+
+{
+    my %a = base_args( runtime => Test::RC::Runtime->new( web_log_result => "one\ntwo\n" ) );
+    my ( $out, $err, $rc ) = capture { $run_log->( args => [ '--tail=0', 'web' ], %a ); };
+    is( $rc, 0, 'zero tail is accepted as a request for no log lines' );
+    is( $out, '', 'zero tail prints no log lines' );
+}
+
+{
+    my %a = base_args();
+    my @parse_warnings;
+    my $error;
+    {
+        local $SIG{__WARN__} = sub { push @parse_warnings, $_[0]; return; };
+        eval { capture { $run_log->( args => ['--tail'], %a ); }; };
+        $error = $@;
+    }
+    like( $error, qr/^Usage: dashboard log/, 'tail without its required value is rejected with usage' );
+    like( join( '', @parse_warnings ), qr/Option tail requires an argument/, 'Getopt reports the missing tail value explicitly' );
+}
+
+{
+    my %a = base_args();
+    my @parse_warnings;
+    my $error;
+    {
+        local $SIG{__WARN__} = sub { push @parse_warnings, $_[0]; return; };
+        eval { capture { $run_log->( args => ['--tail=not-a-number'], %a ); }; };
+        $error = $@;
+    }
+    like( $error, qr/^Usage: dashboard log/, 'a non-integer tail value is rejected with usage' );
+    like( join( '', @parse_warnings ), qr/Value .* invalid for option tail/, 'Getopt reports the malformed tail value explicitly' );
+}
+
+{
+    my %a = base_args();
+    eval { capture { $run_log->( args => ['--tail=-1'], %a ); }; };
+    like( $@, qr/^Usage: dashboard log/, 'negative tail count is rejected with usage' );
+}
+
+is( $tail_log_text->( undef, 1 ), '', 'tailing an undefined log returns empty output' );
+is( $tail_log_text->( '', 1 ), '', 'tailing an empty log returns empty output' );
+is( $tail_log_text->( "one\ntwo", 4 ), "one\ntwo", 'tail larger than the log keeps all lines without adding a newline' );
+is( $tail_log_text->( "\n", 1 ), "\n", 'tailing a blank newline preserves the newline' );
+
+{
     my %a = base_args( runtime => Test::RC::Runtime->new( web_log_result => "web line\n" ) );
     my ( $out, $err, $rc ) = capture { $run_log->( args => [ 'web', '-n', '5' ], %a ); };
     is( $rc, 0, 'log web scope returns 0' );
@@ -377,6 +452,18 @@ sub base_args {
     my %a = base_args();
     eval { capture { $run_log->( args => ['bogus'], %a ); } };
     like( $@, qr/^Usage: dashboard log/, 'unknown scope dies with usage' );
+}
+
+{
+    my %a = base_args();
+    eval { capture { $run_log->( args => ['-'], %a ); } };
+    like( $@, qr/^Usage: dashboard log/, 'a lone dash is not consumed as the log scope' );
+}
+
+{
+    my %a = base_args();
+    eval { capture { $run_log->( args => [ 'collector', '-' ], %a ); } };
+    like( $@, qr/^Usage: dashboard log/, 'a lone dash is not consumed as a collector name' );
 }
 
 {
@@ -541,7 +628,8 @@ t/26-cli-runtimecontrol-coverage.t - Devel::Cover gate for the runtime control C
 
 Exercises every function in C<Developer::Dashboard::CLI::RuntimeControl> - the
 shared parser and default output renderer behind C<dashboard restart>,
-C<dashboard stop>, and C<dashboard log[s]> - against injected stand-in objects
+C<dashboard stop>, and C<dashboard log[s]> (including Docker-style tail
+options) - against injected stand-in objects
 for the runtime manager, config, and collector store it is handed, so the
 module can reach 100.0 on all four Devel::Cover metrics without a real
 process-managing runtime.
@@ -557,8 +645,9 @@ output-format choices, none of which had ever been exercised.
 =head1 WHEN TO USE
 
 Use this file when changing C<run_runtime_command>, the restart/stop lifecycle
-parser, the log/logs parser, collector name resolution, the optional progress
-board, or the default table/JSON rendering for runtime-control commands.
+parser, the log/logs parser and line-tail behavior, collector name resolution,
+the optional progress board, or the default table/JSON rendering for
+runtime-control commands.
 
 =head1 HOW TO USE
 
@@ -599,5 +688,13 @@ Example 3:
 
 Run them under the coverage gate to confirm the runtime-control branch and
 condition columns stay at 100.
+
+Example 4:
+
+  d2 logs --tail 25
+  d2 logs --tail=25
+
+Exercise both public spellings for limiting combined dashboard and collector
+logs to the last 25 output lines.
 
 =cut

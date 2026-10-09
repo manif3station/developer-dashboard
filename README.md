@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.73
+5.75
 
 # INTRODUCTION
 
@@ -2446,11 +2446,18 @@ inside the watchdog window marks the collector `attention_required` so the
 operator sees an explicit problem instead of infinite silent restart churn
 - `dashboard log` and `dashboard logs` print the combined dashboard web log
 plus collector logs
+- `dashboard logs --tail 100` or `dashboard logs --tail=100` prints only the
+last 100 lines of the combined output. The same `--tail` option accepts both
+spellings for `dashboard log web`, `dashboard log collector`, and a named
+collector log. `-n N` remains a compatible short form. `--tail=0` prints no
+lines; negative or non-integer counts are rejected with usage information.
 - `dashboard log web` prints only the dashboard web log and still supports
-`-n` and `-f`
-- `dashboard log collector` prints only collector logs
+`--tail N`, `--tail=N`, `-n N`, and `-f`
+- `dashboard log collector` prints only collector logs and accepts the same
+trailing-line limit
 - `dashboard log collector <name>` prints only the requested collector
-log, and collector-name shell completion suggests registered collector names
+log, accepts `--tail N` and `--tail=N`, and collector-name shell completion
+suggests registered collector names
 - interactive restart and stop task boards mark the active step with a blue
 `-`, stream active detail lines in blue, mark completed steps with a green
 `[OK]`, mark failed steps with a red `[X]` plus red failure detail lines,
