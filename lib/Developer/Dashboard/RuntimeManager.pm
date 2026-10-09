@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '5.75';
+our $VERSION = '5.77';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -3449,10 +3449,11 @@ Put any module-level change back through the entire repository suite before rele
 
 Example 5:
 
-  dashboard serve logs -n 0
+  dashboard serve logs -t --tail=0
 
-Read no current log lines. When combined with C<-f>, this starts following
-future log entries without first printing the existing content.
+Read no current log lines with timestamps enabled. When combined with C<-f>,
+this starts following future log entries without first printing the existing
+content.
 
 
 =for comment FULL-POD-DOC END

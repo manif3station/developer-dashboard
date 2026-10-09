@@ -207,7 +207,9 @@ The integration run creates:
 - interactive `dashboard stop` and `dashboard restart` runs print the full lifecycle task board on `stderr` before work begins, so managed shutdown and startup waits stay visible instead of looking hung
 - `dashboard stop` and `dashboard restart` default to a final terminal table summary, while `-o json` keeps the machine-readable payload
 - `dashboard stop web`, `dashboard stop collector`, `dashboard stop collector <name>`, `dashboard restart web`, `dashboard restart collector`, `dashboard restart collector <name>`, `dashboard log`, `dashboard logs`, `dashboard log web`, `dashboard log collector`, and `dashboard log collector <name>` all behave as documented, with collector-name completion feeding the scoped collector commands
-- `dashboard logs --tail N`, `dashboard logs --tail=N`, and scoped web/collector tail forms print exactly the requested final lines; `--tail=0` is empty and `-n N` remains compatible
+- `dashboard logs -t`, `-f`, `--tail N`, and `--tail=N` work together across mixed web/collector output, web-only output, all collectors, and one named collector; tail limits the initial snapshot, follow streams only newly appended content from each selected source, and `-n N` remains a compatible tail alias
+- collector `-t` prefixes use each persisted run timestamp; raw web log lines have no stored per-line time, so their timestamp marks the time the log is read
+- `dashboard serve logs` accepts the same timestamp, follow, and tail flags for web-only output
 - runtime stop/restart behavior still works when listener ownership must be
   discovered through `/proc` instead of `ss`
 - Linux host lifecycle runs ignore web and collector pids that belong to a

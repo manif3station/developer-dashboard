@@ -100,6 +100,11 @@ like( $api_out, qr/--output/, 'API root help documents the implicit list output 
 unlike( $api_out, qr/^Key\s+Secret\s+Route/m, 'API help does not continue into the API listing action' );
 ok( !-e File::Spec->catfile( $home, '.developer-dashboard', 'config', 'api.json' ), 'help does not create or mutate the API registry' );
 
+my ( $logs_help_out, $logs_help_err, $logs_help_exit ) = run_cli( 'logs', '--help' );
+is( $logs_help_exit, 0, 'd2 logs --help exits successfully' );
+like( $logs_help_out, qr/Usage: dashboard log \[-t\] \[-f\].*--tail.*\[-n/m, 'd2 logs --help documents timestamps, follow, and both tail forms' );
+is( $logs_help_err, '', 'd2 logs --help emits no parser errors' );
+
 my ( $grep_help_out, $grep_help_err, $grep_help_exit ) = run_cli( 'of', 'grep', '--help' );
 is( $grep_help_exit, 0, 'delegated grep --help exits with grep success status' );
 like( $grep_help_out, qr/^Usage: grep/m, 'delegated grep --help prints the system grep usage' );

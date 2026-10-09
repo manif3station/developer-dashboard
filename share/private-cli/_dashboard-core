@@ -1004,18 +1004,14 @@ elsif ( $cmd eq 'serve' ) {
     _migrate_saved_pages();
     my $action = @ARGV && $ARGV[0] !~ /^-/ ? shift @ARGV : '';
     if ( $action eq 'logs' ) {
-        my $follow = 0;
-        my $lines;
-        GetOptionsFromArray(
-            \@ARGV,
-            'f'   => \$follow,
-            'n=i' => \$lines,
+        require Developer::Dashboard::CLI::RuntimeControl;
+        exit Developer::Dashboard::CLI::RuntimeControl::run_runtime_command(
+            command    => 'logs',
+            args       => [ 'web', @ARGV ],
+            runtime    => $runtime,
+            config     => $config,
+            collectors => $collectors,
         );
-        print $runtime->web_log(
-            follow => $follow,
-            ( defined $lines ? ( lines => $lines ) : () ),
-        );
-        exit 0;
     }
     if ( $action eq 'workers' ) {
         my $workers = shift @ARGV;

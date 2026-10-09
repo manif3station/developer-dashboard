@@ -601,6 +601,10 @@ like($serve_logs, qr/starman boot line/, 'dashboard serve logs prints the web-se
 like($serve_logs, qr/Dancer2 boot line/, 'dashboard serve logs includes Dancer2-side log lines');
 my $serve_logs_tail = _run("$perl -I'$lib' '$dashboard' serve logs -n 1");
 is($serve_logs_tail, "Dancer2 boot line\n", 'dashboard serve logs -n prints only the requested trailing lines');
+my $serve_logs_docker_tail = _run("$perl -I'$lib' '$dashboard' serve logs --tail=1");
+is($serve_logs_docker_tail, "Dancer2 boot line\n", 'dashboard serve logs --tail=N uses the shared Docker-style tail parser');
+my $serve_logs_timestamps = _run("$perl -I'$lib' '$dashboard' serve logs -t --tail=1");
+like( $serve_logs_timestamps, qr/\A\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ Dancer2 boot line\n\z/, 'dashboard serve logs -t timestamps the tailed web log line' );
 {
     require IPC::Open3;
     require Symbol;
@@ -895,6 +899,8 @@ if ( !$UNDER_COVER ) {
     $collector_log_files->write( 'dashboard_log', "web one\nweb two\n" );
     my $top_level_web_log = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' log web" );
     is( $top_level_web_log, "web one\nweb two\n", 'dashboard log web prints only the dashboard web log' );
+    my $top_level_web_timestamp = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' log -t web" );
+    like( $top_level_web_timestamp, qr/\A\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ web one\n/, 'dashboard log -t web prefixes raw web lines with UTC read timestamps' );
 
     my $top_level_collector_logs = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' log collector" );
     like( $top_level_collector_logs, qr/cli\.collector/, 'dashboard log collector prints collector logs without needing the nested collector command' );
@@ -907,6 +913,9 @@ if ( !$UNDER_COVER ) {
     my $everything_log = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' logs" );
     like( $everything_log, qr/web one/, 'dashboard logs includes the dashboard web log in the all-logs view' );
     like( $everything_log, qr/cli\.collector/, 'dashboard logs includes collector logs in the all-logs view' );
+    my $everything_timestamp = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' logs -t" );
+    like( $everything_timestamp, qr/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ web one/, 'dashboard logs -t timestamps web lines in mixed output' );
+    like( $everything_timestamp, qr/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:Z|[+-]\d{4}) === collector cli\.collector/, 'dashboard logs -t timestamps collector records from their event time' );
 
     my $everything_tail_equal = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' logs --tail=2" );
     my @everything_tail_equal_lines = split /\n/, $everything_tail_equal;
@@ -3764,8 +3773,9 @@ immediate child level instead of recursively walking deeper descendants on
 every TAB.
 The open-file smoke cases also prove that content grep returns matching paths
 instead of treating `grep` and its switches as filename patterns.
-Top-level log tests also exercise both `--tail N` and `--tail=N` through public
-helper dispatch, including combined web/collector output and zero-line requests.
+Top-level log tests exercise `-t`, `-f`, `--tail N`, and `--tail=N` through
+public helper dispatch, including web, collector, mixed output, timestamped
+follow, and zero-line requests.
 
 =for comment FULL-POD-DOC START
 
@@ -3779,7 +3789,7 @@ It exists because the thin CLI, helper staging, and low-level runtime contracts 
 
 =head1 WHEN TO USE
 
-Use this file when changing the thin CLI, helper staging, completion candidate scope, cdr directory traversal, and low-level runtime contracts, when a focused CI failure points here, or when you want a faster regression loop than running the entire suite.
+Use this file when changing the thin CLI, helper staging, completion candidate scope, cdr directory traversal, low-level runtime contracts, or public log timestamp/follow/tail behavior, when a focused CI failure points here, or when you want a faster regression loop than running the entire suite.
 
 =head1 HOW TO USE
 

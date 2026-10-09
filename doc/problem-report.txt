@@ -1328,30 +1328,41 @@ Compose run reported `d2 version` 5.70. An earlier 5.69 image had already been
 built in this cycle; the final report therefore uses a distinct 5.70 version.
 No release upload was performed.
 
-Problem 45: Add Docker-style tail options to dashboard logs
-(status: done in 5.75)
+Problem 45: Add Docker-style timestamps, follow, and tail to dashboard logs
+(status: done in 5.77)
 
-Expected outcome: `d2 logs --tail N` and `d2 logs --tail=N` return only the
-final N lines from combined, web-only, collector-only, and named-collector log
-views. `-n N` remains compatible; zero returns no lines; invalid and negative
-counts produce usage text. Existing web-only follow mode remains intact.
+Expected outcome: `d2 logs` supports Docker-style `-t`, `-f`, `--tail N`, and
+`--tail=N` across combined web/collector, web-only, all-collector, and named-
+collector views. Flags combine: tail limits the initial snapshot and follow
+streams later additions. `-n N` remains compatible; zero returns no initial
+lines; invalid and negative counts produce usage text. Collector entries use
+their persisted run timestamp; raw web log lines are timestamped at read time
+because the web log file has no per-line event-time metadata.
 
-Red-first reproduction: an isolated unit fixture supplied several web and
-collector lines and ran the `--tail=2` form. Before implementation it returned
-the full log output rather than only the final two lines. A public CLI smoke
-fixture also exercises both flag spellings, web scope, and a zero-line request.
+Red-first reproduction: in the isolated Docker fixture, seed web and collector
+entries and run the `--tail=2` form, both tail spellings, `-t`, and `-f` for
+each scope. Before tail support, `--tail=2` returned all output; before the
+shared timestamp/follow fix, the flags were not consistently supported across
+scopes and `dashboard serve logs`. Regressions cover timestamp prefixes,
+persisted collector times, append following, truncation, and mixed sources.
 
-Root cause: the runtime-control parser had only `-n`, and its line limiting
-was wired to the web log but not collector or combined output. The fix adds
-both Docker-style `--tail` forms and applies the requested line limit after
-the selected/combined log text is assembled. Verification: 258 files / 23,149
-tests passed; coverage gate passed at 100.0% statement, branch, condition,
-and subroutine coverage (258 files / 23,080 tests). The normal full suite had
-also passed 258 files / 23,149 tests before the final version-only bump. The
-required web/security trio passed 459 tests. `dzil clean`, `dzil build`, and
-`d2 docker.images.build` completed for 5.75; a fresh image reported version
-5.75. The exact 5.75 tarball installed in a blank container with ordinary
-cpanm tests enabled, and installed-runtime integration passed. CPANTS kwalitee
-passed 7/7 indicators. The post-build smart-router guard skipped because the
-dev image lacks Docker CLI. Scorecard remains a post-push check; no push was
-requested.
+Root cause: the runtime-control parser exposed only `-n`, while web follow used
+a blocking reader and could not poll collectors alongside web logs. The fix
+centralizes timestamp/follow/tail parsing, composes sources before applying
+tail, polls selected sources independently, and routes `dashboard serve logs`
+through the shared parser. Verification: 258 files / 23,151 tests passed;
+coverage was 100.0% statement, branch, condition, and subroutine (46,174 detail
+rows, no stale annotations). The focused runtime-control test passed 141
+assertions; help-dispatch passed 469; release metadata 5,427; POD syntax 348
+files; and the web-security trio 459 tests. `perldoc perlsec` and the required
+security scans were reviewed, with no new production findings or dependencies.
+`dzil clean`, `dzil build`, and `d2 docker.images.build` succeeded for 5.76.
+The isolated 5.76 image reported `d2 version` 5.76 and `d2 logs --help` listed
+`-t`, `-f`, and both tail forms. Plain `cpanm` without `--notest` installed the
+archive in a blank Perl 5.44 container, passed package tests, and completed
+installed-runtime integration. The archive contains no `cover_db`; the
+temporary integration Compose project was removed. Problem 44 already records
+environment precedence, so this issue is indexed as Problem 45. Scorecard
+remains post-push and was not run because no push was authorized. The final
+5.77 release-only package refresh carries this report and the tested README/POD
+without changing runtime behavior.

@@ -1,5 +1,22 @@
 # Fixed Bugs
 
+## 5.77
+
+- Finalize Problem 45's packaged report after successful 5.76 image help/version
+  checks and blank-container `cpanm` distribution/integration verification.
+- Keep the tarball's documented completion state aligned with the verified
+  runtime behavior; no runtime behavior changed from 5.76.
+
+## 5.76
+
+- Problem 45: support Docker-style `-t` timestamps and `-f` follow mode for
+  web, collector, named-collector, and mixed logs, composable with both
+  `--tail N` and `--tail=N` forms.
+- Preserve persisted collector run timestamps; stamp raw web log lines at read
+  time because their file format has no stored per-line event timestamps.
+- Update the public logs help and `serve logs` parsing, with coverage for
+  append following, truncation, mixed streams, flags, and error cases.
+
 ## 5.75
 
 - Finalize Problem 45's package and image using a fresh version after the

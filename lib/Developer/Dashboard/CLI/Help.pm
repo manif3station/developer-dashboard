@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Help;
 use strict;
 use warnings;
 
-our $VERSION = '5.75';
+our $VERSION = '5.77';
 
 use Developer::Dashboard::InternalCLI ();
 
@@ -132,11 +132,11 @@ my %COMMANDS = (
     init => { usage => 'dashboard init', description => 'Initialize the user runtime and stage managed helper assets.' },
     jq => { usage => 'dashboard jq [file] [query]', description => 'Query JSON input from a file or standard input.' },
     log => {
-        usage => 'dashboard log [web|collector [name]] [--tail <lines>|--tail=<lines>] [-n <lines>] [-f]',
-        description => 'Print dashboard or collector logs, optionally limited to the final number of lines.',
+        usage => 'dashboard log [-t] [-f] [web|collector [name]] [--tail <lines>|--tail=<lines>] [-n <lines>]',
+        description => 'Print, timestamp, follow, and tail dashboard or collector logs.',
         actions => {
-            web       => [ 'dashboard log web [--tail <lines>|--tail=<lines>] [-n <lines>] [-f]', 'Read or follow the web service log.' ],
-            collector => [ 'dashboard log collector [name] [--tail <lines>|--tail=<lines>]', 'Read one or all collector logs.' ],
+            web       => [ 'dashboard log web [-t] [-f] [--tail <lines>|--tail=<lines>] [-n <lines>]', 'Read, timestamp, follow, or tail the web service log.' ],
+            collector => [ 'dashboard log collector [name] [-t] [-f] [--tail <lines>|--tail=<lines>] [-n <lines>]', 'Read, timestamp, follow, or tail one or all collector logs.' ],
         },
     },
     of => {
@@ -190,7 +190,7 @@ my %COMMANDS = (
         usage => 'dashboard serve [logs|workers] [arguments]',
         description => 'Start the web service or manage its logs and worker count.',
         actions => {
-            logs    => [ 'dashboard serve logs [-n <lines>] [-f]', 'Read or follow web-service logs.' ],
+            logs    => [ 'dashboard serve logs [-t] [-f] [--tail <lines>|--tail=<lines>] [-n <lines>]', 'Read, timestamp, follow, or tail web-service logs.' ],
             workers => [ 'dashboard serve workers <count> [--host <host>] [--port <port>]', 'Set the web worker count.' ],
         },
     },
@@ -284,10 +284,10 @@ my %OPTIONS = (
     'stop web'                => [qw(--output -o --host --port --workers --ssl --no-ssl)],
     'stop collector'          => [qw(--output -o --host --port --workers --ssl --no-ssl)],
     stop                      => [qw(--output -o --host --port --workers --ssl --no-ssl)],
-    'log web'                 => [qw(-f -n --tail)],
-    'log collector'           => [qw(-n --tail)],
-    log                       => [qw(-f -n --tail)],
-    'serve logs'              => [qw(-f -n)],
+    'log web'                 => [qw(-t -f -n --tail)],
+    'log collector'           => [qw(-t -f -n --tail)],
+    log                       => [qw(-t -f -n --tail)],
+    'serve logs'              => [qw(-t -f -n --tail)],
     'serve workers'           => [qw(--host --port)],
     serve                     => [qw(--host --port --workers --ssl --no-ssl --editor --no-editor --endit --no-endit --indicator --no-indicator --indicators --no-indicators --foreground --no-foreground)],
     'skills install'          => [qw(--ddfile --notest --branch -b --output -o)],

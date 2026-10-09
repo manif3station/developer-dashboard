@@ -448,41 +448,71 @@ reported `d2 version` 5.70. The image-build guard had already recorded 5.69
 as used, so the finalized report and repeat artifact checks were assigned this
 distinct version. No release upload was performed.
 
-### Problem 45: Add Docker-style tail options to dashboard logs (done in 5.75)
+### Problem 45: Add Docker-style timestamps, follow, and tail to dashboard logs (done in 5.77)
 
-Expected: `d2 logs --tail 20` and `d2 logs --tail=20` print only the final 20
-lines. Both forms work before or after an optional `web` or `collector` scope,
-and with a named collector. The combined default view limits the combined
-web/collector output; `-n N` remains compatible, `--tail=0` prints nothing,
-and negative or malformed values fail with usage text. Existing `-f` behavior
-continues to follow only the web log.
+Expected: `d2 logs` supports Docker-style `-t`, `-f`, `--tail N`, and
+`--tail=N` across the default mixed web/collector view, web-only output, all
+collector logs, and a named collector. Flags combine: tail limits the initial
+snapshot and follow continues with appended entries. `-n N` remains a
+compatible tail alias; zero prints no initial lines, and malformed or
+negative counts fail with usage text. Collector lines use their persisted run
+timestamp. Raw web log lines have no historical per-line timestamp, so `-t`
+uses the time the command reads those lines.
 
-Reproduction: in an isolated runtime, seed the dashboard log with multiple
-lines and a collector log with multiple lines, then run `d2 logs --tail=2`,
-`d2 logs --tail 2`, `d2 log web --tail=1`, and
-`d2 logs --tail=0`. Before the fix, the red-first regression showed the
-`--tail=2` form returned the entire combined output instead of its final two
-lines.
+Reproduction: seed isolated web and collector logs, then run
+`d2 logs -t --tail=2`, `d2 logs -f --tail 2`, `d2 logs web -t -f`,
+`d2 logs collector -t -f`, and `d2 logs collector NAME -t -f`. Before the
+timestamp change, `-t` was rejected for every scope. Before the follow change,
+`-f` was rejected for collector and mixed scopes. The original Problem 45
+regression also showed `--tail=2` returning the full combined output instead
+of its final two lines.
 
-Root cause: the shared runtime-control parser exposed `-f` and `-n` only, and
-the existing line count was passed through only to the web log. Collector and
-combined views therefore had no final-output tail operation.
+Root cause: the runtime-control parser had no timestamp flag, and web follow
+delegated to a blocking reader that prevented the CLI from polling collector
+logs. Collector output was rendered from completed persisted records instead
+of being watched as an append-only source.
 
-Implementation: the runtime-control CLI accepts `--tail N` and `--tail=N`,
-retains `-n N`, and applies the limit to combined, web, collector, and named
-collector output. Zero is valid; invalid and negative values fail with usage.
-Help/completion metadata and the manual were updated.
+Root-cause fix: the shared runtime-control parser accepts `-t`, `-f`,
+`--tail N`, and `--tail=N` (retaining `-n N`). It timestamps collector output
+from persisted run records and uses UTC read time for raw web records, whose
+file format has no historical per-line timestamp. Tail is applied to the
+selected output after source composition and timestamp formatting. Follow
+polls each source independently, emits only appended bytes, and restarts from
+the beginning when a log is truncated. `dashboard serve logs` delegates to
+the same parser, so its options and validation stay aligned. The shared help
+catalog, option completion metadata, README, POD, and integration plan are
+updated.
 
-Verification: the full Docker coverage gate passed 258 files / 23,080 tests
-with 100.0% statement, branch, condition, and subroutine coverage (46,040
-detail rows examined; no stale uncoverable annotations). The normal full suite
-also passed 258 files / 23,149 tests before the final version-only bump.
-Environment-dependent QEMU and Chromium tests were skipped as documented.
-The targeted log CLI/runtime/help tests passed; the required web/security
-trio passed 459 tests; and `git diff --check` passed. `dzil clean`,
-`dzil build`, and `d2 docker.images.build` completed for 5.75; an isolated
-image reported `d2 version` 5.75. The exact 5.75 tarball installed in a blank
-container with ordinary `cpanm` (tests enabled), and the installed-runtime
-integration run passed. CPANTS kwalitee passed all 7/7 indicators. The
-post-build smart-router guard skipped because the dev container lacks the
-Docker CLI. Scorecard remains a post-push check; no push was requested.
+Docker verification: the focused runtime-control test passes 141 assertions,
+and the full instrumented Docker suite passes 258 files / 23,151 tests. The
+four-metric gate reports 100.0% statement, branch, condition, and subroutine
+coverage (46,174 detail rows; no stale uncoverable annotations). The focused
+help-dispatch test passes 469 assertions; release metadata passes 5,427 tests;
+POD syntax passes 348 files; and the required web-security trio passes 459
+tests. The 5.77 image reports `d2 version` 5.77 and `d2 logs --help` lists
+`-t`, `-f`, `--tail N`, and `--tail=N`. Plain `cpanm` (without `--notest`)
+installed the archive in a blank Perl 5.44 container, passed the distribution
+tests, and completed installed-runtime integration. `dzil clean`,
+`dzil build`, and `d2 docker.images.build` succeeded for 5.76; the archive
+contains no `cover_db`. The isolated integration Compose project was removed
+after the run. The 5.76 feature build's tarball installation and integration
+also passed; 5.77 only finalizes release metadata and these archived results.
+
+Security review (ASVS 5.0 applicability): V1, V2, V3, V4, V6, V8, V9, V10,
+V11, V13, and V14 have no changed controls for this local CLI log reader. V5
+is relevant to strict option/count parsing and registered collector-name
+validation; V7 to visible read/follow errors and timestamped output; V12 to
+reading only the existing FileRegistry/Collector log sources. No command
+execution, write path, route, authentication behavior, dependency, or secret
+handling changed. The OWASP Top 10 cross-check found no new A01/A02/A06/A07/A10
+surface; A03 input handling, A04 follow/tail behavior, A05 CLI defaults, A08
+packaging integrity, and A09 log visibility were reviewed and regression
+tested. Required forbidden-library, sensitive-pattern, header, auth/session,
+SQL, redirect, path, and process-execution scans produced no new production
+finding. `perldoc perlsec` was reviewed for untrusted arguments, command
+execution, and file access; no shell or user-selected path is introduced.
+
+Problem numbering note: Problem 44 is already used for environment precedence
+in the repository report, so this log issue remains Problem 45 rather than
+overwriting that completed entry. Scorecard is a post-push gate under repo
+policy and was not run because this task did not authorize a push.

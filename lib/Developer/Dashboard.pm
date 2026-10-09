@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.75';
+our $VERSION = '5.77';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.75
+5.77
 
 =head1 INTRODUCTION
 
@@ -2828,9 +2828,11 @@ turns it back off
 
 =item *
 
-C<dashboard serve logs> prints the combined Dancer2 and Starman runtime log
-captured in the dashboard log file, C<dashboard serve logs -n 100> starts from
-the last 100 lines, and C<dashboard serve logs -f> follows appended output live
+C<dashboard serve logs> prints the web-service runtime log captured in the
+dashboard log file. C<-t> prefixes lines with UTC timestamps, C<--tail N>,
+C<--tail=N>, and C<-n N> limit the initial output, and C<-f> follows appended
+lines. For example, C<dashboard serve logs -t --tail 100 -f> starts with the
+final 100 lines and then follows new output.
 
 =item *
 
@@ -2921,22 +2923,28 @@ last 100 lines of the combined output. The same C<--tail> option accepts both
 spellings for C<dashboard log web>, C<dashboard log collector>, and a named
 collector log. C<-n N> remains a compatible short form. C<--tail=0> prints no
 lines; negative or non-integer counts are rejected with usage information.
+C<-t> prefixes each displayed line with a UTC timestamp. Collector output uses
+the recorded run timestamp; raw web output, which has no stored per-line event
+time, uses the time it is read. C<-f> follows new lines from web logs, one
+collector, all collectors, or the combined view. Flags may be combined, so
+C<dashboard logs -f -t --tail 50> starts with the last 50 combined lines and
+continues following both sources.
 
 =item *
 
-C<dashboard log web> prints only the dashboard web log and still supports
+C<dashboard log web> prints only the dashboard web log and supports C<-t>,
 C<--tail N>, C<--tail=N>, C<-n N>, and C<-f>
 
 =item *
 
-C<dashboard log collector> prints only collector logs and accepts the same
-trailing-line limit
+C<dashboard log collector> prints only collector logs and accepts C<-t>,
+C<-f>, and the same trailing-line limit
 
 =item *
 
 C<dashboard log collector E<lt>nameE<gt>> prints only the requested collector
-log, accepts C<--tail N> and C<--tail=N>, and collector-name shell completion
-suggests registered collector names
+log, accepts C<-t>, C<-f>, C<--tail N>, and C<--tail=N>, and collector-name
+shell completion suggests registered collector names
 
 =item *
 

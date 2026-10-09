@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.75
+5.77
 
 # INTRODUCTION
 
@@ -2394,9 +2394,11 @@ whole top-right browser-only chrome area, including the status strip,
 username, host or IP link, and live date-time line, and persisting that flag
 for later `dashboard restart` runs until `dashboard serve --indicators`
 turns it back off
-- `dashboard serve logs` prints the combined Dancer2 and Starman runtime log
-captured in the dashboard log file, `dashboard serve logs -n 100` starts from
-the last 100 lines, and `dashboard serve logs -f` follows appended output live
+- `dashboard serve logs` prints the web-service runtime log captured in the
+dashboard log file. `-t` prefixes lines with UTC timestamps, `--tail N`,
+`--tail=N`, and `-n N` limit the initial output, and `-f` follows appended
+lines. For example, `dashboard serve logs -t --tail 100 -f` starts with the
+final 100 lines and then follows new output.
 - `dashboard serve workers N` saves the default Starman worker count and starts
 the web service immediately when it is currently stopped; `--host HOST` and
 `--port PORT` can steer that auto-start path, and both
@@ -2451,13 +2453,19 @@ last 100 lines of the combined output. The same `--tail` option accepts both
 spellings for `dashboard log web`, `dashboard log collector`, and a named
 collector log. `-n N` remains a compatible short form. `--tail=0` prints no
 lines; negative or non-integer counts are rejected with usage information.
-- `dashboard log web` prints only the dashboard web log and still supports
+`-t` prefixes each displayed line with a UTC timestamp. Collector output uses
+the recorded run timestamp; raw web output, which has no stored per-line event
+time, uses the time it is read. `-f` follows new lines from web logs, one
+collector, all collectors, or the combined view. Flags may be combined, so
+`dashboard logs -f -t --tail 50` starts with the last 50 combined lines and
+continues following both sources.
+- `dashboard log web` prints only the dashboard web log and supports `-t`,
 `--tail N`, `--tail=N`, `-n N`, and `-f`
-- `dashboard log collector` prints only collector logs and accepts the same
-trailing-line limit
+- `dashboard log collector` prints only collector logs and accepts `-t`,
+`-f`, and the same trailing-line limit
 - `dashboard log collector <name>` prints only the requested collector
-log, accepts `--tail N` and `--tail=N`, and collector-name shell completion
-suggests registered collector names
+log, accepts `-t`, `-f`, `--tail N`, and `--tail=N`, and collector-name
+shell completion suggests registered collector names
 - interactive restart and stop task boards mark the active step with a blue
 `-`, stream active detail lines in blue, mark completed steps with a green
 `[OK]`, mark failed steps with a red `[X]` plus red failure detail lines,

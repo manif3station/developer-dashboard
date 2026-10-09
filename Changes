@@ -1,3 +1,21 @@
+5.77  2026-10-09
+
+  - Finalize Problem 45's report and package evidence after the 5.76 runtime
+    image and blank-container installation/integration checks passed.
+  - Keep the source README/POD, problem reports, changelog, and release version
+    aligned in the final distribution archive.
+
+5.76  2026-10-09
+
+  - Problem 45: add Docker-style -t timestamps and -f follow mode to dashboard
+    logs, including combined web/collector output, all collectors, and a named
+    collector; keep --tail N, --tail=N, and -n N composable across the views.
+  - Keep collector record timestamps when available; timestamp web log lines at
+    read time because the persisted web log does not store per-line event time.
+  - Route `dashboard serve logs` through the shared parser and update help,
+    shell-completion metadata, README/POD, and integration documentation.
+  - Add follow, timestamp, mixed-source, and coverage-closure regressions.
+
 5.75  2026-10-09
 
   - Finalize Problem 45's 5.75 package and runtime image after the 5.74 image
