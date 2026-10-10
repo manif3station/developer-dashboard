@@ -326,11 +326,15 @@ side-channel browser install step.
 
 ## Pass Criteria
 
-The separate Docker Hub image workflow has its own packaging gate: it must
-build from the master checkout, run `install.sh`, build the Dist::Zilla source
-archive, install and test that exact archive with `cpanm`, and publish version
-and `latest` tags for Linux amd64 and arm64. The workflow contract is covered
-by `t/228-dockerhub-image-workflow.t`; Docker Hub publication itself requires
+The separate Docker Hub image workflow builds from the master checkout, runs
+`install.sh`, builds the Dist::Zilla source archive, installs that exact
+archive into the runtime image with `cpanm --notest`, and publishes version
+and `latest` tags for Linux amd64 and arm64. Full test and coverage gates must
+pass before publication; rerunning the full suite under QEMU for each target
+architecture duplicated that work and caused the 120-minute workflow timeout.
+The exact tarball still receives a tested `cpanm` install in the blank Docker
+environment above. The workflow contract is covered by
+`t/228-dockerhub-image-workflow.t`; Docker Hub publication itself requires
 GitHub-managed credentials and is verified in the Actions run.
 
 The run passes when:

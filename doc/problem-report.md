@@ -727,3 +727,41 @@ A10 do not gain a changed access-control, cryptography, dependency, identity,
 or request-forgery surface. Required security scans and web/static/SSL tests
 passed in Docker; post-push Scorecard governance findings are tracked separately
 from code-side security controls.
+
+#### Problem 47 timeout correction (2026-10-10; release version 5.84)
+
+Expected outcome: the GitHub multi-platform publish completes inside its
+120-minute job limit and installs the current tarball into both runtime image
+architectures. The full test and coverage gates still run before packaging;
+image assembly must not repeat the full suite under QEMU.
+
+Reproduction and root cause: pushed commit `aed8ab8d` triggered Actions run
+`38078551920`. Setup, source checkout, version validation, QEMU/Buildx setup,
+credential validation, and Docker Hub login all passed. The image build stayed
+in progress until the configured 120-minute job timeout cancelled it. The
+Dockerfile's final `cpanm` installation had no `--notest`, so it reran the
+23,000+ test suite for each emulated target architecture despite the separate
+full repository and coverage gates.
+
+Red test: updated `t/228-dockerhub-image-workflow.t` first to require
+`cpanm --notest --reinstall` for installing the generated archive. Running it
+inside the Docker `dev` service failed at that assertion against the old
+Dockerfile (31 passed, 1 failed), reproducing the unwanted duplicate suite.
+
+Fix: the runtime image now installs the newly built, version-matched tarball
+with `cpanm --notest --reinstall`. This does not weaken verification: full
+repository and coverage gates remain mandatory, and the blank-container
+integration gate installs the exact archive with tests enabled. The contract
+test then passed all 32 assertions in the Docker `dev` service. The post-fix
+5.84 full suite passed in Docker (`259` files, `23,284` tests); statement,
+branch, condition, and subroutine coverage each measured `100.0%`. The focused
+release/security/workflow gate passed `5,625` tests, and the required
+web/static/SSL gate passed `459`. `dzil clean` and `dzil build` produced only
+`Developer-Dashboard-5.84.tar.gz`; archive inspection confirmed 5.84, inclusion
+of workflow/release tests, and no `cover_db`. The standard local image build
+and a fresh one-off container both returned `d2 version` 5.84. A direct local
+build of the workflow Dockerfile also completed and its one-off image returned
+5.84. Finally, the blank Perl 5.44 Docker environment installed that archive
+with cpanm tests enabled and completed the integration harness successfully.
+The corrected 5.84 GitHub publish and post-push Scorecard remain pending this
+version's push.

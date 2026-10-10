@@ -37,9 +37,11 @@ RUN source_version="$(awk -F ' = ' '$1 == "version" { print $2; exit }' dist.ini
     && test "${source_version}" = "${DIST_VERSION}" \
     && dzil build
 
+# The full suite and coverage gate run before packaging; do not repeat the
+# 23,000+ test suite under QEMU for every published architecture.
 RUN archive="Developer-Dashboard-${DIST_VERSION}.tar.gz" \
     && test -f "${archive}" \
-    && cpanm --verbose --reinstall --local-lib=/root/perl5 "${archive}" \
+    && cpanm --notest --reinstall --local-lib=/root/perl5 "${archive}" \
     && rm -rf /workspace
 
 WORKDIR /root

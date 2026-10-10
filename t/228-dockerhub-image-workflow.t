@@ -55,7 +55,7 @@ like( $dockerfile, qr/DD_INSTALL_CPAN_TARGET=Developer::Dashboard\s+\.\/install\
 like( $dockerfile, qr/Dist::Zilla::Plugin::ManifestSkip/, 'the build installs the repository Dist::Zilla plugin set' );
 like( $dockerfile, qr/dzil\s+build/, 'the checked-out current source is built into a tarball' );
 like( $dockerfile, qr/archive\s*=\s*"Developer-Dashboard-\$\{DIST_VERSION\}\.tar\.gz"/, 'the image names the archive from the checked-out distribution version' );
-like( $dockerfile, qr/cpanm\s+(?:--verbose\s+)?--reinstall\s+--local-lib=\/root\/perl5\s+"\$\{archive\}"/, 'the image reinstalls and tests that newly built tarball even when install.sh fetched the same CPAN version' );
+like( $dockerfile, qr/cpanm\s+(?:--verbose\s+)?--notest\s+--reinstall\s+--local-lib=\/root\/perl5\s+"\$\{archive\}"/, 'the image installs the newly built tarball without repeating the full test suite already covered by repository gates' );
 like( $dockerfile, qr/ENTRYPOINT\s+\[\s*"d2"\s*\]/, 'the published image starts the installed d2 command' );
 like( $dockerfile, qr/arm64.*Apple Silicon|Apple Silicon.*arm64/is, 'the Dockerfile documents arm64 use on Apple Silicon without claiming a macOS container platform' );
 unlike( $workflow, qr/platforms:[^\n]*darwin|platforms:\s*[^\n]*macos/i, 'the workflow does not request an unsupported macOS container platform' );

@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.83
+5.84
 
 # INTRODUCTION
 
@@ -2218,14 +2218,19 @@ The repository's master-push workflow publishes a runnable Docker image from
 the latest `master` checkout. It first runs the repository `install.sh` to
 install the platform tools and Perl environment, then builds a fresh
 Dist::Zilla archive from that checked-out source and installs that archive
-into the image with `cpanm`. This final local-archive install deliberately
+into the image with `cpanm --notest`. This final local-archive install deliberately
 replaces the version that the bootstrap installer may have fetched from
 MetaCPAN, so the image contains the current repository code.
+
+The regular container/release gates run the full test and coverage suites
+before publishing. The multi-platform image build skips rerunning those suites
+under QEMU for each target architecture; the tarball itself is still installed
+and its install is verified separately in a blank Docker environment.
 
 The workflow selects the GitHub Actions environment `release`, whose
 secrets `DOCKER_HUB_USER` and `DOCKER_HUB_TOKEN` provide the Docker Hub
 credentials. It pushes two tags under `DOCKER_HUB_USER/developer-dashboard`:
-the distribution version read from `dist.ini` (for example `5.83`) and
+the distribution version read from `dist.ini` (for example `5.84`) and
 `latest`. A manual workflow dispatch also builds the current `master`
 branch. The image targets `linux/amd64` and
 `linux/arm64`; Docker does not support a macOS-kernel image platform, while
@@ -2236,7 +2241,7 @@ and every GitHub Action dependency is pinned to a full commit SHA.
 For example, pull the moving tag or a pinned version:
 
     docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:latest
-    docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:5.83
+    docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:5.84
 
 The container entrypoint is `d2`. The versioned tag is intended for selecting
 a known image build; `latest` follows successful master builds.

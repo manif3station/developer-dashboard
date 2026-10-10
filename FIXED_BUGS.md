@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 5.84
+
+- Problem 47: prevent the multi-platform GitHub image build from repeating the
+  full 23,000+ test suite under QEMU per architecture, which caused the 120
+  minute workflow timeout. The complete repository gates remain required, and
+  the newly built distribution is still installed into the runtime image.
+
 ## 5.83
 
 - Problem 46: reuse a running workspace container without rebuilding it; when

@@ -1,3 +1,12 @@
+5.84  2026-10-10
+
+  - Problem 47: fix the Docker Hub publication timeout by avoiding a second
+    full test-suite run under QEMU for each target architecture. Full suite and
+    coverage gates remain mandatory before publication; install the checked-out
+    tarball with cpanm --notest in the runtime image.
+  - Add a red-first workflow contract test for this install policy and document
+    the distinction between release verification and image assembly.
+
 5.83  2026-10-10
 
   - Problem 46 regression: reuse an already-running Docker workspace service

@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '5.83';
+our $VERSION = '5.84';
 
 my $DOCKER_WORKSPACE_CONFIGS = '/dev/shm/developer-dashboard-workspace-config';
 
