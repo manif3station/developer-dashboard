@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Complete;
 use strict;
 use warnings;
 
-our $VERSION = '5.77';
+our $VERSION = '5.79';
 
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::Config;
@@ -347,6 +347,12 @@ Example 6:
 
 Print option candidates for the API add action, including long options, short
 aliases, and the explicit help flags.
+
+Example 7:
+
+  dashboard complete 2 d2 workspace -
+
+Offer workspace flags including C<-d> and C<--docker> without querying tmux.
 
 =for comment FULL-POD-DOC END
 

@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::RuntimeControl;
 use strict;
 use warnings;
 
-our $VERSION = '5.77';
+our $VERSION = '5.79';
 
 use Getopt::Long qw(GetOptionsFromArray);
 use Time::HiRes qw(sleep);
@@ -267,7 +267,7 @@ sub _follow_log_sources {
             config     => $args{config},
             collectors => $args{collectors},
         );
-        for my $source ( sort { $a eq 'web' ? -1 : $b eq 'web' ? 1 : $a cmp $b } keys %$current ) {
+        for my $source ( _sort_log_source_names( keys %$current ) ) {
             my $text = $current->{$source} // '';
             my $old_offset = $offset{$source} // 0;
             $old_offset = 0 if length($text) < $old_offset;
@@ -279,6 +279,20 @@ sub _follow_log_sources {
             $offset{$source} = length $text;
         }
     }
+}
+
+# _sort_log_source_names(@sources)
+# Orders snapshot source names with the web stream first and collector streams
+# in lexical order. Input: list of source-name strings. Output: ordered list.
+sub _sort_log_source_names {
+    my @sources = @_;
+    return sort {
+        my $a_web = $a eq 'web' ? 0 : 1;
+        my $b_web = $b eq 'web' ? 0 : 1;
+        my $priority = $a_web <=> $b_web;
+        return $priority if $priority != 0;
+        return $a cmp $b;
+    } @sources;
 }
 
 # _timestamp_log_text($text)
@@ -528,6 +542,7 @@ counts are rejected with usage text. C<-t> prefixes log lines with UTC
 timestamps; collector entries use their recorded event time and raw web output
 uses the time it is read. C<-f> follows newly appended lines in web, collector,
 or combined scope; when combined, it polls both sources without blocking on one.
+Follow output places the web stream first, then collector streams alphabetically.
 
 =for comment FULL-POD-DOC START
 

@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Help;
 use strict;
 use warnings;
 
-our $VERSION = '5.77';
+our $VERSION = '5.79';
 
 use Developer::Dashboard::InternalCLI ();
 
@@ -231,7 +231,10 @@ my %COMMANDS = (
     upgrade => { usage => 'dashboard upgrade [--dry-run]', description => 'Download and run the canonical dashboard installer.' },
     version => { usage => 'dashboard version', description => 'Print the installed Developer Dashboard version.' },
     which => { usage => 'dashboard which [--edit] <cmd-or-skill-command>', description => 'Resolve a command and show its hook chain.' },
-    workspace => { usage => 'dashboard workspace <name> [options]', description => 'Create or attach to a tmux workspace session.' },
+    workspace => {
+        usage => 'dashboard workspace <name> [-c] [-d|--docker]',
+        description => 'Create or attach to a tmux workspace session; Docker mode uses the Compose service named workspace, which must be running with the alias mounted at /workspace.',
+    },
     xmlq => { usage => 'dashboard xmlq [file] [query]', description => 'Query XML input from a file or standard input.' },
     yq => { usage => 'dashboard yq [file] [query]', description => 'Query YAML input from a file or standard input.' },
 );
@@ -299,7 +302,7 @@ my %OPTIONS = (
     source                    => [qw(--files)],
     upgrade                   => [qw(--dry-run)],
     which                     => [qw(--edit --no-edit)],
-    workspace                 => [qw(-c)],
+    workspace                 => [qw(-c -d --docker)],
     of                        => [qw(--print --no-print --line --editor --online --no-online)],
     'open-file'               => [qw(--print --no-print --line --editor --online --no-online)],
     cpan                      => [],
@@ -613,6 +616,9 @@ without actionable help and valid actions out of TAB suggestions. This module
 holds one tested inventory for built-in helpers, the switchboard's direct
 C<version> command, compatibility aliases, nested actions, and concise synopsis
 text.
+The workspace catalog documents C<-c> and the Docker flags C<-d> and
+C<--docker>; Docker mode requires a registered path alias and runs through a
+Compose service named C<workspace>.
 
 =head1 WHEN TO USE
 
@@ -624,6 +630,7 @@ subcommand, a compatibility alias, or changing the public CLI syntax.
   my $help = Developer::Dashboard::CLI::Help::help_text('docker', 'compose');
   my @actions = Developer::Dashboard::CLI::Help::actions_for('path');
   my @options = Developer::Dashboard::CLI::Help::options_for('api', 'add');
+  my @workspace_options = Developer::Dashboard::CLI::Help::options_for('workspace');
   my @request = Developer::Dashboard::CLI::Help::help_request(
       command => 'api', args => ['--help'],
   );
@@ -655,6 +662,7 @@ actions, flags, and targets following global help.
   dashboard of --print grep --help
   dashboard docker compose config --help
   dashboard docker compose --service dev exec dev docker --help
+  d2 workspace --help
   dashboard of grep --help
   dashboard help docker development
   dashboard complete 3 dashboard api add -

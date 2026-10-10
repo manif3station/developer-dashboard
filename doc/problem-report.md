@@ -514,5 +514,58 @@ execution, and file access; no shell or user-selected path is introduced.
 
 Problem numbering note: Problem 44 is already used for environment precedence
 in the repository report, so this log issue remains Problem 45 rather than
-overwriting that completed entry. Scorecard is a post-push gate under repo
-policy and was not run because this task did not authorize a push.
+overwriting that completed entry. The verified change was committed and pushed;
+post-push Scorecard reported an 8.1/10 aggregate with remaining external project
+settings, approval history, contributor makeup, and badge enrollment items.
+
+### Problem 46: Start path-alias workspaces inside Docker (done)
+
+Expected: `d2 workspace -c <alias> --docker` (or `-d`) resolves the registered
+path alias, changes to its directory, and runs `d2 docker compose up -d --build
+workspace`. Only after that succeeds should it run `d2 docker compose exec
+workspace d2 path add <alias> /workspace` and then
+`d2 docker compose exec workspace d2 workspace <alias> -c`. If the Compose
+`workspace` service is absent or fails to start, print an actionable setup
+error and run neither in-container command. Without Docker mode, workspace
+behavior must remain the existing local tmux flow.
+
+Reproduction: define a path alias to a project directory, then run
+`d2 workspace -c <alias> --docker` and the `-d` spelling. Before this change,
+workspace accepted only `-c` and always created or attached to a tmux session
+on the host. Also try `-d` without `-c`, a raw absolute path, and an isolated
+Compose project lacking a `workspace` service.
+
+Root cause: `workspace` stripped only `-c`, then unconditionally created and
+attached to the host's tmux session. It had no Docker option, Compose handoff,
+or guard ensuring the container setup completed before in-container commands.
+
+Red tests: `t/91-cli-ticket-coverage.t` adds command-order, alias cwd, invalid
+option/path, no-service, and setup-stage failure checks; `t/266-cli-help-dispatch.t`
+and `t/39-cli-suggest-complete-coverage.t` cover public help and completion.
+The initial new orchestration assertions failed before implementation.
+
+Root-cause fix: the workspace parser now recognizes `-d`/`--docker` alongside
+`-c`, resolves and changes into the registered alias directory, then hands off
+to the public Docker Compose command with an argument list (no shell). It runs
+the requested three Compose stages in order and stops with a service-setup
+message if startup fails; alias-registration and inner-workspace failures also
+stop the sequence. Omitting Docker mode retains the existing local tmux path.
+
+Verification: the full test and four-metric coverage gate passed inside the
+`dev` container (258 files, 23,201 tests; statement, branch, condition, and
+subroutine coverage all 100.0%). Required focused web/SSL tests passed (3 files,
+459 tests). The real checkout invocation against this repository's effective
+Compose config failed at startup because that config has only `d2` and `dev`,
+not `workspace`; the helper printed setup guidance and confirmed it ran no
+in-container commands. Injected-runner integration tests verify exact successful
+stage order and early stopping on each failure. The initial blank-container
+package run exposed a fixture issue: without an init reaper, process-group tests
+left descendants observable as zombies. After recreating the isolated Compose
+service with `init: true`, plain `cpanm` (without `--notest`) installed 5.78 and
+passed the packaged test suite (128 distributions installed). The completed
+problem report was finalized after that build, so the version guard required a
+5.79 artifact refresh; the runtime code is unchanged from 5.78. The repository
+itself does not configure a `workspace` service, so a real successful
+interactive workspace session could not be started here; the service-absent
+behavior was exercised directly and the success sequence is verified by the
+ordered runner tests.

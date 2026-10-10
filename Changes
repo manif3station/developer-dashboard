@@ -1,3 +1,21 @@
+5.79  2026-10-10
+
+  - Reissue Problem 46's distribution with the completed problem report.
+    Runtime behavior is unchanged from 5.78; this version is required because
+    the 5.78 image build has already been recorded today.
+  - Preserve the ordered Docker workspace startup, alias registration, and
+    in-container workspace behavior with both help and completion forms.
+
+5.78  2026-10-10
+
+  - Problem 46: add `d2 workspace -c <alias> --docker` and the `-d` shorthand
+    for running a normal tmux workspace inside a configured Compose service.
+  - Start the `workspace` service first, add the alias at `/workspace` in the
+    container, then start the inner workspace; stop with an actionable error
+    before subsequent commands if any earlier stage fails.
+  - Preserve the existing local tmux flow without Docker mode; document and
+    complete help and shell option completion for both Docker spellings.
+
 5.77  2026-10-09
 
   - Finalize Problem 45's report and package evidence after the 5.76 runtime

@@ -314,6 +314,17 @@ sub base_args {
 
 # ---------------------------------------------------------- _run_log_command
 
+is_deeply(
+    [ Developer::Dashboard::CLI::RuntimeControl::_sort_log_source_names(qw(collector:beta web collector:alpha)) ],
+    [qw(web collector:alpha collector:beta)],
+    'log source ordering always puts web first and keeps collector sources alphabetical',
+);
+is_deeply(
+    [ Developer::Dashboard::CLI::RuntimeControl::_sort_log_source_names(qw(collector:beta collector:alpha)) ],
+    [qw(collector:alpha collector:beta)],
+    'log source ordering compares collector names alphabetically when neither source is web',
+);
+
 {
     my %a = base_args(
         runtime    => Test::RC::Runtime->new( web_log_result => "web old\nweb newest\n" ),
@@ -935,7 +946,8 @@ output-format choices, none of which had ever been exercised.
 Use this file when changing C<run_runtime_command>, the restart/stop lifecycle
 parser, the log/logs parser and timestamp/follow/tail behavior, collector name resolution,
 the optional progress board, or the default table/JSON rendering for
-runtime-control commands.
+runtime-control commands. The source-name sorter test also pins web-first and
+alphabetical collector ordering for follow-mode output.
 
 =head1 HOW TO USE
 

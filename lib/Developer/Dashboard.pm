@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.77';
+our $VERSION = '5.79';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.77
+5.79
 
 =head1 INTRODUCTION
 
@@ -795,6 +795,19 @@ after the workspace name remains available to explicitly request this behavior;
 when C<-c> is used with an unregistered name, the command fails with an explicit
 error instead of silently starting from the wrong directory. The tmux session
 and its layered C<.env> refresh both start from the resolved directory.
+Add C<-d> or C<--docker> with C<-c> and a registered path alias to run that
+workspace inside a Compose service named C<workspace>: C<d2 workspace -c
+E<lt>aliasE<gt> --docker>. The command changes to the host alias target, runs
+C<d2 docker compose up -d --build workspace>, registers that alias as
+C</workspace> inside the container with C<d2 path add>, then runs
+C<d2 workspace E<lt>aliasE<gt> -c> there to start the normal tmux workspace
+inside the container. If the Compose service cannot start, the command asks the
+user to configure the C<workspace> service and stops before running either
+in-container command. Alias registration and inner workspace failures also stop
+the sequence and remain visible. C<-d> requires C<-c> and a registered alias;
+the existing local workspace flow remains unchanged when Docker mode is not
+selected. The configured service must bind-mount the alias target at
+C</workspace> and stay running so Compose can execute the in-container commands.
 
 Built-in commands and actions share a help catalog used by both command
 dispatch and shell completion. Use C<d2 help> for a concise command index,

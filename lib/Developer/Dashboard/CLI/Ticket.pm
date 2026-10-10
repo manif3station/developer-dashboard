@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '5.77';
+our $VERSION = '5.79';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -38,20 +38,25 @@ our @EXPORT_OK = qw(
 # Separates the workspace -c change-directory flag from the remaining argv so
 # the flag can appear before or after the workspace name.
 # Input: array reference of workspace command arguments.
-# Output: list of cleaned argv array reference and boolean change-directory flag.
+# Output: cleaned argv array reference, change-directory flag, and Docker-mode flag.
 sub split_workspace_change_dir_args {
     my ($argv) = @_;
     die 'Workspace args must be an array reference' if ref($argv) ne 'ARRAY';
     my $change_dir = 0;
+    my $docker = 0;
     my @clean;
     for my $arg ( @{$argv} ) {
         if ( defined $arg && $arg eq '-c' ) {
             $change_dir = 1;
             next;
         }
+        if ( defined $arg && ( $arg eq '-d' || $arg eq '--docker' ) ) {
+            $docker = 1;
+            next;
+        }
         push @clean, $arg;
     }
-    return ( \@clean, $change_dir );
+    return ( \@clean, $change_dir, $docker );
 }
 
 # registered_workspace_dir($name)
@@ -264,6 +269,69 @@ sub _dashboard_command_path {
     my $path = command_in_path('dashboard');
     return $path if defined $path;
     return 'dashboard';
+}
+
+# _run_workspace_docker_compose(%args)
+# Runs the public dashboard Docker Compose helper without invoking a shell.
+# Input: Compose argv array reference.
+# Output: hash reference with an exit_code field.
+sub _run_workspace_docker_compose {
+    my (%args) = @_;
+    local $?;
+    my $argv = $args{args} || [];
+    die 'Docker Compose args must be an array reference' if ref($argv) ne 'ARRAY';
+    my $entrypoint;
+    if ( defined $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} && $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} ne '' ) {
+        $entrypoint = $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT};
+    }
+    else {
+        $entrypoint = command_in_path('d2');
+        $entrypoint = _dashboard_command_path() if !defined $entrypoint;
+    }
+    my $status = system { $entrypoint } $entrypoint, 'docker', 'compose', @{$argv};
+    die "Unable to execute d2 Docker Compose command '$entrypoint': $!\n" if $status == -1;
+    my $signal = $status & 127;
+    return { exit_code => $signal ? 128 + $signal : $status >> 8 };
+}
+
+# _run_docker_workspace(%args)
+# Starts the Compose workspace service, registers the alias in-container, then
+# launches the normal workspace command inside that service.
+# Input: workspace alias, resolved host directory, and optional Compose runner.
+# Output: hash reference describing the completed container workspace flow.
+sub _run_docker_workspace {
+    my (%args) = @_;
+    my $workspace = $args{workspace} || die 'Missing workspace alias';
+    my $target = $args{target} || die 'Missing workspace target directory';
+    my $compose = $args{docker_compose} || \&_run_workspace_docker_compose;
+    my @steps = (
+        [ start          => [ 'up', '-d', '--build', 'workspace' ] ],
+        [ register_alias => [ 'exec', 'workspace', 'd2', 'path', 'add', $workspace, '/workspace' ] ],
+        [ start_workspace => [ 'exec', 'workspace', 'd2', 'workspace', $workspace, '-c' ] ],
+    );
+
+    for my $step (@steps) {
+        my ( $stage, $argv ) = @{$step};
+        my $result = $compose->( args => $argv, stage => $stage, project_root => $target );
+        $result = { exit_code => $result } if !ref $result;
+        die "Docker Compose runner must return an exit code for '$stage'\n"
+          if ref($result) ne 'HASH' || !defined $result->{exit_code};
+        next if $result->{exit_code} == 0;
+
+        my $detail = ( $result->{stderr} || '' ) . ( $result->{stdout} || '' );
+        if ( $stage eq 'start' ) {
+            die "Unable to start Docker workspace service 'workspace' (exit $result->{exit_code}). Check the Compose output above; configure a 'workspace' service before retrying. No in-container workspace commands were run. $detail";
+        }
+        my $action = $stage eq 'register_alias' ? "register workspace alias '$workspace' inside Docker service 'workspace'" : "start workspace '$workspace' inside Docker service 'workspace'";
+        die "Unable to $action (exit $result->{exit_code}). $detail";
+    }
+
+    return {
+        docker    => 1,
+        workspace => $workspace,
+        cwd       => $target,
+        stages    => [ map { $_->[0] } @steps ],
+    };
 }
 
 # _workspace_env_files(%args)
@@ -566,21 +634,24 @@ sub build_ticket_plan {
 }
 
 # run_workspace_command(%args)
-# Creates a tmux workspace session when needed and attaches to it; a registered
-# path alias also selects the starting directory when -c was not requested.
-# Input: args array reference plus optional cwd/env_ticket/env_workspace values
-# and optional tmux runner, attach runner, and directory resolver coderefs.
-# Output: plan hash reference after successful tmux create/attach operations.
+# Creates or attaches to a local tmux workspace; Docker mode can instead start
+# the configured Compose workspace service and launch that same command inside it.
+# Input: args array reference plus optional cwd/env_ticket/env_workspace values,
+#        tmux and attach runners, directory resolver, and Docker Compose runner.
+# Output: local workspace plan or Docker-flow result hash reference.
 sub run_workspace_command {
     my (%args) = @_;
     my $tmux = $args{tmux} || \&tmux_command;
-    my ( $workspace_args, $change_dir ) = split_workspace_change_dir_args( $args{args} || [] );
+    my ( $workspace_args, $change_dir, $docker ) = split_workspace_change_dir_args( $args{args} || [] );
     my $workspace = resolve_workspace_request(
         args          => $workspace_args,
         env_workspace => $args{env_workspace},
         env_ticket    => $args{env_ticket},
     );
     my $resolver = $args{resolve_dir} || \&registered_workspace_dir;
+    die "--docker requires -c and a registered directory alias\n" if $docker && !$change_dir;
+    die "Docker workspaces require a registered directory alias, not an absolute path\n"
+      if $docker && File::Spec->file_name_is_absolute($workspace);
     my $target = $resolver->($workspace);
     if ($change_dir) {
         die "Workspace '$workspace' is not a registered dashboard path, so -c has no directory to change into\n"
@@ -597,6 +668,13 @@ sub run_workspace_command {
         chdir $target
           or die "Unable to change directory to '$target' for workspace path alias '$workspace': $!\n";
         $args{cwd} = $target;
+    }
+    if ($docker) {
+        return _run_docker_workspace(
+            workspace      => $workspace,
+            target         => $target,
+            docker_compose => $args{docker_compose},
+        );
     }
     my $plan = build_workspace_plan(
         %args,
@@ -712,6 +790,9 @@ a session/window target separator. Existing tagged sessions are checked against
 C<WORKSPACE_REF> to avoid reusing a name collision for another workspace.
 If concurrent callers race to create the same session, a duplicate-session
 response is accepted only after a second tmux query confirms the session exists.
+With C<-d> or C<--docker> plus C<-c> and a registered path alias, it instead
+starts the Compose C<workspace> service, adds the alias as C</workspace>
+inside the container, and invokes the same workspace helper there.
 
 =head1 WHY IT EXISTS
 
@@ -725,6 +806,9 @@ helpers from inventing different rules.
 Use this file when changing how C<dashboard ticket> chooses the ticket name,
 what tmux environment variables it seeds, or how create/attach failures are
 reported back to the user.
+Use the Docker workspace option when the alias is mounted at C</workspace> in a
+Compose service named C<workspace> and the interactive tmux session should run
+inside that container.
 
 =head1 HOW TO USE
 
@@ -753,6 +837,21 @@ If another command creates the session between the initial existence check and
 the create request, the helper rechecks the exact name and attaches only when
 that session is confirmed; other create errors remain visible.
 
+For C<dashboard workspace -c E<lt>aliasE<gt> --docker> (or the short C<-d>
+form), the module changes into the resolved host directory, then runs these
+commands in order through the public Docker Compose helper:
+
+  d2 docker compose up -d --build workspace
+  d2 docker compose exec workspace d2 path add <alias> /workspace
+  d2 docker compose exec workspace d2 workspace <alias> -c
+
+The command stops immediately if the service fails to start or either in-container
+command fails. Startup errors ask the user to configure a Compose service named
+C<workspace>; no alias registration or inner workspace command is attempted
+after a failed start. C<-d> without C<-c>, and Docker mode with a raw absolute
+path instead of a registered alias, are rejected. Without Docker mode the
+existing local tmux behavior is unchanged.
+
 =head1 WHAT USES IT
 
 It is used by the C<dashboard ticket> helper, by prompt/bootstrap flows that
@@ -767,6 +866,8 @@ create/attach error handling.
   TICKET_REF=DD-123 dashboard ticket
   dashboard ticket feature-branch-42
   dashboard workspace parent.child.work -c
+  dashboard workspace -c foobar --docker
+  dashboard workspace foobar -c -d
   perl -Ilib -MDeveloper::Dashboard::CLI::Ticket=list_sessions -e 'print join qq(\n), list_sessions()'
 
 =for comment FULL-POD-DOC END

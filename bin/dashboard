@@ -606,7 +606,7 @@ dashboard - thin command switchboard for Developer Dashboard
   dashboard file locate <term...>
   dashboard of [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
   dashboard open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
-  dashboard workspace [workspace-ref]
+  dashboard workspace <workspace-ref> [-c] [-d|--docker]
   dashboard jq [path] [file]
   dashboard yq [path] [file]
   dashboard tomq [path] [file]
@@ -809,6 +809,14 @@ command body.
 
 Example 5:
 
+  d2 workspace -c project --docker
+
+Use the public switchboard to reach the staged workspace helper; that helper
+executes Docker Compose from the registered alias directory and starts the
+interactive tmux workspace inside its configured C<workspace> service.
+
+Example 6:
+
   mkdir -p ~/.developer-dashboard/cli/update.d
   printf '#!/bin/sh\necho first\n' > ~/.developer-dashboard/cli/update.d/00-first
   printf '#!/bin/sh\necho stop >&2; echo "[[STOP]]" >&2\n' > ~/.developer-dashboard/cli/update.d/01-stop
@@ -818,7 +826,7 @@ Example 5:
 Exercise the explicit stop-marker hook path, where one hook ends the remaining
 hook chain but control still returns to the main command.
 
-Example 6:
+Example 7:
 
   mkdir -p ~/.developer-dashboard/hooks
   printf '#!/bin/sh\n[ -n "$DD_TICKET" ] && exit 0\necho "set DD_TICKET first" >&2\necho "[[STOP]]" >&2\n' > ~/.developer-dashboard/hooks/10-ticket
@@ -829,7 +837,7 @@ Example 6:
 Exercise the main gate: one hook under F<hooks/> runs before every command,
 through both entrypoints, and its C<[[STOP]]> refuses the command entirely.
 
-Example 7:
+Example 8:
 
   prove -lv t/30-dashboard-loader.t
 

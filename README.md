@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.77
+5.79
 
 # INTRODUCTION
 
@@ -563,6 +563,19 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     when `-c` is used with an unregistered name, the command fails with an explicit
     error instead of silently starting from the wrong directory. The tmux session
     and its layered `.env` refresh both start from the resolved directory.
+    Add `-d` or `--docker` with `-c` and a registered path alias to run that
+    workspace inside a Compose service named `workspace`: `d2 workspace -c
+    <alias> --docker`. The command changes to the host alias target, runs
+    `d2 docker compose up -d --build workspace`, registers that alias as
+    `/workspace` inside the container with `d2 path add`, then runs
+    `d2 workspace <alias> -c` there to start the normal tmux workspace
+    inside the container. If the Compose service cannot start, the command asks the
+    user to configure the `workspace` service and stops before running either
+    in-container command. Alias registration and inner workspace failures also stop
+    the sequence and remain visible. `-d` requires `-c` and a registered alias;
+    the existing local workspace flow remains unchanged when Docker mode is not
+    selected. The configured service must bind-mount the alias target at
+    `/workspace` and stay running so Compose can execute the in-container commands.
 
     Built-in commands and actions share a help catalog used by both command
     dispatch and shell completion. Use `d2 help` for a concise command index,

@@ -41,6 +41,11 @@ The integration run covers these command families:
 - pages: `dashboard page new`, `save`, `list`, `show`, `encode`, `decode`, `urls`, `render`, `source`
 - actions: `dashboard action run system-status paths`
 - docker resolver: `dashboard docker compose --dry-run`
+- Docker workspace mode: `d2 workspace -c <registered-alias> --docker` starts
+  the running Compose `workspace` service from the alias directory, whose
+  configuration bind-mounts that target at `/workspace`; it registers the alias
+  in the container, then starts the regular tmux workspace there. Startup
+  failure must stop before either in-container command
 - web lifecycle: `dashboard serve`, `dashboard restart`, `dashboard stop`
 - browser checks: headless Chromium editor, saved fake-project bookmark page, outsider bootstrap DOM verification, and helper-login DOM verification after helper-user enablement
 - ajax streaming: installed long-running `/ajax/<file>` route timing, early-chunk verification, refresh-safe singleton replacement, `fetch_value()` / `stream_value()` DOM helper coverage, and browser pagehide cleanup coverage in unit tests
@@ -133,6 +138,13 @@ The integration run creates:
 18. Exercise builtin action execution.
 19. For Windows-targeted changes, run `integration/windows/run-strawberry-smoke.ps1 -UseInstallBootstrap -BootstrapScript <checkout install.ps1>` so the guest validates the same streamed `Invoke-Expression` bootstrap shape that operators use with `irm .../install.ps1 | iex`, including successful `cpanm --notest .` checkout installation and a fresh PowerShell session that can load the generated profile without a `running scripts is disabled` failure, resolve `dashboard`, print `dashboard version`, and run `dashboard logs`.
 20. Exercise docker compose dry-run resolution against a temporary project.
+    For Docker workspace mode, use an isolated project with a named
+    `workspace` service that bind-mounts the project at `/workspace` and a
+    registered alias; verify `up -d --build workspace` precedes the alias-add
+    and inner-workspace `exec` commands. Repeat without the service and verify
+    the setup error occurs with no `exec` calls. Also
+    verify `-d` without `-c` fails before Compose is invoked, and no `-d`
+    preserves the local tmux behavior.
 21. Start the installed web service.
 22. Confirm exact-loopback access reaches the editor page in Chromium.
 23. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.

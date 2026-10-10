@@ -1,5 +1,21 @@
 # Fixed Bugs
 
+## 5.79
+
+- Reissue Problem 46's distribution so the completed status and report are
+  included in the archive after the 5.78 image version was already recorded.
+  No runtime behavior changed from 5.78.
+
+## 5.78
+
+- Problem 46: add Docker mode to `d2 workspace -c <alias>` through `-d` or
+  `--docker`, preserving the standard local tmux flow when Docker is omitted.
+- Run Compose startup, container alias registration, and inner workspace in
+  order; stop at any failed step, with setup guidance when the `workspace`
+  service cannot start.
+- Document Docker workspace requirements and add command-sequence, failure,
+  help, and shell-completion regression tests.
+
 ## 5.77
 
 - Finalize Problem 45's packaged report after successful 5.76 image help/version

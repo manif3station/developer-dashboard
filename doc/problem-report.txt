@@ -1362,7 +1362,55 @@ The isolated 5.76 image reported `d2 version` 5.76 and `d2 logs --help` listed
 archive in a blank Perl 5.44 container, passed package tests, and completed
 installed-runtime integration. The archive contains no `cover_db`; the
 temporary integration Compose project was removed. Problem 44 already records
-environment precedence, so this issue is indexed as Problem 45. Scorecard
-remains post-push and was not run because no push was authorized. The final
-5.77 release-only package refresh carries this report and the tested README/POD
-without changing runtime behavior.
+environment precedence, so this issue remains Problem 45. The change was
+committed and pushed; post-push Scorecard reported an 8.1/10 aggregate, with
+remaining external project settings, review history, contributor makeup, and
+badge enrollment items.
+
+Problem 46: Start path-alias workspaces inside Docker
+(status: done)
+
+Expected outcome: `d2 workspace -c <alias> --docker` and `-d` resolve the
+registered alias, change to its directory, run `d2 docker compose up -d --build
+workspace`, then add the alias at `/workspace` inside the container and start
+`d2 workspace <alias> -c` there. If startup fails or the Compose workspace
+service is missing, report how to configure it and do not run either exec
+command. Without Docker mode, retain the local tmux flow.
+
+Reproduction: register an alias to a project, then run both Docker flag forms.
+Before the fix, workspace recognized only `-c` and always attached to host tmux.
+Also verify `-d` without `-c`, a raw absolute path, and a Compose project with no
+`workspace` service.
+
+Root cause: the workspace parser stripped only `-c` and unconditionally entered
+the local tmux implementation; there was no ordered Compose orchestration or
+failure guard before container commands.
+
+Red tests: `t/91-cli-ticket-coverage.t` verifies command ordering, directory
+selection, invalid arguments, and early exit at startup/exec failures.
+`t/266-cli-help-dispatch.t` and `t/39-cli-suggest-complete-coverage.t` cover
+help and completion. The new orchestration assertions failed before code was
+added.
+
+Fix: the workspace parser accepts `-d`/`--docker` with `-c`, resolves and
+changes into the registered alias directory, then invokes public Compose with
+an argument list (no shell). It starts the `workspace` service, registers the
+alias at `/workspace`, and starts the normal inner workspace in that order;
+every failed stage stops later commands. Omitting Docker mode keeps local tmux.
+
+Verification: inside the `dev` container, 258 test files and 23,201
+tests passed; statement, branch, condition, and subroutine coverage were each
+100.0%. Required web/SSL gates passed (3 files, 459 tests). A real checkout
+invocation against the repository Compose config failed at the expected first
+stage because only `d2` and `dev` are configured; it printed setup guidance and
+ran neither in-container command. Injected-runner tests verify exact successful
+ordering and each early-failure path. An initial blank-container package run
+exposed a test-fixture issue: without an init reaper, process-group tests could
+observe orphaned children as zombies. After recreating the isolated Compose
+service with `init: true`, plain `cpanm` (without `--notest`) installed 5.78 and
+passed the packaged suite (128 distributions installed). The completed report
+was finalized after that build, so the version guard requires a 5.79 artifact
+refresh; runtime code is unchanged from 5.78. The repo does not configure a
+`workspace` service, so only the real service-absent path could be run; an actual
+successful interactive session is not available here, while the exact success
+sequence is covered by ordered runner tests.
