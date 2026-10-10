@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.80';
+our $VERSION = '5.81';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.80
+5.81
 
 =head1 INTRODUCTION
 
@@ -2577,6 +2577,33 @@ matching skill env while preserving all-service operations.
 When C<--dry-run> is omitted, the dashboard hands off with C<exec> so the
 terminal sees the normal streaming output from C<docker compose> itself
 instead of a dashboard JSON wrapper.
+
+=head3 Publishing Docker Hub images
+
+The repository's master-push workflow publishes a runnable Docker image from
+the latest C<master> checkout. It first runs the repository C<install.sh> to
+install the platform tools and Perl environment, then builds a fresh
+Dist::Zilla archive from that checked-out source and installs that archive
+into the image with C<cpanm>. This final local-archive install deliberately
+replaces the version that the bootstrap installer may have fetched from
+MetaCPAN, so the image contains the current repository code.
+
+The workflow selects the GitHub Actions environment C<release>, whose
+secrets C<DOCKER_HUB_USER> and C<DOCKER_HUB_TOKEN> provide the Docker Hub
+credentials. It pushes two tags under C<DOCKER_HUB_USER/developer-dashboard>:
+the distribution version read from C<dist.ini> (for example C<5.81>) and
+C<latest>. A manual workflow dispatch also builds the current C<master>
+branch. The image targets C<linux/amd64> and
+C<linux/arm64>; Docker does not support a macOS-kernel image platform, while
+Apple Silicon can run the Linux arm64 image using Docker Desktop's Linux VM.
+
+For example, pull the moving tag or a pinned version:
+
+  docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:latest
+  docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:5.81
+
+The container entrypoint is C<d2>. The versioned tag is intended for selecting
+a known image build; C<latest> follows successful master builds.
 
 =head2 Prompt Integration
 

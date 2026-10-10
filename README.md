@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.80
+5.81
 
 # INTRODUCTION
 
@@ -2198,6 +2198,33 @@ matching skill env while preserving all-service operations.
 When `--dry-run` is omitted, the dashboard hands off with `exec` so the
 terminal sees the normal streaming output from `docker compose` itself
 instead of a dashboard JSON wrapper.
+
+### Publishing Docker Hub images
+
+The repository's master-push workflow publishes a runnable Docker image from
+the latest `master` checkout. It first runs the repository `install.sh` to
+install the platform tools and Perl environment, then builds a fresh
+Dist::Zilla archive from that checked-out source and installs that archive
+into the image with `cpanm`. This final local-archive install deliberately
+replaces the version that the bootstrap installer may have fetched from
+MetaCPAN, so the image contains the current repository code.
+
+The workflow selects the GitHub Actions environment `release`, whose
+secrets `DOCKER_HUB_USER` and `DOCKER_HUB_TOKEN` provide the Docker Hub
+credentials. It pushes two tags under `DOCKER_HUB_USER/developer-dashboard`:
+the distribution version read from `dist.ini` (for example `5.81`) and
+`latest`. A manual workflow dispatch also builds the current `master`
+branch. The image targets `linux/amd64` and
+`linux/arm64`; Docker does not support a macOS-kernel image platform, while
+Apple Silicon can run the Linux arm64 image using Docker Desktop's Linux VM.
+
+For example, pull the moving tag or a pinned version:
+
+    docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:latest
+    docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:5.81
+
+The container entrypoint is `d2`. The versioned tag is intended for selecting
+a known image build; `latest` follows successful master builds.
 
 ## Prompt Integration
 

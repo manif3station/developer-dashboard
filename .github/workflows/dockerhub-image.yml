@@ -1,0 +1,88 @@
+name: Publish Docker Hub Image
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dockerhub-image-master
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment:
+      name: release
+    steps:
+      - name: Checkout latest master source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Read and validate distribution version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(awk -F ' = ' '$1 == "version" { print $2; exit }' dist.ini)"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]{2}$ ]]; then
+            echo "dist.ini must contain a version in X.XX format; got '${version}'" >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Prepare QEMU emulation
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Validate Docker Hub image name
+        id: image
+        shell: bash
+        env:
+          DOCKER_HUB_USER: ${{ secrets.DOCKER_HUB_USER }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DOCKER_HUB_USER}" ]]; then
+            echo "GitHub secret DOCKER_HUB_USER is required" >&2
+            exit 1
+          fi
+          owner="${DOCKER_HUB_USER,,}"
+          if [[ ! "${owner}" =~ ^[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
+            echo "DOCKER_HUB_USER is not a valid Docker Hub namespace" >&2
+            exit 1
+          fi
+          printf 'name=%s/developer-dashboard\n' "${owner}" >> "${GITHUB_OUTPUT}"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Build and publish versioned and latest images
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: .github/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            DIST_VERSION=${{ steps.version.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=Developer Dashboard
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ steps.version.outputs.version }}
+            ${{ steps.image.outputs.name }}:latest

@@ -578,3 +578,65 @@ organization; CI-Tests is unknown because no pull request was found. Source-side
 checks scored 10/10. These remaining gates require repository administration,
 external badge enrollment, or genuine review/contributor activity and are not
 failures in the Problem 46 implementation.
+
+### Problem 47: Publish current master builds to Docker Hub (locally complete; GitHub publication pending)
+
+Expected outcome: a GitHub Actions workflow triggered by pushes to `master`
+(and by explicit manual dispatch) builds the current `master` checkout, logs in
+to Docker Hub with the configured `DOCKER_HUB_USER` and `DOCKER_HUB_TOKEN`
+secrets, and pushes both a `dist.ini` version tag and `latest`. The image must
+be usable on Linux amd64 and arm64. Docker does not provide macOS-kernel
+containers; Apple Silicon runs the arm64 Linux image through Docker Desktop's
+Linux VM.
+
+Reproduction: install from MetaCPAN, then compare the installed CLI with the
+latest source on `master` before the next CPAN release. A Docker build that
+installs only the MetaCPAN distribution will retain the older package even
+though it is labeled as the current image.
+
+Root cause: the normal install bootstrap is designed to fetch the published
+CPAN distribution, while unreleased fixes exist only in the Git checkout. The
+image flow had no job that rebuilt the checked-out code into a tarball and
+installed that exact artifact after bootstrap.
+
+Red test: `t/228-dockerhub-image-workflow.t` asserts the GitHub workflow,
+credential wiring, version/latest tags, target platforms, and that the image
+build runs `install.sh`, `dzil build`, and installs the generated tarball with
+`cpanm`. It also guards that GitHub automation files, excluded from the CPAN
+archive, do not make the packaged test suite fail, and that the shared Docker
+context re-includes the tarball needed by the repository's local image build.
+
+Implementation: `.github/workflows/dockerhub-image.yml` checks out `master`,
+validates the X.XX distribution version, logs in to Docker Hub, and uses
+Buildx/QEMU to publish a multi-platform manifest. Its Dockerfile runs
+`install.sh`, installs the required Dist::Zilla plugins, builds the current
+checkout, and tests/reinstalls the exact versioned tarball so an equal-version
+MetaCPAN copy cannot shadow it. `.dockerignore` keeps local runtime state,
+credentials, and build artifacts out of the image context. Detailed usage and
+platform expectations are documented in the repository manual.
+
+Verification: the full repository suite passed in the isolated Docker dev
+container (259 files, 23,312 tests), with statement, subroutine, branch, and
+condition coverage each measured at 100%. The Docker image build also passed;
+its packaged cpanm install ran without `--notest` and passed (259 files, 16,985
+tests), and an isolated Compose smoke test reported `d2 version` 5.81. The
+focused release/security container gate passed (8 files, 6,438 tests), covering
+web update/static/SSL checks, release metadata, this workflow contract,
+kwalitee, POD syntax, and CPAN security metadata. `perlsec` was reviewed, and
+the repository security scans and `git diff --check` passed. GitHub secrets are
+only available to the configured `release` environment, so the remote
+multi-platform Docker Hub publish cannot be exercised locally; it will run
+when the workflow is pushed or manually dispatched. The first local image
+attempt exposed that `.dockerignore` excluded the archive required by the
+repository's `d2` image Dockerfile; a new failing assertion reproduced that
+contract, then an exception rule fixed it. The next build passed and a fresh
+isolated container reported 5.81. D2's project-layer `.env.pl` had also
+selected the previous build marker as `D2D_VERSION`; providing the marker as
+`D2D_LAST_BUILT_VERSION` made it select the current 5.81 archive without
+editing local environment configuration. Host `dzil clean` followed by
+`dzil build` completed successfully for 5.81; archive inspection confirmed
+the new workflow contract test is included and no coverage database is
+packaged. README/POD parity and all 76 library module versions were verified.
+The required `d2 docker.images.build` step is currently blocked because D2
+injects `D2D_VERSION=5.80` while `dist.ini` and the archive are 5.81; the
+wrapper's duplicate-version guard consequently stopped before building.

@@ -92,14 +92,14 @@ my $skills_pod = _extract_pod($skills_pm);
 my @problem_report_numbers = $problem_report =~ /^### Problem (\d+):/gm;
 is_deeply(
     \@problem_report_numbers,
-    [ 1 .. 46 ],
-    'problem-report.md has one ordered entry for every numbered problem 1 through 46, including explicitly unassigned numbers',
+    [ 1 .. 47 ],
+    'problem-report.md has one ordered entry for every numbered problem 1 through 47, including explicitly unassigned numbers',
 );
 my %problem_history_numbers = map { $_ => 1 } $problem_history =~ /^Problem (\d+):/gm;
 is_deeply(
     [ sort { $a <=> $b } keys %problem_history_numbers ],
-    [ 1 .. 46 ],
-    'problem-report.txt records evidence or an explicit unassigned entry for every numbered problem 1 through 46',
+    [ 1 .. 47 ],
+    'problem-report.txt records evidence or an explicit unassigned entry for every numbered problem 1 through 47',
 );
 like(
     $dist,
@@ -496,6 +496,7 @@ my @required_tarball_paths = (
 );
 push @required_tarball_paths, "Developer-Dashboard-$version/doc/install-bootstrap.md"
   if $tracked_repo_paths{'doc/install-bootstrap.md'};
+push @required_tarball_paths, "Developer-Dashboard-$version/doc/docker-hub-image.md";
 my $matching_tarball = _repo_path("Developer-Dashboard-$version.tar.gz");
 SKIP: {
     skip "matching release tarball $matching_tarball has not been built yet",

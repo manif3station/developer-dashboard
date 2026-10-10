@@ -322,6 +322,13 @@ side-channel browser install step.
 
 ## Pass Criteria
 
+The separate Docker Hub image workflow has its own packaging gate: it must
+build from the master checkout, run `install.sh`, build the Dist::Zilla source
+archive, install and test that exact archive with `cpanm`, and publish version
+and `latest` tags for Linux amd64 and arm64. The workflow contract is covered
+by `t/228-dockerhub-image-workflow.t`; Docker Hub publication itself requires
+GitHub-managed credentials and is verified in the Actions run.
+
 The run passes when:
 
 - the container exits `0`

@@ -1422,3 +1422,51 @@ organization), and CI-Tests unknown (no PR found). Source-side checks scored
 10/10. These remaining gates require repository administration, external badge
 enrollment, or genuine review/contributor activity and are not Problem 46 code
 failures.
+
+Problem 47: Publish current master builds to Docker Hub
+(status: locally complete; GitHub publication pending)
+
+Expected: a master push or manual dispatch builds the checked-out current
+source, runs install.sh, creates a Dist::Zilla archive, installs and tests that
+archive with cpanm, and publishes both the X.XX version tag and latest to
+Docker Hub. The image supports Linux amd64/arm64; Apple Silicon uses Linux
+arm64 under Docker Desktop, not a macOS-kernel container.
+
+Cause: install.sh bootstraps from MetaCPAN, which may lag behind fixes on
+master. No image workflow replaced that installed CPAN package with a tarball
+built from the checked-out source.
+
+Red-first regression: t/228-dockerhub-image-workflow.t checks secret wiring,
+the master/manual triggers, tag derivation, multi-platform build, and the
+install.sh -> dzil build -> cpanm sequence. It also guards the shared Docker
+context exception needed to retain the archive for d2 docker.images.build. It
+skips from source archives because Dist::Zilla intentionally excludes .github
+workflow assets.
+
+Implementation: a pinned-action workflow in `.github/workflows/dockerhub-image.yml`
+uses the `release` environment, validates the distribution version, and pushes
+versioned and `latest` tags for Linux amd64/arm64. The Dockerfile bootstraps
+through `install.sh`, builds the checked-out source with Dist::Zilla, then
+installs/tests that exact archive. `.dockerignore` excludes local state and
+secrets; README, main POD, integration plan, Changes, FIXED_BUGS, and this
+problem report document the behavior.
+
+Verification: the Docker dev-container full suite passed (259 files, 23,312
+tests) with statement, subroutine, branch, and condition coverage all 100%.
+The image build and its plain cpanm archive installation/test passed (259
+files, 16,985 tests); the image smoke test returned `d2 version` 5.81. The
+focused release/security gate passed (8 files, 6,438 tests), including
+kwalitee, POD syntax, and CPAN audit checks. Perl security guidance was reviewed
+and repository security scans passed. GitHub secrets are only available to
+the `release` environment, so Docker Hub publication and remote multi-platform
+manifest verification remain pending the workflow running after push/manual
+dispatch. The first local image attempt exposed that `.dockerignore` excluded
+the archive required by the repository's d2 image Dockerfile; the new
+regression assertion failed, then an exception rule fixed it. The local D2
+project-layer `.env.pl` had selected the prior build marker as `D2D_VERSION`;
+providing that marker as `D2D_LAST_BUILT_VERSION` made it choose the current
+5.81 archive without modifying local environment configuration. The corrected
+`d2 docker.images.build` completed, and a fresh isolated container returned
+5.81. Host `dzil clean` then `dzil build` completed for 5.81; archive inspection
+confirmed the workflow contract test is included and no coverage database is
+packaged. README/POD parity and all 76 library module versions were verified.

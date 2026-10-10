@@ -1,3 +1,12 @@
+5.81  2026-10-10
+
+  - Problem 47: add a GitHub Actions Docker Hub build for current master source.
+  - Run install.sh, build a fresh Dist::Zilla archive, and install/test that
+    exact archive so the image does not ship an older MetaCPAN copy.
+  - Publish versioned and latest tags for linux/amd64 and linux/arm64 using
+    pinned workflow actions and configured Docker Hub credentials.
+  - Document the master-source build and Apple Silicon/Linux arm64 behavior.
+
 5.80  2026-10-10
 
   - Reissue Problem 46 verification with final 5.79 blank-container install

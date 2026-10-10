@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 5.81
+
+- Problem 47: build Docker Hub images from the latest master checkout, then
+  replace the bootstrap MetaCPAN package with the fresh tested Dist::Zilla
+  archive; publish version and latest tags for Linux amd64/arm64.
+
 ## 5.80
 
 - Finalize Problem 46's packaged verification record: the 5.79 archive passed
