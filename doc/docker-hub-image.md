@@ -12,8 +12,8 @@ environment named `release`; configure `DOCKER_HUB_USER` and
 The version comes from `dist.ini` and must be `X.XX`. Bump it before publishing
 a materially different release if the previous version tag must remain a
 rollback point. The workflow validates the Docker Hub namespace, pins its
-third-party actions to commit SHAs, and builds/pushes `linux/amd64` and
-`linux/arm64` manifests.
+third-party actions to commit SHAs, pins the Ubuntu base image by manifest
+digest, and builds/pushes `linux/amd64` and `linux/arm64` manifests.
 
 The image build context is the master checkout. Its Dockerfile runs the
 repository `install.sh`, installs the Dist::Zilla toolchain, runs `dzil build`,

@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.81
+5.83
 
 # INTRODUCTION
 
@@ -569,13 +569,26 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     `d2 docker compose up -d --build workspace`, registers that alias as
     `/workspace` inside the container with `d2 path add`, then runs
     `d2 workspace <alias> -c` there to start the normal tmux workspace
-    inside the container. If the Compose service cannot start, the command asks the
-    user to configure the `workspace` service and stops before running either
-    in-container command. Alias registration and inner workspace failures also stop
-    the sequence and remain visible. `-d` requires `-c` and a registered alias;
+    inside the container. Before starting, it checks whether the `workspace`
+    service is already running. A running service is reused without rebuilding,
+    preserving the existing container and its in-progress work. A stopped service
+    is started with `up -d --build`; Docker's normal build cache remains enabled.
+    If the service-state check fails, the command stops without rebuilding or
+    running in-container commands and reports the setup/error details. If the
+    Compose service cannot start, the command asks the user to configure the
+    `workspace` service and stops before running either in-container command.
+    Alias registration and inner-workspace failures also stop the sequence and
+    remain visible. `-d` requires `-c` and a registered alias;
     the existing local workspace flow remains unchanged when Docker mode is not
     selected. The configured service must bind-mount the alias target at
     `/workspace` and stay running so Compose can execute the in-container commands.
+    The two in-container commands use an additive private config overlay at
+    `/dev/shm/developer-dashboard-workspace-config`. The container's `/dev/shm`
+    tmpfs is separate from host directories the service may bind-mount, including
+    `/tmp` and the user's config. Existing configuration remains available, with
+    the overlay taking precedence; the host alias therefore stays pointed at its
+    original path while the container-side copy resolves to `/workspace` for the
+    inner session.
 
     Built-in commands and actions share a help catalog used by both command
     dispatch and shell completion. Use `d2 help` for a concise command index,
@@ -2212,16 +2225,18 @@ MetaCPAN, so the image contains the current repository code.
 The workflow selects the GitHub Actions environment `release`, whose
 secrets `DOCKER_HUB_USER` and `DOCKER_HUB_TOKEN` provide the Docker Hub
 credentials. It pushes two tags under `DOCKER_HUB_USER/developer-dashboard`:
-the distribution version read from `dist.ini` (for example `5.81`) and
+the distribution version read from `dist.ini` (for example `5.83`) and
 `latest`. A manual workflow dispatch also builds the current `master`
 branch. The image targets `linux/amd64` and
 `linux/arm64`; Docker does not support a macOS-kernel image platform, while
 Apple Silicon can run the Linux arm64 image using Docker Desktop's Linux VM.
+The Ubuntu Linux base image is pinned by its multi-platform manifest digest,
+and every GitHub Action dependency is pinned to a full commit SHA.
 
 For example, pull the moving tag or a pinned version:
 
     docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:latest
-    docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:5.81
+    docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:5.83
 
 The container entrypoint is `d2`. The versioned tag is intended for selecting
 a known image build; `latest` follows successful master builds.

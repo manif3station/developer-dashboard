@@ -1,3 +1,24 @@
+5.83  2026-10-10
+
+  - Problem 46 regression: reuse an already-running Docker workspace service
+    without rebuilding the container or risking in-container progress.
+  - When the service is stopped, start it with cached `up -d --build` and never
+    disable Docker's build cache; abort visibly if its running state is unknown.
+  - Add Docker regression tests for running, stopped, cache, and failed-probe
+    paths; document the workspace lifecycle and verification procedure.
+
+5.82  2026-10-10
+
+  - Problem 46 regression: isolate the in-container workspace path alias in an
+    owner-only `/dev/shm` config overlay so bind-mounted host aliases are not
+    overwritten.
+  - Reject symlinked config overlays and test that the host path remains
+    unchanged while the container-side alias resolves to /workspace.
+  - Problem 47 Scorecard follow-up: pin the multi-platform Ubuntu base image by
+    digest so the Docker Hub build has immutable container inputs.
+  - Add a regression assertion for the base-image digest and document the
+    immutable image dependency contract.
+
 5.81  2026-10-10
 
   - Problem 47: add a GitHub Actions Docker Hub build for current master source.

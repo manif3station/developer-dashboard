@@ -11,6 +11,8 @@ use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
+use Errno qw(EACCES ENOENT);
+use POSIX qw(_exit);
 
 use lib 'lib';
 
@@ -516,6 +518,18 @@ FAKE_DASHBOARD
         '_run_workspace_docker_compose sends each argument directly through the dashboard entrypoint',
     );
     ok( !-e $marker, '_run_workspace_docker_compose does not interpret an alias argument through a shell' );
+    my ( $probe_stdout, $probe_stderr, $probe_exit, $probe_result );
+    ( $probe_stdout, $probe_stderr, $probe_exit ) = capture {
+        $probe_result = Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose(
+            args => [ 'ps', '--status', 'running', '--services', 'workspace' ],
+            capture_stdout => 1,
+        );
+        return $probe_result->{exit_code};
+    };
+    is( $probe_stdout, '', '_run_workspace_docker_compose keeps internal status output out of the user stream' );
+    is( $probe_result->{stdout}, "docker\ncompose\nps\n--status\nrunning\n--services\nworkspace\n",
+        '_run_workspace_docker_compose returns captured status output for exact service matching' );
+    is( $probe_exit, 0, '_run_workspace_docker_compose returns the captured probe exit status' );
     $ENV{DASHBOARD_STUB_EXIT} = 7;
     my $failed = Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose( args => ['compose-failure'] );
     is( $failed->{exit_code}, 7, '_run_workspace_docker_compose returns a nonzero dashboard exit status' );
@@ -524,6 +538,38 @@ FAKE_DASHBOARD
     my $exec_error = error_from( sub { Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose( args => [] ) } );
     like( $exec_error, qr/Unable to execute d2 Docker Compose command/,
         '_run_workspace_docker_compose reports an unavailable dashboard executable' );
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CLI::Ticket::capture = sub { return ( '', '', undef ) };
+        my $undefined_status = error_from( sub {
+            Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose( args => [] );
+        } );
+        like( $undefined_status, qr/Unable to execute d2 Docker Compose command.*process status was unavailable/s,
+            '_run_workspace_docker_compose rejects an undefined captured process status' );
+    }
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CLI::Ticket::capture = sub { return ( undef, undef, 0 ) };
+        my $empty_output = Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose( args => [] );
+        ok( !defined $empty_output->{stdout} && !defined $empty_output->{stderr},
+            '_run_workspace_docker_compose safely returns undefined captured streams on success' );
+    }
+
+    {
+        my $fake_output = File::Spec->catfile( $home, 'fake-dashboard-output.pl' );
+        write_file( $fake_output, "#!/usr/bin/env perl\nprint \"compose output\\n\";\nprint STDERR \"compose diagnostic\\n\";\n" );
+        chmod 0755, $fake_output or die "Unable to chmod $fake_output: $!";
+        local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = $fake_output;
+        my ( $visible_stdout, $visible_stderr, $exit ) = capture {
+            Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose( args => [] );
+            return 0;
+        };
+        is( $exit, 0, '_run_workspace_docker_compose preserves a successful process status with both output streams' );
+        is( $visible_stdout, "compose output\n", '_run_workspace_docker_compose prints successful Compose stdout' );
+        is( $visible_stderr, "compose diagnostic\n", '_run_workspace_docker_compose prints successful Compose stderr' );
+    }
 
     local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = $fake_dashboard;
     my $empty_args = Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose( args => undef );
@@ -607,12 +653,127 @@ FAKE_D2
         workspace => 'foobar',
         target    => $home,
         docker_compose => sub {
+            my %call = @_;
             push @scalar_calls, [@_];
+            return { exit_code => 0, stdout => $call{stage} eq 'check_running' ? "workspace\n" : '' };
+        },
+    );
+    is( scalar @scalar_calls, 3, '_run_docker_workspace accepts successful runner results for a running service' );
+    is( $scalar_results->{docker}, 1, '_run_docker_workspace returns success after scalar zero results for all steps' );
+    is( $scalar_results->{reused}, 1, '_run_docker_workspace reports reuse for an already-running service' );
+    my %running_check = @{ $scalar_calls[0] };
+    my %running_alias = @{ $scalar_calls[1] };
+    my %running_start = @{ $scalar_calls[2] };
+    is( $running_check{stage}, 'check_running', '_run_docker_workspace checks service state before starting or rebuilding it' );
+    is_deeply( $running_check{args}, [ 'ps', '--status', 'running', '--services', 'workspace' ],
+        '_run_docker_workspace scopes its read-only state check to the workspace service' );
+    is( $running_alias{stage}, 'register_alias', '_run_docker_workspace reuses a running service without a build step' );
+    is( $running_start{stage}, 'start_workspace', '_run_docker_workspace starts the requested workspace in the reused service' );
+
+    my @scalar_runner_calls;
+    my $scalar_runner_result = Developer::Dashboard::CLI::Ticket::_run_docker_workspace(
+        workspace => 'foobar',
+        target    => $home,
+        docker_compose => sub {
+            push @scalar_runner_calls, [@_];
             return 0;
         },
     );
-    is( scalar @scalar_calls, 3, '_run_docker_workspace accepts scalar successful exit codes from an injected runner' );
-    is( $scalar_results->{docker}, 1, '_run_docker_workspace returns success after scalar zero results for all steps' );
+    is( $scalar_runner_result->{reused}, 0,
+        '_run_docker_workspace treats a successful scalar state result as a stopped service' );
+    is( scalar @scalar_runner_calls, 4,
+        '_run_docker_workspace accepts scalar exit statuses from each Compose stage' );
+
+    my @stopped_calls;
+    my $stopped_result = Developer::Dashboard::CLI::Ticket::_run_docker_workspace(
+        workspace => 'foobar',
+        target    => $home,
+        docker_compose => sub {
+            my %call = @_;
+            push @stopped_calls, [@_];
+            return { exit_code => 0, stdout => '' } if $call{stage} eq 'check_running';
+            return 0;
+        },
+    );
+    is( $stopped_result->{reused}, 0, '_run_docker_workspace reports startup for a stopped service' );
+    my %stopped_start = @{ $stopped_calls[1] };
+    is( $stopped_start{stage}, 'start', '_run_docker_workspace starts a stopped service after checking its state' );
+    is_deeply(
+        $stopped_start{args},
+        [ 'up', '-d', '--build', 'workspace' ],
+        '_run_docker_workspace builds with the normal Docker cache when the service is stopped',
+    );
+    ok(
+        !grep { $_ eq '--no-cache' } @{ $stopped_start{args} },
+        '_run_docker_workspace never disables Docker build cache',
+    );
+
+    my @start_failure_calls;
+    my $start_failure = error_from( sub {
+        Developer::Dashboard::CLI::Ticket::_run_docker_workspace(
+            workspace => 'foobar',
+            target    => $home,
+            docker_compose => sub {
+                my %call = @_;
+                push @start_failure_calls, [@_];
+                return { exit_code => 0, stdout => '' } if $call{stage} eq 'check_running';
+                return { exit_code => 9, stderr => 'workspace build failed' } if $call{stage} eq 'start';
+                return { exit_code => 0 };
+            },
+        );
+    } );
+    like( $start_failure, qr/Unable to start Docker workspace service 'workspace'.*workspace build failed/s,
+        '_run_docker_workspace reports a stopped-service build failure with Compose diagnostics' );
+    is( scalar @start_failure_calls, 2,
+        '_run_docker_workspace does not issue in-container commands after a failed service build' );
+
+    my @status_failure_calls;
+    my $status_failure = error_from( sub {
+        Developer::Dashboard::CLI::Ticket::_run_docker_workspace(
+            workspace => 'foobar',
+            target    => $home,
+            docker_compose => sub {
+                push @status_failure_calls, [@_];
+                return { exit_code => 9, stderr => 'compose ps failed' };
+            },
+        );
+    } );
+    like( $status_failure, qr/Unable to determine whether Docker workspace service 'workspace' is running.*compose ps failed/s,
+        '_run_docker_workspace reports service-state errors and refuses to rebuild when state is unknown' );
+    is( scalar @status_failure_calls, 1, '_run_docker_workspace runs no mutating command when service state cannot be checked' );
+
+    my $stdout_only_status_error = error_from( sub {
+        Developer::Dashboard::CLI::Ticket::_run_docker_workspace(
+            workspace => 'foobar',
+            target    => $home,
+            docker_compose => sub {
+                return { exit_code => 9, stdout => 'compose stdout detail', stderr => '' };
+            },
+        );
+    } );
+    like( $stdout_only_status_error, qr/compose stdout detail/,
+        '_run_docker_workspace includes stdout when a state probe fails without stderr' );
+
+    for my $invalid_result (
+        [ [], qr/Docker Compose runner must return an exit code for 'start'/, 'array result' ],
+        [ {}, qr/Docker Compose runner must return an exit code for 'start'/, 'missing exit code' ],
+    ) {
+        my ( $reply, $expected_error, $description ) = @{$invalid_result};
+        my $step_result_error = error_from( sub {
+            Developer::Dashboard::CLI::Ticket::_run_docker_workspace(
+                workspace => 'foobar',
+                target    => $home,
+                docker_compose => sub {
+                    my %call = @_;
+                    return { exit_code => 0, stdout => '' } if $call{stage} eq 'check_running';
+                    return $reply if $call{stage} eq 'start';
+                    return 0;
+                },
+            );
+        } );
+        like( $step_result_error, $expected_error,
+            "_run_docker_workspace rejects a $description from mutating compose stages" );
+    }
 
     my $array_result_error = error_from( sub {
         Developer::Dashboard::CLI::Ticket::_run_docker_workspace(
@@ -621,7 +782,7 @@ FAKE_D2
             docker_compose => sub { return [] },
         );
     } );
-    like( $array_result_error, qr/Docker Compose runner must return an exit code for 'start'/,
+    like( $array_result_error, qr/Docker Compose runner must return an exit code for 'check_running'/,
         '_run_docker_workspace rejects a non-hash, non-scalar runner result' );
 
     my $missing_status_error = error_from( sub {
@@ -631,7 +792,7 @@ FAKE_D2
             docker_compose => sub { return {} },
         );
     } );
-    like( $missing_status_error, qr/Docker Compose runner must return an exit code for 'start'/,
+    like( $missing_status_error, qr/Docker Compose runner must return an exit code for 'check_running'/,
         '_run_docker_workspace rejects a hash result without an exit code' );
 }
 
@@ -646,6 +807,7 @@ open my $fh, '>>', $ENV{WORKSPACE_DOCKER_TEST_LOG}
   or die "Unable to open Docker workspace test log: $!";
 print {$fh} join("\t", @ARGV), "\n";
 close $fh or die "Unable to close Docker workspace test log: $!";
+print "workspace\n" if grep { $_ eq 'ps' } @ARGV;
 FAKE_DEFAULT_D2
     chmod 0755, $fake_d2 or die "Unable to chmod $fake_d2: $!";
     local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = $fake_d2;
@@ -661,11 +823,11 @@ FAKE_DEFAULT_D2
     is_deeply(
         \@commands,
         [
-            "docker\tcompose\tup\t-d\t--build\tworkspace\n",
-            "docker\tcompose\texec\tworkspace\td2\tpath\tadd\tfoobar\t/workspace\n",
-            "docker\tcompose\texec\tworkspace\td2\tworkspace\tfoobar\t-c\n",
+            "docker\tcompose\tps\t--status\trunning\t--services\tworkspace\n",
+            "docker\tcompose\texec\t-e\tDEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config\tworkspace\td2\tpath\tadd\tfoobar\t/workspace\n",
+            "docker\tcompose\texec\t-e\tDEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config\tworkspace\td2\tworkspace\tfoobar\t-c\n",
         ],
-        '_run_docker_workspace sends all three exact ordered Compose commands through its built-in runner',
+        '_run_docker_workspace reuses a running service without rebuilding and keeps the config overlay private',
     );
 }
 
@@ -1290,6 +1452,32 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
     my $alias_plan = run_workspace_command( args => ['DD-7A'], tmux => ok_tmux(), resolve_dir => sub { return $ws_dir } );
     is( $alias_plan->{cwd}, $ws_dir, 'run_workspace_command also changes into a resolved path alias without -c' );
     chdir $home or die "Unable to restore cwd after path alias test: $!";
+
+    my $forced_chdir_failure = sub { $! = EACCES; return 0 };
+    my $chdir_error = error_from( sub {
+        run_workspace_command(
+            args             => [ '-c', 'DD-7F' ],
+            resolve_dir      => sub { return $ws_dir },
+            change_directory => $forced_chdir_failure,
+            tmux             => ok_tmux(),
+            attach           => sub { return { exit_code => 0 } },
+        );
+    } );
+    like( $chdir_error, qr/Unable to change directory to .*for workspace 'DD-7F'/,
+        'run_workspace_command reports a failed directory change for an explicit -c request' );
+
+    $chdir_error = error_from( sub {
+        run_workspace_command(
+            args             => ['DD-7G'],
+            resolve_dir      => sub { return $ws_dir },
+            change_directory => $forced_chdir_failure,
+            tmux             => ok_tmux(),
+            attach           => sub { return { exit_code => 0 } },
+        );
+    } );
+    like( $chdir_error, qr/Unable to change directory to .*for workspace path alias 'DD-7G'/,
+        'run_workspace_command reports a failed directory change for a resolved path alias' );
+
     my $unresolved_plan = run_workspace_command( args => ['DD-7B'], tmux => ok_tmux(), resolve_dir => sub { return undef } );
     ok( $unresolved_plan->{cwd}, 'run_workspace_command keeps the normal cwd when the workspace is not a path alias' );
 
@@ -1333,6 +1521,7 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
             my (%call) = @_;
             push @docker_calls, { %call };
             push @docker_cwds, abs_path( cwd() );
+            return { exit_code => 0, stdout => '' } if $call{stage} eq 'check_running';
             return { exit_code => 0 };
         },
     );
@@ -1342,18 +1531,19 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
     is_deeply(
         [ map { $_->{args} } @docker_calls ],
         [
+            [ 'ps', '--status', 'running', '--services', 'workspace' ],
             [ 'up', '-d', '--build', 'workspace' ],
-            [ 'exec', 'workspace', 'd2', 'path', 'add', 'foobar', '/workspace' ],
-            [ 'exec', 'workspace', 'd2', 'workspace', 'foobar', '-c' ],
+            [ 'exec', '-e', 'DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config', 'workspace', 'd2', 'path', 'add', 'foobar', '/workspace' ],
+            [ 'exec', '-e', 'DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config', 'workspace', 'd2', 'workspace', 'foobar', '-c' ],
         ],
-        'container workspace flow starts the service, registers the alias, then starts the inner workspace',
+        'container workspace flow keeps its alias in a private in-container config overlay before starting the inner workspace',
     );
     is_deeply(
         [ map { $_->{stage} } @docker_calls ],
-        [qw(start register_alias start_workspace)],
+        [qw(check_running start register_alias start_workspace)],
         'container workspace steps are explicitly identified for diagnostics and testing',
     );
-    is_deeply( \@docker_cwds, [ map { abs_path($ws_dir) } 1 .. 3 ],
+    is_deeply( \@docker_cwds, [ map { abs_path($ws_dir) } 1 .. 4 ],
         'every Compose stage runs with the resolved alias directory as the current project root' );
     chdir $home or die "Unable to restore cwd after container workspace test: $!";
 }
@@ -1420,6 +1610,7 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
             docker_compose => sub {
                 my (%call) = @_;
                 push @docker_calls, { %call };
+                return { exit_code => 0, stdout => "workspace\n" } if $call{stage} eq 'check_running';
                 return { exit_code => @docker_calls == 2 ? 1 : 0, stderr => "alias registration failed\n" };
             },
         );
@@ -1438,6 +1629,7 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
             docker_compose => sub {
                 my (%call) = @_;
                 push @docker_calls, { %call };
+                return { exit_code => 0, stdout => "workspace\n" } if $call{stage} eq 'check_running';
                 return { exit_code => @docker_calls == 3 ? 1 : 0, stdout => "inner failed\n" };
             },
         );
@@ -1589,17 +1781,33 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
 
 
 {
-    # The exec handoff, driven through a FAILING exec - which is how PageRuntime
-    # and SkillDispatcher cover their identical handoffs. With no tmux on PATH the
-    # exec returns instead of replacing this process, so the statement and the
-    # true branch are both recorded, and only a SUCCESSFUL exec stays unreachable.
-    local $ENV{PATH} = $empty_bin;
+    my ( $stdout, $stderr, $status ) = capture {
+        my $pid = fork();
+        die "Unable to fork for failed tmux exec test: $!\n" if !defined $pid;
+        if ( !$pid ) {
+            local $ENV{PATH} = '/directory-that-does-not-exist';
+            local $SIG{__WARN__} = 'DEFAULT';
+            Developer::Dashboard::CLI::Ticket::_exec_tmux('attach-session');
+            _exit(23);
+        }
+        waitpid( $pid, 0 );
+        return $? >> 8;
+    };
+    is( $status, 23, 'the direct tmux exec helper returns control when tmux cannot be found' );
+    like( $stderr, qr/Can't exec "tmux"/, 'a failed direct exec reports the operating-system error' );
+}
 
-    # Perl warns "Can't exec ..." when exec fails, which is the expected
-    # behaviour under test rather than a defect. Suppressed for this block ONLY -
-    # the suite-wide no-warnings assertion stays intact, because weakening it
-    # would hide every other warning this file exists to catch.
-    local $SIG{__WARN__} = sub { return };
+
+{
+    # The exec handoff is driven through a deterministic failed-exec result.
+    # Devel::Cover cannot attribute a statement immediately after Perl's exec
+    # operator, so replace that OS boundary here and exercise the caller's error.
+    # The direct helper's own command invocation is covered by the earlier tmux
+    # runner tests; only a successful exec stays unreachable by design.
+    local $ENV{PATH} = $empty_bin;
+    no warnings 'redefine';
+    local $! = ENOENT;
+    local *Developer::Dashboard::CLI::Ticket::_exec_tmux = sub { return; };
 
     like(
         error_from( sub { Developer::Dashboard::CLI::Ticket::exec_workspace_attach( args => ['attach-session'] ) } ),
@@ -1657,9 +1865,13 @@ tmux verifies the actual C<workspace -c> handoff.
 Docker mode is tested with an injected Compose runner that records cwd, exact
 argument arrays, and stage ordering. It proves startup failure prevents both
 in-container calls, alias-registration failure prevents workspace startup,
-and inner-workspace errors remain visible. A fake C<d2> executable verifies
-the default Compose handoff uses an argument list without shell interpretation;
-entrypoint fallback, signal status, invalid arguments, and malformed runner
+and inner-workspace errors remain visible. It also verifies a running service is
+reused without rebuilding, a stopped service starts with Docker's normal build
+cache, and a private in-container config overlay keeps the host alias unchanged.
+A fake C<d2> executable verifies the default Compose handoff uses an argument
+list without shell interpretation; a fork-isolated missing-C<tmux> case
+exercises the failed C<exec> boundary without replacing the test process.
+Entrypoint fallback, signal status, invalid arguments, and malformed runner
 results are also covered explicitly.
 
 =head1 HOW TO USE

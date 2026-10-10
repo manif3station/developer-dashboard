@@ -12,6 +12,8 @@ use File::Path qw(make_path);
 use lib 'lib';
 
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::Config;
+use Developer::Dashboard::JSON qw(json_decode);
 use Developer::Dashboard::Platform ();
 
 # Hermetic runtime: isolated home + isolated state root, cwd anchored inside the
@@ -22,6 +24,72 @@ local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = tempdir( CLEANUP => 1 );
 chdir $home or die "Unable to chdir to $home: $!";
 
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
+
+# --------------------------------------------------------------------------
+# config overlay: a private writable root augments, rather than replaces, the
+# normal layered config chain.
+# --------------------------------------------------------------------------
+{
+    my $overlay = File::Spec->catdir( $home, 'private-config-overlay' );
+    local $ENV{DEVELOPER_DASHBOARD_CONFIG_OVERLAY} = $overlay;
+    delete $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+    my @base_roots = map { File::Spec->catdir( $_, 'config' ) } $paths->runtime_roots;
+    is( $paths->config_root, $overlay, 'config writes target the private overlay when configured' );
+    is_deeply( [ $paths->config_roots ], [ $overlay, @base_roots ], 'private config overlay augments existing config lookup roots at highest priority' );
+    is_deeply( [ $paths->config_layers ], [ ( map { File::Spec->catdir( $_, 'config' ) } $paths->runtime_layers ), $overlay ], 'private config overlay is the final inherited config layer' );
+    my @overlay_stat = stat $overlay;
+    is( $overlay_stat[2] & 0777, 0700, 'private config overlay is restricted to its owner' );
+}
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_CONFIG_OVERLAY} = '';
+    ok( !defined $paths->_config_overlay_root, 'an explicitly empty config overlay is treated as unset' );
+}
+
+{
+    my $overlay = File::Spec->catdir( $home, 'missing-config-overlay' );
+    local $ENV{DEVELOPER_DASHBOARD_CONFIG_OVERLAY} = $overlay;
+    no warnings 'redefine';
+    local *Developer::Dashboard::PathRegistry::_config_overlay_stat = sub { return () };
+    dies_like( sub { $paths->_config_overlay_root }, qr/Unable to inspect config overlay directory/,
+        'config overlay reports when filesystem metadata cannot be read' );
+}
+
+{
+    my $overlay = File::Spec->catdir( $home, 'foreign-owner-config-overlay' );
+    local $ENV{DEVELOPER_DASHBOARD_CONFIG_OVERLAY} = $overlay;
+    no warnings 'redefine';
+    local *Developer::Dashboard::PathRegistry::_config_overlay_stat = sub { return ( 0, 0, 0, 0, $> + 1 ) };
+    dies_like( sub { $paths->_config_overlay_root }, qr/Config overlay directory is not owned by the current user/,
+        'config overlay refuses a directory reported as owned by another user' );
+}
+
+{
+    my $target = File::Spec->catdir( $home, 'overlay-symlink-target' );
+    my $link   = File::Spec->catdir( $home, 'overlay-symlink' );
+    make_path($target);
+    symlink $target, $link or die "Unable to create overlay symlink fixture $link: $!";
+    local $ENV{DEVELOPER_DASHBOARD_CONFIG_OVERLAY} = $link;
+    my $error = eval { $paths->config_root; 1 } ? '' : $@;
+    like( $error, qr/Config overlay must not be a symbolic link/, 'config overlay refuses a symlink target' );
+}
+
+{
+    my $overlay = File::Spec->catdir( $home, 'workspace-config-overlay' );
+    my $config  = Developer::Dashboard::Config->for_paths($paths);
+    $config->save_global_path_alias( 'somewhere', '/tmp/foobar' );
+
+    local $ENV{DEVELOPER_DASHBOARD_CONFIG_OVERLAY} = $overlay;
+    $config->save_global_path_alias( 'somewhere', '/workspace' );
+    is( $config->path_aliases->{somewhere}, '/workspace', 'container-local overlay alias wins over the inherited host alias' );
+
+    my $host_file = File::Spec->catfile( $home, '.developer-dashboard', 'config', 'config.json' );
+    open my $host_fh, '<:raw', $host_file or die "Unable to open $host_file: $!";
+    local $/;
+    my $host_config = json_decode(<$host_fh>);
+    close $host_fh or die "Unable to close $host_file: $!";
+    is( $host_config->{path_aliases}{somewhere}, '/tmp/foobar', 'saving the container override leaves the host alias unchanged' );
+}
 
 sub dies_like {
     my ( $code, $pattern, $label ) = @_;

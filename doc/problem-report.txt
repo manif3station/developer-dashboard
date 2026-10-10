@@ -1368,12 +1368,14 @@ remaining external project settings, review history, contributor makeup, and
 badge enrollment items.
 
 Problem 46: Start path-alias workspaces inside Docker
-(status: done)
+(status: container config regression fixed 2026-10-10)
 
 Expected outcome: `d2 workspace -c <alias> --docker` and `-d` resolve the
 registered alias, change to its directory, run `d2 docker compose up -d --build
 workspace`, then add the alias at `/workspace` inside the container and start
-`d2 workspace <alias> -c` there. If startup fails or the Compose workspace
+`d2 workspace <alias> -c` there. Both in-container commands use
+`DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config`
+so the host configuration is not changed. If startup fails or the Compose workspace
 service is missing, report how to configure it and do not run either exec
 command. Without Docker mode, retain the local tmux flow.
 
@@ -1423,6 +1425,69 @@ organization), and CI-Tests unknown (no PR found). Source-side checks scored
 enrollment, or genuine review/contributor activity and are not Problem 46 code
 failures.
 
+Regression reported 2026-10-10: with host alias `somewhere` pointing to
+`/tmp/foobar`, the in-container `d2 path add somewhere /workspace` inherited a
+bind-mounted host config directory and rewrote the host alias. Expected: host
+`d2 paths` keeps `/tmp/foobar`, while only the in-container alias resolves to
+`/workspace`.
+
+Red test and root cause: the first updated `t/91-cli-ticket-coverage.t` run
+failed because both Compose exec commands lacked a private config-root
+environment. The regular config writer then selected the mounted host config.
+
+Fix: both container exec commands now pass
+`DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config`,
+so `path add` and the nested workspace command share an additive container-local
+config layer. The overlay directory is owner-only and symlinks are rejected.
+The updated command test asserts this exact environment on both Compose exec
+commands; it was red before the fix and green afterward. The Docker run
+`d2 docker compose exec dev prove -lv t/97-pathregistry-coverage.t
+t/91-cli-ticket-coverage.t` passed all 425 assertions. The path-registry tests
+verify overlay precedence, preservation of the host alias at `/tmp/foobar`,
+owner-only permissions, and symlink rejection. A container smoke check stored
+`somewhere` as `/workspace` with `d2 path add`, then resolved it back to
+`/workspace`. The temporary container test directories were removed after
+verification. This repository has no `workspace` service or bind-mounted host
+home fixture, so an interactive workspace session could not be exercised.
+
+Problem 46 follow-up reported 2026-10-10: when `d2 workspace -c <alias> -d`
+finds the workspace container already running, it must not rebuild/replace it
+and risk losing in-container progress. When the service is stopped, Compose
+must retain its default build cache so resume/start is not needlessly slow.
+
+Expected outcome: inspect only the `workspace` service state. If it is running,
+reuse it and proceed directly to the private-overlay alias registration and
+inner workspace command. If it is stopped, run `up -d --build workspace`
+without `--no-cache`, preserving the normal Docker layer cache. If its state
+cannot be queried, fail visibly before any mutating or in-container command.
+
+Red-first regression: `t/91-cli-ticket-coverage.t` initially failed on the
+missing state probe, the unconditional `up --build` while running, the stopped
+service command order, and the absent cache/error assertions.
+
+Fix: the orchestration now runs `compose ps --status running --services
+workspace` first. It skips the build for a running service; a stopped service
+uses cached `up -d --build workspace`. The default runner captures probe output
+for service matching and keeps normal successful command output visible. A
+failed probe stops with actionable details. The focused test passed inside the
+`dev` container (242 assertions), including a fork-isolated failed `exec tmux`
+path and an undefined child-status error path that must not emit a Perl warning.
+The full Docker coverage gate passed 259 files and 23,290 tests; statement,
+branch, condition, and subroutine metrics are each 100.0%, with no stale
+uncoverable annotations.
+
+Release verification for the P46/P47 changes: `dzil clean` removed the prior
+5.82 build, then `dzil build` produced only `Developer-Dashboard-5.83.tar.gz`.
+All 76 library modules, `dist.ini`, the main POD, and README report 5.83; the
+archive contains the P46/P47 regression tests and no `cover_db`. The isolated
+`d2 docker.images.build` completed, and a one-off Compose run returned
+`d2 version` 5.83. A separate blank Perl 5.44 container installed the archive
+with plain `cpanm` (tests enabled, no `--notest`) and the packaged suite passed;
+the full blank-environment integration runner then reported success. Its
+uniquely named Compose project was brought down afterward. GitHub's
+multi-platform publication and the required post-push Scorecard run remain
+pending the verified commit and push.
+
 Problem 47: Publish current master builds to Docker Hub
 (status: locally complete; GitHub publication pending)
 
@@ -1470,3 +1535,30 @@ providing that marker as `D2D_LAST_BUILT_VERSION` made it choose the current
 5.81. Host `dzil clean` then `dzil build` completed for 5.81; archive inspection
 confirmed the workflow contract test is included and no coverage database is
 packaged. README/POD parity and all 76 library module versions were verified.
+
+Post-push Scorecard found the Dockerfile's Ubuntu tag was not digest-pinned
+(Pinned-Dependencies 9/10). t/228 now requires the Ubuntu reference to include
+an immutable manifest digest; it failed before the Dockerfile change and
+passed afterward. The base now uses Scorecard's reported multi-platform
+manifest digest. This corrective follow-up is version 5.82. Rerun Scorecard
+after the next push and record the remaining external governance checks. The
+5.81 push started the Docker Hub workflow; its completion and the 5.83
+multi-platform run remain to be verified after the package and local image gates
+pass.
+
+Security review for Problems 46-47 (ASVS 5.0): V1, V4, V5, V7, V8, V10, V11,
+V12, and V14 were applicable. The workspace service name is fixed, user aliases
+remain argv values rather than shell source, the private overlay rejects
+symlinks and non-owner directories, and startup/exec errors remain visible.
+The image workflow requests read-only repository contents, pins every external
+action to a full commit SHA and the Ubuntu base to its multi-platform digest,
+and passes Docker Hub credentials only to the login action from the `release`
+environment; credentials are not build arguments or context files. V2, V3, V6,
+V9, and V13 (authentication, sessions, cryptography, transport, and application
+API) have no changed runtime surface. OWASP A03, A04, A05, A08, and A09 were
+reviewed for command construction, container reuse, workflow configuration,
+source/image integrity, and visible failure reporting. A01, A02, A06, A07, and
+A10 do not gain a changed access-control, cryptography, dependency, identity,
+or request-forgery surface. Required security scans and web/static/SSL tests
+passed in Docker; post-push Scorecard governance findings are tracked separately
+from code-side security controls.

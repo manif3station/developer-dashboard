@@ -3,7 +3,9 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '5.81';
+our $VERSION = '5.83';
+
+my $DOCKER_WORKSPACE_CONFIGS = '/dev/shm/developer-dashboard-workspace-config';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -273,8 +275,9 @@ sub _dashboard_command_path {
 
 # _run_workspace_docker_compose(%args)
 # Runs the public dashboard Docker Compose helper without invoking a shell.
-# Input: Compose argv array reference.
-# Output: hash reference with an exit_code field.
+# Input: Compose argv array reference and optional capture_stdout flag for
+# internal status probes whose output is returned to the caller for inspection.
+# Output: hash reference with stdout, stderr, and exit_code fields.
 sub _run_workspace_docker_compose {
     my (%args) = @_;
     local $?;
@@ -288,27 +291,59 @@ sub _run_workspace_docker_compose {
         $entrypoint = command_in_path('d2');
         $entrypoint = _dashboard_command_path() if !defined $entrypoint;
     }
-    my $status = system { $entrypoint } $entrypoint, 'docker', 'compose', @{$argv};
-    die "Unable to execute d2 Docker Compose command '$entrypoint': $!\n" if $status == -1;
+    my $exec_error;
+    my ( $stdout, $stderr, $status ) = capture {
+        system { $entrypoint } $entrypoint, 'docker', 'compose', @{$argv};
+        $exec_error = "$!" if $? == -1;
+        return $?;
+    };
+    if ( !defined $status || $status == -1 ) {
+        my $detail = defined $exec_error ? $exec_error : 'process status was unavailable';
+        die "Unable to execute d2 Docker Compose command '$entrypoint': $detail\n";
+    }
     my $signal = $status & 127;
-    return { exit_code => $signal ? 128 + $signal : $status >> 8 };
+    my $exit_code = $signal ? 128 + $signal : $status >> 8;
+    if ( !$args{capture_stdout} && $exit_code == 0 ) {
+        print $stdout if defined $stdout && $stdout ne '';
+        print STDERR $stderr if defined $stderr && $stderr ne '';
+    }
+    return {
+        stdout    => $stdout,
+        stderr    => $stderr,
+        exit_code => $exit_code,
+    };
 }
 
 # _run_docker_workspace(%args)
-# Starts the Compose workspace service, registers the alias in-container, then
-# launches the normal workspace command inside that service.
+# Checks whether the Compose workspace service is already running; it starts a
+# stopped service with cached `up --build`, registers the alias in a container-
+# only config root, then starts the normal workspace command using that root.
 # Input: workspace alias, resolved host directory, and optional Compose runner.
-# Output: hash reference describing the completed container workspace flow.
+# Output: hash reference describing startup/reuse and the completed workspace flow.
 sub _run_docker_workspace {
     my (%args) = @_;
     my $workspace = $args{workspace} || die 'Missing workspace alias';
     my $target = $args{target} || die 'Missing workspace target directory';
     my $compose = $args{docker_compose} || \&_run_workspace_docker_compose;
-    my @steps = (
-        [ start          => [ 'up', '-d', '--build', 'workspace' ] ],
-        [ register_alias => [ 'exec', 'workspace', 'd2', 'path', 'add', $workspace, '/workspace' ] ],
-        [ start_workspace => [ 'exec', 'workspace', 'd2', 'workspace', $workspace, '-c' ] ],
+    my $running = $compose->(
+        args          => [ 'ps', '--status', 'running', '--services', 'workspace' ],
+        stage         => 'check_running',
+        project_root  => $target,
+        capture_stdout => 1,
     );
+    $running = { exit_code => $running } if !ref $running;
+    die "Docker Compose runner must return an exit code for 'check_running'\n"
+      if ref($running) ne 'HASH' || !defined $running->{exit_code};
+    if ( $running->{exit_code} != 0 ) {
+        my $detail = ( $running->{stderr} || '' ) . ( $running->{stdout} || '' );
+        die "Unable to determine whether Docker workspace service 'workspace' is running (exit $running->{exit_code}); configure a 'workspace' service before retrying. No rebuild or in-container workspace commands were run. $detail";
+    }
+    my $already_running = grep { $_ eq 'workspace' } split /\R/, ( $running->{stdout} || '' );
+    my @steps;
+    push @steps, [ start => [ 'up', '-d', '--build', 'workspace' ] ] if !$already_running;
+    push @steps,
+        [ register_alias => [ 'exec', '-e', "DEVELOPER_DASHBOARD_CONFIG_OVERLAY=$DOCKER_WORKSPACE_CONFIGS", 'workspace', 'd2', 'path', 'add', $workspace, '/workspace' ] ],
+        [ start_workspace => [ 'exec', '-e', "DEVELOPER_DASHBOARD_CONFIG_OVERLAY=$DOCKER_WORKSPACE_CONFIGS", 'workspace', 'd2', 'workspace', $workspace, '-c' ] ];
 
     for my $step (@steps) {
         my ( $stage, $argv ) = @{$step};
@@ -330,6 +365,7 @@ sub _run_docker_workspace {
         docker    => 1,
         workspace => $workspace,
         cwd       => $target,
+        reused    => $already_running ? 1 : 0,
         stages    => [ map { $_->[0] } @steps ],
     };
 }
@@ -637,11 +673,13 @@ sub build_ticket_plan {
 # Creates or attaches to a local tmux workspace; Docker mode can instead start
 # the configured Compose workspace service and launch that same command inside it.
 # Input: args array reference plus optional cwd/env_ticket/env_workspace values,
-#        tmux and attach runners, directory resolver, and Docker Compose runner.
+#        tmux and attach runners, directory resolver, directory-change runner,
+#        and Docker Compose runner.
 # Output: local workspace plan or Docker-flow result hash reference.
 sub run_workspace_command {
     my (%args) = @_;
     my $tmux = $args{tmux} || \&tmux_command;
+    my $change_directory = ref $args{change_directory} eq 'CODE' ? $args{change_directory} : sub { chdir $_[0] };
     my ( $workspace_args, $change_dir, $docker ) = split_workspace_change_dir_args( $args{args} || [] );
     my $workspace = resolve_workspace_request(
         args          => $workspace_args,
@@ -658,14 +696,14 @@ sub run_workspace_command {
           if !defined $target || $target eq '';
         die "Workspace '$workspace' resolves to '$target', which is not a directory\n"
           if !-d $target;
-        chdir $target
+        $change_directory->($target)
           or die "Unable to change directory to '$target' for workspace '$workspace': $!\n";
         $args{cwd} = $target;
     }
     elsif ( defined $target && $target ne '' ) {
         die "Workspace path alias '$workspace' resolves to '$target', which is not a directory\n"
           if !-d $target;
-        chdir $target
+        $change_directory->($target)
           or die "Unable to change directory to '$target' for workspace path alias '$workspace': $!\n";
         $args{cwd} = $target;
     }
@@ -842,8 +880,17 @@ form), the module changes into the resolved host directory, then runs these
 commands in order through the public Docker Compose helper:
 
   d2 docker compose up -d --build workspace
-  d2 docker compose exec workspace d2 path add <alias> /workspace
-  d2 docker compose exec workspace d2 workspace <alias> -c
+  d2 docker compose exec -e DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config workspace d2 path add <alias> /workspace
+  d2 docker compose exec -e DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config workspace d2 workspace <alias> -c
+
+The private config overlay under the container's C</dev/shm> tmpfs keeps the
+container path mapping away from bind-mounted host config and temporary
+directories. It is an additive config layer, so existing container settings
+remain available while this alias override takes precedence. The host
+alias continues to point at its original path (for example, C</tmp/foobar>);
+only the container-side alias resolves to C</workspace>. Both in-container
+commands use the same overlay so the workspace command can see the alias just
+registered.
 
 The command stops immediately if the service fails to start or either in-container
 command fails. Startup errors ask the user to configure a Compose service named

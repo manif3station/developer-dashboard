@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '5.81';
+our $VERSION = '5.83';
 
 use Digest::MD5 qw(md5_hex);
 use Cwd qw(getcwd);
@@ -831,11 +831,14 @@ sub temp_root {
 }
 
 # config_root()
-# Returns the configuration root directory.
+# Returns the writable configuration root, preferring the optional private
+# overlay before the ordinary active runtime config directory.
 # Input: none.
 # Output: directory path string.
 sub config_root {
     my ($self) = @_;
+    my $overlay = $self->_config_overlay_root;
+    return $overlay if defined $overlay;
     if ( my $dir = $ENV{DEVELOPER_DASHBOARD_CONFIGS} ) {
         return $self->_ensure_dir( $self->_expand_home($dir) );
     }
@@ -848,10 +851,16 @@ sub config_root {
 # Output: ordered list of configuration root directory path strings.
 sub config_roots {
     my ($self) = @_;
+    my @roots;
     if ( my $dir = $ENV{DEVELOPER_DASHBOARD_CONFIGS} ) {
-        return ( $self->_ensure_dir( $self->_expand_home($dir) ) );
+        @roots = ( $self->_ensure_dir( $self->_expand_home($dir) ) );
     }
-    return map { File::Spec->catdir( $_, 'config' ) } $self->runtime_roots;
+    else {
+        @roots = map { File::Spec->catdir( $_, 'config' ) } $self->runtime_roots;
+    }
+    my $overlay = $self->_config_overlay_root;
+    unshift @roots, $overlay if defined $overlay;
+    return @roots;
 }
 
 # config_layers()
@@ -861,10 +870,44 @@ sub config_roots {
 # Output: ordered list of configuration root directory path strings.
 sub config_layers {
     my ($self) = @_;
+    my @layers;
     if ( my $dir = $ENV{DEVELOPER_DASHBOARD_CONFIGS} ) {
-        return ( $self->_ensure_dir( $self->_expand_home($dir) ) );
+        @layers = ( $self->_ensure_dir( $self->_expand_home($dir) ) );
     }
-    return map { File::Spec->catdir( $_, 'config' ) } $self->runtime_layers;
+    else {
+        @layers = map { File::Spec->catdir( $_, 'config' ) } $self->runtime_layers;
+    }
+    my $overlay = $self->_config_overlay_root;
+    push @layers, $overlay if defined $overlay;
+    return @layers;
+}
+
+# _config_overlay_root()
+# Resolves and creates the optional extra config root used for container-local
+# overrides without replacing the normal home/project config lookup chain.
+# Input: none; reads DEVELOPER_DASHBOARD_CONFIG_OVERLAY when set.
+# Output: expanded overlay directory path, or undef when no overlay is set.
+sub _config_overlay_root {
+    my ($self) = @_;
+    my $dir = $ENV{DEVELOPER_DASHBOARD_CONFIG_OVERLAY};
+    return if !defined $dir || $dir eq '';
+    $dir = $self->_expand_home($dir);
+    die "Config overlay must not be a symbolic link: $dir" if -l $dir;
+    $self->_ensure_state_dir($dir);
+    my @stat = $self->_config_overlay_stat($dir);
+    die "Unable to inspect config overlay directory $dir: $!" if !@stat;
+    die "Config overlay directory is not owned by the current user: $dir"
+      if $stat[4] != $>;
+    return $dir;
+}
+
+# _config_overlay_stat($dir)
+# Reads the filesystem metadata used to validate a private config overlay.
+# Input: expanded overlay directory path.
+# Output: stat fields for the directory, or an empty list when it cannot be read.
+sub _config_overlay_stat {
+    my ( $self, $dir ) = @_;
+    return stat $dir;
 }
 
 # auth_root()
@@ -1661,6 +1704,17 @@ every skill-namespaced route, ajax, and static asset path.
 =head2 runtime_root, cache_root, home_runtime_root, home_cache_root
 
 Report the layered runtime directories. C<runtime_root> and C<cache_root> follow the deepest discovered layer, which is the write target for layered runtime state. At each depth, both existing C<.d2/> and C<.developer-dashboard/> roots are independently discoverable; C<.developer-dashboard/> wins same-depth lookup precedence and remains the write target when both exist. C<home_runtime_root> and C<home_cache_root> stay pinned to the selected home write root, for per-user artifacts that a fixed external consumer reads from one well-known path.
+
+=head2 config_root, config_roots, config_layers
+
+C<config_root> selects the writable config directory. When
+C<DEVELOPER_DASHBOARD_CONFIG_OVERLAY> is set, that private directory becomes
+the write target; C<config_roots> still returns the normal layered config
+directories and prepends the overlay so its values have the highest lookup
+priority. C<config_layers> appends it as the final inherited layer. This lets
+container commands store a path-alias override without writing through a
+bind-mounted host config or hiding existing config values. The older
+C<DEVELOPER_DASHBOARD_CONFIGS> setting remains a replacement config root.
 
 =for comment FULL-POD-DOC START
 

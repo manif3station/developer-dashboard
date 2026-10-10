@@ -1,5 +1,18 @@
 # Fixed Bugs
 
+## 5.83
+
+- Problem 46: reuse a running workspace container without rebuilding it; when
+  stopped, use cached `up -d --build`, and stop safely if its state is unknown.
+
+## 5.82
+
+- Problem 46 regression: keep the host path alias unchanged when the Docker
+  workspace registers its `/workspace` mapping; use an owner-only additive
+  `/dev/shm` config overlay and reject symlinked overlay directories.
+- Problem 47: pin the Ubuntu base image by its multi-platform manifest digest,
+  completing the Scorecard pinned-container dependency finding.
+
 ## 5.81
 
 - Problem 47: build Docker Hub images from the latest master checkout, then

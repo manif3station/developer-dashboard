@@ -98,3 +98,6 @@ Key points:
 6. Follow the SDLC gates in `CLAUDE.md` for any new work.
 
 *All agents load this file each session; keep it accurate and concise.*
+
+## Operator communication
+- Whenever sending Michael an update or status message, use the `say <message>` command so the message is delivered through the configured operator channel.

@@ -46,7 +46,7 @@ like( $workflow, qr/\.github\/docker\/Dockerfile/, 'the build action uses the re
 like( $workflow, qr/docker\/build-push-action\@[0-9a-f]{40}/, 'the multi-platform image is built and pushed with a pinned action' );
 like( $workflow, qr/^\s+DIST_VERSION=\$\{\{\s*steps\.version\.outputs\.version\s*\}\}\s*$/m, 'the distribution version uses a non-generic build argument that cannot override skill VERSION values' );
 
-like( $dockerfile, qr/^FROM\s+ubuntu:/m, 'the image uses a Linux base suitable for multi-platform container builds' );
+like( $dockerfile, qr/^FROM\s+ubuntu:\S+\@sha256:[0-9a-f]{64}\s*$/m, 'the multi-platform Linux base image is pinned by manifest digest' );
 like( $dockerfile, qr/^ARG\s+DIST_VERSION\s*$/m, 'the Dockerfile uses a namespaced distribution-version build argument' );
 unlike( $dockerfile, qr/^ARG\s+VERSION\s*$/m, 'the Dockerfile does not inject a generic VERSION variable into packaged test runs' );
 like( $dockerfile, qr/^COPY\s+\.\s+\/workspace\s*$/m, 'the checked-out master source is available to the build steps' );

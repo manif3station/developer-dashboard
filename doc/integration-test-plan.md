@@ -42,10 +42,13 @@ The integration run covers these command families:
 - actions: `dashboard action run system-status paths`
 - docker resolver: `dashboard docker compose --dry-run`
 - Docker workspace mode: `d2 workspace -c <registered-alias> --docker` starts
-  the running Compose `workspace` service from the alias directory, whose
-  configuration bind-mounts that target at `/workspace`; it registers the alias
-  in the container, then starts the regular tmux workspace there. Startup
-  failure must stop before either in-container command
+  or reuses the Compose `workspace` service from the alias directory, whose
+  configuration bind-mounts that target at `/workspace`; an already-running
+  service is reused without a rebuild, while a stopped service uses cached
+  `up -d --build` (never `--no-cache`). Both in-container commands use a
+  private config overlay so registering `/workspace` cannot overwrite the
+  host's alias. It then starts the regular tmux workspace there. A failed
+  state query or startup must stop before either in-container command
 - web lifecycle: `dashboard serve`, `dashboard restart`, `dashboard stop`
 - browser checks: headless Chromium editor, saved fake-project bookmark page, outsider bootstrap DOM verification, and helper-login DOM verification after helper-user enablement
 - ajax streaming: installed long-running `/ajax/<file>` route timing, early-chunk verification, refresh-safe singleton replacement, `fetch_value()` / `stream_value()` DOM helper coverage, and browser pagehide cleanup coverage in unit tests
@@ -140,9 +143,10 @@ The integration run creates:
 20. Exercise docker compose dry-run resolution against a temporary project.
     For Docker workspace mode, use an isolated project with a named
     `workspace` service that bind-mounts the project at `/workspace` and a
-    registered alias; verify `up -d --build workspace` precedes the alias-add
-    and inner-workspace `exec` commands. Repeat without the service and verify
-    the setup error occurs with no `exec` calls. Also
+    registered alias. When stopped, verify cached `up -d --build workspace`
+    precedes the alias-add and inner-workspace `exec` commands. With the service
+    already running, verify no `up`/build command occurs. Repeat without the
+    service and verify the setup error occurs with no `exec` calls. Also
     verify `-d` without `-c` fails before Compose is invoked, and no `-d`
     preserves the local tmux behavior.
 21. Start the installed web service.
