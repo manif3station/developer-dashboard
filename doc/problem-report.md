@@ -561,11 +561,20 @@ in-container commands. Injected-runner integration tests verify exact successful
 stage order and early stopping on each failure. The initial blank-container
 package run exposed a fixture issue: without an init reaper, process-group tests
 left descendants observable as zombies. After recreating the isolated Compose
-service with `init: true`, plain `cpanm` (without `--notest`) installed 5.78 and
-passed the packaged test suite (128 distributions installed). The completed
-problem report was finalized after that build, so the version guard required a
-5.79 artifact refresh; the runtime code is unchanged from 5.78. The repository
-itself does not configure a `workspace` service, so a real successful
-interactive workspace session could not be started here; the service-absent
-behavior was exercised directly and the success sequence is verified by the
-ordered runner tests.
+service with `init: true`, plain `cpanm` (without `--notest`) installed both the
+5.78 package and final 5.79 archive; each passed the packaged test suite (128
+distributions installed). The 5.79 image built successfully and reports `d2
+version` 5.79. The final archive includes the completed problem report; runtime
+code is unchanged from 5.78. The repository itself does not configure a
+`workspace` service, so a real successful interactive workspace session could
+not be started here; the service-absent behavior was exercised directly and the
+success sequence is verified by the ordered runner tests.
+
+Post-push Scorecard (2026-10-10) reports 8.1/10. Branch-Protection is 0/10
+because `master` has no branch protection; CII-Best-Practices is 0/10 because no
+OpenSSF badge enrollment is detected; Code-Review is 0/10 because it finds 0/30
+approved changesets; Contributors is 3/10 because it detects one contributing
+organization; CI-Tests is unknown because no pull request was found. Source-side
+checks scored 10/10. These remaining gates require repository administration,
+external badge enrollment, or genuine review/contributor activity and are not
+failures in the Problem 46 implementation.

@@ -1,3 +1,9 @@
+5.80  2026-10-10
+
+  - Reissue Problem 46 verification with final 5.79 blank-container install
+    and image-version evidence, and record the outstanding repository-level
+    Scorecard gates separately from the implementation results.
+
 5.79  2026-10-10
 
   - Reissue Problem 46's distribution with the completed problem report.

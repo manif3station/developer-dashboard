@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 5.80
+
+- Finalize Problem 46's packaged verification record: the 5.79 archive passed
+  a blank-container `cpanm` install with tests enabled, and the 5.79 image
+  reports the matching version. Record remaining repository-level Scorecard
+  governance gates separately from the feature implementation.
+
 ## 5.79
 
 - Reissue Problem 46's distribution so the completed status and report are

@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '5.79';
+our $VERSION = '5.80';
 
 use Capture::Tiny qw(capture);
 use Digest::SHA qw(sha256_hex);

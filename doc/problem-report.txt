@@ -1407,10 +1407,18 @@ ran neither in-container command. Injected-runner tests verify exact successful
 ordering and each early-failure path. An initial blank-container package run
 exposed a test-fixture issue: without an init reaper, process-group tests could
 observe orphaned children as zombies. After recreating the isolated Compose
-service with `init: true`, plain `cpanm` (without `--notest`) installed 5.78 and
-passed the packaged suite (128 distributions installed). The completed report
-was finalized after that build, so the version guard requires a 5.79 artifact
-refresh; runtime code is unchanged from 5.78. The repo does not configure a
-`workspace` service, so only the real service-absent path could be run; an actual
-successful interactive session is not available here, while the exact success
-sequence is covered by ordered runner tests.
+service with `init: true`, plain `cpanm` (without `--notest`) installed both the
+5.78 package and final 5.79 archive; each passed the packaged suite (128
+distributions installed). The 5.79 image built successfully and reports `d2
+version` 5.79. The final archive includes the completed report; runtime code is
+unchanged from 5.78. The repo does not configure a `workspace` service, so only
+the real service-absent path could be run; a successful interactive session is
+unavailable here, while exact success order is covered by runner tests.
+
+Post-push Scorecard (2026-10-10) reports 8.1/10: Branch-Protection 0/10
+(`master` is unprotected), CII-Best-Practices 0/10 (no OpenSSF badge enrollment),
+Code-Review 0/10 (0/30 approved changesets), Contributors 3/10 (one detected
+organization), and CI-Tests unknown (no PR found). Source-side checks scored
+10/10. These remaining gates require repository administration, external badge
+enrollment, or genuine review/contributor activity and are not Problem 46 code
+failures.

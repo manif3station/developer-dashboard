@@ -3,7 +3,7 @@ package Developer::Dashboard::IsoTimestamp;
 use strict;
 use warnings;
 
-our $VERSION = '5.79';
+our $VERSION = '5.80';
 
 use Exporter 'import';
 use Time::Local qw(timegm);
