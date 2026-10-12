@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.84';
+our $VERSION = '5.88';
 
 our @EXPORT = ('d2');
 
@@ -67,7 +67,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-5.84
+5.88
 
 =head1 INTRODUCTION
 
@@ -797,22 +797,26 @@ error instead of silently starting from the wrong directory. The tmux session
 and its layered C<.env> refresh both start from the resolved directory.
 Add C<-d> or C<--docker> with C<-c> and a registered path alias to run that
 workspace inside a Compose service named C<workspace>: C<d2 workspace -c
-E<lt>aliasE<gt> --docker>. The command changes to the host alias target, runs
-C<d2 docker compose up -d --build workspace>, registers that alias as
+E<lt>aliasE<gt> -d>. The command changes to the host alias target, checks
+whether the C<workspace> service is already running, registers that alias as
 C</workspace> inside the container with C<d2 path add>, then runs
 C<d2 workspace E<lt>aliasE<gt> -c> there to start the normal tmux workspace
-inside the container. Before starting, it checks whether the C<workspace>
-service is already running. A running service is reused without rebuilding,
-preserving the existing container and its in-progress work. A stopped service
-is started with C<up -d --build>; Docker's normal build cache remains enabled.
+inside the container. A stopped service starts with C<up -d --no-build
+workspace>, preventing Compose from implicitly building a missing image. Use
+uppercase C<-C> with Docker mode, for example
+C<d2 workspace foobar -d -C>, to start a stopped service with
+C<up -d --build workspace>; Compose build progress is streamed directly to the
+terminal. Both C<-c> and C<-C> reuse an already-running service without
+rebuilding, preserving the existing container and its in-progress work.
 If the service-state check fails, the command stops without rebuilding or
 running in-container commands and reports the setup/error details. If the
 Compose service cannot start, the command asks the user to configure the
 C<workspace> service and stops before running either in-container command.
 Alias registration and inner-workspace failures also stop the sequence and
-remain visible. C<-d> requires C<-c> and a registered alias;
-the existing local workspace flow remains unchanged when Docker mode is not
-selected. The configured service must bind-mount the alias target at
+remain visible. C<-d> requires C<-c> or C<-C> and a registered alias; C<-C>
+requires Docker mode. The existing local workspace flow remains unchanged
+when Docker mode is not selected.
+The configured service must bind-mount the alias target at
 C</workspace> and stay running so Compose can execute the in-container commands.
 The two in-container commands use an additive private config overlay at
 C</dev/shm/developer-dashboard-workspace-config>. The container's C</dev/shm>
@@ -820,7 +824,19 @@ tmpfs is separate from host directories the service may bind-mount, including
 C</tmp> and the user's config. Existing configuration remains available, with
 the overlay taking precedence; the host alias therefore stays pointed at its
 original path while the container-side copy resolves to C</workspace> for the
-inner session.
+inner session. The final Compose C<exec> explicitly allocates an interactive
+terminal and passes its input and output directly through, so the tmux client
+inside the container receives the user's terminal rather than a captured pipe.
+The final exec also explicitly sets C<TMUX_TMPDIR=/dev/shm> for the inner
+workspace process, so tmux uses the container's writable tmpfs socket directory
+even if its installed command does not yet include the automatic C</tmp>
+fallback. Tmux creates its per-user socket directory there, and later clients
+receive the same setting to reconnect to that server.
+Before tmux commands run, the workspace helper honors an explicit
+C<TMUX_TMPDIR>. If none is configured and C</tmp> is not writable, it uses the
+container's writable C</dev/shm> for the tmux socket. This same check is made
+for later workspace commands, so they reconnect to the same tmux server; when
+C</tmp> is writable, tmux keeps its normal default location.
 
 Built-in commands and actions share a help catalog used by both command
 dispatch and shell completion. Use C<d2 help> for a concise command index,
@@ -2609,7 +2625,7 @@ and its install is verified separately in a blank Docker environment.
 The workflow selects the GitHub Actions environment C<release>, whose
 secrets C<DOCKER_HUB_USER> and C<DOCKER_HUB_TOKEN> provide the Docker Hub
 credentials. It pushes two tags under C<DOCKER_HUB_USER/developer-dashboard>:
-the distribution version read from C<dist.ini> (for example C<5.84>) and
+the distribution version read from C<dist.ini> (for example C<5.88>) and
 C<latest>. A manual workflow dispatch also builds the current C<master>
 branch. The image targets C<linux/amd64> and
 C<linux/arm64>; Docker does not support a macOS-kernel image platform, while
@@ -2620,7 +2636,7 @@ and every GitHub Action dependency is pinned to a full commit SHA.
 For example, pull the moving tag or a pinned version:
 
   docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:latest
-  docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:5.84
+  docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:5.88
 
 The container entrypoint is C<d2>. The versioned tag is intended for selecting
 a known image build; C<latest> follows successful master builds.

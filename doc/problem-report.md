@@ -523,8 +523,9 @@ settings, approval history, contributor makeup, and badge enrollment items.
 Expected: `d2 workspace -c <alias> --docker` (or `-d`) resolves the registered
 path alias and changes to its directory. If the Compose `workspace` service is
 already running, reuse it without rebuilding or replacing its container. If it
-is stopped, run `d2 docker compose up -d --build workspace` with Docker's normal
-build cache enabled. Only after the service is running should the command run
+is stopped, start it with `d2 docker compose up -d workspace` without building
+by default. Uppercase `-C` opts into `up -d --build workspace` with the normal
+Docker cache and live progress output. Only after the service is running should the command run
 `d2 docker compose exec -e
 DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config
 workspace d2 path add <alias> /workspace` and then the same `exec -e
@@ -540,8 +541,8 @@ Reproduction: define a path alias to a project directory, then run
 workspace accepted only `-c` and always created or attached to a tmux session
 on the host. Also try `-d` without `-c`, a raw absolute path, and an isolated
 Compose project lacking a `workspace` service. Also test with the service
-already running (no `up` or build) and stopped (cached `up --build`, never
-`--no-cache`).
+already running (no `up` or build) and stopped (`-c -d` starts without a build;
+`-C -d` builds with the normal cache and streams output).
 
 Root cause: `workspace` stripped only `-c`, then unconditionally created and
 attached to the host's tmux session. It had no Docker option, Compose handoff,
@@ -558,8 +559,10 @@ Root-cause fix: the workspace parser now recognizes `-d`/`--docker` alongside
 `-c`, resolves and changes into the registered alias directory, then hands off
 to the public Docker Compose command with an argument list (no shell). It first
 uses `compose ps --status running --services workspace`. If running, it skips
-`up --build` so in-container progress is preserved. Otherwise it runs
-`up -d --build workspace`, using Compose's default cache (no `--no-cache`). A
+all start/build commands so in-container progress is preserved. If stopped,
+lowercase `-c` runs `up -d workspace` without a build; uppercase `-C` runs
+`up -d --build workspace` using Compose's default cache and streams output
+directly to the caller rather than buffering it. A
 failed state probe stops before mutations. It then registers the alias and
 starts the inner workspace; failures stop the sequence. Omitting Docker mode
 retains the existing local tmux path.
@@ -765,3 +768,102 @@ build of the workflow Dockerfile also completed and its one-off image returned
 with cpanm tests enabled and completed the integration harness successfully.
 The corrected 5.84 GitHub publish and post-push Scorecard remain pending this
 version's push.
+
+### Problem 46 follow-up: tmux cannot start in the Docker workspace (2026-10-11–12; runtime verified, packaging gates pending)
+
+Expected outcome: `d2 workspace -c <alias> -d` must attach the caller's terminal
+to a live tmux session running inside the Compose `workspace` container. The
+session must use a socket location writable by the container user, and a later
+`d2 workspace <alias> -c` must reconnect to that same session.
+
+Reproduction: in a uniquely named Compose project, register host alias
+`foobar` to the checked-out project and run `d2 workspace -c foobar -d` with the
+workspace service running. Before the fix, the in-container command failed
+after alias registration with `couldn't create directory /tmp/tmux-1000
+(Permission denied)`. The container ran as uid 1000; its bound `/tmp` was mode
+0755 and owned by root, so it was not writable. `/dev/shm` was mode 1777 and
+writable. The final Compose exec was also routed through output capture instead
+of inheriting an interactive terminal.
+
+Root cause: the workspace service's `/tmp` bind mount is not guaranteed to have
+the normal writable sticky-bit permissions. Tmux therefore cannot create its
+default `/tmp/tmux-<uid>` socket directory. The first outer-flow repair only
+selected `/dev/shm` inside the current library code; it did not pass
+`TMUX_TMPDIR` across the Compose `exec` boundary. The exact runtime test exposed
+that the test workspace image still had d2 5.84, so its in-container workspace
+command continued to use `/tmp`. Separately, the outer Docker workspace runner
+captured the final long-lived tmux attach instead of preserving the caller's
+terminal streams.
+
+Red tests: in the `dev` container, the new interactive-runner assertions failed
+against the previous implementation because output was returned in captured
+stdout/stderr and the `start_workspace` stage was not marked interactive. The
+new socket-directory tests also failed before the helper existed.
+
+Fix: the final Compose exec now requests `-it`, runs without output capture,
+passes the terminal streams through directly, and explicitly supplies
+`TMUX_TMPDIR=/dev/shm` to the in-container d2 process. Tmux commands also honor
+an explicit `TMUX_TMPDIR`; when it is unset and `/tmp` is unwritable, the
+workspace helper selects writable `/dev/shm`. This makes the current outer
+handoff work even before an older container image is refreshed, and subsequent
+clients receive the same socket location. If neither location is usable, the
+current helper reports that directly.
+
+Verification: adding an assertion for `-e TMUX_TMPDIR=/dev/shm` first failed
+red in `t/91-cli-ticket-coverage.t`; after the handoff change, all 273 assertions
+pass in the Docker `dev` container. The related help/completion/dispatch tests
+also pass in Docker (3 files, 1,898 assertions). On the isolated
+`dd-p46-tmux-red` project, the exact outer command first reproduced the stale
+5.84 image failure, then `d2 workspace foobar -d -c` attached successfully
+after the new environment was passed. A read-only tmux query reported
+`foobar attached=1 cwd=/workspace`; the socket directory was owner-only under
+`/dev/shm/tmux-1000`. Detaching returned to the caller, and a later
+`d2 workspace foobar -d -C` reused the already-running container without a
+build and attached to the same session. The isolated host alias remained
+`foobar -> /tmp/foobar`; the normal host path inventory was unchanged.
+
+The stopped-service `-C` branch is guarded by tests that assert the exact
+`up -d --build workspace` argv and direct, uncaptured build output; the live
+runtime check deliberately did not rebuild the running workspace. At this
+checkpoint the full suite had passed (259 files, 22,964 tests), while branch
+and condition coverage measured 99.9%; follow-up coverage work is recorded
+below.
+
+Follow-up reproduction (2026-10-12): a fresh `d2 workspace foobar -d -c`
+against a stopped service unexpectedly invoked BuildKit even though the command
+did not contain `--build`; Compose auto-built because the configured image was
+absent. That violates the no-build default. The same attempt then reached an
+inner `/tmp/tmux-1000` permission error because it used the older installed
+outer `d2`, which did not pass `TMUX_TMPDIR`. The checkout implementation does
+pass `TMUX_TMPDIR=/dev/shm`; using it with `PERL5LIB` attached successfully to
+the in-container tmux session. The stopped-service start argv is now
+`up -d --no-build workspace`, and `t/91-cli-ticket-coverage.t` failed first on
+the expected `--no-build` argument, then passed after the implementation
+change. A fresh, stopped-service checkout invocation remains the final runtime
+verification; the installed outer `d2` must be updated for users to receive
+this fix.
+
+Resolution verification (2026-10-12): before the image build, host `d2 version`
+reported 5.84 while the checkout reported 5.88. With the checkout loaded via
+`PERL5LIB`, a fresh stopped workspace started with no BuildKit output, the
+caller attached to tmux, and the in-container query reported
+`foobar attached=1 cwd=/workspace` with the socket at `/dev/shm/tmux-1000`.
+Reattaching with `-d -C` while the service was running did not rebuild it.
+Default startup now includes `--no-build`, preventing Compose's implicit
+build. The focused Docker test passes 278 assertions; the full Docker suite
+passes 259 files / 23,026 tests, and the coverage gate passes all four metrics
+at 100.0% (259 files / 22,969 instrumented tests).
+
+Final SDLC verification (2026-10-12): the current `t/91` and related
+help/completion tests pass in Docker; `dzil clean` followed by `dzil build`
+produced only `Developer-Dashboard-5.88.tar.gz`. Archive metadata and all 76
+library module versions are 5.88, README matches the main POD, and the archive
+contains no `cover_db` entries. The blank Perl 5.44 Docker environment installed
+the tarball with plain `cpanm` (tests enabled) and the complete integration
+runner reported `Blank-environment integration run passed`. The required
+`d2 docker.images.build` completed and a uniquely named one-off container
+reported `d2 version` 5.88. Its Telegram notification timed out with HTTP 500,
+but the image build and host `cpanm --notest` install completed; the development
+marker was removed afterward. The latest build helper updated the host
+installation to 5.88. Security scans, README/POD synchronization, archive
+hygiene, and `git diff --check` passed. No push or PAUSE release was requested.

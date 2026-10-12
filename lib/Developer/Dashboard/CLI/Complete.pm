@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Complete;
 use strict;
 use warnings;
 
-our $VERSION = '5.84';
+our $VERSION = '5.88';
 
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::Config;
@@ -352,7 +352,9 @@ Example 7:
 
   dashboard complete 2 d2 workspace -
 
-Offer workspace flags including C<-d> and C<--docker> without querying tmux.
+Offer workspace flags including C<-d>/C<--docker>, C<-c>, and uppercase C<-C>
+without querying tmux. The uppercase form opts into building a stopped Docker
+workspace and streaming the progress.
 
 =for comment FULL-POD-DOC END
 

@@ -1,5 +1,40 @@
 # Fixed Bugs
 
+## 5.88
+
+- Problem 46 follow-up: use `docker compose up -d --no-build workspace` for
+  default Docker workspace starts so Compose cannot implicitly build when the
+  image is missing. Only `-d -C` requests a build, with output streamed live.
+- Verify the checkout's outer workspace command passes the writable tmux socket
+  location and attaches to the existing in-container tmux session.
+
+## 5.87
+
+- Problem 46 follow-up: explicitly pass `TMUX_TMPDIR=/dev/shm` to the inner
+  workspace process, so tmux can create/connect to its socket even when the
+  installed container command predates the `/tmp` permission fallback.
+- Verify the exact outer Docker workspace command attaches to the inner tmux
+  session while leaving the host alias unchanged.
+
+## 5.86
+
+- Problem 46: do not build a stopped Docker workspace by default; lowercase
+  `-c -d` starts it with `up -d workspace`. Uppercase `-C` opts into a cached
+  build and streams Compose progress live.
+- Reuse a running workspace even with `-C`; preserve container state.
+- Keep tmux interactive in Docker, with a writable socket fallback when the
+  container's `/tmp` bind mount is not writable.
+- Add regression coverage for the option parser, help/completion, startup
+  command order, live build output, and container tmux attach behavior.
+
+## 5.85
+
+- Problem 46: allocate a real TTY for the Docker workspace's final Compose
+  exec and pass its streams through directly, so tmux attaches interactively.
+- When `/tmp` is not writable inside the container, use `/dev/shm` for tmux's
+  socket via `TMUX_TMPDIR`; repeat that selection for subsequent workspace
+  commands so they find the same session.
+
 ## 5.84
 
 - Problem 47: prevent the multi-platform GitHub image build from repeating the

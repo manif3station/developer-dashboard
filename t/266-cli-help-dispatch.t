@@ -107,8 +107,10 @@ is( $logs_help_err, '', 'd2 logs --help emits no parser errors' );
 
 my ( $workspace_help_out, $workspace_help_err, $workspace_help_exit ) = run_cli( 'workspace', '--help' );
 is( $workspace_help_exit, 0, 'd2 workspace --help exits successfully' );
-like( $workspace_help_out, qr/Usage: dashboard workspace <name> \[-c\] \[-d\|--docker\]/,
-    'd2 workspace --help documents local path switching and both Docker option forms' );
+like( $workspace_help_out, qr/Usage: dashboard workspace <name> \[-c\|-C\] \[-d\|--docker\]/,
+    'd2 workspace --help documents directory change, explicit build, and both Docker option forms' );
+like( $workspace_help_out, qr/uppercase -C requests a cached build with live progress/,
+    'd2 workspace --help explains opt-in builds and streamed progress' );
 like( $workspace_help_out, qr/Compose service named workspace/,
     'd2 workspace --help explains the required Compose workspace service' );
 is( $workspace_help_err, '', 'd2 workspace --help emits no parser errors' );

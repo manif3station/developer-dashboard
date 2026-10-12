@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.84
+5.88
 
 # INTRODUCTION
 
@@ -565,22 +565,26 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     and its layered `.env` refresh both start from the resolved directory.
     Add `-d` or `--docker` with `-c` and a registered path alias to run that
     workspace inside a Compose service named `workspace`: `d2 workspace -c
-    <alias> --docker`. The command changes to the host alias target, runs
-    `d2 docker compose up -d --build workspace`, registers that alias as
+    <alias> -d`. The command changes to the host alias target, checks
+    whether the `workspace` service is already running, registers that alias as
     `/workspace` inside the container with `d2 path add`, then runs
     `d2 workspace <alias> -c` there to start the normal tmux workspace
-    inside the container. Before starting, it checks whether the `workspace`
-    service is already running. A running service is reused without rebuilding,
-    preserving the existing container and its in-progress work. A stopped service
-    is started with `up -d --build`; Docker's normal build cache remains enabled.
+    inside the container. A stopped service starts with `up -d --no-build
+    workspace`, preventing Compose from implicitly building a missing image. Use
+    uppercase `-C` with Docker mode, for example
+    `d2 workspace foobar -d -C`, to start a stopped service with
+    `up -d --build workspace`; Compose build progress is streamed directly to the
+    terminal. Both `-c` and `-C` reuse an already-running service without
+    rebuilding, preserving the existing container and its in-progress work.
     If the service-state check fails, the command stops without rebuilding or
     running in-container commands and reports the setup/error details. If the
     Compose service cannot start, the command asks the user to configure the
     `workspace` service and stops before running either in-container command.
     Alias registration and inner-workspace failures also stop the sequence and
-    remain visible. `-d` requires `-c` and a registered alias;
-    the existing local workspace flow remains unchanged when Docker mode is not
-    selected. The configured service must bind-mount the alias target at
+    remain visible. `-d` requires `-c` or `-C` and a registered alias; `-C`
+    requires Docker mode. The existing local workspace flow remains unchanged
+    when Docker mode is not selected.
+    The configured service must bind-mount the alias target at
     `/workspace` and stay running so Compose can execute the in-container commands.
     The two in-container commands use an additive private config overlay at
     `/dev/shm/developer-dashboard-workspace-config`. The container's `/dev/shm`
@@ -588,7 +592,19 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     `/tmp` and the user's config. Existing configuration remains available, with
     the overlay taking precedence; the host alias therefore stays pointed at its
     original path while the container-side copy resolves to `/workspace` for the
-    inner session.
+    inner session. The final Compose `exec` explicitly allocates an interactive
+    terminal and passes its input and output directly through, so the tmux client
+    inside the container receives the user's terminal rather than a captured pipe.
+    The final exec also explicitly sets `TMUX_TMPDIR=/dev/shm` for the inner
+    workspace process, so tmux uses the container's writable tmpfs socket directory
+    even if its installed command does not yet include the automatic `/tmp`
+    fallback. Tmux creates its per-user socket directory there, and later clients
+    receive the same setting to reconnect to that server.
+    Before tmux commands run, the workspace helper honors an explicit
+    `TMUX_TMPDIR`. If none is configured and `/tmp` is not writable, it uses the
+    container's writable `/dev/shm` for the tmux socket. This same check is made
+    for later workspace commands, so they reconnect to the same tmux server; when
+    `/tmp` is writable, tmux keeps its normal default location.
 
     Built-in commands and actions share a help catalog used by both command
     dispatch and shell completion. Use `d2 help` for a concise command index,
@@ -2230,7 +2246,7 @@ and its install is verified separately in a blank Docker environment.
 The workflow selects the GitHub Actions environment `release`, whose
 secrets `DOCKER_HUB_USER` and `DOCKER_HUB_TOKEN` provide the Docker Hub
 credentials. It pushes two tags under `DOCKER_HUB_USER/developer-dashboard`:
-the distribution version read from `dist.ini` (for example `5.84`) and
+the distribution version read from `dist.ini` (for example `5.88`) and
 `latest`. A manual workflow dispatch also builds the current `master`
 branch. The image targets `linux/amd64` and
 `linux/arm64`; Docker does not support a macOS-kernel image platform, while
@@ -2241,7 +2257,7 @@ and every GitHub Action dependency is pinned to a full commit SHA.
 For example, pull the moving tag or a pinned version:
 
     docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:latest
-    docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:5.84
+    docker pull YOUR_DOCKER_HUB_USER/developer-dashboard:5.88
 
 The container entrypoint is `d2`. The versioned tag is intended for selecting
 a known image build; `latest` follows successful master builds.

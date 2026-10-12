@@ -1599,3 +1599,91 @@ returned 5.84. Finally, the blank Perl 5.44 Docker environment installed that
 archive with cpanm tests enabled and completed the integration harness. The
 corrected 5.84 GitHub publish and post-push Scorecard remain pending this
 version's push.
+
+Problem 46 follow-up: tmux cannot start in the Docker workspace (2026-10-11–12; runtime verified, packaging gates pending)
+
+Expected outcome: `d2 workspace -c <alias> -d` attaches the caller's terminal to
+a live tmux session inside the Compose workspace container. Tmux uses a socket
+directory writable by the container user, and a later workspace command
+reconnects to that same session.
+
+Reproduction: in a uniquely named Compose project, map host alias `foobar` to
+the checked-out project and run `d2 workspace -c foobar -d` with the workspace
+service running. Before the fix, tmux reported `couldn't create directory
+/tmp/tmux-1000 (Permission denied)` after alias registration. The container ran
+as uid 1000; bound `/tmp` was mode 0755, owned by root, and not writable, while
+`/dev/shm` was mode 1777 and writable. In addition, the final Compose exec was
+captured instead of inheriting the interactive terminal.
+
+Root cause: the configured service's `/tmp` bind mount does not guarantee the
+standard writable sticky-bit permissions, so tmux cannot create its default
+`/tmp/tmux-<uid>` socket. The first outer-flow repair selected `/dev/shm` only
+inside the new library code and did not pass `TMUX_TMPDIR` across Compose exec;
+the exact test exposed that the container still had d2 5.84. The outer Compose
+runner also captured the final long-lived attach rather than passing terminal
+streams through.
+
+Red tests: the new `t/91-cli-ticket-coverage.t` assertions failed in the Docker
+`dev` service because interactive output was captured and the final stage was
+not marked interactive. Socket-directory tests failed before the selector was
+implemented.
+
+Fix: the final exec requests `-it`, uses direct, uncaptured stdio, and passes
+`TMUX_TMPDIR=/dev/shm` explicitly into the container-side workspace process.
+Tmux commands honor explicit `TMUX_TMPDIR`; when unset and `/tmp` is
+unwritable, they consistently select writable `/dev/shm`. Both the command
+runner and interactive exec handoff use this selector. If neither location is
+writable, the current helper reports the failure. Startup behavior is opt-in:
+`d2 workspace foobar -d -c` starts a stopped service with
+`up -d --no-build workspace`, preventing Compose from implicitly building an
+absent image. Uppercase `-C` requests `up -d --build workspace`; that
+stage runs without capture so Compose build progress is visible as it happens.
+An already-running service is reused even when `-C` is passed, preserving
+in-container work.
+
+Verification: the updated `t/91-cli-ticket-coverage.t` passes 273 assertions
+in Docker; related help/completion/dispatch tests pass too (3 files, 1,898
+assertions). The exact outer `d2 workspace foobar -d -c` command failed before
+the env handoff was added, then passed afterward in isolated project
+`dd-p46-tmux-red`; tmux reported `foobar attached=1 cwd=/workspace`, with its
+socket under owner-only `/dev/shm/tmux-1000`. A later `-C` on that already
+running service reused it without building and reattached. The temporary host
+alias still resolved to `/tmp/foobar`, and normal host config was unchanged.
+The stopped-service build argv and direct progress streaming are covered by
+tests; the live check did not rebuild the running workspace.
+
+The complete Docker suite passed 259 files and 22,964 tests. The coverage gate
+returned branch 99.9% and condition 99.9%, so 100% coverage is not claimed.
+Version 5.87 packaging, security checks, and image verification remain pending.
+
+Final follow-up verification (2026-10-12): host `d2 version` reports 5.84;
+the checkout reports 5.88. This confirmed the original failing invocation used
+stale outer code that did not pass `TMUX_TMPDIR`. With the checkout loaded via
+`PERL5LIB`, a fresh stopped service started without BuildKit output and the
+caller attached to the container tmux session. The read-only tmux query
+reported `foobar attached=1 cwd=/workspace`, with its socket in
+`/dev/shm/tmux-1000`. Repeating with `-d -C` while running reused the service
+without rebuilding. Default start now uses `up -d --no-build workspace` to
+prevent Compose's implicit image build. The focused test passes 278 assertions;
+the full Docker suite passes 259 files / 23,026 tests, and the coverage gate
+passes statement, branch, condition, and subroutine at 100.0% (259 files /
+22,969 instrumented tests). `dzil clean` and `dzil build` produced only
+`Developer-Dashboard-5.88.tar.gz`; blank Docker integration installed it with
+`cpanm` without `--notest` and passed. Version 5.88 still needs to be installed
+on the host before its unqualified `d2` command (currently 5.84) will use this
+fix.
+
+Final SDLC verification (2026-10-12): this supersedes the preceding pending
+status. `dzil clean` and `dzil build` produced only
+`Developer-Dashboard-5.88.tar.gz`; archive metadata and all 76 modules under
+`lib/` report 5.88. README matches the canonical main POD, and archive
+inspection found no `cover_db` entries. The blank Perl 5.44 Docker environment
+installed the tarball with plain `cpanm` (tests enabled); the full package test
+suite and integration runner passed. The required `d2 docker.images.build`
+completed, and a uniquely named one-off container returned `d2 version` 5.88.
+The build helper's Telegram notification timed out with HTTP 500, but this did
+not prevent the image build or its host-side `cpanm --notest` install. The
+development marker was removed afterward, and the host `d2 version` now reports
+5.88. README/POD synchronization, security scans, archive hygiene, and
+`git diff --check` passed. The Problem 46 changes are ready to commit; no push
+or PAUSE release was requested.

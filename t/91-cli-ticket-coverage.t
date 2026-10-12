@@ -151,6 +151,12 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
     is_deeply( $docker_long_args, ['foobar'], 'split_workspace_change_dir_args removes the long Docker option from workspace argv' );
     is( $docker_long_change, 1, 'split_workspace_change_dir_args retains -c with the long Docker option' );
     is( $docker_long, 1, 'split_workspace_change_dir_args enables Docker mode for --docker' );
+    my ( $docker_build_args, $docker_build_change, $docker_build, $force_build ) =
+      split_workspace_change_dir_args( [ 'foobar', '-d', '-C' ] );
+    is_deeply( $docker_build_args, ['foobar'], 'split_workspace_change_dir_args strips Docker and uppercase build options' );
+    is( $docker_build_change, 1, 'uppercase -C implies change-directory mode' );
+    is( $docker_build, 1, 'uppercase -C can be combined with Docker mode' );
+    is( $force_build, 1, 'uppercase -C opts into building a stopped workspace service' );
     my ( $docker_short_args, $docker_short_change, $docker_short ) = split_workspace_change_dir_args( [ 'foobar', '-d' ] );
     is_deeply( $docker_short_args, ['foobar'], 'split_workspace_change_dir_args removes the short Docker option from workspace argv' );
     is( $docker_short_change, 0, 'split_workspace_change_dir_args leaves -c disabled for plain Docker workspace requests' );
@@ -409,6 +415,106 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
 # --- tmux_command -----------------------------------------------------------
 
 {
+    local $ENV{TMUX_TMPDIR};
+    delete $ENV{TMUX_TMPDIR};
+    is(
+        Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
+            tmpdir   => $home,
+            fallback => $home,
+            is_writable => '',
+        ),
+        undef,
+        '_tmux_socket_directory treats an empty injected permission checker as the default check',
+    );
+    is(
+        Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
+            tmpdir   => $home,
+            fallback => $home,
+            is_writable => 0,
+        ),
+        undef,
+        '_tmux_socket_directory treats a false injected permission checker as the default check',
+    );
+    is(
+        Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
+            tmpdir   => File::Spec->catdir( $home, 'missing-tmux-default-dir' ),
+            fallback => $home,
+        ),
+        $home,
+        '_tmux_socket_directory uses its real writable check and falls back for an unavailable tmpdir',
+    );
+    local $ENV{TMUX_TMPDIR} = '';
+    is(
+        Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
+            tmpdir   => $home,
+            fallback => $home,
+        ),
+        undef,
+        '_tmux_socket_directory treats an empty TMUX_TMPDIR as unset',
+    );
+    delete $ENV{TMUX_TMPDIR};
+    is(
+        Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
+            tmpdir      => '/tmp',
+            fallback    => '/dev/shm',
+            is_writable => sub { return $_[0] eq '/dev/shm' },
+        ),
+        '/dev/shm',
+        '_tmux_socket_directory selects shared memory when the default temporary directory is not writable',
+    );
+    is(
+        Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
+            tmpdir      => '/tmp',
+            fallback    => '/dev/shm',
+            is_writable => sub { return $_[0] eq '/tmp' },
+        ),
+        undef,
+        '_tmux_socket_directory leaves tmux on its default when /tmp is writable',
+    );
+    local $ENV{TMUX_TMPDIR} = '/run/user/1000';
+    is(
+        Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
+            is_writable => sub { die 'the explicit environment path must be respected' },
+        ),
+        '/run/user/1000',
+        '_tmux_socket_directory preserves an explicitly configured TMUX_TMPDIR',
+    );
+    local $ENV{TMUX_TMPDIR};
+    delete $ENV{TMUX_TMPDIR};
+    like(
+        error_from( sub {
+            Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
+                tmpdir      => '/tmp',
+                fallback    => '/dev/shm',
+                is_writable => sub { return 0 },
+            );
+        } ),
+        qr/tmux cannot write.*no writable socket directory is available/s,
+        '_tmux_socket_directory reports when neither the default nor fallback directory is writable',
+    );
+    like(
+        error_from( sub {
+            Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
+                tmpdir      => '/tmp',
+                fallback    => File::Spec->catdir( $home, 'missing-tmux-socket-dir' ),
+                is_writable => sub { return 0 },
+            );
+        } ),
+        qr/tmux cannot write.*no writable socket directory is available/s,
+        '_tmux_socket_directory refuses a missing fallback directory',
+    );
+    like(
+        error_from( sub {
+            Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
+                is_writable => 'not a code reference',
+            );
+        } ),
+        qr/tmux socket directory writable check must be a code reference/,
+        '_tmux_socket_directory validates an injected writable check',
+    );
+}
+
+{
     like( error_from( sub { tmux_command( args => 'nope' ) } ), qr/tmux args must be an array reference/, 'tmux_command rejects a non-array argv container' );
 
     local $ENV{PATH} = $fake_bin;
@@ -419,6 +525,22 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
 
     my $versioned = tmux_command( args => ['-V'] );
     is( $versioned->{exit_code}, 0, 'tmux_command reports the exit status of an explicit tmux argv' );
+
+    my $tmpdir_probe_bin = File::Spec->catdir( $home, 'tmux-tmpdir-probe-bin' );
+    make_path($tmpdir_probe_bin);
+    my $tmpdir_probe = File::Spec->catfile( $tmpdir_probe_bin, 'tmux' );
+    write_file( $tmpdir_probe, "#!$^X\nprint defined \$ENV{TMUX_TMPDIR} ? \$ENV{TMUX_TMPDIR} : 'unset';\n" );
+    chmod 0755, $tmpdir_probe or die "Unable to chmod $tmpdir_probe: $!";
+    {
+        no warnings 'redefine';
+        local $ENV{PATH} = $tmpdir_probe_bin;
+        local *Developer::Dashboard::CLI::Ticket::_tmux_socket_directory = sub { return '/dev/shm' };
+        my $tmpdir = tmux_command(
+            args => ['probe'],
+        );
+        is( $tmpdir->{stdout}, '/dev/shm', 'tmux_command passes the selected writable socket directory to tmux' );
+        ok( !defined $ENV{TMUX_TMPDIR}, 'tmux_command restores TMUX_TMPDIR after the captured subprocess returns' );
+    }
 
     # DD-597: system() above mutates the caller's global $? as a side effect;
     # without a guard at the sub's entry that stays set in the caller's
@@ -538,6 +660,14 @@ FAKE_DASHBOARD
     my $exec_error = error_from( sub { Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose( args => [] ) } );
     like( $exec_error, qr/Unable to execute d2 Docker Compose command/,
         '_run_workspace_docker_compose reports an unavailable dashboard executable' );
+    my $interactive_exec_error = error_from( sub {
+        Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose(
+            args        => [],
+            interactive => 1,
+        );
+    } );
+    like( $interactive_exec_error, qr/Unable to execute d2 Docker Compose command/,
+        '_run_workspace_docker_compose reports an unavailable interactive dashboard executable' );
 
     {
         no warnings 'redefine';
@@ -569,6 +699,26 @@ FAKE_DASHBOARD
         is( $exit, 0, '_run_workspace_docker_compose preserves a successful process status with both output streams' );
         is( $visible_stdout, "compose output\n", '_run_workspace_docker_compose prints successful Compose stdout' );
         is( $visible_stderr, "compose diagnostic\n", '_run_workspace_docker_compose prints successful Compose stderr' );
+    }
+
+    {
+        my $fake_output = File::Spec->catfile( $home, 'fake-dashboard-interactive-output.pl' );
+        write_file( $fake_output, "#!/usr/bin/env perl\nprint \"interactive output\\n\";\nprint STDERR \"interactive diagnostic\\n\";\n" );
+        chmod 0755, $fake_output or die "Unable to chmod $fake_output: $!";
+        local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = $fake_output;
+        my ( $visible_stdout, $visible_stderr, $exit, $result );
+        ( $visible_stdout, $visible_stderr, $exit ) = capture {
+            $result = Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose(
+                args        => ['exec-workspace'],
+                interactive => 1,
+            );
+            return $result->{exit_code};
+        };
+        is( $exit, 0, '_run_workspace_docker_compose preserves a successful interactive Compose exit status' );
+        is( $visible_stdout, "interactive output\n", '_run_workspace_docker_compose leaves interactive stdout on the inherited stream' );
+        is( $visible_stderr, "interactive diagnostic\n", '_run_workspace_docker_compose leaves interactive stderr on the inherited stream' );
+        is( $result->{stdout}, '', '_run_workspace_docker_compose does not return captured stdout for an interactive command' );
+        is( $result->{stderr}, '', '_run_workspace_docker_compose does not return captured stderr for an interactive command' );
     }
 
     local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = $fake_dashboard;
@@ -669,6 +819,23 @@ FAKE_D2
         '_run_docker_workspace scopes its read-only state check to the workspace service' );
     is( $running_alias{stage}, 'register_alias', '_run_docker_workspace reuses a running service without a build step' );
     is( $running_start{stage}, 'start_workspace', '_run_docker_workspace starts the requested workspace in the reused service' );
+    ok( !$running_alias{interactive}, '_run_docker_workspace keeps alias registration non-interactive' );
+    is( $running_start{interactive}, 1, '_run_docker_workspace marks the tmux workspace handoff as interactive' );
+
+    my @running_build_calls;
+    Developer::Dashboard::CLI::Ticket::_run_docker_workspace(
+        workspace   => 'foobar',
+        target      => $home,
+        force_build => 1,
+        docker_compose => sub {
+            my %call = @_;
+            push @running_build_calls, { %call };
+            return { exit_code => 0, stdout => "workspace\n" } if $call{stage} eq 'check_running';
+            return { exit_code => 0 };
+        },
+    );
+    ok( ( grep { $_->{stage} eq 'start' } @running_build_calls ) == 0,
+        '_run_docker_workspace does not rebuild a workspace that is already running, even with -C' );
 
     my @scalar_runner_calls;
     my $scalar_runner_result = Developer::Dashboard::CLI::Ticket::_run_docker_workspace(
@@ -697,16 +864,37 @@ FAKE_D2
     );
     is( $stopped_result->{reused}, 0, '_run_docker_workspace reports startup for a stopped service' );
     my %stopped_start = @{ $stopped_calls[1] };
+    my %stopped_workspace = @{ $stopped_calls[-1] };
     is( $stopped_start{stage}, 'start', '_run_docker_workspace starts a stopped service after checking its state' );
     is_deeply(
         $stopped_start{args},
-        [ 'up', '-d', '--build', 'workspace' ],
-        '_run_docker_workspace builds with the normal Docker cache when the service is stopped',
+        [ 'up', '-d', '--no-build', 'workspace' ],
+        '_run_docker_workspace explicitly prevents Compose from implicitly building by default',
     );
     ok(
-        !grep { $_ eq '--no-cache' } @{ $stopped_start{args} },
-        '_run_docker_workspace never disables Docker build cache',
+        !grep { $_ eq '--build' } @{ $stopped_start{args} },
+        '_run_docker_workspace does not request a build by default',
     );
+    ok( !$stopped_start{interactive}, '_run_docker_workspace captures ordinary no-build startup output' );
+    is( $stopped_workspace{interactive}, 1, '_run_docker_workspace makes the post-start tmux handoff interactive too' );
+
+    my @build_calls;
+    my $build_result = Developer::Dashboard::CLI::Ticket::_run_docker_workspace(
+        workspace  => 'foobar',
+        target     => $home,
+        force_build => 1,
+        docker_compose => sub {
+            my %call = @_;
+            push @build_calls, [@_];
+            return { exit_code => 0, stdout => '' } if $call{stage} eq 'check_running';
+            return { exit_code => 0 };
+        },
+    );
+    my %build_start = @{ $build_calls[1] };
+    is_deeply( $build_start{args}, [ 'up', '-d', '--build', 'workspace' ],
+        '_run_docker_workspace adds --build only when explicitly requested' );
+    is( $build_start{interactive}, 1, '_run_docker_workspace streams explicitly requested build progress directly' );
+    ok( !$build_result->{reused}, '_run_docker_workspace reports a newly built stopped workspace as started' );
 
     my @start_failure_calls;
     my $start_failure = error_from( sub {
@@ -825,7 +1013,7 @@ FAKE_DEFAULT_D2
         [
             "docker\tcompose\tps\t--status\trunning\t--services\tworkspace\n",
             "docker\tcompose\texec\t-e\tDEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config\tworkspace\td2\tpath\tadd\tfoobar\t/workspace\n",
-            "docker\tcompose\texec\t-e\tDEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config\tworkspace\td2\tworkspace\tfoobar\t-c\n",
+            "docker\tcompose\texec\t-it\t-e\tDEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config\t-e\tTMUX_TMPDIR=/dev/shm\tworkspace\td2\tworkspace\tfoobar\t-c\n",
         ],
         '_run_docker_workspace reuses a running service without rebuilding and keeps the config overlay private',
     );
@@ -1532,11 +1720,11 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
         [ map { $_->{args} } @docker_calls ],
         [
             [ 'ps', '--status', 'running', '--services', 'workspace' ],
-            [ 'up', '-d', '--build', 'workspace' ],
+            [ 'up', '-d', '--no-build', 'workspace' ],
             [ 'exec', '-e', 'DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config', 'workspace', 'd2', 'path', 'add', 'foobar', '/workspace' ],
-            [ 'exec', '-e', 'DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config', 'workspace', 'd2', 'workspace', 'foobar', '-c' ],
+            [ 'exec', '-it', '-e', 'DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config', '-e', 'TMUX_TMPDIR=/dev/shm', 'workspace', 'd2', 'workspace', 'foobar', '-c' ],
         ],
-        'container workspace flow keeps its alias in a private in-container config overlay before starting the inner workspace',
+        'container workspace flow explicitly disables implicit builds, keeps the host alias private, and passes a writable tmux socket directory',
     );
     is_deeply(
         [ map { $_->{stage} } @docker_calls ],
@@ -1545,6 +1733,22 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
     );
     is_deeply( \@docker_cwds, [ map { abs_path($ws_dir) } 1 .. 4 ],
         'every Compose stage runs with the resolved alias directory as the current project root' );
+
+    my @docker_build_calls;
+    run_workspace_command(
+        args => [ 'foobar', '-d', '-C' ],
+        resolve_dir => sub { return $ws_dir },
+        docker_compose => sub {
+            my %call = @_;
+            push @docker_build_calls, { %call };
+            return { exit_code => 0, stdout => '' } if $call{stage} eq 'check_running';
+            return { exit_code => 0 };
+        },
+    );
+    is_deeply( $docker_build_calls[1]->{args}, [ 'up', '-d', '--build', 'workspace' ],
+        'workspace -d -C opts into a Compose build for a stopped service' );
+    is( $docker_build_calls[1]->{interactive}, 1,
+        'workspace -d -C streams build progress instead of capturing it until build completion' );
     chdir $home or die "Unable to restore cwd after container workspace test: $!";
 }
 
@@ -1574,9 +1778,20 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
             docker_compose => sub { push @docker_calls, {@_}; return { exit_code => 0 } },
         );
     } );
-    like( $err, qr/--docker requires -c and a registered directory alias/,
-        'workspace --docker requires an explicit -c alias request' );
+    like( $err, qr/--docker requires -c or -C and a registered directory alias/,
+        'workspace --docker requires an explicit -c or -C alias request' );
     is( scalar @docker_calls, 0, 'invalid workspace --docker invocation runs no Compose commands' );
+
+    my $build_without_docker = error_from( sub {
+        run_workspace_command(
+            args => [ 'foobar', '-C' ],
+            resolve_dir => sub { return $ws_dir },
+            docker_compose => sub { push @docker_calls, {@_}; return { exit_code => 0 } },
+        );
+    } );
+    like( $build_without_docker, qr/-C requires -d\/--docker/,
+        'uppercase -C fails clearly unless Docker mode is also selected' );
+    is( scalar @docker_calls, 0, 'invalid -C without Docker mode runs no Compose commands' );
 }
 
 {
@@ -1761,6 +1976,21 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
     );
 }
 
+{
+    my $received_tmpdir;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CLI::Ticket::_tmux_socket_directory = sub { return '/dev/shm' };
+    local *Developer::Dashboard::CLI::Ticket::_exec_tmux = sub {
+        $received_tmpdir = $ENV{TMUX_TMPDIR};
+        return 0;
+    };
+    my $err = error_from( sub {
+        Developer::Dashboard::CLI::Ticket::exec_workspace_attach( args => ['attach-session'] );
+    } );
+    is( $received_tmpdir, '/dev/shm', 'exec_workspace_attach passes the writable socket directory into the interactive tmux client' );
+    like( $err, qr/Unable to exec tmux to attach the workspace session/, 'exec_workspace_attach still reports a failed process handoff' );
+}
+
 
 {
     # An attach runner that returns nothing at all: the || {} guard exists so a
@@ -1856,7 +2086,8 @@ coverage.
 Use this file when changing how the helper picks a workspace name, what tmux
 environment variables a session is seeded with, how concurrent duplicate
 session creation is handled, how the top status row is
-composed, how C<-c> resolves a registered directory, or how tmux failures are
+composed, how C<-c>/C<-C> resolve a registered directory and Docker build
+behavior, or how tmux failures are
 reported back to the user. It also pins path-alias chdir failures for both the
 ordinary and C<-c> forms - and whenever the coverage gate reports an
 uncovered branch or condition in the ticket helper. Skill aliases are checked
@@ -1866,18 +2097,25 @@ Docker mode is tested with an injected Compose runner that records cwd, exact
 argument arrays, and stage ordering. It proves startup failure prevents both
 in-container calls, alias-registration failure prevents workspace startup,
 and inner-workspace errors remain visible. It also verifies a running service is
-reused without rebuilding, a stopped service starts with Docker's normal build
-cache, and a private in-container config overlay keeps the host alias unchanged.
-A fake C<d2> executable verifies the default Compose handoff uses an argument
-list without shell interpretation; a fork-isolated missing-C<tmux> case
-exercises the failed C<exec> boundary without replacing the test process.
-Entrypoint fallback, signal status, invalid arguments, and malformed runner
-results are also covered explicitly.
+reused without rebuilding, a stopped service starts without a build by default,
+and uppercase C<-C> requests a cached build whose progress is streamed live.
+A private in-container config overlay keeps the host alias unchanged.
+The final handoff is marked interactive, requests a TTY, and explicitly passes
+C<TMUX_TMPDIR=/dev/shm> into the container so an older installed workspace CLI
+uses a writable socket location too; the direct runner leaves output streams
+uncaptured. Tmux socket selection honors C<TMUX_TMPDIR>, falls back to
+C</dev/shm> when C</tmp> is unwritable, and reports when neither is usable. A
+fake C<d2> executable verifies the default Compose
+handoff uses an argument list without shell interpretation; a fork-isolated
+missing-C<tmux> case exercises the failed C<exec> boundary without replacing
+the test process. Entrypoint fallback, signal status, invalid arguments, and
+malformed runner results are also covered explicitly.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/91-cli-ticket-coverage.t> while iterating, then keep it green
-under C<prove -lr t> and under the Devel::Cover run before release. The test is
+Run C<d2 docker compose exec dev prove -lv t/91-cli-ticket-coverage.t> while
+iterating, then keep it green under the full Docker test and Devel::Cover runs
+before release. The test is
 hermetic: it roots HOME at a temporary directory and moves the process into
 it. A public-entrypoint subprocess invokes C<bin/d2> with a fake C<tmux>, so
 C<workspace -c> is verified through the short command without contacting a

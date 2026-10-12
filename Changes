@@ -1,3 +1,41 @@
+5.88  2026-10-12
+
+  - Problem 46 follow-up: pass `--no-build` when starting a stopped Docker
+    workspace by default, preventing Compose from implicitly building a missing
+    image; only `-d -C` opts into a cached build.
+  - Reproduce the tmux socket failure through the installed outer `d2` and
+    verify the checkout command passes TMUX_TMPDIR=/dev/shm and attaches to
+    the container tmux session.
+
+5.87  2026-10-12
+
+  - Problem 46 follow-up: pass TMUX_TMPDIR=/dev/shm into the container-side
+    workspace command so even an older installed d2 uses the container's
+    writable tmux socket directory; preserve the host alias and live TTY.
+  - Add a regression assertion and record the reproduced outer-handoff failure
+    and successful Docker tmux attach.
+
+5.86  2026-10-11
+
+  - Problem 46: make Docker workspace startup build-free by default; lowercase
+    `-c -d` starts a stopped workspace with `up -d workspace`.
+  - Add uppercase `-C` as an explicit cached-build opt-in and stream Compose
+    build progress directly to the terminal; never rebuild a running service.
+  - Keep Docker tmux attached through a real TTY and select a writable socket
+    directory when the container's `/tmp` bind mount is not writable.
+  - Add parser, help, completion, orchestration, build-output, and tmux
+    regressions and update the Problem 46 operator documentation.
+
+5.85  2026-10-11
+
+  - Problem 46: make the Docker workspace handoff allocate a TTY and pass the
+    terminal streams through directly so tmux can attach interactively.
+  - Let workspace and ticket tmux commands honor TMUX_TMPDIR and select
+    writable /dev/shm when a container's /tmp bind mount is not writable, so
+    later commands reconnect to the same tmux server.
+  - Add container-backed regressions and document the reproduced permission
+    failure, root cause, terminal behavior, and verification flow.
+
 5.84  2026-10-10
 
   - Problem 47: fix the Docker Hub publication timeout by avoiding a second

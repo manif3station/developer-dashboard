@@ -355,7 +355,7 @@ for my $spec (
     [ [ 'dashboard', 'source', '-' ], 2, [qw(--files)] ],
     [ [ 'dashboard', 'upgrade', '-' ], 2, [qw(--dry-run)] ],
     [ [ 'dashboard', 'which', '-' ], 2, [qw(--edit --no-edit)] ],
-    [ [ 'dashboard', 'workspace', '-' ], 2, [qw(-c)] ],
+    [ [ 'dashboard', 'workspace', '-' ], 2, [qw(-c -C -d --docker)] ],
     [ [ 'dashboard', 'of', '-' ], 2, [qw(--print --no-print --line --editor --online --no-online)] ],
     [ [ 'dashboard', 'log', 'web', '-' ], 3, [qw(-f -n)] ],
     [ [ 'dashboard', 'serve', 'workers', '-' ], 3, [qw(--host --port)] ],

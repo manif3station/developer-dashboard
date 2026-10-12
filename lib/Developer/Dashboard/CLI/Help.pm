@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Help;
 use strict;
 use warnings;
 
-our $VERSION = '5.84';
+our $VERSION = '5.88';
 
 use Developer::Dashboard::InternalCLI ();
 
@@ -232,8 +232,8 @@ my %COMMANDS = (
     version => { usage => 'dashboard version', description => 'Print the installed Developer Dashboard version.' },
     which => { usage => 'dashboard which [--edit] <cmd-or-skill-command>', description => 'Resolve a command and show its hook chain.' },
     workspace => {
-        usage => 'dashboard workspace <name> [-c] [-d|--docker]',
-        description => 'Create or attach to a tmux workspace session; Docker mode uses the Compose service named workspace, which must be running with the alias mounted at /workspace.',
+        usage => 'dashboard workspace <name> [-c|-C] [-d|--docker]',
+        description => 'Create or attach to a tmux workspace session. Docker mode uses the Compose service named workspace, which must mount the alias at /workspace. A stopped service starts without building by default; uppercase -C requests a cached build with live progress. Running containers are reused.',
     },
     xmlq => { usage => 'dashboard xmlq [file] [query]', description => 'Query XML input from a file or standard input.' },
     yq => { usage => 'dashboard yq [file] [query]', description => 'Query YAML input from a file or standard input.' },
@@ -302,7 +302,7 @@ my %OPTIONS = (
     source                    => [qw(--files)],
     upgrade                   => [qw(--dry-run)],
     which                     => [qw(--edit --no-edit)],
-    workspace                 => [qw(-c -d --docker)],
+    workspace                 => [qw(-c -C -d --docker)],
     of                        => [qw(--print --no-print --line --editor --online --no-online)],
     'open-file'               => [qw(--print --no-print --line --editor --online --no-online)],
     cpan                      => [],
@@ -616,9 +616,10 @@ without actionable help and valid actions out of TAB suggestions. This module
 holds one tested inventory for built-in helpers, the switchboard's direct
 C<version> command, compatibility aliases, nested actions, and concise synopsis
 text.
-The workspace catalog documents C<-c> and the Docker flags C<-d> and
-C<--docker>; Docker mode requires a registered path alias and runs through a
-Compose service named C<workspace>.
+The workspace catalog documents C<-c>, Docker flags C<-d> and C<--docker>,
+and uppercase C<-C> for an explicit build with streamed progress. Docker mode
+requires a registered path alias and runs through a Compose service named
+C<workspace>.
 
 =head1 WHEN TO USE
 
