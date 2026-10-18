@@ -3,7 +3,7 @@ package Developer::Dashboard::File;
 use strict;
 use warnings;
 
-our $VERSION = '5.88';
+our $VERSION = '6.01';
 
 use File::Spec;
 use Scalar::Util qw(blessed);

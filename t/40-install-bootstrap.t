@@ -32,7 +32,7 @@ ok( -f $aptfile, 'aptfile exists at the repo root' );
 ok( -f $apkfile, 'apkfile exists at the repo root' );
 ok( -f $dnfile, 'dnfile exists at the repo root' );
 ok( -f $brewfile, 'brewfile exists at the repo root' );
-like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/VERSION_FROM\s*=>\s*'lib\/Developer\/Dashboard\.pm'/, 'Makefile.PL uses a filesystem path for VERSION_FROM so checkout installs work on Windows' );
+like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/VERSION_FROM\s*=>\s*'lib\/Developer\/Dashboard\/Version\.pm'/, 'Makefile.PL uses lightweight filesystem version metadata so checkout installs work on Windows and XSLoader receives the actual distribution version' );
 like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/use\s+File::ShareDir::Install\s+qw\(install_share\);/, 'Makefile.PL loads File::ShareDir::Install so packaged installs can refresh shipped helper assets under auto/share/dist' );
 like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/install_share\s+dist\s*=>\s*'share';/, 'Makefile.PL explicitly installs the repo share tree so packaged helper assets stay in sync with the tarball' );
 unlike( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/package\s+MY;\s*use\s+File::ShareDir::Install\s+qw\(postamble\);/s, 'Makefile.PL does not import and redefine the File::ShareDir::Install postamble in package MY' );

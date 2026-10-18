@@ -1,0 +1,137 @@
+name: Platform compatibility
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  perl-tests:
+    name: Perl tests (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x64
+            runner: ubuntu-latest
+            expected-os: linux
+            expected-arch: x64
+            setup-perl: true
+          - label: Linux arm64
+            runner: ubuntu-24.04-arm
+            expected-os: linux
+            expected-arch: arm64
+            setup-perl: true
+          - label: macOS Intel x64
+            runner: macos-26-intel
+            expected-os: darwin
+            expected-arch: x64
+            setup-perl: true
+          - label: macOS arm64
+            runner: macos-26
+            expected-os: darwin
+            expected-arch: arm64
+            setup-perl: true
+          - label: Windows x64
+            runner: windows-latest
+            expected-os: MSWin32
+            expected-arch: x64
+            setup-perl: true
+    env:
+      DD_EXPECTED_OS: ${{ matrix.expected-os }}
+      DD_EXPECTED_ARCH: ${{ matrix.expected-arch }}
+      PERL_MM_USE_DEFAULT: 1
+      NONINTERACTIVE_TESTING: 1
+      PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
+      DD_REQUIRE_NATIVE_WATCHER: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Perl
+        if: matrix.setup-perl
+        uses: shogo82148/actions-setup-perl@53e33bb27be492a926eee378e8a5f7ff6618b061  # v1.43.1
+        with:
+          perl-version: '5.44'
+
+      - name: Report Perl and operating-system architecture
+        run: perl -V
+
+      - name: Assert runner operating system and architecture
+        run: >-
+          perl -MConfig -MPOSIX -e '$os = $^O; $machine = $os eq "MSWin32" ? $ENV{PROCESSOR_ARCHITECTURE} : (POSIX::uname())[4]; $machine = lc $machine; $actual_arch = $machine =~ /(?:aarch64|arm64)/ ? "arm64" : $machine =~ /(?:x86_64|amd64|x64)/ ? "x64" : "unknown"; die "Expected $ENV{DD_EXPECTED_OS}/$ENV{DD_EXPECTED_ARCH}, got $os/$actual_arch ($machine)\n" if $os ne $ENV{DD_EXPECTED_OS} || $actual_arch ne $ENV{DD_EXPECTED_ARCH}; print "Verified $os/$actual_arch ($Config{archname})\n"'
+
+      - name: Install project dependencies
+        run: cpanm --installdeps --notest -L local .
+
+      - name: Install optional filesystem watcher backends
+        shell: bash
+        run: |
+          cpanm -L local FFI::Platypus
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cpanm -L local Mac::FSEvents
+          fi
+
+      - name: Export project Perl environment
+        shell: bash
+        run: |
+          perl5lib="$GITHUB_WORKSPACE/local/lib/perl5"
+          if [ ! -d "$perl5lib" ]; then
+            echo "dependency tree missing at $perl5lib" >&2
+            exit 1
+          fi
+          echo "PERL5LIB=$perl5lib" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/local/bin" >> "$GITHUB_PATH"
+
+      - name: Benchmark automatic config snapshot path
+        run: perl script/problem48-status-route-benchmark --indicators 50 --iterations 100 --runs 7
+
+      - name: Benchmark portable config snapshot path
+        run: perl script/problem48-status-route-benchmark --indicators 50 --iterations 100 --runs 7 --portable-config-cache
+
+      - name: Run complete test suite
+        run: prove -lr t
+
+  windows-arm64-native-watcher:
+    name: Windows ARM64 native watcher smoke
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+    env:
+      PERL_MM_USE_DEFAULT: 1
+      NONINTERACTIVE_TESTING: 1
+      DD_REQUIRE_NATIVE_WATCHER: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Verify Windows ARM64 runner and report its Perl runtime
+        shell: pwsh
+        run: |
+          perl -V
+          if ($env:PROCESSOR_ARCHITECTURE -ne 'ARM64') {
+            throw "Expected Windows ARM64 runner, got $env:PROCESSOR_ARCHITECTURE"
+          }
+          perl -MConfig -e 'die "Expected native ARM64 Perl, got $Config{archname}\n" if $Config{archname} !~ /arm64/i; print "Verified $Config{archname}\n"'
+
+      - name: Install cpanminus
+        shell: pwsh
+        run: cpan App::cpanminus
+
+      - name: Install native FFI dependency
+        shell: pwsh
+        run: cpanm -L local FFI::Platypus
+
+      - name: Run Windows ARM64 native filesystem watcher test
+        env:
+          PERL5LIB: ${{ github.workspace }}/local/lib/perl5
+        run: prove -lv t/669-problem48-inotify-watch.t

@@ -3,9 +3,8 @@ package Developer::Dashboard::EnvLoader;
 use strict;
 use warnings;
 
-our $VERSION = '5.88';
+our $VERSION = '6.01';
 
-use Cwd qw(cwd);
 use File::Basename qw(dirname);
 use File::Spec;
 

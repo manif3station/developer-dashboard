@@ -56,6 +56,16 @@ The integration run covers these command families:
   outer command explicitly passes `-e TMUX_TMPDIR=/dev/shm` into the container
   so the initial attach and later `d2 workspace` calls reach the same server,
   even when the image's installed d2 predates the fallback.
+  The workspace image must provide the `C.UTF-8` locale; the final exec passes
+  `LC_CTYPE=C.UTF-8` so tmux preserves Unicode prompt/status
+  icons instead of rendering them as underscores. Verify an emoji-bearing
+  `d2 ps1` value inside the tmux workspace.
+  To isolate this regression without rebuilding the image, keep a disposable
+  tmux server under `LC_CTYPE=C`, set an emoji in its status line, then capture
+  the attached pseudo-terminal once with a `C` client and once with a
+  `C.UTF-8` client: the first stream omits the emoji bytes and the second
+  preserves them. This confirms the missing locale belongs at the client
+  handoff, not in the Compose YAML or the indicator source.
   A failed state query or startup must stop before either in-container command
 - web lifecycle: `dashboard serve`, `dashboard restart`, `dashboard stop`
 - browser checks: headless Chromium editor, saved fake-project bookmark page, outsider bootstrap DOM verification, and helper-login DOM verification after helper-user enablement
@@ -135,6 +145,10 @@ The integration run creates:
    into a CPAN lookup because the bind-mounted filename is generic.
 5. Create the fake-project `./.developer-dashboard` tree only after that install step succeeds so the tarball's own tests still run against a clean runtime.
 6. Extract the same tarball inside the container for the rest of the installed-command checks.
+   The runner reads the expected version from the extracted `META.yml`, the
+   distribution-level source of truth when the public module delegates
+   `$VERSION` to `Developer::Dashboard::Version`; it falls back to a literal
+   main-module version for older archives without metadata.
 7. Verify the installed CLI responds to `dashboard help`.
 8. Verify bare `dashboard` returns usage output.
 9. Verify `dashboard version` reports the installed runtime version.

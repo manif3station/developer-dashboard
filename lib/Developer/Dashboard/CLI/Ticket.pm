@@ -3,12 +3,12 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '5.88';
+our $VERSION = '6.01';
 
 my $DOCKER_WORKSPACE_CONFIGS = '/dev/shm/developer-dashboard-workspace-config';
 
 use Capture::Tiny qw(capture);
-use Cwd qw(cwd);
+use Developer::Dashboard::PathIdentity qw(current_working_directory);
 use Exporter 'import';
 use File::Basename qw(dirname);
 use File::Spec ();
@@ -83,7 +83,7 @@ sub registered_workspace_dir {
     my @roots = grep { -d } map { "$home/$_" } qw(projects src work);
     my $paths = Developer::Dashboard::PathRegistry->new(
         home            => $home,
-        cwd             => cwd(),
+        cwd             => current_working_directory(),
         workspace_roots => \@roots,
         project_roots   => \@roots,
     );
@@ -155,7 +155,7 @@ sub workspace_environment {
         DEVELOPER_DASHBOARD_TMUX_STATUS => 1,
     );
     my $cwd = $args{cwd};
-    $cwd = cwd() if !defined $cwd || $cwd eq '';
+    $cwd = current_working_directory() if !defined $cwd || $cwd eq '';
     my $layered = _workspace_layered_env( cwd => $cwd );
     @env{ keys %{$layered} } = values %{$layered} if %{$layered};
     $env{DEVELOPER_DASHBOARD_WORKSPACE_ENV_KEYS} = join ':', sort keys %{$layered};
@@ -367,8 +367,8 @@ sub _run_workspace_docker_compose {
 # Checks whether the Compose workspace service is already running; it starts a
 # stopped service without a build by default, or with cached `up --build` when
 # explicitly requested, registers the alias in a container-only config root,
-# then starts the normal workspace command using that root and an explicit
-# writable tmux socket directory.
+# then starts the normal workspace command using that root, an explicit
+# writable tmux socket directory, and a UTF-8 terminal locale.
 # Input: workspace alias, resolved host directory, optional force_build boolean,
 # and optional Compose runner.
 # Output: hash reference describing startup/reuse and the completed workspace flow.
@@ -401,7 +401,7 @@ sub _run_docker_workspace {
     }
     push @steps,
         [ register_alias => [ 'exec', '-e', "DEVELOPER_DASHBOARD_CONFIG_OVERLAY=$DOCKER_WORKSPACE_CONFIGS", 'workspace', 'd2', 'path', 'add', $workspace, '/workspace' ] ],
-        [ start_workspace => [ 'exec', '-it', '-e', "DEVELOPER_DASHBOARD_CONFIG_OVERLAY=$DOCKER_WORKSPACE_CONFIGS", '-e', 'TMUX_TMPDIR=/dev/shm', 'workspace', 'd2', 'workspace', $workspace, '-c' ] ];
+        [ start_workspace => [ 'exec', '-it', '-e', "DEVELOPER_DASHBOARD_CONFIG_OVERLAY=$DOCKER_WORKSPACE_CONFIGS", '-e', 'TMUX_TMPDIR=/dev/shm', '-e', 'LC_CTYPE=C.UTF-8', 'workspace', 'd2', 'workspace', $workspace, '-c' ] ];
 
     for my $step (@steps) {
         my ( $stage, $argv ) = @{$step};
@@ -442,7 +442,7 @@ sub _run_docker_workspace {
 sub _workspace_env_files {
     my (%args) = @_;
     my $cwd = $args{cwd};
-    $cwd = cwd() if !defined $cwd || $cwd eq '';
+    $cwd = current_working_directory() if !defined $cwd || $cwd eq '';
     my $dir = Developer::Dashboard::EnvLoader->_path_identity($cwd);
     return () if $dir eq '';
     my @files;
@@ -689,7 +689,7 @@ sub build_workspace_plan {
         env_ticket => $args{env_ticket},
     );
     my $plan_cwd = $args{cwd};
-    $plan_cwd = cwd() if !defined $plan_cwd || $plan_cwd eq '';
+    $plan_cwd = current_working_directory() if !defined $plan_cwd || $plan_cwd eq '';
 
     my $env = workspace_environment( $workspace, cwd => $plan_cwd );
     my $tmux_session = _tmux_session_name($workspace);
@@ -973,13 +973,19 @@ only the container-side alias resolves to C</workspace>. Both in-container
 commands use the same overlay so the workspace command can see the alias just
 registered.
 
-The final Compose exec also sets C<TMUX_TMPDIR=/dev/shm> for the inner workspace
-process. This makes the container use its writable tmpfs socket location even
-when the installed in-container command does not yet include the automatic
-unwritable-C</tmp> fallback. Tmux creates its per-user socket directory there;
-later clients receive the same setting and reconnect to that server. The outer
+The final Compose exec also sets C<TMUX_TMPDIR=/dev/shm> and
+C<LC_CTYPE=C.UTF-8> for the inner workspace process. The socket setting makes
+the container use its writable tmpfs location even when the installed
+in-container command does not yet include the automatic unwritable-C</tmp>
+fallback. The UTF-8 character locale lets the attached tmux client render the
+non-ASCII prompt and status icons without overriding the user's broader
+C<LANG> formatting preferences; a POSIX character locale can render those
+characters as underscores. Newly started servers inherit the locale too;
+reattaching through C<d2 workspace> passes it to clients even when reusing an
+existing server. Tmux creates its per-user socket directory under C</dev/shm>;
+later clients use the same socket and locale settings. The outer
 workspace command must come from an installation containing this handoff; an
-older installed C<d2> that predates the fix will not pass the setting.
+older installed C<d2> that predates the fix will not pass these settings.
 
 The command stops immediately if the service fails to start or either in-container
 command fails. Startup errors ask the user to configure a Compose service named

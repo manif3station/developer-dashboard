@@ -2844,6 +2844,11 @@ is( $stop_last_data->{STDOUT}, "stop-hook\n", 'main command LAST_RESULT keeps th
 like( $stop_last_data->{STDERR}, qr/\[\[STOP\]\] stop requested by 01-stop\.pl/, 'main command LAST_RESULT keeps the stopping hook stderr' );
 
 is( _run("$perl -I'$lib' '$dashboard' version"), "$expected_version\n", 'dashboard version prints the installed dashboard version' );
+open my $dashboard_entrypoint_fh, '<', $dashboard or die "Unable to read $dashboard: $!";
+my $dashboard_entrypoint_source = do { local $/; <$dashboard_entrypoint_fh> };
+close $dashboard_entrypoint_fh;
+unlike( $dashboard_entrypoint_source, qr/^use Pod::Usage\b/m, 'lightweight dashboard commands do not eagerly load POD usage rendering' );
+like( $dashboard_entrypoint_source, qr/^\s*require Pod::Usage;/m, 'usage-error branches lazily require POD usage rendering when needed' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});
 is( $toml_value, "4\n", 'tomq extracts scalar TOML values' );
@@ -3725,14 +3730,22 @@ sub _coverage_requested {
     return $perl5opt =~ /Devel::Cover/ ? 1 : 0;
 }
 
+# _module_version($path)
+# Reads the declared Developer Dashboard release version from a Perl module.
+# Input: path string to the main module or the lightweight Version module.
+# Output: version string, resolving the shared Version module when the main
+# module aliases its scalar, or a fatal error when no version is declared.
 sub _module_version {
     my ($path) = @_;
     open my $fh, '<', $path or die "Unable to read $path: $!";
     my $content = do { local $/; <$fh> };
     close $fh;
-    $content =~ /our \$VERSION = '([^']+)'/
-      or die "Unable to find module version in $path";
-    return $1;
+    return $1 if $content =~ /our \$VERSION = '([^']+)'/;
+    if ( $content =~ /our \$VERSION = \$Developer::Dashboard::Version::VERSION;/ ) {
+        my ( undef, $directory ) = File::Spec->splitpath($path);
+        return _module_version( File::Spec->catfile( $directory, 'Dashboard', 'Version.pm' ) );
+    }
+    die "Unable to find module version in $path";
 }
 
 sub _command_available {

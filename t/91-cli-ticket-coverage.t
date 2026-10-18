@@ -375,10 +375,9 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
 }
 
 {
-    # Cwd::cwd() returns undef when the process working directory cannot be
-    # resolved at all; the loader must then report no layered env files rather
-    # than walk an undefined path.
-    local *Developer::Dashboard::CLI::Ticket::cwd = sub { return undef };
+    # The shared current-directory lookup can return undef when the process
+    # working directory cannot be resolved; do not walk an undefined path.
+    local *Developer::Dashboard::CLI::Ticket::current_working_directory = sub { return undef };
     my @files = Developer::Dashboard::CLI::Ticket::_workspace_env_files();
     is_deeply( \@files, [], '_workspace_env_files returns nothing when the process cwd cannot be resolved' );
 }
@@ -392,6 +391,7 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
     my $env = workspace_environment( 'DD-1', cwd => $ws_dir );
     is( $env->{WORKSPACE_REF}, 'DD-1',        'workspace_environment seeds WORKSPACE_REF from the workspace name' );
     is( $env->{OB},            'origin/DD-1', 'workspace_environment seeds the origin branch alias' );
+    ok( !exists $env->{LC_CTYPE}, 'workspace_environment leaves the terminal character locale unchanged' );
     is( $env->{WS_LAYER_KEY},  'layer',       'workspace_environment overlays the layered .env chain for the requested cwd' );
     like( $env->{DEVELOPER_DASHBOARD_WORKSPACE_ENV_KEYS}, qr/\bWS_LAYER_KEY\b/, 'workspace_environment records the layered env keys for later session refresh' );
 
@@ -409,6 +409,7 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
     my $env = ticket_environment( 'DD-4', cwd => $ws_dir );
     is( $env->{TICKET_REF}, 'DD-4', 'ticket_environment seeds the legacy TICKET_REF value' );
     ok( !exists $env->{WORKSPACE_REF},                          'ticket_environment drops the workspace-only reference' );
+    ok( !exists $env->{LC_CTYPE},                                'ticket_environment does not force the Docker workspace locale' );
     ok( !exists $env->{DEVELOPER_DASHBOARD_WORKSPACE_ENV_KEYS}, 'ticket_environment drops the workspace-only env key manifest' );
 }
 
@@ -1013,7 +1014,7 @@ FAKE_DEFAULT_D2
         [
             "docker\tcompose\tps\t--status\trunning\t--services\tworkspace\n",
             "docker\tcompose\texec\t-e\tDEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config\tworkspace\td2\tpath\tadd\tfoobar\t/workspace\n",
-            "docker\tcompose\texec\t-it\t-e\tDEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config\t-e\tTMUX_TMPDIR=/dev/shm\tworkspace\td2\tworkspace\tfoobar\t-c\n",
+            "docker\tcompose\texec\t-it\t-e\tDEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config\t-e\tTMUX_TMPDIR=/dev/shm\t-e\tLC_CTYPE=C.UTF-8\tworkspace\td2\tworkspace\tfoobar\t-c\n",
         ],
         '_run_docker_workspace reuses a running service without rebuilding and keeps the config overlay private',
     );
@@ -1722,7 +1723,7 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
             [ 'ps', '--status', 'running', '--services', 'workspace' ],
             [ 'up', '-d', '--no-build', 'workspace' ],
             [ 'exec', '-e', 'DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config', 'workspace', 'd2', 'path', 'add', 'foobar', '/workspace' ],
-            [ 'exec', '-it', '-e', 'DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config', '-e', 'TMUX_TMPDIR=/dev/shm', 'workspace', 'd2', 'workspace', 'foobar', '-c' ],
+            [ 'exec', '-it', '-e', 'DEVELOPER_DASHBOARD_CONFIG_OVERLAY=/dev/shm/developer-dashboard-workspace-config', '-e', 'TMUX_TMPDIR=/dev/shm', '-e', 'LC_CTYPE=C.UTF-8', 'workspace', 'd2', 'workspace', 'foobar', '-c' ],
         ],
         'container workspace flow explicitly disables implicit builds, keeps the host alias private, and passes a writable tmux socket directory',
     );
@@ -2100,10 +2101,13 @@ and inner-workspace errors remain visible. It also verifies a running service is
 reused without rebuilding, a stopped service starts without a build by default,
 and uppercase C<-C> requests a cached build whose progress is streamed live.
 A private in-container config overlay keeps the host alias unchanged.
-The final handoff is marked interactive, requests a TTY, and explicitly passes
-C<TMUX_TMPDIR=/dev/shm> into the container so an older installed workspace CLI
-uses a writable socket location too; the direct runner leaves output streams
-uncaptured. Tmux socket selection honors C<TMUX_TMPDIR>, falls back to
+C<TMUX_TMPDIR=/dev/shm> and C<LC_CTYPE=C.UTF-8> into the container so an older
+installed workspace CLI uses a writable socket location and tmux retains UTF-8
+prompt/status icons without overriding the broader language locale. The test
+also guards that ordinary workspace environment construction does not force
+that Docker-only locale. The direct runner leaves output streams uncaptured.
+Tmux socket selection honors
+C<TMUX_TMPDIR>, falls back to
 C</dev/shm> when C</tmp> is unwritable, and reports when neither is usable. A
 fake C<d2> executable verifies the default Compose
 handoff uses an argument list without shell interpretation; a fork-isolated

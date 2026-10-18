@@ -1,1 +1,7 @@
+cover_db*/
 .claude/
+nytprof.out
+nytprof/
+.worktrees/
+dogfood-output/
+.perl5

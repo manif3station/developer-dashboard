@@ -46,7 +46,6 @@ my %secure_minimum = (
     'Digest::SHA'            => '5.96',
     'HTML::Parser'           => '3.84',
     'HTTP::Date'             => '6.08',
-    'HTTP::Tiny'             => '0.095',
     'IO::Compress::Gzip'     => '2.220',
     'IO::Uncompress::Gunzip' => '2.220',
     'JSON::XS'               => '4.04',

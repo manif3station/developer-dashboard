@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-5.88
+6.01
 
 # INTRODUCTION
 
@@ -193,6 +193,25 @@ layered bookmark lookup path. Installed skill nav also follows nested
 skill can contribute `dashboards/nav/index.tt` or other shared fragments
 without being flattened back into only the first installed-skill level.
 
+The web application keeps a per-instance inventory of the discovered nav
+fragment ids so unchanged directories are not enumerated on every request.
+The inventory is reused only while each ordered `nav/` directory retains the
+same high-resolution filesystem identity and metadata signature. Adding or
+removing a fragment changes that signature and refreshes the next request.
+Only the filename inventory is reused: every fragment's contents are loaded
+and rendered for each request, so edits remain visible without an ID rescan.
+Missing nav directories continue to contribute no items; an incomplete
+directory scan is not cached, and filesystem stat, read, or close failures
+remain explicit.
+
+Saved-page lookup selects the first existing layered candidate, then the
+secure-read path performs the containment check immediately before its
+no-follow open. Candidate lookup does not repeat that same resolved-path check
+earlier; both normal page reads and raw-entry reads still use the guarded open.
+For one web request, ordered candidate roots are discovered lazily once and
+shared by its saved-page loads; a later request receives a fresh root list.
+Direct PageStore calls outside a web request do not retain a root snapshot.
+
 Shared nav fragments and normal bookmark pages both render through Template
 Toolkit with `env.current_page` set to the active request path, such as
 `/app/index`. The same path is also available as
@@ -288,6 +307,200 @@ request into full local-admin access
 In practice that means the developer at the machine gets friction-free local
 admin access, while shared or forwarded access is forced through explicit
 helper accounts.
+Helper passwords use PBKDF2-HMAC-SHA256 with 210,000 iterations. When
+FFI::Platypus and a compatible system OpenSSL `libcrypto` are available, the
+same derivation runs through OpenSSL's native PBKDF2 function; this preserves
+the existing salts, stored hashes, and verification format. If the native
+library is unavailable or the password cannot safely use the byte-oriented
+FFI path, authentication uses the existing `Digest::SHA` implementation.
+The FFI modules are optional runtime recommendations, not installation
+requirements. If the FFI modules themselves are absent, the adapter selects
+the same documented `Digest::SHA` path; errors from installed modules remain
+visible.
+The experiment-only `Inline`, `MCE::Map`, `SPVM`, and `SPVM::Digest::SHA`
+engines are also not required for ordinary installation; only Problem 48
+benchmark scripts and optional tests use them, and generated install-time
+prerequisites exclude them.
+The shared `Developer::Dashboard::HtmlEscape` module uses a small XS byte
+loop for ordinary scalar HTML body text. MakeMaker compiles the extension as
+part of the normal distribution build; a source checkout without the compiled
+object uses the equivalent Perl implementation. Overloaded references retain
+Perl stringification behavior, and native-load errors other than a genuinely
+missing object remain visible. The XS result retains the Perl UTF-8 and taint
+flags. Quoted attribute values use a separate single-pass XS loop that escapes
+the body metacharacters and both quote characters together; source-only builds
+and overloaded references retain the Perl path. A 9-sample Docker benchmark
+measured the helper at 2.13 times faster for a normal navigation ID and 4.51
+times faster for a quote-heavy value, with exact output parity. The route-level
+comparison remained within measurement noise, so this is a helper-specific
+result and does not satisfy the all-subroutine 50x objective.
+Regression tests use a deterministic fake FFI boundary to exercise native
+setup, digest parity, buffer checks, and explicit errors even on systems where
+the optional FFI packages are not installed; this does not require enabling or
+changing the runtime fallback.
+Performance changes are benchmarked with representative commands and
+NYTProf rather than assumed to help every routine. In the recorded Docker
+measurements, native PBKDF2 was about 9.5 times faster for password derivation.
+Lazy usage rendering, platform imports, version metadata, and a validated
+logical `PWD` lookup reduced `dashboard version` from the 5.88 baseline
+median of 56.7 ms to 31.486 ms across 15 Docker runs (about 1.80 times faster).
+NYTProf confirms that path no longer loads Platform, InternalCLI, Handle, or
+FileRegistry. The switchboard and runtime helpers also avoid Cwd's external
+`pwd` command when `PWD` matches the current directory's device and inode;
+stale or absent values retain the original Cwd fallback. Further path-command
+profiling found repeated state-root metadata writes and a platform-module load
+for passwd fallback. The aggregate path inventory now derives collector and
+indicator roots from one state-root resolution, and the passwd lookup uses the
+guarded Perl built-in directly. In 15 Docker runs, `dashboard paths` measured
+71.309 ms median versus the 5.88 baseline of 93.3 ms (about 1.31 times faster);
+`dashboard ps1` measured 83.641 ms versus 109.5 ms (about 1.31 times faster).
+For commands that do not execute hooks, the public switchboard also avoids
+loading its unused `Config` module and defers `IO::Handle`, `IO::Select`,
+`IPC::Open3`, and `Symbol` until executable hook processing. A paired 25-run
+Docker microbenchmark measured 31.520 ms with lazy imports and 33.104 ms with
+those modules preloaded; this small command-startup gain does not imply a
+50-times improvement to every routine.
+The path CLI also defers `Config` and `FileRegistry` on the
+`path project-root` and `path locate` verbs, which do not read configured
+aliases. In an alternating 25-run Docker process benchmark, project-root
+dispatch measured 30.372 ms with lazy imports versus 36.041 ms with both
+modules preloaded (about 1.19 times). This is a command-specific improvement,
+not evidence of a 50-times speedup across the application.
+The same project-root path also defers `Getopt::Long` until a selected path
+verb needs option parsing. A separate alternating 25-run Docker benchmark
+measured 28.863 ms without loading that parser versus 32.937 ms with it
+preloaded (about 1.14 times). This result is specific to project-root dispatch
+and does not demonstrate 50-times improvement across all routines.
+Prompt rendering also defers `Capture::Tiny`: ordinary `ps1` output does not
+need subprocess capture, so the helper and prompt-only indicator refresh avoid
+loading that module unless a tmux ticket lookup or full project/Git refresh
+requires it. A red-first Docker test verifies the normal prompt path leaves the
+module unloaded, while the existing tmux and Git tests preserve capture
+behavior. In an alternating 25-cycle cold-process benchmark,
+`dashboard ps1 --no-indicators` measured 71.498 ms with lazy loading versus
+78.034 ms when `Capture::Tiny` was force-loaded (about 1.09 times faster).
+The prompt's collector configuration view also avoids constructing a
+`FileRegistry`, because collector loading uses the path registry and does not
+read files through that registry. In an alternating 25-cycle fresh-process
+benchmark, `dashboard ps1 --no-indicators` measured 76.918 ms versus
+85.200 ms with `FileRegistry` force-loaded (about 1.11 times faster). These
+prompt-specific measurements do not demonstrate a 50-times improvement to
+every routine.
+The same `Config->for_path_config` view now serves `dashboard paths` and
+the prompt helper, removing `FileRegistry` loading and construction from
+path-alias config operations that only use `PathRegistry`. A red-first Docker
+test blocked `FileRegistry` and caught the import in `dashboard paths -o
+json`; focused prompt, Config, and path CLI suites passed 361 tests after the
+change. In an alternating 25-cycle fresh-process comparison,
+`dashboard paths -o json` measured 64.636 ms with `FileRegistry` unloaded
+and 72.077 ms with its module force-loaded (about 1.12 times). That control
+isolates the module-load cost rather than reproducing the complete old code
+path; it is not a 50-times result.
+This prompt-specific measurement does not establish the requested 50-times
+improvement for every routine.
+PageRuntime retains parsed and compiled scalar Template Toolkit blocks in a bounded worker-local LRU keyed by exact source and ordered include roots. It admits at most 16 entries, 256 KiB per source/root key, and 1 MiB of aggregate source/root-key bytes. Each render gets a fresh Template::Document and each request gets a fresh TT service scope, so metadata, stash, and changed INCLUDE files remain current. A historical request-local-only benchmark measured 1.38 times faster for five identical bodies and 0.97 times for five distinct bodies; those measurements describe the earlier intermediate design, not the current whole-route result.
+For path CLI output selection, the common \`-o\` and \`--output\` forms use a
+small local argument parser so ordinary \`paths -o json\` does not initialize
+`Getopt::Long`. Unsupported or noncanonical forms still use the established
+`Getopt::Long` parser, preserving its option behavior. An in-process Docker
+microbenchmark measured about 12.3 times faster parsing for 100,000 canonical
+output options; this isolated result is not a whole-command or all-subroutine
+speedup claim. A separate 20-cycle paired Docker comparison of
+`paths -o json` against its Getopt::Long abbreviation fallback produced
+byte-identical 981-byte output and medians of 67.578 ms versus 72.113 ms
+(about 1.07 times faster). This is a measured command-specific improvement,
+not progress that can be generalized to every dashboard routine.
+A cumulative 20-cycle ABBA benchmark compared the same project-root handler
+with the former unused `Config`/`FileRegistry` construction and eager parser
+setup. Captured output matched byte-for-byte; medians were 26.852 ms current
+and 35.489 ms pre-change (about 1.32 times). This remains a single-route result.
+These command-specific measurements do not establish a 50-times speedup for
+the entire application or every subroutine; the requested target remains
+unmet.
+Web page rendering also scopes its Template Toolkit service to one request and
+one ordered include-root set. The service is reused for same-root page and nav
+renders within that request, but the cache is discarded afterward so edits to
+included files are visible on a later request. A 21-pair alternating Docker
+microbenchmark of 500 renders measured 0.1825 ms per fresh service versus
+0.1248 ms with request-scoped reuse (1.46 times) and verified exact rendered
+text. This is a narrow result, not a 50-times all-subroutine claim.
+The same request boundary scopes runtime-layer and installed-skill inventories.
+Nested aggregate path reads share that scope; a Docker route test bounds
+runtime ancestry discovery to two scans despite a nested permission check.
+The scope is discarded at request end so later requests can see filesystem
+changes. Direct Dancer2 backend methods establish the same request-local scope,
+so authorization and route handlers reuse one runtime-layer inventory without
+retaining it across requests.
+The latest full Docker coverage gate passed 265 files and 23,316 tests.
+Statement, branch, condition, and subroutine coverage each measured 100.0%
+across `lib/` (47,375 detail rows, with no stale uncoverable annotations).
+Nine environment- and tool-dependent test files reported explicit skips; the
+three MCE-only benchmark assertions also skipped because MCE is optional and
+absent from the standard gate image. The focused benchmark test passed all 11
+assertions in its MCE-enabled container. The required post-gate
+`perldoc perlsec` check succeeded. This coverage result does not establish
+the required 50-times speedup for every subroutine.
+For path ancestry checks, byte-identical nonempty path strings are recognized
+before calling `abs_path`; different spellings still use canonical resolution
+to preserve symlink-aware behavior. Component-boundary checks use the active
+`File::Spec` separator and case-tolerance rules, including Windows drive roots
+and backslash paths, so a textual prefix cannot be mistaken for a descendant.
+Layered collector/API-key settings now share one grouped installed-skill
+inventory rather than rescanning runtime roots per skill; synthetic
+50-skill/four-layer benchmarks measured about 1.30 times for collector config
+and 1.29 times for API-key config with exact output parity. Nested skill-alias
+reads also reuse the chain discovered during inventory instead of resolving
+each write location again; a separate 50-skill/two-layer/two-depth benchmark
+measured about 1.80 times with exact output parity. These are isolated routine
+results, not whole-command measurements or evidence of the requested 50-times
+speedup for every subroutine.
+Nested-skill inventory carries validated segment state and the nearest
+git-free ancestor forward rather than repeating validation for every prefix.
+For a 50-skill/two-depth synthetic fixture, 30 alternating Docker pairs
+preserved identical canonical output and measured about 2.64 times faster for
+that routine. Checkout NYTProf showed 6.89 ms inclusive / 1.06 ms exclusive
+after the change versus 12.1 / 3.60 ms before; instrumented timings are not
+directly interchangeable with wall-clock measurements. The strict public
+resolver still validates untrusted input independently. This remains a
+scoped optimization and does not meet the 50-times all-subroutine target.
+The \`dashboard paths\` command also passes one nested-skill inventory to both
+configured-alias and \`Folder.pm\` readers instead of scanning the same tree
+twice. It preserves Config's explicit include-disabled behavior while keeping
+disabled skills unavailable as Folder providers. In a synthetic
+50-skill/two-depth Docker benchmark, 30 alternating pairs preserved identical
+canonical JSON and measured about 1.31 times faster for this combined
+alias-discovery flow. This is not a cold command or all-routine speedup claim;
+the post-change checkout NYTProf trace confirms one nested inventory call
+instead of two, and the 50-times objective remains unmet.
+PathRegistry also shares the sorted top-level skill directory listing between
+nested-skill discovery and layered Config lookup, but only for one
+\`dashboard paths\` command. Disabled markers remain checked by both consumers,
+and the snapshot is discarded before a later command so new skills stay
+visible. A two-layer, 50-skill Docker parity benchmark measured 1.465 ms per
+paired inventory without sharing versus 1.136 ms with sharing (about 1.29x).
+This scoped reduction does not meet the 50-times all-subroutine target.
+While constructing the aggregate `PathRegistry->all_paths` inventory,
+identical path strings now reuse their canonical identity only for that one
+call. The cache is discarded when the inventory returns, so later calls still
+observe filesystem and symlink changes. A 51-pair Docker comparison preserved
+the exact JSON result and measured 0.576 ms without reuse versus 0.424 ms with
+reuse (about 1.36 times for this sub-millisecond routine); this narrow result
+does not establish a 50-times speedup for every subroutine.
+Nested-skill inventory with `include_disabled` also avoids a duplicate
+top-level `.disabled` marker stat. A red-first Docker regression verifies one
+check per root and safe empty input. Exact output parity held in paired runs:
+50 skills improved from 0.599 ms to 0.496 ms (1.21 times), and 250 skills
+from 3.089 ms to 2.585 ms (1.19 times). This narrow inventory gain does not
+meet the 50-times-per-subroutine target.
+An ordered-output MCE benchmark then tested 50, 250, 1,000, and 5,000
+independent skill-config reads using four workers and a fresh worker pool per
+size. Cold ratios against serial were 0.21, 0.90, 0.97, and 0.89; warmed
+ratios were 0.92, 1.18, 1.13, and 1.18. MCE module import is excluded, so
+these cold figures understate its one-shot cost. Cold MCE was slower at every
+size, and warmed gains remained below 1.2 times; it is not added to the
+one-shot path command.
+Collector startup remains sequential so readiness failures retain their
+existing fail-fast behavior.
 If no helper user exists yet in the active dashboard runtime, outsider requests return
 `401` with an empty body and do not render the login form at all.
 When a saved `index` bookmark exists, opening `/` now redirects straight to
@@ -319,6 +532,139 @@ This matters because prompt and browser status should be cheap to render.
 Instead of re-running a Docker check, VPN probe, or project health command
 every time the prompt draws, a collector prepares the answer once and the rest
 of the system reads the cached result.
+When the status strip or indicator-list command reads indicators, the store
+resolves the applicable runtime roots once for that listing and searches those
+roots in precedence order. It still reads the indicator files on each request,
+so updates and inherited-versus-local overrides remain visible. A Docker
+benchmark with 50 indicators measured the previous repeated-root-lookup path
+at 8.197 ms for one layer and 14.588 ms for two layers; the single-root-scan
+path measured 1.017 ms and 1.201 ms respectively, with exact output parity.
+These 8.06x and 12.15x gains apply to this indicator-list workload only and do
+not satisfy Problem 48's broader 50x target.
+For lists of at least 32 records, ordering fields are decorated once before
+sorting to reduce comparator method dispatch and repeated hash lookups. Exact
+same-input order parity is covered by a regression test. Across full two-layer
+Docker list runs, the final implementation measured 1.04x at 50 records, 1.14x
+at 1,000, and 1.06x at 5,000. A 30-pair isolated 5,000-record sort benchmark
+measured 16.240 ms for the prior comparator and 10.763 ms for decorated
+sorting (1.51x), with exact order parity. These are workload-specific results
+and do not meet the all-routine 50x objective.
+When configured collectors are present, the web status endpoint reconciles
+their indicator state and reuses the resulting inventory to build its response
+instead of rereading the same files for the payload. During each collector
+sync, the store now resolves ordered indicator roots once and passes that
+snapshot through all collector comparisons and the final inventory. Decoded
+indicator files are cached only for that sync; writes and deletions invalidate
+the affected entry, and a later request rereads disk state. A Docker regression
+checks one root resolution and one physical file read per indicator, next-sync
+visibility of an external state change, and correct inventory after retirement.
+On a 50-collector `/system/status` workload, 15 alternating Docker runs
+measured 9.203 ms/request before and 2.689 ms/request after (3.42x) with exact
+response bytes. NYTProf showed status-file reads falling from 15,000 to 5,000
+and root resolutions from 15,100 to 100 across 100 requests; the instrumented
+`sync_collectors` time fell from 2.40 s to 513 ms. This collector-heavy route
+gain does not establish the all-routine 50x objective.
+Earlier-format bookmark parsing also avoids scanning the 1,008-entry section-key list
+for each parsed section: fixed section names use hash lookup, while numbered
+`CODE` names preserve their existing digit-based acceptance. In 21 paired
+Docker runs, the parser was 122.13 times faster for 10 CODE sections and
+127.47 times faster for 1,001 sections with exact parsed-output parity. In the
+same profiled web-test workload, exclusive parser time fell from 482 ms to
+3.59 ms over 148 calls. This improves one parser and is not a claim that every
+Dashboard routine is 50 times faster.
+The parser also compiles its padded Markdown section-separator pattern once
+at module load. A red-first CRLF regression and focused Docker suites pass;
+nine alternating runs measured 637.245 ms before and 602.597 ms after for
+100,000 two-section parses (1.06x) with exact output parity. The matched
+saved-page route retained its response hash, with latency within normal
+variation. This narrow helper result does not establish the all-routine 50x
+target.
+When a bookmark body contains no default Template Toolkit `[%` opener,
+PageRuntime now skips request-context assembly, include-root discovery, and TT
+processing; bodies with tags and includes use the unchanged normal path. A
+21-pair Docker microbenchmark preserved exact UTF-8 output and measured 0.06436
+ms for Template Toolkit processing versus 0.00080 ms for the static fast path
+(80.66 times). This applies only to static page bodies and does not establish
+the 50-times target for every routine or end-to-end dashboard latency. A
+confirmatory Docker run measured 0.06455 ms versus 0.00074 ms (86.73 times)
+with exact UTF-8 output. After this change, the full Docker suite passed 272
+files and 23,751 tests; statement, branch, condition, and subroutine coverage
+were each 100.0% across lib/ (47,732 detail rows). The required web security
+tests passed 459 assertions and perlsec rendered successfully. These gates
+validate this iteration, not the broader all-routine performance target.
+The shared HTML body escaper is also built as XS after exact parity tests for
+byte strings, Unicode, embedded NUL, undef, empty input, UTF-8 flags, and
+overloaded references. Inputs without escapable bytes are returned unchanged;
+sparse escapes use a native chunk-copy pass and dense escapes use the direct
+native byte loop. The XS build is optional for direct source-checkout tests,
+which retain the Perl path, but is included by MakeMaker installations. In an
+isolated Docker staged build, 21 rotated samples at 1 MiB measured the
+production helper 12.40 times faster for dense escapes, 3.08 times faster for
+sparse escapes, and 1.02 times faster for plain Unicode text. The complete
+instruction highlighter measured 9.02, 1.74, and 1.00 times faster for those
+same workloads, respectively, with byte-identical output. This is a specific
+large-text result, not an all-routine 50-times claim. The final Docker
+coverage gate passed 274 files / 24,088 tests with 100.0% statement, branch,
+condition, and subroutine coverage across `lib/` (47,881 detail rows, with no
+stale uncoverable annotations).
+The XS dispatcher also samples escape density when a special character appears
+near the beginning: long input with fewer than four escapes in its first 16
+characters uses chunk-copy instead of scanning the whole input with the direct
+loop. A red-first test reproduced an early-but-rare escape case. With compiled
+XS and exact output parity, the 1 MiB early-sparse helper measured 2.65x versus
+Perl and full instruction highlighting measured 1.69x; dense input measured
+10.98x and 10.18x. Sparse input measured 2.72x and 1.85x; plain input stayed
+near parity. This closes a distribution-specific regression, not the overall
+50x-per-subroutine objective. The latest Docker coverage gate passed 275 files
+/ 23,738 tests with 100.0% statement, branch, condition, and subroutine
+coverage across `lib/` (47,889 detail rows, no stale uncoverable annotations).
+A fresh saved-page NYTProf profile then showed that worker-cached parsed TT trees still reevaluated their generated Perl blocks on each request. PageRuntime now retains compiled scalar-template blocks in the bounded worker cache, while constructing a fresh Template::Document and keeping TT services request-local so dynamic stash and INCLUDE file updates remain visible. Web workers also retain the discovered machine-address list for five seconds; web requests scope canonical path identities and runtime-layer directory-existence snapshots to that request. Regression tests cover one compile per distinct source, cache expiry, request-scope cleanup, runtime-layer snapshot freshness, and exact rendered output. In 15 alternating Docker runs with identical 9,573-byte responses, the saved-page route measured 0.497 ms median versus 1.673 ms for the v5.88 tree (3.37 times); disabling compiled-template reuse measured 0.656 ms (1.32 times slower), and disabling the address cache measured 0.522 ms (1.05 times slower). The 50 times all-routine target remains open.
+Ancestor-layer discovery also skips a duplicate spelling of the selected home
+runtime root before canonical path checks. In the same Docker NYTProf web-test
+workload, the routine kept 3,373 calls and fell from 72.2 ms to 56.4 ms
+exclusive (1.28 times), with exact runtime-layer results preserved. This is a
+measured path-resolution improvement, not a global speedup claim.
+PathRegistry also avoids importing Fcntl solely for runtime metadata file-type
+checks: Perl's cached `lstat` tests retain the symlink and regular-file checks.
+The focused Docker regressions pass, and an alternating 21-pair process
+benchmark measured 13.888 ms without Fcntl versus 15.017 ms with the former
+import (1.08 times for isolated PathRegistry startup). This narrow gain does
+not meet the 50-times all-routine target.
+PathRegistry also retains the canonical JSON scalar for the most recently
+verified state-root identity, avoiding repeated serialization for the same
+runtime-root/application-name pair. Each request still performs live directory
+and file checks, verifies type, owner, and permissions, and reads the existing
+metadata bytes; only string generation is reused. A red-first Docker test
+verifies same-identity reuse and regeneration when either identity field
+changes. This bounded serialization optimization makes no broad 50-times
+performance claim.
+Collector configuration also reuses the skill config entries loaded while
+building the merged view instead of rereading every skill's `config.json` to
+qualify its collector jobs. The red-first config test observed two skill-entry
+enumerations before the change and now requires one. In 21 paired Docker runs
+with 250 skills, canonical output stayed exact and the collector path measured
+27.324 ms before versus 15.446 ms after (1.77 times); this is a scoped gain,
+not the 50-times all-routine target.
+Web request authorization and browser chrome also share one lazy web-settings
+snapshot per request. A red-first Docker request test caught three lookups of
+the same settings and now requires one; merged-config reads for that page/status
+route fall from seven to one, with collector assembly reusing the same merged
+config and skill entries. SSL validity is derived from that settings snapshot. The
+request remains successful and later requests resolve fresh configuration;
+this measured request-level reduction is not an all-routine 50-times claim. The
+corrected full Docker coverage gate passed 271 files / 23,901 tests with
+100.0% statement, branch, condition, and subroutine coverage across `lib/`
+(47,644 detail rows and no stale uncoverables); unavailable optional tooling
+and platform checks were explicitly skipped.
+The Dancer transport adapter normalizes each backend request from one request
+object and one PSGI environment read. It reads the seven selected header values
+directly from their standard PSGI `HTTP_*` keys, matching Plack's own header
+normalization while avoiding repeated header-accessor calls. Host and
+remote-address fallback rules are unchanged. Red-first tests cover exact
+header parity, invalid environment rejection, and request counts. A paired
+Docker microbenchmark preserved canonical JSON output and measured 5.167
+versus 2.578 microseconds per helper call (2.00 times). This isolated helper
+result does not establish the 50-times target for every routine.
 When the generated shell bootstrap runs inside a `dashboard workspace` tmux
 session, those prompt indicators move out of the inline shell prompt and into
 that session's tmux status area so the cursor line stays clean while the
@@ -348,6 +694,106 @@ persists the rendered icon as the live indicator value. Invalid JSON or TT
 render failures are explicit collector errors: the collector `stderr` records
 the template problem and the indicator stays red instead of silently falling
 back.
+
+Problem 48's current saved-page measurements remain route-specific: with five
+static navigation fragments the byte-identical \`/app/welcome\` response is
+5.58 times faster than the v5.88 baseline (3.758640 ms versus 0.673630 ms per
+request). Literal navigation skips both runtime/template preparation and
+canonical-instruction serialization; dynamic fragments retain the full path.
+Web requests now also resolve each dashboards root at most once for that
+request while continuing to resolve and check every candidate page path before
+the existing no-follow open. The matched profile reduced \`Cwd::abs\_path\` calls
+from 540 to 320 across 20 requests. The Docker gate passed 283 test files and
+24,372 tests with 100.0% statement, branch, condition, and subroutine coverage
+across \`lib/\` (49,511 detail rows and no stale annotations). These
+route-specific gains do not prove the all-subroutine 50x objective; Problem 48
+remains open.
+
+A fresh matched Docker rerun retained HTTP 200, the same 10,042-byte response,
+and the same SHA-256 while measuring 3.777349 ms/request on v5.88 and 0.632660
+ms/request on the current tree (5.97x for this fixture). This is an updated
+route comparison, not a speedup attributed to the POSIX containment correction;
+the all-subroutine 50x target remains open.
+
+A separate saved-page nav inventory comparison kept the exact HTTP response
+and reduced directory-entry scans from 2,103 to 1 across the measured workload.
+The median route time was 0.651679 ms/request with inventory reuse and 0.667362
+without it (1.024x). This is a small incremental route gain, not a 50x result.
+The full Docker coverage gate subsequently passed 283 test files / 24,372 tests
+with all four library coverage metrics at 100.0% (49,511 detail rows, no stale
+uncoverable annotations). A second seven-pair comparison against a control
+with the old duplicate path check measured 1.11x with identical output;
+containment checks fell from 25,200 to 12,600. The all-subroutine 50x objective
+remains open.
+
+Unchanged literal skill-owned nav pages now reuse their parsed page object in a
+bounded per-dispatcher FIFO. The renderer resolves each route and checks the
+high-resolution file identity on every request; dynamic Template Toolkit and
+structured pages remain uncached. With 100 installed skills and 20 saved nav
+fragments, two paired Docker comparisons preserved the exact HTTP 200 response
+and measured 1.2665x over the uncached current-source control (4.754831 versus
+6.021790 ms/request). Content reads fell from 210,300 to 100 per 100-request
+run. This is a route-specific incremental result, not proof of the 50x target
+for every subroutine; Problem 48 remains open.
+
+The literal-nav cache-miss path also avoids a duplicate containment assertion:
+cache misses retain the secure-open validation, and cache hits continue checking
+containment on every request. A 21-sample Docker comparison for 20 fragments
+preserved the exact 11,092-byte \`/app/welcome\` response and measured 9.080269
+ms/request on v5.88 versus 0.712309 ms/request currently (12.75x). This is a
+route-specific result, not 50x for every subroutine. The latest full Docker
+coverage gate passed 285 files and 24,543 tests with 100.0% statement, branch,
+condition, and subroutine coverage across \`lib/\` (49,777 detail rows, no stale
+uncoverable annotations). Optional browser, platform, kwalitee, and
+security-tool tests that report skips remain separate verification items.
+
+Canonical, safe, single-level \`nav/&lt;name>.tt\` ids also bypass the general
+whitespace normalization and path-component split in PageStore. Prefixed,
+nested, unusual, and traversal ids retain the existing validation path. Red-first
+tests cover the fast and fallback cases. A nine-sample Docker helper benchmark
+measured common nav-id validation at 2.45 times faster with exact parity. A
+reversed-order 20-fragment route comparison preserved the byte-identical
+11,092-byte response and measured 9.553111 ms/request on v5.88 versus 0.682609
+ms/request currently (13.99 times). These results are workload-specific and do
+not establish 50x improvement for every subroutine.
+
+For ordered-root discovery, the exact-output benchmark reduced
+\`dashboards\_roots\` calls sixfold at five nav fragments, but route timing was
+within noise. At ten fragments, it measured 1.04x (0.792992 versus 0.824606
+ms/request) and reduced lookups from 1,980 to 180. This result is modest and
+workload-specific; it does not prove the 50x target for every subroutine.
+
+The same route profile found repeated recursive enumeration of unchanged
+skill-nav directories. A bounded per-dispatcher route-inventory cache now
+fingerprints every visited directory before reuse, invalidating on additions,
+removals, and nested-directory changes. It retains at most 128 roots and limits
+each inventory to 4,096 directories, 8,192 files, and 256 KiB. Stable
+inventories retain validated relative route segments; the page locator still
+rejects separators, traversal segments, and control bytes, while untrusted
+route ids continue through PathRegistry validation. A 100-skill Docker fixture
+returned byte-identical output and reduced recursive scans from 90,300 to 100.
+Sequential cache-enabled and cache-disabled controls measured 3.794620 versus
+7.907050 ms/request (2.08x; not an alternating paired run). The final full
+Docker gate passed 285 files / 24,976 tests and 100.0% statement, branch,
+condition, and subroutine coverage across `lib/` (50,889 detail rows; no stale
+uncoverable annotations). These are
+incremental route gains, not proof of the all-subroutine 50x objective.
+If optional watcher setup fails and watcher shutdown also fails, the dispatcher
+reports the close failure even when that watcher has no `last_error` method.
+
+An exact Docker comparison with 100 installed skill-nav roots and 20 saved nav
+fragments returned the same 18,792-byte HTTP response on v5.88 and current
+source. Across nine samples of 100 requests, the medians were 135.065870 and
+1.136279 ms/request (118.87x for this route fixture). This does not establish
+the 50x target for every subroutine or platform.
+An instrumented NYTProf run ranked bookmark page parsing and nav assembly among
+the largest exclusive-cost candidates; the measured profile overhead is not a
+production timing and those costs are not additive.
+
+The latest complete Docker coverage run passed all 285 test files and 25,162
+tests, with 100.0% statement and subroutine coverage, 99.9% branch coverage,
+and 99.3% condition coverage. Only \`SkillDispatcher.pm\` and \`Web/App.pm\` retain
+branch or condition gaps; the full coverage gate remains open.
 
 ## Why It Works As A Developer Home
 
@@ -414,6 +860,9 @@ Project-owned modules now live only under the `Developer::Dashboard::`
 namespace so the distribution does not pollute the CPAN ecosystem with
 generic package names. The bookmark CODE runtime imports the short JSON helper
 names from `Developer::Dashboard::DataHelper` automatically for every block.
+The shared JSON wrapper lazily reuses its fixed-configuration canonical
+encoder and UTF-8 decoder within each Perl interpreter; calls requiring
+different encoder options construct their own configured encoder.
 
 ## Main Concepts
 
@@ -483,7 +932,154 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     headers. Bookmark CODE can read those variables by importing the same app with
     `use Dancer2 appname => 'DeveloperDashboard'`. Existing hook response
     headers override matching dashboard defaults, while explicit headers returned
-    by the backend take final precedence.
+    by the backend take final precedence. The standalone `app.psgi` bootstrap
+    constructs the indicator store once and shares it with the prompt renderer, so
+    the dashboard status route uses the configured indicator data. Collector
+    synchronization also reuses its loaded local indicator state when only one
+    state root exists, skipping an impossible inherited lookup. Stable status
+    requests reuse the serialized response and skip rebuilding its in-memory
+    payload only after metadata-validated collector synchronization confirms the
+    status files and configuration are unchanged; a detected change forces fresh
+    payload generation. In a matched Docker benchmark with 50 collectors and exact
+    12,687-byte responses, the route measured 34.257 ms/request on v5.88 and 0.597
+    ms/request currently (57.38x). This route-specific result does not prove every
+    subroutine is 50x faster. Problem 48 remains in progress.
+
+    Watcher-validated skill-nav HTML now declines a snapshot when its current page
+    provider is unavailable, before comparing reference addresses. The normal
+    renderer fallback remains active without an uninitialized-value warning, and
+    the already-escaped nav id stays safely encoded in generated markup.
+    For a single global config layer with no skill fragments, configuration loading
+    now normalizes collector/provider identity arrays directly instead of
+    recursively merging the decoded layer into an empty hash. When the repo config
+    is empty, `merged` returns that already-normalized snapshot directly. Multiple
+    global layers, skill fragments, and non-empty repo overlays retain the existing
+    merge path and precedence. This removes redundant work without retaining a
+    cross-request config cache, so configuration edits remain visible on the next
+    request. The focused Docker coverage passes, but the status-route timing change
+    was within run-to-run noise and no additional end-to-end gain is claimed.
+    For stable requests, the validator also reuses status-file path strings only
+    while the ordered roots and discovered directory inventory are unchanged. It
+    still checks each file's high-resolution metadata on every request, preserving
+    visibility of external replacements and edits. A paired 50-collector Docker
+    benchmark returned exact 12,414-byte responses and measured 72.341 ms per 100
+    requests without path-string reuse versus 66.347 ms with it (1.09x). This
+    incremental result does not establish the all-routine 50x target.
+    The stable-path freshness validator also shares status-file existence results
+    between its inventory and active-collector checks. This removes a duplicate
+    path-join pass without omitting per-file metadata checks. A red-first Docker
+    test reproduced 24 path joins for 12 entries and verifies 12 afterward. A
+    fresh 31-sample, 50-collector Docker comparison preserved exact 12,687-byte
+    responses and measured 34.307 ms/request on v5.88 versus 0.437 ms/request on
+    current source (78.50x for this route only). It does not establish the
+    all-subroutine 50x objective; Problem 48 remains open. The full Docker coverage
+    gate passed statement, branch, condition, and subroutine metrics at 100.0%
+    (48,438 detail rows, no stale uncoverable annotations). The post-gate
+    `perldoc perlsec` review succeeded, and the required web/security regression
+    set passed 622 assertions across four test files.
+    The first blank-container `cpanm` install then exposed a stale machine-IP
+    cache in an empty-discovery test; the fixture now clears that cache, and the
+    focused Docker rerun passes all 286 assertions. The 5.95 tarball then installed
+    successfully with `cpanm` in a blank Docker environment; its bundled suite
+    passed 277 files / 18,197 tests, and the documented blank-environment
+    integration run passed.
+    The final clean Docker gate for this iteration passed 277 files / 23,871 tests
+    with 100.0% statement, branch, condition, and subroutine coverage across
+    `lib/` (48,324 detail rows and no stale uncoverable annotations). The required
+    OWASP and web-update, static-file, and TLS regression tests passed. The Docker
+    image's `perldoc perlsec` command rendered the full security document after
+    the gate.
+    Configuration snapshot caching is cross-platform. Linux uses optional inotify
+    events as a low-cost invalidation hint; when that native backend is absent,
+    the web app validates watched directory metadata and SHA-256 hashes of the
+    exact global, project, and installed-skill config files. This keeps unchanged
+    config reuse available on macOS and Windows while detecting same-size edits,
+    new or removed config files, and layered-directory changes. The regression
+    test forces the no-native-backend path, proves a cache hit, then changes a
+    config file without changing its size and proves the next request reloads it;
+    a runtime-rejected watcher also falls back to reusable portable validation.
+    The six-platform GitHub workflow measures both automatic and forced-portable
+    cache paths against the same status route. A reproducible matched Linux run
+    preserved the identical 12,864-byte response and measured 0.336020 ms/request
+    portable versus 0.117619 automatic (2.86x slower); actual macOS and Windows
+    latency remains to be measured by the workflow. The cache remains available
+    on those systems, but this does not claim that every routine is 50x faster or
+    that the full route has equal latency everywhere.
+
+    The subsequent native-enabled watcher iteration passed the full Docker gate:
+    280 files / 24,108 tests, with 100.0% statement, branch, condition, and
+    subroutine coverage across `lib/` (48,848 detail rows and no stale
+    annotations). Optional native watcher adapters use inotify through
+    FFI::Platypus on Linux, FSEvents through Mac::FSEvents on macOS, and wide
+    Windows directory notifications through FFI::Platypus. Any event or watch
+    failure is a reason to run the portable validator. A 21-sample stable
+    50-indicator helper benchmark measured 0.001600
+    ms per call with inotify versus 0.256500 ms with portable validation
+    (160.33x), while confirming external writes invalidate the watch. This helper
+    result is not a v5.88 comparison or a whole-dashboard result; the all-routine
+    50x target remains open. The container has no Pod text formatter for
+    `perldoc perlsec`, so the installed Perl security POD was reviewed directly.
+    Problem 48's stable collector sync was then measured directly against v5.88
+    with 50 indicators and exact inventory parity: the median fell from 46.966250
+    ms/call to 0.133100 ms/call (352.86x for that stable fixture only). NYTProf
+    also identified repeated runtime-directory selection and ancestor checks in
+    scoped config loads. Red-first tests now verify that the selected directory is
+    reused only within one runtime-layer scope and that an exact home cwd skips
+    unneeded ancestor discovery; a later operation still observes newly created
+    layers. `_layer_dir_for` also rejects undefined, empty, or reference parent
+    arguments with an explicit error instead of emitting incidental Perl warnings.
+    Scoped standalone `Config::load_global` improved from 0.146348 to
+    0.084262 ms/load, while remaining 1.09x slower than v5.88's 0.076998 ms/load
+    for that isolated fixture. The 50-collector status route remained byte-identical.
+    A later optimization reuses the canonical collector-job signature inside the
+    watcher-validated config snapshot, while still incorporating the current
+    indicator roots on every sync. Two order-reversed 21-sample Docker pairs
+    measured 1.19x faster medians (0.105081/0.103180 versus 0.123909/0.124791
+    ms/request), with identical 12,864-byte output and signature encodes reduced
+    from 2,103 to 1. This is a targeted route gain, not proof of the
+    all-subroutine 50x target; Problem 48 remains open.
+    NYTProf also exposed repeated runtime-layer discovery inside a standalone
+    `Config::load_global` operation. The loader now shares one candidate inventory
+    only for that load, reuses any enclosing request scope, and discards the local
+    scope when the call returns. A red-first Docker test observed five ancestry
+    walks before the change and one after; a later load still sees a runtime layer
+    created after the prior call. With four runtime layers and 25 skill configs,
+    an alternating exact-output benchmark improved from 0.3175 to 0.2106 ms/load
+    (1.51x). This synthetic result is not a v5.88 comparison or an application-wide
+    gain. A proposed nested-loop rewrite of `_merge_named_hash_array` measured
+    0.990x and was not retained. The all-subroutine 50x target remains open.
+    The same scoped inventory is used while loading `api_registry`. A red-first
+    test observed four ancestry walks before and one after; with four layers and
+    25 skill API configs, normalized output remained identical while median time
+    improved from 0.3728 to 0.2638 ms/load (1.41x). A layer created between API
+    loads is visible on the next call. This synthetic result also falls short of
+    the all-subroutine 50x objective. After these changes, the clean full Docker
+    gate passed 281 files / 24,176 tests with statement, branch, condition, and
+    subroutine coverage at 100.0% across `lib/` (49,037 detail rows; no stale
+    uncoverable annotations). The required web security regression trio passed 466
+    tests, and the installed Perl security POD was reviewed directly because the
+    container has no formatter.
+    NYTProf then showed duplicate state-root permission checks: `state_root` and
+    `_state_root_for_layer` called `_ensure_state_dir` just before
+    `_write_state_metadata` repeated it. Removing the duplicate calls preserved
+    metadata creation and aggregate path output. Red-first Docker tests passed 361
+    focused assertions; profiling reduced `_ensure_state_dir` from 400 calls /
+    2.82 ms exclusive to 300 calls / 0.523 ms over 100 byte-identical requests.
+    Unprofiled route timing remained within noise (0.250821 vs 0.249081
+    ms/request), so no route speedup is claimed. A proposed indicator-job shortcut
+    was slower at 0.858x and was rejected. The subsequent clean Docker gate passed
+    281 files / 24,182 tests, with statement, branch, condition, and subroutine
+    coverage all at 100.0% across `lib/` (49,039 detail rows; no stale
+    uncoverable annotations). The all-subroutine 50x goal remains open.
+    Afterward, a matched 21-run Docker status-route benchmark compared 100 requests
+    with 50 indicators against v5.88: both returned the same 12,864-byte response
+    and SHA-256, with medians of 60.881879 ms/request on v5.88 and 0.342300
+    ms/request currently (177.77x). This confirms the tested route remains above
+    50x; it does not prove the requested result for every subroutine.
+    A short five-run confirmation after later nav and collector changes measured
+    57.779455 ms/request on v5.88 and 0.104547 ms/request currently (552.67x),
+    with the same response hash. It corroborates only this fixture and does not
+    replace the 21-run comparison or prove the all-subroutine target.
 
 - Open File Commands
 
@@ -600,6 +1196,14 @@ names from `Developer::Dashboard::DataHelper` automatically for every block.
     even if its installed command does not yet include the automatic `/tmp`
     fallback. Tmux creates its per-user socket directory there, and later clients
     receive the same setting to reconnect to that server.
+    The final exec also sets only `LC_CTYPE=C.UTF-8` so the attached tmux client
+    renders non-ASCII prompt and status icons without overriding the user's broader
+    `LANG` formatting preferences. A POSIX character locale can render those
+    UTF-8 characters as underscores. Newly started servers inherit the locale too;
+    reattaching through `d2 workspace` applies it to clients of an existing server.
+    This override is scoped to the final Docker exec; ordinary non-Docker workspace
+    sessions retain their inherited shell locale. The workspace container must
+    provide the C.UTF-8 locale.
     Before tmux commands run, the workspace helper honors an explicit
     `TMUX_TMPDIR`. If none is configured and `/tmp` is not writable, it uses the
     container's writable `/dev/shm` for the tmux socket. This same check is made
@@ -1350,9 +1954,9 @@ Build the distribution:
     dzil clean
     dzil build
 
-The release gather rules exclude local coverage output such as `cover_db`, so
-covered runs before `dzil build` do not leak Devel::Cover artifacts into the
-shipped tarball.
+The release gather rules exclude local coverage output named `cover_db` or
+`cover_db-...`/`cover_db_...`, so named Devel::Cover runs before
+`dzil build` do not leak their database artifacts into the shipped tarball.
 Release hygiene now also requires that this cleanup leaves exactly one
 unpacked `Developer-Dashboard-X.XX/` build directory and exactly one matching
 `Developer-Dashboard-X.XX.tar.gz` artifact after the build.
@@ -1450,6 +2054,11 @@ The repository's `d2 docker.images.build` workflow also installs the archive
 into the image's active local Perl library, so the rebuilt image runs the same
 release version rather than an older bootstrap copy shadowing the system
 library.
+The blank-environment verifier reads the expected version from the extracted
+distribution `META.yml`, because the public module delegates `$VERSION` to
+`Developer::Dashboard::Version`; it retains a literal-module fallback for
+older archives. This keeps the install gate aligned with the distribution
+metadata and checks the tarball before running installed commands.
 That same blank-container path also verifies web stop/restart behavior in a
 minimal image where listener ownership may need to be discovered from `/proc`
 instead of `ss`, including a late listener re-probe before
@@ -1507,6 +2116,44 @@ alias points inside the current home directory, the stored config uses
 runtime remains portable across different developer accounts. Re-adding an
 existing alias updates it without error, and deleting a missing alias is also
 safe.
+
+For `dashboard paths`, the global alias view and skill-qualified aliases
+share one installed-skill configuration inventory. Each participating skill's
+layered `config/config.json` data is read once for that operation, preserving
+home-to-project precedence while avoiding a second filesystem scan. In a
+synthetic Docker benchmark with 50 skills in two runtime layers, this specific
+alias-resolution routine preserved identical canonical JSON and measured
+4.304 ms before versus 2.342 ms after (about 1.84x). This measured routine
+improvement is not a claim that every dashboard routine is 50x faster.
+
+The machine-readable `dashboard paths -o json` route does not load terminal
+table-rendering helpers. Human-readable output still loads those helpers on
+demand, so `dashboard paths` and `dashboard path list` retain their table
+format without paying that import cost when only JSON is requested.
+
+Runtime-layer ownership checks also canonicalize a candidate only once when
+testing it against multiple layers. Each root remains freshly canonicalized
+and compared at a path-component boundary, preserving symlink-aware security
+checks while avoiding repeated candidate resolution.
+
+The aggregate `dashboard paths` inventory shares its runtime-layer candidate
+list only for the duration of that one inventory call. This avoids repeating
+the same ancestor scan across its permission checks without retaining a stale
+layer list for later operations; a subsequent lookup discovers newly created
+or removed runtime layers.
+
+`PathRegistry::runtime_layers` follows the same freshness rule for a retained
+registry object: unscoped calls refresh filesystem discovery, while the path
+CLI shares a result only within one command. A red-first Docker regression
+reproduced a project runtime layer remaining invisible after creation when
+object-lifetime memoization was used. The corrected request-scoped behavior
+passed the 298-assertion PathRegistry suite; repeated reads inside one operation
+remain bounded by a single scope.
+
+When resolving path aliases, one grouped inventory is used and only each
+skill's layered `path_aliases` domain is recursively merged. Unrelated config
+fields and underscored skill namespaces do not affect the alias result, so
+they are omitted without changing skill alias precedence or output.
 
 Developer Dashboard now uses one CLI output contract for operator-facing
 built-ins. By default, inventory and mutation commands print a human-readable
@@ -1587,6 +2234,13 @@ If you need the whole `dashboard paths` payload in Perl, call
 `Developer::Dashboard::PathRegistry->all_paths` instead of rebuilding the
 hash by hand. If you need a fresh path registry object from that public Folder
 inventory, call `Developer::Dashboard::PathRegistry->new_from_all_folders`.
+Runtime-layer ancestry stops at the configured home or project boundary. Exact
+path spellings stop without canonicalization; symlink-equivalent boundaries
+resolve their canonical identity once per walk.
+During one `all_paths` inventory or path CLI operation, ancestor runtime
+layers are discovered once and reused by path resolution and permission checks;
+the result is discarded at the operation boundary so later operations see
+runtime-layer creation and removal.
 If you need a collector store from the same Folder-derived runtime roots, call
 `Developer::Dashboard::Collector->new_from_all_folders`.
 If you need the whole `dashboard files` payload in Perl, call
@@ -1624,9 +2278,13 @@ resolve the exact configured or scoped file target directly.
 The hashed `state_root`, `collectors_root`, `indicators_root`, and
 `sessions_root` paths live under the shared temp state tree, not inside the
 layered runtime config tree. If a reboot or temp cleanup removes one of those
-hashed state roots, the path registry recreates it automatically the next time
-dashboard code resolves the path and rewrites the matching `runtime.json`
-metadata file before collectors, indicators, or sessions use it again.
+hashed state roots, the path registry recreates them automatically the next
+time dashboard code resolves them. Its `runtime.json` metadata is rewritten
+only when missing, stale, or not owner-only; an unchanged owner-owned regular
+file is left untouched, and a metadata symlink is refused.
+For each path-registry instance, the account name used in the state-root path
+is reused while the relevant environment values stay unchanged; changes to
+those values are detected and resolved again.
 
 Use `dashboard which <target>` to inspect what `dashboard` would
 execute before you run it. The command prints one
@@ -2274,7 +2932,10 @@ bracketed working directory, an optional jobs suffix, and a trailing
 `🌿branch` marker when git metadata is available. The prompt helper reads the
 branch directly from on-disk git metadata instead of shelling out to
 `git branch`, so repeated prompt renders stay lightweight on slower hosts such
-as iSH. If the workspace workflow seeded `WORKSPACE_REF` or the older
+as iSH. Working-directory lookup uses `Cwd::getcwd` for the ordinary physical
+path; it preserves a distinct logical `$PWD` only after confirming that both
+paths identify the same directory. If the workspace workflow seeded
+`WORKSPACE_REF` or the older
 `TICKET_REF` into the current tmux session, `dashboard ps1` also reads that
 context from tmux when the shell environment does not already export it, but it
 skips that tmux probe entirely when the shell is not inside tmux.
@@ -2587,6 +3248,15 @@ Run the test suite:
 
     prove -lr t
 
+GitHub Actions runs the full Perl suite on Linux x64/arm64, macOS x64/arm64,
+and Windows x64, exercising native filesystem watchers and portable fallbacks.
+A separate Windows ARM64 job verifies the native Perl architecture and runs
+the Windows filesystem watcher regression. It does not claim full-suite
+support on Windows ARM64 because the hosted runner's preinstalled Perl is
+below the project's Perl 5.38 minimum and the Perl setup action does not
+support that runner. The separate coverage gate remains on its dedicated Linux
+runner.
+
 Measure library coverage with Devel::Cover:
 
     cpanm --no-wget --notest --local-lib-contained ./.perl5 Devel::Cover
@@ -2600,6 +3270,16 @@ collects the `lib/` report and enforces 100.0 on statement, branch, condition
 and subroutine. Its exit status is the interface: `0` all four metrics at
 100.0, `1` a genuine shortfall, `2` the gate could not run or could not read
 its report, `3` the coverage instrument could not read its own database.
+
+The instrumented run excludes only disposable `/tmp/` and staged
+`.developer-dashboard/` source trees because tests remove those fixtures
+before report generation. Every `lib/` source remains included in the enforced
+coverage report; these exclusions do not reduce the library coverage scope.
+Any `Devel::Cover` warning in the report makes the result unreadable and fails
+the gate, even when the displayed totals are 100.0.
+The gate stores its reader-identity stamp beside `cover_db`, not inside it, so
+Devel::Cover does not interpret gate metadata as coverage data. An earlier
+in-database stamp is checked and migrated before the database is dropped.
 
 The chain is one command rather than three because
 `Devel::Cover::DB::IO` picks its on-disk serialization format at `BEGIN` from
@@ -3572,3 +4252,329 @@ caused by somebody using the free software wrongly or suffering a problem on
 their own side. That license disclaimer is the main baseline protection for
 normal open-source distribution, although it is not unlimited and local law
 can still matter.
+
+# Problem 48 Verification Status
+
+The configuration snapshot now builds its private environment-selection key
+with a versioned length-prefixed representation instead of constructing and
+pretty-encoding a nested JSON structure on every request. Missing, undefined,
+and defined environment values remain distinct. Red-first Docker coverage in
+`t/03-web-app.t` passes 527 assertions; nine alternating direct-method
+samples measured a 1.34x helper improvement. Seven paired route samples
+preserved the exact response hash, but current-source median latency improved
+only 2.2% and only four of seven pairs favored the new code; no stable route
+gain is claimed. This does not establish 50x for every subroutine.
+
+`Web::App::_normalized_saved_page_id` now returns canonical flat ASCII ids
+directly, avoiding the trim helper and prefix-removal expressions; nested,
+prefixed, whitespace-bearing, Unicode, and other values retain the established
+normalization path. Red-first Docker tests required the canonical case to skip
+`_trim` and verified fallback behavior. The focused web-app and page-id
+benchmark tests pass 548 assertions. Three paired saved-page route comparisons
+preserved the same HTTP 200 response and SHA-256; medians improved from
+0.422330 to 0.347531 ms/request (1.21x) for the tested fixture. This is not a
+50x result for every subroutine.
+
+A fresh five-run Docker comparison of the same saved-page route used 20 saved
+nav fragments, 100 literal skill-nav fragments, and 50 indicators. The v5.88
+source median was 117.586670 ms/request and the current-source median was
+0.345440 ms/request (340.3x for this fixture); both returned HTTP 200, 19,341
+bytes, and the same SHA-256. These were separate-process five-run medians, not
+alternating pairs, and the cumulative route difference is not attributed to
+one optimization. It does not prove 50x for every subroutine or platform.
+
+The latest complete Docker coverage gate passed all 285 test files and 25,326
+tests with statement, branch, condition, and subroutine coverage at 100.0%
+across `lib/` (51,685 detail rows; no stale uncoverable annotations). Optional
+browser, Windows QEMU, CPANTS, POD, and audit-tool checks were skipped because
+their optional dependencies or runtime setup were unavailable. Test fixtures
+also emitted expected negative-case diagnostics on stderr; all test results
+passed. The
+required `perldoc -T perlsec` command could not render because the image lacks
+a POD text formatter; the installed core `perlsec.pod` was read directly.
+The latest NYTProf profile used 100 requests with 20 saved-nav fragments, 100
+literal skill-nav fragments, and 50 indicators, preserving the exact HTTP 200
+response and SHA-256. Its instrumented time was 1.661699 ms/request; the
+largest exclusive totals were `PathRegistry::_ensure_state_dir` (11.3 ms over
+300 calls), `Web::App::_nav_items_html` (8.67 ms over 100 calls),
+`Web::App::_render_page_html` (7.65 ms), `PathRegistry::state_base_root`
+(4.82 ms), and `Web::App::_top_chrome_html` (4.48 ms). These overlapping
+profile totals rank follow-up candidates; they are not unprofiled request
+costs. The 100 skill-nav reads and inventory scans were the one-time fixture
+warmup across 100 skills, not repeated reads per request. Permissions, watcher
+freshness, and runtime-layer visibility remain unchanged. Instrumented timings
+are diagnostic only and do not prove 50x for every subroutine. The
+matched v5.88 profile showed `Web::App::_nav_items_html` exclusive time
+decreasing from 32.8 ms over 10 requests to 8.67 ms over 100 (37.8x by request
+contribution). `PathRegistry::_ensure_state_dir` decreased from 53.5 ms over
+10 requests to 11.3 ms over 100 (47.3x contribution), with calls reduced from
+12,600 to 300; its implementation remains unchanged because the directory
+permission check is required. An existing-directory fast-stat candidate
+measured only 1.015x in a direct microbenchmark and was not adopted. These
+profile comparisons are directional rather than alternating pairs, so the
+50x-per-subroutine target remains open. The navigation renderer now appends
+ordered saved and skill fragments directly to one scalar and wraps the result
+once, rather than allocating an item array and joining it. Red-first Docker
+tests pin exact wrapper markup. A 10-million-call synthetic Docker comparison
+measured 1.68x with exact output parity; a warmed full-route run retained
+identical response bytes at 0.342350 ms/request, so no route-wide gain is
+claimed. On cache misses, saved fragments are also accumulated directly into
+the cacheable scalar instead of a temporary array and join. Exact output and
+cache-content Docker tests pass. A 20-fragment helper benchmark measured 2.09x;
+the full route changed from 0.346990 to 0.341589 ms/request (1.016x), within
+noise, so this is an allocation reduction rather than a claimed route speedup.
+The
+top-chrome prompt summary now formats indicator rows directly with `map` and
+`join`, avoiding an intermediate copy of the status array and a second parts
+array. A 50-indicator Docker microbenchmark measured a 1.09x helper gain with
+ordered Unicode output parity; this has not produced a measurable full-route
+gain. The
+summary also reuses its worker-local rendered text only after collector
+configuration and indicator freshness validation confirms the inventory is
+unchanged; an external status-file edit or a status-route collector sync that
+changes configured indicators invalidates it. Focused Docker suites
+pass; a red-first status-route regression is covered by `t/03-web-app.t` and
+`t/668-problem48-status-response-cache.t`. The combined `t/03`, `t/105`, and
+`t/668` suites pass 1,101 assertions. With 50 indicators on a
+100-skill/20-saved-nav fixture, the
+saved-page route measured 1.117690 ms/request without summary reuse and
+0.435739 ms/request with it (2.56x), preserving the exact 19,341-byte response.
+NYTProf showed `list_indicators` calls falling from 704 to 2. With the native
+watcher disabled, the portable freshness path preserved the same response but
+showed no measurable speedup. This remains a workload-specific gain, not proof
+of 50x for every routine.
+NYTProf also attributed about 14.7 ms across 703 calls to the two host
+normalization substitutions in `Web::App::_top_context_html`. Characterization
+tests preserve exact lowercase HTTP/HTTPS, uppercase-scheme, unsupported-scheme,
+port, and path behavior. Replacing those substitutions with prefix checks and a
+single `index` truncation measured 108.739 ms for the regex path and 82.475 ms
+for the prefix/index path over nine alternating 250,000-call Docker samples
+(1.32x), with exact parity. The saved-page response stayed HTTP 200 with the
+same 19,341-byte body and SHA-256
+`a3c1df9346d5b1c2942fbec1354e2dbb8dcc268e0e148107787197635a7ed331`; its
+0.346200 ms/request result is not attributed to this helper. This narrow gain
+does not establish the all-subroutine 50x objective.
+After the status-route invalidation fix, the same fixture measured 0.362170
+ms/request over nine runs, with the exact same response bytes and hash. This is
+within route-timing variation and is not attributed as a speedup.
+The refreshed 100-request NYTProf map retained the same route response and
+ranked `_request_config_snapshot` (7.17 ms exclusive),
+`PathRegistry::runtime_layers` (4.31 ms), request dispatch (4.18 ms), and
+`runtime_layer_root_for` (4.14 ms) highest among dashboard routines.
+`_top_context_html` measured 1.20 ms exclusive after the host parsing change.
+Its instrumented route median was 1.485679 ms/request versus 0.372620
+unprofiled; these diagnostic timings are not production latency or proof of
+per-subroutine speedups. The next investigation is to isolate safe runtime-layer
+and request-snapshot costs while preserving their freshness guarantees.
+The
+status route
+reuses normalized indicator
+projections in its watcher-validated configuration snapshot, including the
+checker filter in the environment signature; two reverse-order comparisons
+measured 1.29x and reduced projections from 2,103 to 1.
+
+Saved-page rendering now retains the supplying dashboard layer for each nav
+id, avoiding a search across every saved-page root. The deepest matching layer
+wins just as it does in the saved-page resolver; custom resolvers remain
+authoritative. Literal HTML nav fragments
+use a per-store cache bounded to 128 entries and 4 MiB, keyed by high-resolution
+file identity. Every hit still validates configured-root membership, path
+containment, and regular-file identity; edits are seen on the next request,
+symlinks are rejected, and dynamic TT or structured fragments still follow the
+normal parser and renderer. Docker tests verify exact output and cache
+invalidation. The matched five-fragment saved-page route medians were 3.711650
+ms on v5.88 and 0.531738 current (6.98x); after confirming deepest-layer and
+custom-resolver compatibility, the 20-fragment medians were 9.256661 and
+0.699711 ms (13.23x). Current no-cache took 1.406310 ms with the same 11,092-byte
+response hash as the cached route. These are route-fixture results,
+not proof that every routine is 50x faster. Focused Docker tests pass after the
+change, and the latest full coverage gate passes at 100.0% across all four
+library metrics. The saved-page benchmark reports native watcher availability
+and actual saved-nav snapshot hits; its `--no-native-watch` control exercises
+the portable fallback even when FFI is installed. Distribution tests no longer
+assume the optional FFI backend or a repository-specific response hash. Focused
+Docker suites pass in both native and forced-fallback modes; the rebuilt 6.00
+blank-environment installation and integration now pass. Lazy watcher loading resolves
+from the module's absolute source path so request-time directory changes cannot
+break relative `@INC` lookup; the Dancer skill-page regression passed after
+this fix. Remaining Problem 48 performance and delivery checks are open.
+
+The latest NYTProf profile also identified HTML attribute escaping as a hot
+helper. In the Perl fallback, a plain scalar attribute of at least twelve
+characters now returns after checking for HTML metacharacters, instead of
+running the body escaper and quote substitutions. Red-first Docker tests cover
+the plain-string bypass and every metacharacter. The benchmark reference was
+corrected to use the independent pure-Perl body escaper even when XS is loaded.
+Measured helper speedups for a common nav ID were 1.63x without XS and 1.80x
+with XS; quote-heavy text was 4.20x with XS. Short quote-heavy source-only
+input measured 0.89x versus the lower-level reference, so the result is
+workload-specific, not a universal speedup. A subsequent full gate found a
+compatibility failure for an unblessed lightweight page-store hash; the direct
+loader now requires a blessed PageStore-compatible object. A later cache
+hardening fixes a malformed-entry dereference on replacement and eviction, and
+the focused PageStore/web tests pass 646 assertions. Aggregate coverage is now
+100.0% for all four library metrics. Problem 48 and its full delivery audit
+remain open. The uncovered condition was the impossible
+case where both an existing page id and its validated replacement were false;
+the explicit assignment guard now preserves the prior semantics, and focused
+instrumentation reports 100.0% condition coverage for PageStore; the subsequent
+complete aggregate gate also passed at 100.0% across lib/.
+
+Recent route profiling also reduced work in installed-skill navigation. A
+skill's ordered layers are resolved once for fragment enumeration and reuse,
+and bulk PathRegistry skill entries provide top-level layers without a separate
+layer lookup per skill. Nested skill layers still use normal resolution. Raw
+HTML/TT fragments bypass structured instruction parsing while recognized
+modern and previous-format page documents continue through the parser. In two
+alternating Docker comparisons of a route with 20 saved and 50 installed-skill
+fragments, bulk enumeration measured 3.773839 and 3.644860 ms/request; the
+former per-skill path measured 4.254751 and 4.386990 ms/request. All four runs
+returned the same HTTP 200 response, 14,942-byte body, and SHA-256. The bulk
+path reduced measured skill-layer resolutions from 155,000 to zero. These are
+fixture-specific results, not proof of a 50x speedup for every subroutine. The
+skill-nav renderer also skips PageRuntime for literal HTML fragments, while
+dynamic TT and structured skill pages retain runtime preparation. A red-first
+Docker regression proves the distinction; the same route fixture kept its
+14,942-byte output and measured 3.553019 versus 3.153169 ms/request across 21
+runs of 100 requests (1.13x). This result is route-specific and leaves the
+all-subroutine target open. The
+full Docker suite
+passed 285 test files and 24,642 tests, with statement, branch, condition, and
+subroutine coverage all at 100.0% across `lib/` (49,972 detail rows, no stale
+uncoverable annotations). Performance work and the
+remaining security, documentation, packaging, and release checks are still
+open.
+
+Native filesystem event acceleration now has optional backends for Linux
+inotify, macOS FSEvents, and Windows Unicode-aware directory notifications.
+The content-hashing portable validator remains available when a native module
+or watcher is unavailable. The focused Docker watcher test passes 209 tests,
+with 100.0% isolated statement, branch, condition, and subroutine coverage for
+`IndicatorStore::Watch`. The GitHub Actions matrix exercises these backends
+on Linux x64/arm64, macOS x64/arm64, and Windows x64. A separate Windows
+ARM64 job verifies the native Perl architecture and runs the Windows watcher
+regression; hosted results are pending, and no cross-platform performance
+claim is made.
+
+Portable config validation now shares one installed-skill inventory between
+watch-path construction and the exact-content signature. A red-first Docker
+regression reproduced four skill-inventory lookups on initial cache fill and
+two on a cache hit; the implementation reduces these to two and one while
+retaining the separate post-merge freshness scan. The focused web suite passes
+507 assertions. Matched 100-request NYTProf runs preserved the same HTTP 200
+response, 12,864-byte body, and SHA-256; profiling showed the portable
+signature's inclusive time changing from 18.2 ms to 15.6 ms over 100 requests.
+Because this includes profiler overhead and the fixture had no installed
+skills, no route-level speedup is claimed. The all-subroutine 50x target and
+the remaining performance and delivery checks are still open.
+
+`PageDocument::_html` now uses the shared XS body escaper only for scalar text
+at least 64 characters long with four or more body metacharacters in its first
+16 characters. Plain text returns after metacharacter checks; short or sparse
+text keeps the original Perl replacements and double-quote escaping. Compiled-
+XS Docker tests retained exact output and UTF-8 flags. Seven alternating
+function-level samples measured 11.29x for a 384-character dense fixture,
+1.09x for a short plain value, 1.06x for long plain text, and 0.94x for short
+quote-heavy text (near parity). Source-only fallback samples ranged from
+0.85x for short quote-heavy text to 1.34x for dense text. This helper-level
+result is not a route-level gain or proof of 50x for every subroutine.
+
+PageStore now checks for U+FFFD before running the three malformed-icon repair
+expressions, leaving ordinary bookmark text unchanged without repeated regex
+work. Focused Docker PageStore and web suites pass in both source-only and
+compiled-XS modes. A matched 100-skill/20-saved-nav fixture returned HTTP 200
+and the same 18,792-byte response (SHA-256
+`74036c2e3f7001f8d7344b486400e71a9cd62154059f7af2e235ccdb59beb724`). In the
+latest same-fixture Docker rerun, v5.88 measured 69.971821 ms/request, current
+source-only measured 0.717950 ms/request (97.46x), and current with XS measured
+0.773010 ms/request (90.52x). The compiled extension did not improve this
+route's mixed workload in that sample; the prior faster sample was not
+repeatable and is not used as the current result. The native build succeeds
+when the container's stale, flat `Storable` local-lib path is excluded from
+`PERL5LIB`. These are fixture-specific route results, not proof that every
+subroutine is 50x faster. Problem 48 remains in progress.
+
+The common one-section bookmark parser now skips the multi-section split list
+when neither supported separator is present. Red-first Docker tests
+preserve whitespace, multiline bodies, accepted section names, extended
+`CODE` identifiers, and explicit undef behavior. Six exact-parity parser
+inputs passed; nine alternating 500,000-call Docker samples measured 1.87x for
+a simple `TITLE`/`HTML` section. This helper-specific measurement does not
+prove a route-level gain or the universal 50x objective.
+Problem 48's performance and delivery work remains open.
+
+The source-only HTML fallback now applies undefined normalization and the
+three body-escape substitutions directly in `_escape_html`, rather than
+calling the separate Perl reference helper. A red-first Docker test failed on
+that extra dispatch; source-only and compiled-XS regression suites pass with
+exact escaping and overloaded-reference behavior. Twenty-five alternating
+500,000-call samples for ordinary text measured 175.998 ms through the prior
+fallback and 135.123 ms through the direct path (1.30x). This applies only
+without XS and is not a route-level or universal subroutine result. The first
+coverage pass found the defined-input branch of the Perl reference helper was
+not exercised after the direct fallback change; a regression was added and the
+complete Docker gate passed 285 files / 25,229 tests with all four library
+metrics at 100.0% (51,571 detail rows, no stale uncoverable annotations).
+
+The current-source 100-skill/20-saved-nav route was then rerun with 100
+requests per sample across nine samples. It returned HTTP 200 and the exact
+18,792-byte response hash from the v5.88 comparison; current measured 0.420060
+ms/request versus the recorded v5.88 median of 135.065870 ms/request (321.54
+times for this route fixture only). This cumulative result is not attributed
+to the fallback change and does not prove 50 times for every subroutine. A
+NYTProf-ranked \`\_normalized\_page\_id\` boundary fast path was not retained after
+an alternating benchmark measured 0.45 times for a regex candidate and 1.00
+times for a character-boundary candidate. Problem 48 remains open.
+
+For the browser fetch-metadata guard, requests without a scalar
+`Sec-Fetch-Site` value now return before lowercasing and trimming. This keeps
+absent, undefined, and reference-valued header shapes non-foreign; scalar
+same-site and cross-site values retain their existing normalization and
+authorization checks. The 34-assertion Docker security suite covers these
+cases. Nine alternating direct samples of one million headerless classifier
+calls measured 370.968 ms before and 298.395 ms after (1.24x). This small
+common-case result is not evidence for the 50x-per-subroutine target, which
+remains unproven.
+
+Exact `same-origin` and `none` fetch-site labels also return before
+normalization. Varied casing/spacing and same-site or cross-site labels retain
+the existing checks. The focused Docker suite passes 35 assertions; nine
+alternating samples of one million exact same-origin calls measured 830.125 ms
+before and 442.506 ms after (1.88x versus the preceding absent-header
+optimization). This remains a narrow path result, not a 50x-per-subroutine
+claim.
+
+After the fetch-metadata changes, the full Docker coverage gate passed all 285
+files and 25,233 tests with 100.0% statement, branch, condition, and subroutine
+coverage across `lib/` (51,573 detail rows; no stale uncoverable annotations).
+Optional-tool checks skipped by the gate remain outstanding. This test result
+does not prove the all-subroutine 50x performance target or hosted
+cross-platform workflow results.
+
+`PageDocument::id` returns the stored identifier without constructing the
+complete public page hash. The web renderer now uses this accessor at
+known-document id lookup sites. `PageDocument::mode` does the same for the
+renderer mode decision. A red-first Docker test confirms the chrome path no
+longer calls `as_hash`. Nine alternating one-million-call samples measured
+1,010.759 ms for `as_hash->{mode}` and 213.278 ms for `mode()` (4.74x),
+with exact value parity. A separate red-first Docker test failed when
+`as_hash` was replaced with a failing stub during the nav-route short
+circuit; focused PageDocument and web-app suites pass 629 assertions after the
+change. Nine alternating samples of one million reads measured 902.120 ms for
+`as_hash->{id}` and 162.422 ms for `id()` (5.56x). A matched v5.88/current
+saved-page fixture with 100 skill-nav roots and 20 saved nav fragments retained
+the same HTTP 200 response and measured 58.338089 versus 0.367992 ms/request
+(158.53x for that fixture). The route result is cumulative and does not prove
+50x for every subroutine. The latest Docker gate passed all 285 files and
+25,242 tests with all four library metrics at 100.0% (51,597 detail rows, no
+stale uncoverable annotations); optional-tool checks remain unverified.
+
+`PageStore::_validated_page_id` now returns canonical flat ASCII ids before
+prefix stripping and path-component splitting. Prefixes, nested paths,
+whitespace, Unicode, references, and invalid components retain the general
+validation path. Red-first Docker tests cover the fast path and preserved
+validation. Nine alternating million-call samples measured 879.049 ms for the
+previous path and 430.213 ms currently (2.04x). The complete Docker coverage
+gate passed after this change: 285 files, 25,242 tests, 100.0% for all four
+library metrics, and 51,597 detail rows. The all-subroutine 50x target remains
+unproven.
