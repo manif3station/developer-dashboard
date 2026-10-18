@@ -6,7 +6,7 @@ Developer::Dashboard - a local home for development work
 
 # VERSION
 
-6.01
+6.02
 
 # INTRODUCTION
 
@@ -1963,6 +1963,10 @@ unpacked `Developer-Dashboard-X.XX/` build directory and exactly one matching
 The built distribution also ships a plain `README` companion so CPAN and
 kwalitee consumers still receive a top-level readme without re-including the
 checkout-only documentation set.
+The repository's archival and C++ workspaces (`Archive/`, `OldFiles/`, and
+`CODE/`) are pruned from the Perl distribution so nested repositories,
+operator data, and the parallel implementation cannot be gathered into the
+Perl release tarball.
 
 To publish the built distribution to PAUSE, first complete the repository's
 release gates and configure PAUSE credentials outside the checkout, then run

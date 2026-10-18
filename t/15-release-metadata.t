@@ -460,6 +460,9 @@ my @operator_local_files = qw(
         .github/workflows/test.yml
         nytprof/e-1-line.csv
         OLD_CODE/legacy-helper.pl
+        Archive/lib/Developer/Dashboard.pm
+        OldFiles/operator-data.json
+        CODE/src/main.cpp
         test_by_michael/Dockerfile
         updates/2026-01-01-migrate.pl
         blogs/2026-release-notes.md
@@ -472,7 +475,7 @@ my @operator_local_files = qw(
         return scalar grep { $directory =~ $_ } @prune_directory;
     };
     ok( $pruned->($_), "dist.ini prunes excluded generated directory $_ before walking it" )
-      for qw(.worktrees node_modules test_by_michael cover_db-p48-focus cover_db_named);
+      for qw(.worktrees node_modules test_by_michael cover_db-p48-focus cover_db_named Archive OldFiles CODE);
 
     # DERIVE BOTH HALVES, NOT ONE. The patterns above are compiled out of
     # dist.ini, so a new exclusion is picked up automatically - but the sample

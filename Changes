@@ -1,3 +1,10 @@
+6.02  2026-10-18
+
+  - Finalize the measured Perl implementation snapshot before the C++ rewrite.
+    Exclude the Archive/, OldFiles/, and CODE/ workspaces from the Perl
+    distribution so nested repositories and operator data cannot leak into
+    the release tarball. No Perl runtime behavior changed.
+
 6.01  2026-10-18
 
   - Problem 48 performance-cycle wrap-up: retain only measured, behavior-
