@@ -188,14 +188,16 @@ the current user's PowerShell profile to load the generated environment and
 shell bootstrap files. Use C<dashboard shell ps> to refresh those generated
 PowerShell files later.
 
-Future PowerShell
-sessions do not rely on installer-only helper functions while loading that
-generated profile block. The generated bash, zsh,
-POSIX sh, and PowerShell shell bootstraps all follow the same tmux-aware
-prompt rule: when the shell starts inside a C<dashboard workspace> tmux session
-that carries C<DEVELOPER_DASHBOARD_TMUX_STATUS=1>, indicator glyphs move to
-the first row of that session's two-line bottom tmux status block, while the
-second row keeps tmux's normal session and indexed window list. The inline
+Future PowerShell sessions do not rely on installer-only helper functions
+while loading the generated profile block.
+
+The generated bash, zsh, POSIX sh, and PowerShell bootstraps share the same
+tmux prompt behaviour. In a C<dashboard workspace> session with
+C<DEVELOPER_DASHBOARD_TMUX_STATUS=1>, indicators appear on the first row of the
+two-line bottom status block. The second row keeps tmux's session and window
+list.
+
+The inline
 prompt suppresses indicator fragments with C<dashboard ps1 --no-indicators>.
 
 Ordinary tmux sessions keep the normal inline prompt. Developer Dashboard
@@ -209,8 +211,9 @@ When helper staging reruns during upgrades, the managed home runtime also
 removes dashboard-owned older flat helper files from
 F<~/.developer-dashboard/cli/> so the public command and shell bootstrap
 always converge on the current F<~/.developer-dashboard/cli/dd/> helper
-generation instead of silently reusing stale wrappers from older releases. The Windows bootstrap
-does not try to self-install C<App::cpanminus> while the downloaded
+generation instead of silently reusing stale wrappers from older releases.
+
+The Windows bootstrap does not try to self-install C<App::cpanminus> while the downloaded
 C<cpanm> bootstrap script is still running, which avoids the Windows file
 replacement failure that can break streamed C<irm .../install.ps1 | iex>
 installs.
@@ -226,8 +229,9 @@ When that
 override is unset in the streamed C<irm .../install.ps1 | iex> path,
 F<install.ps1> clones the current GitHub C<master> checkout into a temporary
 local tree and installs that local checkout so the bootstrap installs the same
-snapshot that shipped the installer instead of an older CPAN release. The
-Windows smoke gate also proves that a brand-new profile-loaded PowerShell
+snapshot that shipped the installer instead of an older CPAN release.
+
+The Windows smoke gate also checks that a new profile-loaded PowerShell
 session can resolve C<dashboard>, print C<dashboard version>, run
 C<dashboard logs>, run C<dashboard restart>, and install at least one real
 skill after that streamed bootstrap completes.
@@ -369,7 +373,9 @@ table.
 
 C<cdr> now follows a two-stage path flow instead of only jumping to one alias
 or one top-level project name. If the first argument resolves as a saved alias
-and there are no later arguments, C<cdr alias> still goes straight there. If
+and there are no later arguments, C<cdr alias> still goes straight there.
+
+If
 the first argument resolves as a saved alias and more arguments remain,
 C<cdr> enters the alias root, then searches every directory under that root
 with AND-matched regex keywords taken from the remaining arguments. One match
@@ -379,7 +385,9 @@ stay at the alias root.
 If the first argument is not a saved alias, C<cdr>
 treats every argument as an AND-matched regex search beneath the current
 directory. One match means C<cd> there; multiple matches mean print the list
-and leave the current directory unchanged. C<which_dir> follows the same
+and leave the current directory unchanged.
+
+C<which_dir> follows the same
 selection logic but only prints the chosen target or match list instead of
 changing directory. Unreadable subdirectories are skipped explicitly during
 that search so one protected tree does not abort the whole lookup.
@@ -420,7 +428,9 @@ route, or any direct Perl caller resolves it and the target directory does
 not yet exist, it is created (with parents) before being returned - chmod'd
 to the given octal mode (bare, C<--create 0777>, C<--create=0777>, or
 C<-c 0777> all work) when one is provided, or left at the implicit
-umask-governed default otherwise. An alias saved without C<-c>/C<--create>
+umask-governed default otherwise.
+
+An alias saved without C<-c>/C<--create>
 behaves exactly as before this feature existed.
 
 C<dashboard file add>
@@ -433,6 +443,7 @@ Use C<Developer::Dashboard::File> for runtime file helpers. It resolves the
 same built-in and config-backed file aliases exposed by C<dashboard files> and
 C<dashboard file list>, supports direct reads and writes through one public
 wrapper, and keeps file alias behaviour parallel with the folder/path contract.
+
 It is the file-side twin of the existing Folder contract in the same way that
 C<dashboard of> and C<dashboard open-file> are the file-side twins of
 C<cdr> and C<which_dir>.
@@ -441,7 +452,9 @@ If you need the whole C<dashboard paths> payload in Perl, call
 C<Developer::Dashboard::Folder-E<gt>all> or
 C<Developer::Dashboard::PathRegistry-E<gt>all_paths> instead of rebuilding the
 hash by hand. If you need a fresh path registry object from that public Folder
-inventory, call C<Developer::Dashboard::PathRegistry-E<gt>new_from_all_folders>. Runtime-layer ancestry stops at the configured home or project boundary. Exact
+inventory, call C<Developer::Dashboard::PathRegistry-E<gt>new_from_all_folders>.
+
+Runtime-layer ancestry stops at the configured home or project boundary. Exact
 path spellings stop without canonicalisation; symlink-equivalent boundaries
 resolve their canonical identity once per walk.
 
@@ -461,7 +474,9 @@ participating config layer, keeps C<$HOME/...> storage portable when the
 target lives under the current home directory, updates existing aliases
 idempotently, and lets C<dashboard file resolve E<lt>nameE<gt>>,
 C<dashboard of E<lt>nameE<gt>>, or
-C<Developer::Dashboard::File-E<gt>resolve($name)> read that alias back later. When the alias name is a valid Perl method token,
+C<Developer::Dashboard::File-E<gt>resolve($name)> read that alias back later.
+
+When the alias name is a valid Perl method token,
 C<Developer::Dashboard::File-E<gt>$name()> also works directly.
 
 When the alias
@@ -469,7 +484,9 @@ is numeric such as C<123>, use a scalar method name like
 C<my $name = 123; Developer::Dashboard::File-E<gt>$name()> because bare
 C<-E<gt>123> is not valid Perl syntax. C<dashboard files> prints the full
 built-in plus configured file inventory as a table by default, while
-C<dashboard file list> prints only the named configured file aliases. Use
+C<dashboard file list> prints only the named configured file aliases.
+
+Use
 C<-o json> with either command when you need the full raw payload.
 
 C<dashboard of> and C<dashboard open-file> now treat configured file aliases
@@ -489,7 +506,9 @@ The hashed C<state_root>, C<collectors_root>, C<indicators_root>, and
 C<sessions_root> paths live under the shared temp state tree, not inside the
 layered runtime config tree. If a reboot or temp cleanup removes one of those
 hashed state roots, the path registry recreates them automatically the next
-time dashboard code resolves them. Its F<runtime.json> metadata is rewritten
+time dashboard code resolves them.
+
+Its F<runtime.json> metadata is rewritten
 only when missing, stale, or not owner-only; an unchanged owner-owned regular
 file is left untouched, and a metadata symlink is refused.
 
@@ -501,7 +520,9 @@ Use C<dashboard which E<lt>targetE<gt>> to inspect what C<dashboard> would
 execute before you run it. The command prints one
 C<COMMAND /full/path> line for the resolved file and then one
 C<HOOK /full/path> line for each participating hook in runtime execution
-order. That works for built-in helpers such as C<jq>, layered custom commands
+order.
+
+That works for built-in helpers such as C<jq>, layered custom commands
 such as C<layered-tool>, single-level skill commands such as
 C<example-skill.somecmd>, and multi-level nested skill commands such as
 C<nest.level1.level2.here>.
@@ -556,7 +577,9 @@ Start the local app:
 
   dashboard serve
 
-Open the root path with no bookmark path to get the free-form bookmark editor directly. The browser now splits bookmark sections into separate editor blocks instead of making you manage one long source textarea by hand, but it still saves the same on-disk bookmark file format behind the scenes. If you start the web service with C<dashboard serve --no-editor> or C<dashboard serve --no-endit>, the browser stays read-only instead and direct editor/source routes are blocked.
+Open the root path with no bookmark path to get the free-form bookmark editor directly. The browser now splits bookmark sections into separate editor blocks instead of making you manage one long source textarea by hand, but it still saves the same on-disk bookmark file format behind the scenes.
+
+If you start the web service with C<dashboard serve --no-editor> or C<dashboard serve --no-endit>, the browser stays read-only instead and direct editor/source routes are blocked.
 
 If you start it with C<dashboard serve --no-indicators> or C<dashboard serve --no-indicator>, the right-top browser chrome is cleared while normal page rendering still works.
 
@@ -572,13 +595,12 @@ Restart the local app and configured collector loops:
 
   dashboard restart
 
-Interactive terminal runs now print the full restart task board on C<stderr>,
-mark the active step with a blue C<->, stream active detail lines in blue,
-mark completed steps with a green C<[OK]>, mark failed steps with a red
-C<[X]> plus red failure detail lines, and keep the final JSON result on
-C<stdout>. Stop and restart shutdown paths send numeric POSIX signals instead
-of named signal strings, so minimal Alpine/iSH Perl builds that reject C<TERM>
-by name still terminate managed web and collector processes correctly.
+Interactive restarts print a task board on C<stderr>. The active step is
+highlighted, and completed or failed steps receive a status marker. The final
+JSON result remains on C<stdout>.
+
+Stop and restart use numeric POSIX signals. This supports minimal Alpine and
+iSH Perl builds that do not accept signal names such as C<TERM>.
 
 Create a helper login user:
 
@@ -622,7 +644,9 @@ Remove one route or remove the whole API group:
 The C<dashboard api> command manages the deepest writable runtime
 C<config/api.json> layer under C<DD-OOP-LAYERS>. Listing shows the effective
 merged registry from home through the active child layer together with any
-installed-skill API fragments that contribute saved Ajax machine auth. Updates
+installed-skill API fragments that contribute saved Ajax machine auth.
+
+Updates
 never rewrite installed skill files; they only change the writable runtime
 layer for the current working context. List, add, and remove actions print
 human-readable tables by default; use C<-o json> when you need the full raw
@@ -632,7 +656,9 @@ When you pass C<--secret>, the raw secret is hashed to a SHA-256 hex digest
 before it is stored. C<--maybe-secret> is the route-friendly alias for the
 same raw secret input: if the key is missing it creates the group, and if the
 key already exists it overwrites the stored secret while the command updates
-the requested routes. The saved JSON keeps the digest under C<secret> plus the
+the requested routes.
+
+The saved JSON keeps the digest under C<secret> plus the
 exact allowed saved Ajax routes under C<ajax>.
 
 C<dashboard api add> accepts
@@ -713,6 +739,7 @@ C<prepare_page>, so a block such as C<CODE1: { a => 1 }> can feed
 C<[% stash.a %]> in the page body. Returned hash and array values are also
 dumped into the runtime output area, so C<CODE1: { a => 1 }> both populates
 stash and shows the bookmark-style dumped value below the rendered page body.
+
 The C<hide> helper no longer discards already-printed STDOUT, so
 C<CODE2: hide print $a> keeps the printed value while suppressing the Perl
 return value from affecting later merge logic.
@@ -768,6 +795,7 @@ Inspect collector logs:
 
 C<dashboard collector log> prints the known collector log streams.
 C<dashboard collector log E<lt>nameE<gt>> prints one collector transcript.
+
 If a configured collector has not run yet, the command prints an explicit
 no-log message instead of blank output.
 C<dashboard collector status E<lt>nameE<gt>> now also exposes watchdog
@@ -798,10 +826,14 @@ C<code> runs Perl code directly inside the collector runtime
 
 A collector may use C<interval> polling or a standard five-field local-time
 C<cron> expression in F<config/config.json>. The fields are minute, hour,
-day-of-month, month, and day-of-week. Numeric values, comma-separated lists,
+day-of-month, month, and day-of-week.
+
+Numeric values, comma-separated lists,
 ranges, range steps, C<*/step>, and case-insensitive month and weekday names
 are supported. When both day-of-month and day-of-week are restricted, either
-matching field makes the date due, following crontab semantics. An explicit
+matching field makes the date due, following crontab semantics.
+
+An explicit
 C<schedule> value takes precedence over inferred scheduling; use
 C<"schedule": "cron"> with C<cron> when you want to state the mode explicitly.
 
@@ -834,7 +866,9 @@ rules as C<dashboard path resolve>.
 The built-in C<housekeeper> collector is always present even when
 F<config/config.json> is otherwise empty. It runs every C<900> seconds with
 Perl C<code> instead of a shell command, so it does not depend on C<PATH>
-resolution. That collector removes stale hashed runtime state roots from the
+resolution.
+
+That collector removes stale hashed runtime state roots from the
 shared temp tree under F</tmp/E<lt>userE<gt>/developer-dashboard/state/> and
 removes older C<developer-dashboard-ajax-*> temp files plus
 C<dashboard-result-*> runtime result temp files left behind in F</tmp/>. It
@@ -848,7 +882,9 @@ retention window. Both rules cut on entry boundaries, so a rotated
 transcript always starts at a complete entry header: a line budget drops
 whole entries rather than slicing one in half, and a budget smaller than
 the newest entry empties the transcript instead of leaving a headerless
-fragment behind. Run it on demand with:
+fragment behind.
+
+Run it on demand with:
 
   dashboard housekeeper
   dashboard collector run housekeeper
@@ -949,6 +985,7 @@ will not start that collector, explicit named starts reject it, and any
 already-running managed loop for that collector is stopped during the next
 collector lifecycle action. Managed indicator state for that collector is
 also removed instead of lingering as if it were still active.
+
 The flag is read by its truth value, so a JSON literal C<false> (or C<0>,
 C<"false">, C<"no">, C<"off">) keeps the collector enabled while C<true> and
 any other non-empty value disable it; C<"disable": false> is not a disabled
@@ -964,9 +1001,13 @@ the old worker command alive behind the stopped dispatcher.
 
 Collector indicators follow the collector exit code automatically: C<0>
 stores an C<ok> indicator state and any non-zero exit code stores C<error>. When C<indicator.name> is omitted, the collector name is reused
-automatically. When C<indicator.label> is omitted, it defaults to that same
+automatically.
+
+When C<indicator.label> is omitted, it defaults to that same
 name. Configured collector indicators are seeded immediately, so prompt and
-page status strips show them before the first collector run. Before a
+page status strips show them before the first collector run.
+
+Before a
 collector has produced real output it appears as missing.
 
 Prompt output
@@ -985,7 +1026,9 @@ The top-right browser status strip now uses that same configured icon instead
 of falling back to the collector name, and stale managed indicators are
 removed automatically if the collector config is renamed. The browser chrome
 now uses an emoji-capable font stack there as well, so UTF-8 icons such as
-C<🐳> and C<💰> remain visible instead of collapsing into fallback boxes. For TT-backed collector icons, a collector such as C<./foobar> can print
+C<🐳> and C<💰> remain visible instead of collapsing into fallback boxes.
+
+For TT-backed collector icons, a collector such as C<./foobar> can print
 C<{"a":123}> on C<stdout>; the runner decodes that JSON into Perl data and
 renders C<[% a %]> into the live icon C<123>.
 
@@ -1056,7 +1099,9 @@ If the marker exists but the development
 file does not, only the base is loaded and no error is raised. Toggle
 development mode without creating or deleting the file manually with
 C<dashboard docker development enable E<lt>serviceE<gt>> or
-C<dashboard docker development disable E<lt>serviceE<gt>>. A newly enabled
+C<dashboard docker development disable E<lt>serviceE<gt>>.
+
+A newly enabled
 marker is written under the selected home runtime: C<~/.developer-dashboard>
 when it exists (or when neither runtime name exists), otherwise C<~/.d2>. Disabling development removes every C<develop.yml> marker for that service
 across active layers.
@@ -1065,9 +1110,13 @@ To toggle the disabled marker without
 creating or deleting the file manually, use
 C<dashboard docker disable E<lt>serviceE<gt>> or
 C<dashboard docker enable E<lt>serviceE<gt>>. The disable toggle uses the same
-selected home runtime root. C<dashboard docker enable E<lt>serviceE<gt>> removes
+selected home runtime root.
+
+C<dashboard docker enable E<lt>serviceE<gt>> removes
 every C<disabled.yml> marker for that service across active layers. To inspect the effective marker state without walking the folders manually,
-use C<dashboard docker list>. Add C<--disabled> to show only disabled
+use C<dashboard docker list>.
+
+Add C<--disabled> to show only disabled
 services or C<--enabled> to show only enabled services.
 
 If the invocation directory contains C<compose.yml>, C<compose.yaml>,
@@ -1095,7 +1144,9 @@ For operational actions such as C<build>, C<up>, and C<down>, layered files are
 first materialised into a temporary Compose file. The final Compose invocation
 also receives the original project directory explicitly, so relative build and
 volume paths and the default project identity continue to come from the local
-Compose project rather than the temporary file's directory. An explicit
+Compose project rather than the temporary file's directory.
+
+An explicit
 C<--project-directory> supplied by the user is preserved. An undefined Compose
 argument or an empty/missing project-directory value is rejected before the
 Compose executable is called.
@@ -1126,7 +1177,9 @@ During compose execution the dashboard exports C<DDDC> as the runtime
 C<config/docker> directory for the current runtime, so compose YAML can keep using
 C<${DDDC}> paths inside the YAML itself. Project-local isolated services are
 discovered from that same
-C<./.developer-dashboard/config/docker/E<lt>serviceE<gt>/...> tree. Wrapper flags such as
+C<./.developer-dashboard/config/docker/E<lt>serviceE<gt>/...> tree.
+
+Wrapper flags such as
 C<--service>, C<--addon>, C<--mode>, C<--project>, and C<--dry-run> are
 consumed first, and all remaining docker compose flags such as C<-d> and
 C<--build> pass straight through to the real C<docker compose> command.
@@ -1169,7 +1222,9 @@ The repository's master-push workflow publishes a runnable Docker image from
 the latest C<master> checkout. It first runs the repository C<install.sh> to
 install the platform tools and Perl environment, then builds a fresh
 Dist::Zilla archive from that checked-out source and installs that archive
-into the image with C<cpanm --notest>. This final local-archive install deliberately
+into the image with C<cpanm --notest>.
+
+This final local-archive install deliberately
 replaces the version that the bootstrap installer may have fetched from
 MetaCPAN, so the image contains the current repository code.
 
@@ -1182,7 +1237,9 @@ The workflow selects the GitHub Actions environment C<release>, whose
 secrets C<DOCKER_HUB_USER> and C<DOCKER_HUB_TOKEN> provide the Docker Hub
 credentials. It pushes two tags under C<DOCKER_HUB_USER/developer-dashboard>:
 the distribution version read from C<dist.ini> (for example C<5.88>) and
-C<latest>. A manual workflow dispatch also builds the current C<master>
+C<latest>.
+
+A manual workflow dispatch also builds the current C<master>
 branch. The image targets C<linux/amd64> and
 C<linux/arm64>; Docker does not support a macOS-kernel image platform, while
 Apple Silicon can run the Linux arm64 image using Docker Desktop's Linux VM.
@@ -1246,19 +1303,36 @@ C<d2>,
 and C<which_dir> functions across all supported shells. C<cdr> first tries a
 saved alias, then falls back to an AND-matched directory search beneath the
 alias root or the current directory depending on whether that first argument
-was a known alias. One match changes directory, multiple matches print the
+was a known alias.
+
+One match changes directory, multiple matches print the
 list, and C<which_dir> prints the same selected target or match list without
 changing directory.
 
-Bash still uses C<\j> for job counts, zsh refreshes
-The shell-smoke regression coverage also compares those printed paths by
-canonical identity, so macOS C</var/...> and C</private/var/...> aliases do
-not fail equivalent C<pwd> / C<which_dir> checks. Bash still uses C<\j> for
-job counts, zsh refreshes
-C<PS1> through a C<precmd> hook with C<${#jobstates}>, POSIX C<sh> falls back
-to a prompt command that does not depend on bash-only prompt escapes, and
-PowerShell installs a C<prompt> function instead of using the POSIX C<PS1>
-variable.
+The generated prompt adapters handle job counts by shell:
+
+=over 4
+
+=item *
+
+Bash uses C<\j>.
+
+=item *
+
+Zsh refreshes C<PS1> through a C<precmd> hook.
+
+=item *
+
+POSIX C<sh> uses a prompt command without bash-specific escapes.
+
+=item *
+
+PowerShell uses a C<prompt> function.
+
+=back
+
+The shell checks compare canonical paths, so equivalent macOS paths such as
+C</var/...> and C</private/var/...> are treated as the same location.
 
 C<d2> is a real, installed short command for C<dashboard>, shipped in the same
 C<bin> directory and re-execing the C<dashboard> entrypoint, so you can run
@@ -1288,7 +1362,9 @@ For the POSIX shell bootstrap, the generated helper now decodes its JSON
 payloads through the same Perl interpreter that generated the shell fragment
 instead of a bare C<perl -MJSON::XS ...> call. That keeps C<cdr> and
 C<which_dir> stable on macOS installs where C</usr/bin/perl> and a user-local
-C<~/perl5> XS stack do not belong to the same Perl build. The generated
+C<~/perl5> XS stack do not belong to the same Perl build.
+
+The generated
 C<d2> shortcut re-enters the C<dashboard> script directly instead of
 hardcoding the current Perl binary path, so the shortcut still works when the
 bootstrap is loaded by a shell whose preferred Perl lives somewhere else.
@@ -1394,7 +1470,9 @@ refused, which is deliberate on a route that executes saved handlers.
 The editor and rendered pages also include a shared top chrome with share and
 source links on the left and the original status-plus-alias indicator strip on
 the right, refreshed from C</system/status>. That top-right area also includes the local username, the current host or IP
-link, and the current date/time in the same spirit as the old local dashboard chrome. The displayed address is discovered from the machine interfaces, preferring a VPN-style address when one is active, and the date/time is refreshed in the browser with JavaScript.
+link, and the current date/time in the same spirit as the old local dashboard chrome.
+
+The displayed address is discovered from the machine interfaces, preferring a VPN-style address when one is active, and the date/time is refreshed in the browser with JavaScript.
 
 C<dashboard serve --no-indicators> and C<dashboard serve --no-indicator> clear that whole top-right browser-only area without changing the terminal prompt or C</system/status>. The bookmark editor also follows the old auto-submit flow, but now it waits
 until focus leaves the whole editor form instead of firing every time you move
@@ -1759,24 +1837,32 @@ C<https://github.com/manif3station/> GitHub base, so
 C<dashboard skills install browser> clones
 C<https://github.com/manif3station/browser>. Two-part C<owner/repo>
 shorthand is expanded against GitHub too, so
-C<dashboard skills install foo/bar> clones C<https://github.com/foo/bar>. Full URLs such as C<https://github.com/user/example-skill.git> and
+C<dashboard skills install foo/bar> clones C<https://github.com/foo/bar>.
+
+Full URLs such as C<https://github.com/user/example-skill.git> and
 C<git@github.com:user/example-skill.git> are used exactly as supplied. Use C<-b E<lt>branchE<gt>> or C<--branch E<lt>branchE<gt>> to select a remote
 Git branch explicitly.
 
 For a new checkout without this option, the installer
 tries C<master> first and C<main> second. On a reinstall, it keeps the named
 branch currently checked out in the installed skill directory unless an
-explicit C<-b> overrides it. A detached checkout has no named branch to keep,
+explicit C<-b> overrides it.
+
+A detached checkout has no named branch to keep,
 so the normal C<master> then C<main> selection is used. The branch option is
 for remote Git sources; it is rejected for local directory and C<--ddfile>
 installs rather than being silently ignored.
 
 When a skill contains C<ddfile> or C<ddfile.local> but no dependency install is
 needed, the progress label says so; it reports the manifest as missing only
-when that file is actually absent. Multiple explicit sources can be supplied to one install command. Developer
+when that file is actually absent. Multiple explicit sources can be supplied to one install command.
+
+Developer
 Dashboard installs them in the order given, prints a progress rundown before
 work starts, and registers every source once. The default install summary is a terminal table with each skill's F<.env>
-C<VERSION> before and after the install. Use C<-o json> when a script needs the
+C<VERSION> before and after the install.
+
+Use C<-o json> when a script needs the
 raw result payload.
 
 C<dashboard skill> is
@@ -1787,7 +1873,9 @@ installed skill commands still run as C<dashboard E<lt>skillE<gt>.E<lt>commandE<
 
 For Perl commands, the C<lib/> directory of the skill layer providing the
 command is the first module search path in the child process C<@INC>. Other
-participating skill libraries follow it, then shared local libraries. For
+participating skill libraries follow it, then shared local libraries.
+
+For
 C</app/E<lt>skillE<gt>/E<lt>pageE<gt>> pages, CODE blocks similarly place the
 exact skill layer supplying the page first in their scoped C<@INC>, followed
 by the remaining skill layers. A skill can therefore use a module such as
@@ -1818,7 +1906,9 @@ F<~/.developer-dashboard/.gitignore> already exists, the install also adds
 C<skills/E<lt>repo-nameE<gt>/> for each installed skill without duplicating
 existing entries, so users who keep the dashboard runtime in Git do not
 accidentally track cloned skill trees. The installer also honors an existing
-F<~/.developer-dashboard/.gitiignore> spelling as a compatibility safety net. Calling bare C<dashboard skills install> with no source reads that root
+F<~/.developer-dashboard/.gitiignore> spelling as a compatibility safety net.
+
+Calling bare C<dashboard skills install> with no source reads that root
 F<ddfile> and reinstalls every listed skill as an update batch, showing the
 same progress rundown and before/after version table.
 
@@ -1862,7 +1952,9 @@ C<dashboard skills install --ddfile> runs also act as reinstall and refresh
 for already-installed targets, just like repeated explicit
 C<dashboard skills install E<lt>sourceE<gt>> runs. Interactive C<dashboard skills install> runs also print a task board on
 C<stderr>; multi-source and bare update-all installs show one task for every
-source before any clone or dependency step starts. For a single skill, the
+source before any clone or dependency step starts.
+
+For a single skill, the
 board begins with fetch and layout only, then appends dependency tasks after
 the fetched skill root has been inspected.
 
@@ -1890,7 +1982,9 @@ now layered instead of flattening the whole repo. The home
 F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/> checkout is the base
 layer, and any deeper
 F<.developer-dashboard/skills/E<lt>repo-nameE<gt>/> checkout becomes an
-inherited layer for that same skill. Runtime lookup walks those
+inherited layer for that same skill.
+
+Runtime lookup walks those
 participating skill layers for C<cli/E<lt>commandE<gt>>,
 C<cli/E<lt>commandE<gt>.d>, C<dashboards/*>, C<dashboards/nav/*>,
 C<config/config.json>, and C<perl5/lib/perl5>.
@@ -2045,6 +2139,7 @@ C<cli/E<lt>cmdE<gt>> file. For example:
 The first command executes the nested skill command. The second prints the
 resolved nested C<cli/here> file plus any matching hook files that would run
 before it.
+
 Nested skill trees under C<skills/E<lt>repoE<gt>/cli/> stay reachable through
 that same public dotted route, including multiple nested levels. For example,
 if C<example-skill> ships C<skills/foo/skills/bar/cli/baz>, then
@@ -2481,7 +2576,9 @@ C<config/config.json>, optional C<config/api.json>, and optional C<dashboards/>,
 C<state/>, C<logs/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>,
 C<dnfile>,
 C<brewfile>, C<Makefile>, C<package.json>, C<requirements.txt>, C<cpanfile>, and C<cpanfile.local> files under the skill
-root. Skill commands are file-based
+root.
+
+Skill commands are file-based
 commands run through the dotted
 C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> form.
 
@@ -2599,7 +2696,9 @@ without being flattened back into only the first installed-skill level.
 The web application keeps a per-instance inventory of the discovered nav
 fragment ids so unchanged directories are not enumerated on every request.
 The inventory is reused only while each ordered C<nav/> directory retains the
-same high-resolution filesystem identity and metadata signature. Adding or
+same high-resolution filesystem identity and metadata signature.
+
+Adding or
 removing a fragment changes that signature and refreshes the next request.
 Only the filename inventory is reused: every fragment's contents are loaded
 and rendered for each request, so edits remain visible without an ID rescan.
@@ -2612,6 +2711,7 @@ Saved-page lookup selects the first existing layered candidate, then the
 secure-read path performs the containment check immediately before its
 no-follow open. Candidate lookup does not repeat that same resolved-path check
 earlier; both normal page reads and raw-entry reads still use the guarded open.
+
 For one web request, ordered candidate roots are discovered lazily once and
 shared by its saved-page loads; a later request receives a fresh root list.
 Direct PageStore calls outside a web request do not retain a root snapshot.
@@ -2620,7 +2720,9 @@ Shared nav fragments and normal bookmark pages both render through Template
 Toolkit with C<env.current_page> set to the active request path, such as
 C</app/index>. The same path is also available as
 C<env.runtime_context.current_page>, alongside the rest of the request-time
-runtime context. Token play renders for named bookmarks also reuse that saved
+runtime context.
+
+Token play renders for named bookmarks also reuse that saved
 C</app/E<lt>idE<gt>> path for nav context, so shared C<nav/*.tt> fragments do
 not disappear just because the browser reached the page through a transient
 C</?mode=render&token=...> URL.
@@ -2673,11 +2775,12 @@ certificate under F<~/.developer-dashboard/certs/>, then open:
 
 When SSL mode is on, plain HTTP requests on that same host and port are
 redirected to the equivalent C<https://...> URL before the dashboard route
-runs. The generated certificate now carries browser-correct SAN coverage for
-C<localhost>, C<127.0.0.1>, and C<::1>, automatically includes the concrete
-C<--host HOST> bind target when that host is not a wildcard listen address, and
-also includes any extra names or IPs listed under
-C<web.ssl_subject_alt_names> in F<config/config.json>.
+runs.
+
+The generated certificate covers C<localhost>, C<127.0.0.1>, and C<::1>. It
+also includes a concrete non-wildcard C<--host HOST> value and any additional
+names or IPs in F<config/config.json> under
+C<web.ssl_subject_alt_names>.
 
 Older dashboard certs are
 rotated forward automatically when they no longer match that expected profile.
@@ -2761,7 +2864,9 @@ MakeMaker compiles the extension as
 part of the normal distribution build; a source checkout without the compiled
 object uses the equivalent Perl implementation. Overloaded references retain
 Perl stringification behaviour, and native-load errors other than a genuinely
-missing object remain visible. The XS result retains the Perl UTF-8 and taint
+missing object remain visible.
+
+The XS result retains the Perl UTF-8 and taint
 flags. Quoted attribute values use a separate single-pass XS loop that escapes
 the body metacharacters and both quote characters together; source-only builds
 and overloaded references retain the Perl path.
@@ -2826,7 +2931,9 @@ C<401> with an empty body and do not render the login form at all.
 
 When a saved C<index> bookmark exists, opening C</> now redirects straight to
 C</app/index> so the saved home page becomes the default browser entrypoint. When no saved C<index> bookmark exists yet, C</> still opens the free-form
-bookmark editor. If a user opens an unknown saved route such as C</app/foobar>, the browser now
+bookmark editor.
+
+If a user opens an unknown saved route such as C</app/foobar>, the browser now
 opens the bookmark editor with a prefilled blank bookmark for that requested
 path instead of showing a 404 error page.
 
@@ -2864,7 +2971,9 @@ CLI inspection commands such as C<dashboard indicator list>
 
 This matters because prompt and browser status should be cheap to render. Instead of re-running a Docker check, VPN probe, or project health command
 every time the prompt draws, a collector prepares the answer once and the rest
-of the system reads the cached result. When the status strip or indicator-list command reads indicators, the store
+of the system reads the cached result.
+
+When the status strip or indicator-list command reads indicators, the store
 resolves the applicable runtime roots once for that listing and searches those
 roots in precedence order. It still reads the indicator files on each request,
 so updates and inherited-versus-local overrides remain visible.
@@ -2919,7 +3028,9 @@ Workspace sessions use a
 two-line bottom status block: the first row is the dashboard indicator strip
 with the trailing date-time segment, and the second row keeps tmux's normal
 session and indexed window list. Ordinary tmux sessions keep the normal
-inline prompt. The
+inline prompt.
+
+The
 workspace workflow seeds a dedicated
 C<DEVELOPER_DASHBOARD_TMUX_STATUS=1> session flag for that behaviour, and
 Developer Dashboard also treats the older C<TICKET_REF> session reference as a
@@ -3164,7 +3275,9 @@ That means links such as:
 
 return a C<403> unless C<DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS> is enabled.
 Saved bookmark-file routes such as C</app/index> and
-C</app/index/action/...> continue to work without that flag. Saved bookmark
+C</app/index/action/...> continue to work without that flag.
+
+Saved bookmark
 editor pages also stay on their named C</app/E<lt>idE<gt>/edit> and
 C</app/E<lt>idE<gt>> routes when you save from the browser, so editing an
 existing bookmark file does not fall back to transient C<token=> URLs under the
@@ -3174,7 +3287,9 @@ C<Ajax> helper calls inside saved bookmark C<CODE*> blocks should use
 an explicit C<file =E<gt> 'name.json'> argument. When a saved page supplies that
 name, the helper stores the Ajax Perl code under the saved dashboard ajax tree and emits a
 stable saved-bookmark endpoint such as
-C</ajax/name.json?type=text>. Skill pages use the same helper contract. Without
+C</ajax/name.json?type=text>.
+
+Skill pages use the same helper contract. Without
 extra skill route metadata the generated saved endpoint is namespaced under the
 longest matching skill route, for example
 C</ajax/example-skill/name.json?type=text> or
@@ -3233,7 +3348,9 @@ disabled by default, and it means bookmark Ajax code can rely on normal
 C<print>, C<warn>, C<die>, C<system>, and C<exec> process behaviour instead of
 a buffered JSON wrapper. The same layered runtime config chain and installed-skill config trees can now
 ship C<config/api.json> files that authorise selected C</ajax/...> routes for
-machine-to-machine callers without forcing a helper login form. The schema is a
+machine-to-machine callers without forcing a helper login form.
+
+The schema is a
 JSON object keyed by API client name.
 
 Each entry must provide a stored SHA-256
@@ -3241,7 +3358,9 @@ hex digest under C<secret> plus an C<ajax> array of exact saved Ajax route
 paths such as C</ajax/stream.txt> or
 C</ajax/example-skill/status.json>. When a non-admin remote request targets one
 of those registered C</ajax/...> paths, the caller can send
-C<X-DD-API-Key: NAME> and C<X-DD-API-Secret: RAW-SECRET>. Developer Dashboard
+C<X-DD-API-Key: NAME> and C<X-DD-API-Secret: RAW-SECRET>.
+
+Developer Dashboard
 hashes the raw secret with SHA-256, compares it to the stored digest, and
 executes the saved Ajax handler when they match.
 
@@ -3254,13 +3373,17 @@ same saved Ajax routes, so browser workflows and machine callers can coexist on
 one handler without adding a second copy of the route. Like the rest of
 C<DD-OOP-LAYERS>, runtime C<config/api.json> files merge from home to the
 deepest active child layer, and installed skills contribute their own layered
-C<config/api.json> fragments for skill-local saved Ajax routes. The built-in
+C<config/api.json> fragments for skill-local saved Ajax routes.
+
+The built-in
 C<dashboard api> command is the supported way to inspect or update the writable
 runtime layer for that registry.
 
 An entry carrying C<"disabled": true> (or the same flag under C<_disabled>)
 is dropped from the registry; a JSON literal C<false> there keeps the key
-visible, exactly as C<"disabled": 0> or C<"disabled": "no"> does. Saved bookmark Ajax handlers also default to C<text/plain> when no explicit
+visible, including values such as C<"disabled": 0> or C<"disabled": "no">.
+
+Saved bookmark Ajax handlers default to C<text/plain> when no explicit
 C<type =E<gt> ...> argument is supplied, and the generated Perl wrapper now
 enables autoflush on both C<STDOUT> and C<STDERR> so long-running handlers
 show incremental output in the browser instead of stalling behind process
@@ -3269,18 +3392,19 @@ buffers.
 If a saved handler also needs refresh-safe process reuse, pass
 C<singleton =E<gt> 'NAME'> in the C<Ajax> helper.
 
-The generated url then carries
-that singleton name, the Perl worker runs as C<dashboard ajax: NAME>, and the
-runtime terminates any older matching Perl Ajax worker before starting the
-replacement stream for the refreshed browser request. Singleton-managed Ajax
-workers are also terminated by C<dashboard stop> and C<dashboard restart>, and
-the bookmark page now registers a C<pagehide> cleanup beacon against
-C</ajax/singleton/stop?singleton=NAME> so closing the browser tab also tears
-down the matching worker instead of leaving it behind.
+The generated URL carries the singleton name, and the worker runs as
+C<dashboard ajax: NAME>. A refreshed request replaces the older matching
+worker.
+
+C<dashboard stop> and C<dashboard restart> also stop singleton Ajax workers.
+Closing a browser tab sends a C<pagehide> cleanup request to
+C</ajax/singleton/stop?singleton=NAME>.
 
 If C<code =E<gt> ...> is omitted, C<Ajax(file =E<gt> 'name')> targets the
 existing executable at C<dashboards/ajax/name> instead of rewriting it. Static files referenced by saved bookmarks are resolved from the effective
-runtime public tree first and then from the saved bookmark root. The web layer
+runtime public tree first and then from the saved bookmark root.
+
+The web layer
 also provides a built-in bundled C</js/jquery.js> asset that serves the local
 copy of jQuery 4.0.0, with C</js/jquery-4.0.0.min.js> kept as a compatibility
 alias for the same shipped payload even when no runtime file has been copied
@@ -3336,13 +3460,14 @@ C<XMLHttpRequest> progress events for browser-visible incremental updates, so
 a saved C</ajax/...> endpoint that prints early output updates the DOM before
 the request finishes.
 
-Those helpers support plain text, JSON, and HTML output
-modes, and the saved Ajax endpoint bindings now run after the page declares
-its endpoint root object, so C<$(document).ready(...)> callbacks can call
-helpers such as C<fetch_value(endpoints.foo, '#foo')> on first render. Saved browser workspaces that render response inspection panels should place
-their Response Body and Response Headers tabs below the response C<pre> box so
-the main response payload stays visible while the tabbed details remain
-reachable without jumping away from the current result.
+Those helpers support plain text, JSON, and HTML output. Saved Ajax bindings
+are available after the page declares its endpoint root, so
+C<$(document).ready(...)> callbacks can call helpers such as
+C<fetch_value(endpoints.foo, '#foo')> on first render.
+
+For response inspection panels, place the Response Body and Response Headers
+tabs below the response C<pre> box. This keeps the main response visible while
+the details remain accessible.
 
 =head2 User CLI Extensions
 
@@ -3369,6 +3494,7 @@ Concrete source-backed examples:
 
 If F<cli/hi.go> is executable, C<dashboard hi> runs it through C<go run>.
 If F<cli/report.py> is executable, C<dashboard report> runs it through C<python>.
+
 If F<cli/webhook.js> is executable, C<dashboard webhook> runs it through C<node>.
 If F<cli/foo.java> is executable, C<dashboard foo> compiles it with C<javac>
 into an isolated temp directory and then runs the declared main class with
@@ -3385,7 +3511,9 @@ command instead of only dumping generic help.
 Every dashboard-managed built-in command and its public actions use one help
 catalogue. Request help with C<--help>, C<-h>, or a trailing C<help>, for
 example C<d2 api add --help>, C<d2 api add help>, or the global form
-C<d2 help docker development enable>. The public C<version> command also
+C<d2 help docker development enable>.
+
+The public C<version> command also
 supports C<d2 version --help> and global C<d2 help version>. Bare C<d2 help>,
 C<d2 --help>, and C<d2 -h> print a concise index of public built-in commands
 instead of the full module manual.
@@ -3430,22 +3558,24 @@ F<local/lib/perl5>, Docker Compose service folders, skills, and custom CLI
 hooks are inherited across the full chain instead of only a single
 project-or-home split.
 
-Per-command hook files can live under either
-F<./.developer-dashboard/cli/E<lt>commandE<gt>> or
-F<./.developer-dashboard/cli/E<lt>commandE<gt>.d> in every inherited layer
-from F<~/.developer-dashboard> down to the current directory. Executable files
-in those directories are run in sorted filename order within each layer, with
-the layers themselves running top-down from home to the deepest current layer,
-non-executable files are skipped, and each hook now streams its own
-C<stdout> and C<stderr> live to the terminal while still accumulating those
-channels into C<RESULT> as JSON.
+Per-command hooks can live in C<cli/E<lt>commandE<gt>> or
+C<cli/E<lt>commandE<gt>.d> at each runtime layer, from home to the current
+directory.
+
+Executable hooks run in sorted order within each layer. Layers run from home
+to the deepest active directory, and non-executable files are skipped.
+
+Hook output streams to the terminal and is also accumulated as JSON in
+C<RESULT>.
 
 If that JSON grows too large for a safe
 C<exec()> environment, C<dashboard> spills it into C<RESULT_FILE> and
 C<Developer::Dashboard::Runtime::Result> reads the same logical payload from
 there so later hooks and the final command still see the same result set
 without tripping C<Argument list too long>. Built-in commands such as C<dashboard jq>
-use the same hook directory. A
+use the same hook directory.
+
+A
 directory-backed custom command can provide its real executable as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>, and that runner receives
 the final C<RESULT> plus C<LAST_RESULT> environment variables.
@@ -3463,7 +3593,9 @@ recorded, but it does not skip later hooks.
 
 Executable F<.py> hook files and
 direct F<.py> custom commands run through C<python>. Executable F<.js> hook files and
-direct F<.js> custom commands run through C<node>. Executable F<.go> hook files and
+direct F<.js> custom commands run through C<node>.
+
+Executable F<.go> hook files and
 direct F<.go> custom commands run through C<go run>. Executable F<.java>
 hook files and direct F<.java> custom commands are compiled with C<javac>
 into an isolated temp directory and then run through C<java> using the
@@ -3566,7 +3698,9 @@ F<E<lt>skill-rootE<gt>/.env.pl>
 
 Skill C<.env> and C<.env.pl> values override matching values from the home
 runtime. Skill C<cli/.env> and C<cli/.env.pl> values are applied after the skill
-root files. Any deeper project runtime layers are applied last, so the nearest
+root files.
+
+Any deeper project runtime layers are applied last, so the nearest
 project runtime still has final precedence among file-based values. Values
 explicitly inherited from the invoking shell have highest precedence and are
 preserved across every env-file layer; a file may populate a variable that the
@@ -3614,7 +3748,9 @@ skill whose C<config/docker/E<lt>serviceE<gt>/compose.yml> or
 C<config/docker/E<lt>serviceE<gt>/development.compose.yml> file actually participates in
 the resolved compose stack. A service's C<compose.yml> is its base and is loaded
 whenever present; C<development.compose.yml> is loaded afterward only while the
-service's C<develop.yml> marker is enabled. That compose-only skill env layer
+service's C<develop.yml> marker is enabled.
+
+That compose-only skill env layer
 stays isolated to the compose resolver, respects disabled skills, and does not
 execute F<E<lt>skill-rootE<gt>/.env.pl>.
 
@@ -3725,7 +3861,9 @@ Java class lookup first checks live F<.java> files under the current project,
 workspace roots, and C<@INC>-adjacent source trees. If no live source file
 exists, it also searches local source archives such as F<-sources.jar>,
 F<-src.jar>, F<src.zip>, F<war>, and F<jar> files under the current roots,
-F<~/.m2/repository>, Gradle caches, and C<JAVA_HOME>. When a local archive
+F<~/.m2/repository>, Gradle caches, and C<JAVA_HOME>.
+
+When a local archive
 still does not provide the requested class, the helper can fetch a matching
 Maven source jar, cache it under
 F<~/.developer-dashboard/cache/open-file/>, and then open the extracted Java
@@ -3775,10 +3913,14 @@ newline.
 
 The file path and query text are order-independent, and C<$d> selects the
 whole parsed document. For example, C<cat file.json | dashboard jq '$d'> and
-C<dashboard jq file.json '$d'> return the same result. If the query text uses
+C<dashboard jq file.json '$d'> return the same result.
+
+If the query text uses
 C<$d> inside a Perl expression, the command evaluates that expression against
 the decoded document. For example, C<echo '{"foo":[1],"bar":[2]}' | dashboard
-jq 'sort keys %$d'> prints C<["bar","foo"]>. The same contract applies to
+jq 'sort keys %$d'> prints C<["bar","foo"]>.
+
+The same contract applies to
 C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and C<xmlq>.
 
 C<xmlq> follows the same decoded-data model as the other query commands. XML
@@ -3865,7 +4007,9 @@ C<< d2->paths >> resolves in-process, the same table C<dashboard paths>
 prints. Any other bareword method name starts a B<lazy chain> that mirrors
 the CLI's own dotted dispatch at arbitrary depth - C<< d2->foo->bar->() >>
 runs C<dashboard foo.bar> - and B<nothing executes until the chain is
-terminated with a call>, the trailing C<< ->() >>. An un-terminated chain is
+terminated with a call>, the trailing C<< ->() >>.
+
+An un-terminated chain is
 inert in boolean, numeric and string context, and stringifies to something
 obviously non-executing such as C<d2 proxy: foo.bar>, so a stray debug print
 cannot run a command.
@@ -3894,7 +4038,9 @@ Unlike C<d2>, C<env> cannot be a plain exported sub: Perl resolves a bareword
 immediately before C<-E<gt>> as a literal package name at parse time
 regardless of any same-named sub, so C<env> is a real second package declared
 inside this file - loading C<Developer::Dashboard> is what makes it
-available, the same practical effect as C<d2>'s own export. See L</Layered
+available, the same practical effect as C<d2>'s own export.
+
+See L</Layered
 Env Files> for the C<.env>-file-native C<# include E<lt>skill.pathE<gt>>
 directive this method mirrors.
 
@@ -3904,362 +4050,61 @@ Build, change, and verify the project using these contributor notes.
 
 =head2 Local Development
 
-The CLI runs through the active Perl interpreter. It does not compile or cache
-standalone command binaries, so development and release checks exercise the same
-interpreted command path.
+Follow C<CONTRIBUTING.pod> for the complete contributor workflow.
 
-Build the distribution:
+Build a distribution archive:
 
   dzil clean
   dzil build
 
-The release gather rules exclude local coverage output named F<cover_db> or
-F<cover_db-...>/F<cover_db_...>, so named Devel::Cover runs before
-C<dzil build> do not leak their database artefacts into the shipped tarball.
-Release hygiene now also requires that this cleanup leaves exactly one
-unpacked C<Developer-Dashboard-X.XX/> build directory and exactly one matching
-C<Developer-Dashboard-X.XX.tar.gz> artefact after the build.
+Run the checkout's command line interface:
 
-The built distribution also ships a plain F<README> companion so CPAN and
-kwalitee consumers still receive a top-level readme without re-including the
-checkout-only documentation set.
-
-To publish the built distribution to PAUSE, first complete the repository's
-release gates and configure PAUSE credentials outside the checkout, then run
-C<dzil release> explicitly. The distribution config uses the
-C<Dist::Zilla::Plugin::UploadToCPAN> releaser. It reads credentials from the
-user's Dist::Zilla configuration or C<~/.pause>; never place credentials in
-C<dist.ini> or another tracked file. C<dzil release> uploads to CPAN and must
-not be used as a substitute for C<dzil build>.
-
-Run the CLI directly from the repository:
-
-  perl -Ilib bin/dashboard init
-  perl -Ilib bin/dashboard auth add-user <username> <password>
+  perl -Ilib bin/dashboard help
   perl -Ilib bin/dashboard version
-  perl -Ilib bin/dashboard of --print My::Module
-  perl -Ilib bin/dashboard open-file --print com.example.App
-  printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard jq alpha.beta
-  printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard yq alpha.beta
-  mkdir -p ~/.developer-dashboard/cli/update.d
-  printf '#!/usr/bin/env perl\nuse Developer::Dashboard::Runtime::Result;\nprint Developer::Dashboard::Runtime::Result::stdout(q{01-runtime});\nprint $ENV{RESULT} // q{}\n' > ~/.developer-dashboard/cli/update
-  chmod +x ~/.developer-dashboard/cli/update
-  printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update.d/01-runtime
-  chmod +x ~/.developer-dashboard/cli/update.d/01-runtime
-  perl -Ilib bin/dashboard update
-  perl -Ilib bin/dashboard serve
-  perl -Ilib bin/dashboard stop
-  perl -Ilib bin/dashboard restart
 
-User CLI extensions can be tested from the repository too:
+When documentation changes, regenerate this README from the main POD:
 
-  mkdir -p ~/.developer-dashboard/cli
-  printf '#!/bin/sh\ncat\n' > ~/.developer-dashboard/cli/foobar
-  chmod +x ~/.developer-dashboard/cli/foobar
-  printf 'hello\n' | perl -Ilib bin/dashboard foobar
-
-  mkdir -p ~/.developer-dashboard/cli/jq.d
-  printf '#!/usr/bin/env perl\nprint "seed\\n";\n' > ~/.developer-dashboard/cli/jq.d/00-seed.pl
-  chmod +x ~/.developer-dashboard/cli/jq.d/00-seed.pl
-  printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard jq alpha.beta
-
-Dashboard-managed built-in helpers are different from user commands. All
-built-in helper assets are always staged only under
-F<~/.developer-dashboard/cli/dd/>. Dedicated helper bodies are used for
-C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, C<xmlq>, C<of>,
-C<open-file>, C<workspace>, C<path>, C<paths>, and C<ps1>, while the remaining
-built-in commands stage thin wrappers that delegate into the shared private
-C<_dashboard-core> runtime.
-
-Under C<DD-OOP-LAYERS>, layered lookup still
-applies to user-provided commands and hook directories, but C<dashboard init>
-does not copy those built-in helpers into child project layers.
-
-Each top-level dashboard command can also use an optional hook directory at
-F<~/.developer-dashboard/cli/E<lt>commandE<gt>>. Executable files from that
-directory run in sorted filename order before the real command starts,
-non-executable files are skipped, and the captured stdout/stderr from the hook
-files are accumulated into C<$ENV{RESULT}> as JSON for later hooks and the
-final command. Directory-backed custom commands can use
-F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run> as the actual executable.
-
-If a subcommand does not have a built-in implementation, the real command can
-be supplied as F<~/.developer-dashboard/cli/E<lt>commandE<gt>> or
-F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>.
-
-If you want C<dashboard update>, provide it as a normal user command at
-F<~/.developer-dashboard/cli/update> or
-F<~/.developer-dashboard/cli/update/run> in any inherited layer, with the
-deepest matching layer winning the final command path. Its hook files can live
-under F<update/> or F<update.d>, and the real command receives the final
-C<RESULT> and C<LAST_RESULT> payloads through the environment after those hook
-files run.
-
-Each later hook also sees the latest rewritten C<RESULT> from the
-earlier hook set, the immediate previous hook through C<LAST_RESULT>, and an
-explicit C<[[STOP]]> marker in one hook's C<stderr> skips the remaining hook
-files before control returns to the real update command. Perl code can read
-those payloads through C<Runtime::Result>.
-
-Use C<dashboard version> to print the installed Developer Dashboard version.
-
-Use C<dashboard upgrade> or the identical C<d2 upgrade> short entrypoint to
-download, validate, and run the canonical HTTPS installer for the active
-platform. Add C<--dry-run> to print the selected installer URL and execution
-plan without making a network request or changing the host.
-
-The blank-container integration harness applies fake-project dashboard override
-environment variables only after plain C<cpanm E<lt>tarballE<gt>> has installed
-and tested the distribution. It then verifies that both C<dashboard version>
-and C<d2 version> match the archive, that C<d2 of grep --help> reaches GNU
-grep, and that C<d2 docker compose config --help> and C<d2 docker compose help>
-preserve native Compose arguments. This checks installed runtime behaviour and
-the packaged short-entrypoint dispatch, not only the checkout-local scripts.
-
-The repository's C<d2 docker.images.build> workflow also installs the archive
-into the image's active local Perl library, so the rebuilt image runs the same
-release version rather than an older bootstrap copy shadowing the system
-library.
-
-The blank-environment verifier reads the expected version from the extracted
-distribution C<META.yml>, because the public module delegates C<$VERSION> to
-C<Developer::Dashboard::Version>; it retains a literal-module fallback for
-older archives. This keeps the install gate aligned with the distribution
-metadata and checks the tarball before running installed commands.
-
-That same blank-container path also verifies web stop/restart behaviour in a
-minimal image where listener ownership may need to be discovered from F</proc>
-instead of C<ss>, including a late listener re-probe before
-C<dashboard restart> brings the web service back up.
+  script/sync-readme-from-pod
 
 =head2 Testing And Coverage
 
-Run the test suite:
+=head3 Test suite
+
+Run the full Perl test suite from the repository root:
 
   prove -lr t
 
-GitHub Actions runs the full Perl suite on Linux x64/arm64, macOS x64/arm64,
-and Windows x64, exercising native filesystem watchers and portable fallbacks.
-A separate Windows ARM64 job verifies the native Perl architecture and runs
-the Windows filesystem watcher regression. It does not claim full-suite
-support on Windows ARM64 because the hosted runner's preinstalled Perl is
-below the project's Perl 5.38 minimum and the Perl setup action does not
-support that runner. The separate coverage gate remains on its dedicated Linux
-runner.
+The scenario list is in C<TEST_PLAN.md>. The hosted workflows provide additional
+platform checks and packaging verification.
 
-Measure library coverage with Devel::Cover:
+=head3 Library coverage
+
+Install Devel::Cover into the local development library and run the repository
+gate:
 
   cpanm --no-wget --notest --local-lib-contained ./.perl5 Devel::Cover
   export PERL5LIB="$PWD/.perl5/lib/perl5${PERL5LIB:+:$PERL5LIB}"
   export PATH="$PWD/.perl5/bin:$PATH"
   perl script/coverage-gate
 
-C<script/coverage-gate> is the canonical entrypoint and the one every CI
-workflow runs. It drops the coverage database, runs the instrumented suite,
-collects the C<lib/> report and enforces 100.0 on statement, branch, condition
-and subroutine. Its exit status is the interface: C<0> all four metrics at
-100.0, C<1> a genuine shortfall, C<2> the gate could not run or could not read
-its report, C<3> the coverage instrument could not read its own database.
+The gate requires 100.0% statement, subroutine, branch, and condition coverage
+for C<lib/>. A passing run exits with status C<0>. Run one coverage job at a
+time on a host.
 
-The instrumented run excludes only disposable F</tmp/> and staged
-F<.developer-dashboard/> source trees because tests remove those fixtures
-before report generation. Every C<lib/> source remains included in the enforced
-coverage report; these exclusions do not reduce the library coverage scope.
-Any C<Devel::Cover> warning in the report makes the result unreadable and fails
-the gate, even when the displayed totals are 100.0.
+=head3 Integration and release checks
 
-The gate stores its reader-identity stamp beside C<cover_db>, not inside it, so
-Devel::Cover does not interpret gate metadata as coverage data. An earlier
-in-database stamp is checked and migrated before the database is dropped.
+For an installed-package check in a blank environment, run:
 
-The chain is one command rather than three because
-C<Devel::Cover::DB::IO> picks its on-disk serialisation format at C<BEGIN> from
-whatever C<@INC> makes visible and records the choice nowhere. Typed as separate
-shell lines, a library path omitted from one of them leaves the reader unable to
-parse what the writer just produced; running them as children of one process
-removes that split by construction. An exit C<3> is an environment fault and is
-never fixed by re-running.
+  integration/blank-env/run-host-integration.sh
 
-The repository target is 100.0 on all four metrics for C<lib/>. This is a standing QA gate for every change, not only releases. After the
-normal C<prove -lr t> test gate passes, run the numeric C<Devel::Cover> gate
-and do not treat the work as done until it exits C<0>. Only one coverage run may
-be in flight on a host at a time, because instrumented timing-sensitive tests
-misread under contention.
-
-GitHub workflow coverage gates must match the C<Devel::Cover> C<Total> summary
-line by regex rather than one fixed-width spacing layout, because runner or
-module upgrades can change column padding without changing the real
-C<100.0 / 100.0 / 100.0> result. The tag-driven GitHub release workflow must also install C<Devel::Cover>
-before it runs that numeric coverage gate, or the signed-release path can
-fail before any release assets are published. The GitHub release tag path is intentionally decoupled from the repository's
-GitHub Actions CPAN upload workflow.
-
-Push a C<vX.XX> tag so the tag-triggered GitHub release workflow can publish
-the signed release. It publishes the distribution tarball, checksum, and
-detached signature assets, together with build provenance. The provenance
-asset ends in C<.intoto.jsonl> and supports OpenSSF Scorecard's
-C<Signed-Releases> check. Tag pushes use the signed GitHub release path, while
-any GitHub-hosted CPAN upload remains a
-manual C<workflow_dispatch> action so an ordinary release tag cannot perform an
-unasked PAUSE upload behind the operator's back. A local C<dzil release> is a
-separate, explicitly invoked PAUSE upload path.
-
-Run the live Scorecard check after local gates and after the commit and push.
-Use the authenticated C<git-push-mf> helper when it is configured. The
-enforcement loop is: fix -> test -> commit -> push -> rerun scorecard. Do not treat Scorecard as a pre-commit local gate; it evaluates the pushed state.
-
-The coverage-closure suite includes managed collector loop start/stop paths
-under C<Devel::Cover>, including wrapped fork coverage in
-C<t/14-coverage-closure-extra.t>, so the covered run stays green without
-breaking TAP from daemon-style child processes. The C<t/07-core-units.t> collector loop guard treats both
-C<HARNESS_PERL_SWITCHES> and C<PERL5OPT> as valid C<Devel::Cover> signals,
-because this machine uses both launch styles during verification.
-
-The runtime-manager coverage cases also use bounded child reaping for stubborn
-process shutdown scenarios, so C<Devel::Cover> runs do not stall indefinitely
-after the escalation path has already been exercised. The focused skill regression in C<t/19-skill-system.t> now also exercises
-C<PathRegistry::installed_skill_docker_roots()> directly, including the
-default enabled-only view and the explicit C<include_disabled =E<gt> 1> path,
-so skill docker layering changes do not silently pull the C<lib/> total below
-the required C<100.0 / 100.0 / 100.0>.
-
-The focused web coverage suites must also call low-traffic
-C<Developer::Dashboard::Web::App> compatibility helpers directly when their
-other execution path would only be indirect route fan-out. That is now part
-of the reviewed contract for the C</apps> redirect helper, the singleton stop
-helper, the shipped shim asset responses, and the installed-distribution
-C<File::ShareDir> asset-root fallback, so GitHub-hosted C<Devel::Cover> runs
-cannot drift below the local C<100.0 / 100.0 / 100.0> result for
-C<lib/Developer/Dashboard/Web/App.pm>.
-
-The packaged C<t/09-runtime-manager.t> fallback assertions also stub ambient
-managed-web discovery explicitly, so tarball and PAUSE installs do not get
-contaminated by unrelated live dashboard-shaped processes already running on
-the host. Release kwalitee is also a hard tarball-level gate. After C<dzil build>, run:
+After building a distribution, check its release metadata and kwalitee with:
 
   prove -lv t/36-release-kwalitee.t
 
-That gate analyses the built C<Developer-Dashboard-X.XX.tar.gz> with
-C<Module::CPANTS::Analyse> and fails unless every reported kwalitee indicator
-passes. It also fails if stale unpacked C<Developer-Dashboard-X.XX/> build
-directories remain beside the current tarball, so artefact cleanup is now an
-enforced release invariant instead of a manual habit. Do not trust
-source-tree kwalitee probes for this repository; use the built tarball
-because that is the artefact PAUSE and CPANTS actually inspect.
-
-The CPANTS
-modules used by this gate stay release-only and must not leak into the
-generated install-time test prerequisites for blank-environment C<cpanm>
-verification. The post-build smart-router two-stage Docker guard also retries one transient
-C<cpanm> fetch or unpack failure inside its container, so one corrupt upstream
-download does not masquerade as a deterministic packaging regression in the
-repository itself.
-
-Tests that depend on a missing or empty environment variable now establish that
-state explicitly inside the test file, rather than assuming the parent shell
-or install harness starts clean.
-
-The JavaScript fast-check wrapper is a source-tree fuzz gate: it runs when
-C<node>, C<npm>, C<package.json>, and C<package-lock.json> are all present, and
-it skips in packaged install-test trees that do not ship those checkout-only
-JavaScript manifests.
-
-Security review is also a hard verification gate. This repository now treats
-OWASP as a full gate rather than a baseline-only spot check: every
-security-sensitive change must complete an OWASP ASVS 5.0.0 applicability
-review across V1 through V14, use ASVS Level 2 rigor as the default floor,
-and escalate to Level 3 review when the change touches higher-trust surfaces
-such as authentication, session handling, cryptographic handling, release
-signing, or externally callable API routes.
-
-The same review must also map the
-change against the OWASP Top 10 2021 categories, with explicit attention to
-C<A01 Broken Access Control>, C<A02 Cryptographic Failures>,
-C<A03 Injection>, C<A04 Insecure Design>,
-C<A05 Security Misconfiguration>, C<A06 Vulnerable and Outdated Components>,
-C<A07 Identification and Authentication Failures>,
-C<A08 Software and Data Integrity Failures>,
-C<A09 Security Logging and Monitoring Failures>, and
-C<A10 Server-Side Request Forgery>.
-
-The shipped security review now also keeps a dedicated OWASP compliance SOW
-and evidence matrix. That record exists so the project can distinguish
-between the currently safe public wording, which is OWASP-aligned or
-OWASP-gated, and the stronger blanket phrase C<OWASP compliant>. Do not use
-the stronger phrase until the chapter-by-chapter evidence record, repo-side
-audit set, and remaining governance gates are all closed together.
-
-For the local repo-side evidence, run the grep-based auth/session, redirect,
-traversal, command-execution, header, and raw-SQL checks from the shipped
-security verification guidance, then keep the focused web and SSL regressions
-green:
-
-  rg -n "LWP::Simple|HTTP::Tiny|JSON::PP|capture_merged" bin lib t
-  rg -n "companies house|\\bewf|xmlgw|chips|tuxedo|\\bchs|grover|cidev|pbs|password=|dsn=" bin lib README doc t
-  rg -n "X-Content-Type-Options|nosniff|Content-Security-Policy|X-Frame-Options|Referrer-Policy|SameSite=Strict|HttpOnly" lib doc SECURITY
-  rg -n "Transient token URLs are disabled|_transient_url_tokens_allowed|verify_user|login_response|_session_cookie" lib/Developer/Dashboard/Web lib/Developer/Dashboard/Auth.pm
-  rg -n "DBI->connect|\\$dbh->prepare\\(\\$sql\\)|table_info|column_info" bin/dashboard lib t
-  rg -n "_sanitize_redirect_target|Location|redirect" lib/Developer/Dashboard/Web lib t
-  rg -n "\\.\\./|rel2abs|dashboards/public|dashboards/ajax|skills/.+/dashboards" lib/Developer/Dashboard/Web lib t
-  rg -n "system\\(|exec\\(|open STDOUT|open STDERR|timeout_ms|alarm\\(" lib/Developer/Dashboard/ActionRunner.pm lib/Developer/Dashboard/CollectorRunner.pm lib/Developer/Dashboard/Web/Server.pm t
-  prove -lv t/08-web-update-coverage.t t/web_app_static_files.t t/17-web-server-ssl.t
-
-From a source checkout, for fast saved-bookmark browser regressions, run the
-dedicated smoke script:
-
-  integration/browser/run-bookmark-browser-smoke.pl
-
-That host-side smoke runner creates an isolated temporary runtime, starts the
-checkout-local dashboard, loads one saved bookmark page through headless
-Chromium, and can assert page-source fragments, saved C</ajax/...> output, and
-the final browser DOM. With no arguments it runs the built-in Ajax
-C<foo.bar> bookmark case. For a real bookmark file, point it at the saved file
-and add explicit expectations:
-
-  integration/browser/run-bookmark-browser-smoke.pl \
-    --bookmark-file ~/.developer-dashboard/dashboards/test \
-    --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=text')" \
-    --expect-ajax-path /ajax/foobar?type=text \
-  --expect-ajax-body 123 \
-  --expect-dom-fragment '<span class="display">123</span>'
-
-From a source checkout, for Windows-targeted changes, also run the Strawberry
-Perl smoke on a Windows host:
-
-  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz
-  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz -UseInstallBootstrap -BootstrapScript C:\path\install.ps1
-
-Before calling a release Windows-compatible from the source checkout, also run
-the same smoke through the host-side Windows VM helper:
-
-  WINDOWS_QEMU_ENV_FILE=.developer-dashboard/windows-qemu.env \
-  integration/windows/run-host-windows-smoke.sh
-
-That helper keeps the Windows VM path rerunnable by loading a reusable env
-file, rebuilding the latest tarball when needed, and then delegating to the
-checked-in QEMU launcher. The supported baseline on Windows is PowerShell plus
-Strawberry Perl. Git Bash is optional. Scoop is optional. They are setup
-helpers only. In the Dockur-backed path, the launcher can resolve the latest
-64-bit Strawberry Perl MSI from Strawberry Perl's official C<releases.json>
-feed so the env file does not need a pinned installer URL for every rerun.
-
-That same Windows guest smoke can install the tarball with C<cpanm --notest>
-for third-party dependency setup while still running the full Developer
-Dashboard CLI, collector, Ajax, web, and browser smoke afterward.
-
-When the
-checkout bootstrap is part of the change, the Windows smoke also runs
-F<install.ps1> through a streamed C<Invoke-Expression> wrapper with the staged
-tarball passed through the literal C<DD_INSTALL_CPAN_TARGET> environment
-variable so the guest matches the operator flow of C<irm .../install.ps1 | iex>
-while still overriding the default GitHub C<master> checkout clone with the
-exact staged tarball under test.
-
-=head2 Historical Performance and Verification Notes
-
-Historical profiling runs and coverage snapshots are archived separately.
-They are records of earlier measurements, not claims about current performance
-or test status. Current development checks are listed in L</Testing And Coverage>.
+Security-sensitive changes also require the review described in
+C<SECURITY_CHECKS.md>. That guide covers the OWASP ASVS review and repository
+security checks. Use C<SCORECARD_ACTIONS.md> for the post-push Scorecard
+workflow. The full contribution and release sequence is in C<CONTRIBUTING.pod>.
 
 =head1 SEE ALSO
 

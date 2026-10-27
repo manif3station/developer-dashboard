@@ -36,13 +36,12 @@ only where they help someone install, extend, or embed it.
   capability map, and direct links to installation and first run.
 - Put the practical manual before the feature reference and API namespace
   material, so readers can reach setup without scanning advanced topics first.
-- Split 52 long POD paragraphs into shorter paragraphs. The remaining long
+- Split long POD paragraphs into shorter paragraphs. The remaining long
   rendered blocks are command examples or bullet lists, which are already
   visually structured.
 - Keep detailed feature and platform behaviour in its relevant reference
   section rather than repeating it in the product overview.
-- Move the historical Problem 48 verification record under maintainer guidance
-  and label it as an archived 6.03 record so its run-specific measurements are
+- Remove run-by-run benchmark and gate snapshots from the README so they are
   not mistaken for current performance or test status.
 
 ## Proposed reader order
@@ -70,3 +69,14 @@ path. Regenerate `README.md` from the POD after source edits.
   than an unrelated MetaCPAN page.
 - Removed implementation-status detail from the opening overview and grouped
   contributor instructions under a maintainer heading.
+
+## Follow-up readability correction
+
+The first committed rewrite still left the maintainer section too dense. The
+follow-up reduces it to labelled build, test, coverage, integration, release,
+and security steps, with detailed procedures pointed to their dedicated
+references. It also removes the run-by-run verification prose from the README.
+
+An audit of the generated README found no prose paragraph over 75 words.
+Command examples remain in standalone code blocks and feature steps use
+headings or lists.
