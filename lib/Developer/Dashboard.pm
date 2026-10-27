@@ -172,8 +172,7 @@ snapshot as the installer rather than relying on an older published release.
 On Unix-like systems, the installer uses the package manifest for the host
 (Debian-family, Alpine, Fedora, or macOS) to install system prerequisites. It
 then prepares a user-local Perl environment, installs Developer Dashboard,
-configures shell integration, and runs C<dashboard init>. When streamed
-without a checkout, it uses embedded package lists and a temporary checkout.
+configures shell integration, and runs C<dashboard init>.
 
 The installer displays progress and may ask for the operating-system password
 when a system package manager requires elevated access. It prepares the
@@ -313,7 +312,9 @@ followed by a dot offers that skill's config aliases and listed module aliases;
 only the named skill's module is loaded for this completion. That runtime merge
 is read-only; C<dashboard path add> continues to write to config, and a config alias overrides a collision
 with a module method. When a project-local F<./.developer-dashboard> tree exists, alias
-writes go there first; otherwise they go to the home runtime. Under
+writes go there first; otherwise they go to the home runtime.
+
+Under
 C<DD-OOP-LAYERS>, that write stays local to the deepest participating layer:
 adding one child-layer alias does not copy inherited parent C<config.json>
 domains into the child file.
@@ -448,7 +449,9 @@ During one C<all_paths> inventory or path CLI operation, ancestor runtime
 layers are discovered once and reused by path resolution and permission checks;
 the result is discarded at the operation boundary so later operations see
 runtime-layer creation and removal. If you need a collector store from the same Folder-derived runtime roots, call
-C<Developer::Dashboard::Collector-E<gt>new_from_all_folders>. If you need the whole C<dashboard files> payload in Perl, call
+C<Developer::Dashboard::Collector-E<gt>new_from_all_folders>.
+
+If you need the whole C<dashboard files> payload in Perl, call
 C<Developer::Dashboard::File-E<gt>all> or
 C<Developer::Dashboard::FileRegistry-E<gt>all_files> instead of rebuilding the
 hash by hand.
@@ -696,10 +699,11 @@ line and seeding the next sensible directive.
 
 Edit and source views preserve raw Template Toolkit placeholders inside
 C<HTML:> sections, so values such as C<[% title %]> are kept in the bookmark
-source instead of being rewritten to rendered HTML after a browser save.
-Template Toolkit rendering exposes the page title as C<title>, so a bookmark
+source instead of being rewritten to rendered HTML after a browser save. Template Toolkit rendering exposes the page title as C<title>, so a bookmark
 with C<TITLE: Sample Dashboard> can reference it directly inside C<HTML:>
-with C<[% title %]>. Transient play and view-source links are also encoded
+with C<[% title %]>.
+
+Transient play and view-source links are also encoded
 from the raw bookmark instruction text when it is available, so
 C<[% stash.foo %]> stays in source views instead of being baked into the
 rendered scalar value after a render pass.
@@ -970,7 +974,9 @@ renders an explicit status glyph in front of the collector icon, so
 successful checks show fragments such as C<✅🔑> while failing or not-yet-run
 checks show fragments such as C<🚨🔑>. Under C<DD-OOP-LAYERS>, a deeper child layer no longer pins an inherited
 collector indicator at that default C<missing> placeholder just because the
-child runtime has its own F<.developer-dashboard/> folder. If the child layer
+child runtime has its own F<.developer-dashboard/> folder.
+
+If the child layer
 does not override that collector config and only has the placeholder state,
 dashboard now falls back to the nearest inherited real collector state such
 as a parent-layer C<ok> result instead of turning the same indicator red.
@@ -1039,7 +1045,9 @@ Service names emitted by Compose must be non-empty single path segments;
 names containing separators or directory-navigation segments are rejected
 before runtime folders are searched. If any matching C<config/docker/E<lt>serviceE<gt>> directory in the active
 runtime layers contains C<disabled.yml>, the service is skipped. Each enabled isolated folder
-contributes C<compose.yml> as its base whenever it exists. Its optional
+contributes C<compose.yml> as its base whenever it exists.
+
+Its optional
 C<development.compose.yml> is layered after the base only when C<develop.yml>
 exists in any matching service folder across those layers; without a marker,
 the development file is ignored even when present.
@@ -1066,7 +1074,9 @@ If the invocation directory contains C<compose.yml>, C<compose.yaml>,
 C<docker-compose.yml>, or C<docker-compose.yaml>, those local files are the
 base stack and the Compose command runs from that directory. For execution,
 the first C<docker compose config> runs against the base and other configured
-non-service layers. Its resolved services—not service names guessed from
+non-service layers.
+
+Its resolved services—not service names guessed from
 command arguments—control isolated-service lookup across home, project, and
 nested skill runtime roots. The selected service files are added only after
 that first config succeeds; disabled folders are excluded and development
@@ -1138,7 +1148,9 @@ F<config/docker/> root.
 
 Nested skill services additionally export the full
 cumulative skill path alias such as C<foo_bar_zzz_DDDC> for the same compose
-root, while the leaf alias stays available as C<zzz_DDDC>. When one or more Compose services are explicitly selected, skill env files
+root, while the leaf alias stays available as C<zzz_DDDC>.
+
+When one or more Compose services are explicitly selected, skill env files
 are resolved only for those selected services during interpolation; unrelated
 skill service folders cannot replace a selected service's same-named env key
 merely because they are enumerated later. If no selected service is present
@@ -1209,7 +1221,9 @@ C<WORKSPACE_REF> or the older
 C<TICKET_REF> into the current tmux session, C<dashboard ps1> also reads that
 context from tmux when the shell environment does not already export it, but it
 skips that tmux probe entirely when the shell is not inside tmux. The branch marker preserves every component of a local branch such as
-C<team/feature>. If HEAD is detached at a commit that matches an
+C<team/feature>.
+
+If HEAD is detached at a commit that matches an
 C<origin> remote-tracking ref, the marker shows C<origin/team/feature> unless
 the same-named local branch points to the same commit; only then is the
 redundant C<origin/> prefix omitted.
@@ -1258,7 +1272,9 @@ C<_dashboard_complete_zsh>, and PowerShell registers
 C<Register-ArgumentCompleter> for both command names. Completion candidates
 come from the live runtime instead of a hardcoded shell list, so built-in
 commands, layered custom CLI commands, and installed dotted skill commands
-all show up in suggestions. For bash, the generated helper captures
+all show up in suggestions.
+
+For bash, the generated helper captures
 completion payloads first instead of relying on process substitution, which
 keeps completion responsive on macOS and inside packaged install-test shells.
 
@@ -1360,7 +1376,9 @@ The two cross-site checks above sit at one choke point that runs before trust
 tier classification, because the loopback-admin tier authorises on the remote
 address alone: there is no cookie in that decision, so C<SameSite=Strict>
 protects nothing there and any page the operator visits would otherwise reach
-an already-authorised dashboard. The fetch-metadata half covers C<GET> because
+an already-authorised dashboard.
+
+The fetch-metadata half covers C<GET> because
 C<GET> is not a safe method on this product — C</ajax/E<lt>fileE<gt>> runs an
 operator-written saved handler as a child process from a plain C<GET> — while
 C<Origin> is frequently absent on a C<GET> and C<Referer> can be suppressed by
@@ -1393,7 +1411,9 @@ canonical aliases: C</app/E<lt>skillE<gt>/edit> and nested forms such as
 C</app/E<lt>skillE<gt>/E<lt>sub-skillE<gt>/edit> load the underlying skill
 bookmark source, C</app/E<lt>skillE<gt>/source> returns the raw skill
 bookmark text, and Play keeps the browser on the smart route alias instead of
-collapsing to the underlying C<BOOKMARK: index> id from the skill file. Bookmark parsing also treats a standalone C<---> line as a section
+collapsing to the underlying C<BOOKMARK: index> id from the skill file.
+
+Bookmark parsing also treats a standalone C<---> line as a section
 break, preventing pasted prose after a code block from being compiled into the
 saved C<CODE*> body.
 
@@ -1487,7 +1507,9 @@ C<dashboard stop> stops both the web service and managed collector loops and,
 prints the final lifecycle summary as a terminal table by default or JSON with
 C<-o json>; on an interactive terminal it also prints the full stop task board
 on C<stderr> before work starts so each shutdown step becomes visible instead
-of silent waiting. The shutdown path now also follows the saved managed
+of silent waiting.
+
+The shutdown path now also follows the saved managed
 listener port back to the real listener pid when the live web process has
 renamed itself into a C<starman master> shape, so minimal Docker runs still
 stop the actual serving process instead of leaving the listener behind.
@@ -1688,7 +1710,9 @@ F<share/seeded-pages/>, and the shipped helper scripts live under
 F<share/private-cli/>, so neither bookmark bodies nor helper script bodies
 are embedded directly in the command script. Installed copies resolve the same seeded pages and helper assets from the
 distribution share directory, so C<dashboard init> works after a C<cpanm>
-install and not just from a source checkout. Those helper-backed built-ins
+install and not just from a source checkout.
+
+Those helper-backed built-ins
 also rewrite their live process title to C<developer-dashboard ...>, so
 process listings stay aligned with the public command names instead of
 exposing the staged helper path.
@@ -1701,7 +1725,9 @@ C<PERL5LIB>.
 
 C<dashboard cpan E<lt>Module...E<gt>> installs optional Perl modules into the
 active runtime-local F<./.developer-dashboard/local> tree and appends matching
-C<requires 'Module';> lines to F<./.developer-dashboard/cpanfile>. The command
+C<requires 'Module';> lines to F<./.developer-dashboard/cpanfile>.
+
+The command
 stays implemented in the C<dashboard> entrypoint rather than introducing a
 separate CPAN manager product module, and saved Ajax workers infer the
 same runtime-local C<local/lib/perl5> path directly from the active runtime
@@ -1771,7 +1797,9 @@ Git sources are cloned. Direct local checked-out directories are synced in
 place instead of recloned, using C<rsync> when it is available and the
 built-in Perl tree-copy fallback when it is not. That means
 C<dashboard skills install> also acts as reinstall and update for an already
-installed skill. A direct local directory is only accepted when it is a
+installed skill.
+
+A direct local directory is only accepted when it is a
 checked-out Git repository with a F<.git/> directory plus a F<.env> file that
 declares C<VERSION=...>; otherwise the install is rejected. The installed
 copy lives in its own isolated skill root under the deepest participating
@@ -1822,7 +1850,9 @@ C<dashboard skills install --ddfile> reads dependency manifests from the
 current directory instead of taking one explicit skill source. If F<ddfile>
 exists there, each listed source installs into the base home-layer skills root
 at F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/> even when the command
-is run inside a deeper child F<.developer-dashboard/> layer. If F<ddfile.local>
+is run inside a deeper child F<.developer-dashboard/> layer.
+
+If F<ddfile.local>
 exists there, each listed source installs into the current directory's nested
 F<skills/E<lt>repo-nameE<gt>/> tree instead. When both manifests are present,
 the command processes F<ddfile> first and F<ddfile.local> second.
@@ -2295,6 +2325,7 @@ C</js/E<lt>repo-nameE<gt>/...>, C</css/E<lt>repo-nameE<gt>/...>, and
 C</others/E<lt>repo-nameE<gt>/...>, with nested child skills extending those
 same prefixes under C</js/.../E<lt>sub-skillE<gt>/...>,
 C</css/.../E<lt>sub-skillE<gt>/...>, and C</others/.../E<lt>sub-skillE<gt>/...>.
+
 Optional C<config/routes.json> metadata can also publish canonical custom
 C</js>, C</css>, and C</others> paths for those same assets, but the smart
 C</js/...>, C</css/...>, and C</others/...> routes still stay the parent
@@ -2715,7 +2746,9 @@ request into full local-admin access
 
 In practice that means the developer at the machine gets friction-free local
 admin access, while shared or forwarded access is forced through explicit
-helper accounts. Helper passwords use PBKDF2-HMAC-SHA256 with 210,000 iterations. When
+helper accounts. Helper passwords use PBKDF2-HMAC-SHA256 with 210,000 iterations.
+
+When
 FFI::Platypus and a compatible system OpenSSL C<libcrypto> are available, the
 same derivation runs through OpenSSL's native PBKDF2 function; this preserves
 the existing salts, stored hashes, and verification format. If the native
@@ -3179,7 +3212,9 @@ parent resolvers:
 C</app/example-skill/...>, C</ajax/example-skill/...>,
 C</js/example-skill/...>, C</css/example-skill/...>, and
 C</others/example-skill/...> are always checked first, and any declared custom
-path is checked only after the normal smart route misses. Runtime-level custom
+path is checked only after the normal smart route misses.
+
+Runtime-level custom
 paths from the active C<config/routes.json> layer chain follow the same
 fallback rule against the built-in C</app>, C</ajax>, C</js>, C</css>, and
 C</others> route handlers. If neither the smart route nor the custom path
@@ -3284,7 +3319,9 @@ bookmark source inside the editor instead of spilling raw text below the page.
 Saved browser workspaces can also show a request-specific token form above the
 editor whenever the current request uses C<{{token}}> placeholders, carrying
 those token values across matching placeholders in the same workflow so later
-requests can reuse the operator-supplied values without manual copy-and-paste. Bookmark rendering now emits saved C<set_chain_value()> bindings after
+requests can reuse the operator-supplied values without manual copy-and-paste.
+
+Bookmark rendering now emits saved C<set_chain_value()> bindings after
 the bookmark body HTML, so pages that declare C<var endpoints = {}> and then
 call helpers from C<$(document).ready(...)> receive their saved C</ajax/...>
 endpoint URLs without throwing a play-route JavaScript C<ReferenceError>.
@@ -3365,7 +3402,9 @@ and supported option flags. Bash and zsh call the live C<dashboard complete>
 helper, so their candidates stay aligned with the command catalogue rather than
 maintaining separate shell-side action lists. Existing dynamic completions for
 skills, workspace sessions, collectors, and workspace path aliases remain
-available. When a skill with the same name exists in project and home runtime
+available.
+
+When a skill with the same name exists in project and home runtime
 layers, its dotted command candidates are merged from every participating
 layer and duplicate command names appear once; execution still uses the
 normal deepest-layer lookup.
@@ -3884,10 +3923,6 @@ C<Developer-Dashboard-X.XX.tar.gz> artefact after the build.
 The built distribution also ships a plain F<README> companion so CPAN and
 kwalitee consumers still receive a top-level readme without re-including the
 checkout-only documentation set.
-The repository's archival and C++ workspaces (F<Archive/>, F<OldFiles/>, and
-F<CODE/>) are pruned from the Perl distribution so nested repositories,
-operator data, and the parallel implementation cannot be gathered into the
-Perl release tarball.
 
 To publish the built distribution to PAUSE, first complete the repository's
 release gates and configure PAUSE credentials outside the checkout, then run
@@ -3934,7 +3969,9 @@ F<~/.developer-dashboard/cli/dd/>. Dedicated helper bodies are used for
 C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, C<xmlq>, C<of>,
 C<open-file>, C<workspace>, C<path>, C<paths>, and C<ps1>, while the remaining
 built-in commands stage thin wrappers that delegate into the shared private
-C<_dashboard-core> runtime. Under C<DD-OOP-LAYERS>, layered lookup still
+C<_dashboard-core> runtime.
+
+Under C<DD-OOP-LAYERS>, layered lookup still
 applies to user-provided commands and hook directories, but C<dashboard init>
 does not copy those built-in helpers into child project layers.
 
@@ -3982,7 +4019,9 @@ the packaged short-entrypoint dispatch, not only the checkout-local scripts.
 The repository's C<d2 docker.images.build> workflow also installs the archive
 into the image's active local Perl library, so the rebuilt image runs the same
 release version rather than an older bootstrap copy shadowing the system
-library. The blank-environment verifier reads the expected version from the extracted
+library.
+
+The blank-environment verifier reads the expected version from the extracted
 distribution C<META.yml>, because the public module delegates C<$VERSION> to
 C<Developer::Dashboard::Version>; it retains a literal-module fallback for
 older archives. This keeps the install gate aligned with the distribution
@@ -4106,7 +4145,9 @@ generated install-time test prerequisites for blank-environment C<cpanm>
 verification. The post-build smart-router two-stage Docker guard also retries one transient
 C<cpanm> fetch or unpack failure inside its container, so one corrupt upstream
 download does not masquerade as a deterministic packaging regression in the
-repository itself. Tests that depend on a missing or empty environment variable now establish that
+repository itself.
+
+Tests that depend on a missing or empty environment variable now establish that
 state explicitly inside the test file, rather than assuming the parent shell
 or install harness starts clean.
 
@@ -4196,7 +4237,9 @@ feed so the env file does not need a pinned installer URL for every rerun.
 
 That same Windows guest smoke can install the tarball with C<cpanm --notest>
 for third-party dependency setup while still running the full Developer
-Dashboard CLI, collector, Ajax, web, and browser smoke afterward. When the
+Dashboard CLI, collector, Ajax, web, and browser smoke afterward.
+
+When the
 checkout bootstrap is part of the change, the Windows smoke also runs
 F<install.ps1> through a streamed C<Invoke-Expression> wrapper with the staged
 tarball passed through the literal C<DD_INSTALL_CPAN_TARGET> environment
@@ -4204,380 +4247,12 @@ variable so the guest matches the operator flow of C<irm .../install.ps1 | iex>
 while still overriding the default GitHub C<master> checkout clone with the
 exact staged tarball under test.
 
-The following entries are retained as a historical record from the 6.03 documentation snapshot. Their benchmark and test figures describe those runs only; they are not current performance claims or a substitute for the verification results for the current checkout.
+=head2 Historical Performance and Verification Notes
 
-
-The configuration snapshot now builds its private environment-selection key
-with a versioned length-prefixed representation instead of constructing and
-pretty-encoding a nested JSON structure on every request. Missing, undefined,
-and defined environment values remain distinct. Red-first Docker coverage in
-C<t/03-web-app.t> passes 527 assertions; nine alternating direct-method
-samples measured a 1.34x helper improvement. Seven paired route samples
-preserved the exact response hash, but current-source median latency improved
-only 2.2% and only four of seven pairs favored the new code; no stable route
-gain is claimed. This does not establish 50x for every subroutine.
-
-C<Web::App::_normalized_saved_page_id> now returns canonical flat ASCII ids
-directly, avoiding the trim helper and prefix-removal expressions; nested,
-prefixed, whitespace-bearing, Unicode, and other values retain the established
-normalisation path. Red-first Docker tests required the canonical case to skip
-C<_trim> and verified fallback behaviour. The focused web-app and page-id
-benchmark tests pass 548 assertions. Three paired saved-page route comparisons
-preserved the same HTTP 200 response and SHA-256; medians improved from
-0.422330 to 0.347531 ms/request (1.21x) for the tested fixture. This is not a
-50x result for every subroutine.
-
-A fresh five-run Docker comparison of the same saved-page route used 20 saved
-nav fragments, 100 literal skill-nav fragments, and 50 indicators. The v5.88
-source median was 117.586670 ms/request and the current-source median was
-0.345440 ms/request (340.3x for this fixture); both returned HTTP 200, 19,341
-bytes, and the same SHA-256. These were separate-process five-run medians, not
-alternating pairs, and the cumulative route difference is not attributed to
-one optimisation. It does not prove 50x for every subroutine or platform.
-
-The latest complete Docker coverage gate passed all 285 test files and 25,326
-tests with statement, branch, condition, and subroutine coverage at 100.0%
-across C<lib/> (51,685 detail rows; no stale uncoverable annotations). Optional
-browser, Windows QEMU, CPANTS, POD, and audit-tool checks were skipped because
-their optional dependencies or runtime setup were unavailable. Test fixtures
-also emitted expected negative-case diagnostics on stderr; all test results
-passed.
-
-The
-required C<perldoc -T perlsec> command could not render because the image lacks
-a POD text formatter; the installed core C<perlsec.pod> was read directly.
-The latest NYTProf profile used 100 requests with 20 saved-nav fragments, 100
-literal skill-nav fragments, and 50 indicators, preserving the exact HTTP 200
-response and SHA-256. Its instrumented time was 1.661699 ms/request; the
-largest exclusive totals were C<PathRegistry::_ensure_state_dir> (11.3 ms over
-300 calls), C<Web::App::_nav_items_html> (8.67 ms over 100 calls),
-C<Web::App::_render_page_html> (7.65 ms), C<PathRegistry::state_base_root>
-(4.82 ms), and C<Web::App::_top_chrome_html> (4.48 ms).
-
-These overlapping
-profile totals rank follow-up candidates; they are not unprofiled request
-costs. The 100 skill-nav reads and inventory scans were the one-time fixture
-warmup across 100 skills, not repeated reads per request. Permissions, watcher
-freshness, and runtime-layer visibility remain unchanged. Instrumented timings
-are diagnostic only and do not prove 50x for every subroutine. The
-matched v5.88 profile showed C<Web::App::_nav_items_html> exclusive time
-decreasing from 32.8 ms over 10 requests to 8.67 ms over 100 (37.8x by request
-contribution).
-
-C<PathRegistry::_ensure_state_dir> decreased from 53.5 ms over
-10 requests to 11.3 ms over 100 (47.3x contribution), with calls reduced from
-12,600 to 300; its implementation remains unchanged because the directory
-permission check is required. An existing-directory fast-stat candidate
-measured only 1.015x in a direct microbenchmark and was not adopted. These
-profile comparisons are directional rather than alternating pairs, so the
-50x-per-subroutine target remains open.
-
-The navigation renderer now appends
-ordered saved and skill fragments directly to one scalar and wraps the result
-once, rather than allocating an item array and joining it. Red-first Docker
-tests pin exact wrapper markup. A 10-million-call synthetic Docker comparison
-measured 1.68x with exact output parity; a warmed full-route run retained
-identical response bytes at 0.342350 ms/request, so no route-wide gain is
-claimed.
-
-On cache misses, saved fragments are also accumulated directly into
-the cacheable scalar instead of a temporary array and join. Exact output and
-cache-content Docker tests pass. A 20-fragment helper benchmark measured 2.09x;
-the full route changed from 0.346990 to 0.341589 ms/request (1.016x), within
-noise, so this is an allocation reduction rather than a claimed route speedup.
-The
-top-chrome prompt summary now formats indicator rows directly with C<map> and
-C<join>, avoiding an intermediate copy of the status array and a second parts
-array.
-
-A 50-indicator Docker microbenchmark measured a 1.09x helper gain with
-ordered Unicode output parity; this has not produced a measurable full-route
-gain. The
-summary also reuses its worker-local rendered text only after collector
-configuration and indicator freshness validation confirms the inventory is
-unchanged; an external status-file edit or a status-route collector sync that
-changes configured indicators invalidates it. Focused Docker suites
-pass; a red-first status-route regression is covered by C<t/03-web-app.t> and
-C<t/668-problem48-status-response-cache.t>.
-
-The combined C<t/03>, C<t/105>, and
-C<t/668> suites pass 1,101 assertions. With 50 indicators on a
-100-skill/20-saved-nav fixture, the
-saved-page route measured 1.117690 ms/request without summary reuse and
-0.435739 ms/request with it (2.56x), preserving the exact 19,341-byte response.
-NYTProf showed C<list_indicators> calls falling from 704 to 2. With the native
-watcher disabled, the portable freshness path preserved the same response but
-showed no measurable speedup.
-
-This remains a workload-specific gain, not proof
-of 50x for every routine.
-NYTProf also attributed about 14.7 ms across 703 calls to the two host
-normalisation substitutions in C<Web::App::_top_context_html>. Characterisation
-tests preserve exact lowercase HTTP/HTTPS, uppercase-scheme, unsupported-scheme,
-port, and path behaviour. Replacing those substitutions with prefix checks and a
-single C<index> truncation measured 108.739 ms for the regex path and 82.475 ms
-for the prefix/index path over nine alternating 250,000-call Docker samples
-(1.32x), with exact parity.
-
-The saved-page response stayed HTTP 200 with the
-same 19,341-byte body and SHA-256
-C<a3c1df9346d5b1c2942fbec1354e2dbb8dcc268e0e148107787197635a7ed331>; its
-0.346200 ms/request result is not attributed to this helper. This narrow gain
-does not establish the all-subroutine 50x objective.
-After the status-route invalidation fix, the same fixture measured 0.362170
-ms/request over nine runs, with the exact same response bytes and hash. This is
-within route-timing variation and is not attributed as a speedup.
-
-The refreshed 100-request NYTProf map retained the same route response and
-ranked C<_request_config_snapshot> (7.17 ms exclusive),
-C<PathRegistry::runtime_layers> (4.31 ms), request dispatch (4.18 ms), and
-C<runtime_layer_root_for> (4.14 ms) highest among dashboard routines.
-C<_top_context_html> measured 1.20 ms exclusive after the host parsing change.
-Its instrumented route median was 1.485679 ms/request versus 0.372620
-unprofiled; these diagnostic timings are not production latency or proof of
-per-subroutine speedups.
-
-The next investigation is to isolate safe runtime-layer
-and request-snapshot costs while preserving their freshness guarantees.
-The
-status route
-reuses normalised indicator
-projections in its watcher-validated configuration snapshot, including the
-checker filter in the environment signature; two reverse-order comparisons
-measured 1.29x and reduced projections from 2,103 to 1.
-
-Saved-page rendering now retains the supplying dashboard layer for each nav
-id, avoiding a search across every saved-page root. The deepest matching layer
-wins just as it does in the saved-page resolver; custom resolvers remain
-authoritative. Literal HTML nav fragments
-use a per-store cache bounded to 128 entries and 4 MiB, keyed by high-resolution
-file identity. Every hit still validates configured-root membership, path
-containment, and regular-file identity; edits are seen on the next request,
-symlinks are rejected, and dynamic TT or structured fragments still follow the
-normal parser and renderer.
-
-Docker tests verify exact output and cache
-invalidation. The matched five-fragment saved-page route medians were 3.711650
-ms on v5.88 and 0.531738 current (6.98x); after confirming deepest-layer and
-custom-resolver compatibility, the 20-fragment medians were 9.256661 and
-0.699711 ms (13.23x). Current no-cache took 1.406310 ms with the same 11,092-byte
-response hash as the cached route. These are route-fixture results,
-not proof that every routine is 50x faster.
-
-Focused Docker tests pass after the
-change, and the latest full coverage gate passes at 100.0% across all four
-library metrics. The saved-page benchmark reports native watcher availability
-and actual saved-nav snapshot hits; its C<--no-native-watch> control exercises
-the portable fallback even when FFI is installed. Distribution tests no longer
-assume the optional FFI backend or a repository-specific response hash. Focused
-Docker suites pass in both native and forced-fallback modes; the rebuilt 6.00
-blank-environment installation and integration now pass.
-
-Lazy watcher loading resolves
-from the module's absolute source path so request-time directory changes cannot
-break relative C<@INC> lookup; the Dancer skill-page regression passed after
-this fix. Remaining Problem 48 performance and delivery checks are open.
-
-The latest NYTProf profile also identified HTML attribute escaping as a hot
-helper. In the Perl fallback, a plain scalar attribute of at least twelve
-characters now returns after checking for HTML metacharacters, instead of
-running the body escaper and quote substitutions. Red-first Docker tests cover
-the plain-string bypass and every metacharacter. The benchmark reference was
-corrected to use the independent pure-Perl body escaper even when XS is loaded.
-
-Measured helper speedups for a common nav ID were 1.63x without XS and 1.80x
-with XS; quote-heavy text was 4.20x with XS. Short quote-heavy source-only
-input measured 0.89x versus the lower-level reference, so the result is
-workload-specific, not a universal speedup. A subsequent full gate found a
-compatibility failure for an unblessed lightweight page-store hash; the direct
-loader now requires a blessed PageStore-compatible object.
-
-A later cache
-hardening fixes a malformed-entry dereference on replacement and eviction, and
-the focused PageStore/web tests pass 646 assertions. Aggregate coverage is now
-100.0% for all four library metrics. Problem 48 and its full delivery audit
-remain open. The uncovered condition was the impossible
-case where both an existing page id and its validated replacement were false;
-the explicit assignment guard now preserves the prior semantics, and focused
-instrumentation reports 100.0% condition coverage for PageStore; the subsequent
-complete aggregate gate also passed at 100.0% across lib/.
-
-Recent route profiling also reduced work in installed-skill navigation. A
-skill's ordered layers are resolved once for fragment enumeration and reuse,
-and bulk PathRegistry skill entries provide top-level layers without a separate
-layer lookup per skill. Nested skill layers still use normal resolution. Raw
-HTML/TT fragments bypass structured instruction parsing while recognised
-modern and previous-format page documents continue through the parser. In two
-alternating Docker comparisons of a route with 20 saved and 50 installed-skill
-fragments, bulk enumeration measured 3.773839 and 3.644860 ms/request; the
-former per-skill path measured 4.254751 and 4.386990 ms/request.
-
-All four runs
-returned the same HTTP 200 response, 14,942-byte body, and SHA-256. The bulk
-path reduced measured skill-layer resolutions from 155,000 to zero. These are
-fixture-specific results, not proof of a 50x speedup for every subroutine. The
-skill-nav renderer also skips PageRuntime for literal HTML fragments, while
-dynamic TT and structured skill pages retain runtime preparation. A red-first
-Docker regression proves the distinction; the same route fixture kept its
-14,942-byte output and measured 3.553019 versus 3.153169 ms/request across 21
-runs of 100 requests (1.13x).
-
-This result is route-specific and leaves the
-all-subroutine target open. The
-full Docker suite
-passed 285 test files and 24,642 tests, with statement, branch, condition, and
-subroutine coverage all at 100.0% across C<lib/> (49,972 detail rows, no stale
-uncoverable annotations). Performance work and the
-remaining security, documentation, packaging, and release checks are still
-open.
-
-Native filesystem event acceleration now has optional backends for Linux
-inotify, macOS FSEvents, and Windows Unicode-aware directory notifications.
-The content-hashing portable validator remains available when a native module
-or watcher is unavailable. The focused Docker watcher test passes 209 tests,
-with 100.0% isolated statement, branch, condition, and subroutine coverage for
-C<IndicatorStore::Watch>. The GitHub Actions matrix exercises these backends
-on Linux x64/arm64, macOS x64/arm64, and Windows x64. A separate Windows
-ARM64 job verifies the native Perl architecture and runs the Windows watcher
-regression; hosted results are pending, and no cross-platform performance
-claim is made.
-
-Portable config validation now shares one installed-skill inventory between
-watch-path construction and the exact-content signature. A red-first Docker
-regression reproduced four skill-inventory lookups on initial cache fill and
-two on a cache hit; the implementation reduces these to two and one while
-retaining the separate post-merge freshness scan. The focused web suite passes
-507 assertions. Matched 100-request NYTProf runs preserved the same HTTP 200
-response, 12,864-byte body, and SHA-256; profiling showed the portable
-signature's inclusive time changing from 18.2 ms to 15.6 ms over 100 requests.
-
-Because this includes profiler overhead and the fixture had no installed
-skills, no route-level speedup is claimed. The all-subroutine 50x target and
-the remaining performance and delivery checks are still open.
-
-C<PageDocument::_html> now uses the shared XS body escaper only for scalar text
-at least 64 characters long with four or more body metacharacters in its first
-16 characters. Plain text returns after metacharacter checks; short or sparse
-text keeps the original Perl replacements and double-quote escaping. Compiled-
-XS Docker tests retained exact output and UTF-8 flags. Seven alternating
-function-level samples measured 11.29x for a 384-character dense fixture,
-1.09x for a short plain value, 1.06x for long plain text, and 0.94x for short
-quote-heavy text (near parity).
-
-Source-only fallback samples ranged from
-0.85x for short quote-heavy text to 1.34x for dense text. This helper-level
-result is not a route-level gain or proof of 50x for every subroutine.
-
-PageStore now checks for U+FFFD before running the three malformed-icon repair
-expressions, leaving ordinary bookmark text unchanged without repeated regex
-work. Focused Docker PageStore and web suites pass in both source-only and
-compiled-XS modes. A matched 100-skill/20-saved-nav fixture returned HTTP 200
-and the same 18,792-byte response (SHA-256
-C<74036c2e3f7001f8d7344b486400e71a9cd62154059f7af2e235ccdb59beb724>). In the
-latest same-fixture Docker rerun, v5.88 measured 69.971821 ms/request, current
-source-only measured 0.717950 ms/request (97.46x), and current with XS measured
-0.773010 ms/request (90.52x).
-
-The compiled extension did not improve this
-route's mixed workload in that sample; the prior faster sample was not
-repeatable and is not used as the current result. The native build succeeds
-when the container's stale, flat C<Storable> local-lib path is excluded from
-C<PERL5LIB>. These are fixture-specific route results, not proof that every
-subroutine is 50x faster. Problem 48 remains in progress.
-
-The common one-section bookmark parser now skips the multi-section split list
-when neither supported separator is present. Red-first Docker tests
-preserve whitespace, multiline bodies, accepted section names, extended
-C<CODE> identifiers, and explicit undef behaviour. Six exact-parity parser
-inputs passed; nine alternating 500,000-call Docker samples measured 1.87x for
-a simple C<TITLE>/C<HTML> section. This helper-specific measurement does not
-prove a route-level gain or the universal 50x objective.
-Problem 48's performance and delivery work remains open.
-
-The source-only HTML fallback now applies undefined normalisation and the
-three body-escape substitutions directly in C<_escape_html>, rather than
-calling the separate Perl reference helper. A red-first Docker test failed on
-that extra dispatch; source-only and compiled-XS regression suites pass with
-exact escaping and overloaded-reference behaviour. Twenty-five alternating
-500,000-call samples for ordinary text measured 175.998 ms through the prior
-fallback and 135.123 ms through the direct path (1.30x).
-
-This applies only
-without XS and is not a route-level or universal subroutine result. The first
-coverage pass found the defined-input branch of the Perl reference helper was
-not exercised after the direct fallback change; a regression was added and the
-complete Docker gate passed 285 files / 25,229 tests with all four library
-metrics at 100.0% (51,571 detail rows, no stale uncoverable annotations).
-
-The current-source 100-skill/20-saved-nav route was then rerun with 100
-requests per sample across nine samples. It returned HTTP 200 and the exact
-18,792-byte response hash from the v5.88 comparison; current measured 0.420060
-ms/request versus the recorded v5.88 median of 135.065870 ms/request (321.54
-times for this route fixture only). This cumulative result is not attributed
-to the fallback change and does not prove 50 times for every subroutine.
-
-A
-NYTProf-ranked `_normalized_page_id` boundary fast path was not retained after
-an alternating benchmark measured 0.45 times for a regex candidate and 1.00
-times for a character-boundary candidate. Problem 48 remains open.
-
-For the browser fetch-metadata guard, requests without a scalar
-C<Sec-Fetch-Site> value now return before lowercasing and trimming. This keeps
-absent, undefined, and reference-valued header shapes non-foreign; scalar
-same-site and cross-site values retain their existing normalisation and
-authorisation checks. The 34-assertion Docker security suite covers these
-cases. Nine alternating direct samples of one million headerless classifier
-calls measured 370.968 ms before and 298.395 ms after (1.24x). This small
-common-case result is not evidence for the 50x-per-subroutine target, which
-remains unproven.
-
-Exact C<same-origin> and C<none> fetch-site labels also return before
-normalisation. Varied casing/spacing and same-site or cross-site labels retain
-the existing checks. The focused Docker suite passes 35 assertions; nine
-alternating samples of one million exact same-origin calls measured 830.125 ms
-before and 442.506 ms after (1.88x versus the preceding absent-header
-optimisation). This remains a narrow path result, not a 50x-per-subroutine
-claim.
-
-After the fetch-metadata changes, the full Docker coverage gate passed all 285
-files and 25,233 tests with 100.0% statement, branch, condition, and subroutine
-coverage across C<lib/> (51,573 detail rows; no stale uncoverable annotations).
-Optional-tool checks skipped by the gate remain outstanding. This test result
-does not prove the all-subroutine 50x performance target or hosted
-cross-platform workflow results.
-
-C<PageDocument::id> returns the stored identifier without constructing the
-complete public page hash. The web renderer now uses this accessor at
-known-document id lookup sites. C<PageDocument::mode> does the same for the
-renderer mode decision. A red-first Docker test confirms the chrome path no
-longer calls C<as_hash>. Nine alternating one-million-call samples measured
-1,010.759 ms for C<as_hash-E<gt>{mode}> and 213.278 ms for C<mode()> (4.74x),
-with exact value parity.
-
-A separate red-first Docker test failed when
-C<as_hash> was replaced with a failing stub during the nav-route short
-circuit; focused PageDocument and web-app suites pass 629 assertions after the
-change. Nine alternating samples of one million reads measured 902.120 ms for
-C<as_hash-E<gt>{id}> and 162.422 ms for C<id()> (5.56x). A matched v5.88/current
-saved-page fixture with 100 skill-nav roots and 20 saved nav fragments retained
-the same HTTP 200 response and measured 58.338089 versus 0.367992 ms/request
-(158.53x for that fixture).
-
-The route result is cumulative and does not prove
-50x for every subroutine. The latest Docker gate passed all 285 files and
-25,242 tests with all four library metrics at 100.0% (51,597 detail rows, no
-stale uncoverable annotations); optional-tool checks remain unverified.
-
-C<PageStore::_validated_page_id> now returns canonical flat ASCII ids before
-prefix stripping and path-component splitting. Prefixes, nested paths,
-whitespace, Unicode, references, and invalid components retain the general
-validation path. Red-first Docker tests cover the fast path and preserved
-validation. Nine alternating million-call samples measured 879.049 ms for the
-previous path and 430.213 ms currently (2.04x). The complete Docker coverage
-gate passed after this change: 285 files, 25,242 tests, 100.0% for all four
-library metrics, and 51,597 detail rows. The all-subroutine 50x target remains
-unproven.
-
+The profiling runs and coverage snapshots retained from the 6.03 work are
+archived in F<doc/problem-48-performance-research.md>.
+They are historical records, not claims about current performance or test
+status. Current development checks are listed in L</Testing And Coverage>.
 
 =head1 SEE ALSO
 
