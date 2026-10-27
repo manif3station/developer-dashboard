@@ -4094,11 +4094,19 @@ before it runs that numeric coverage gate, or the signed-release path can
 fail before any release assets are published. The GitHub release tag path is intentionally decoupled from the repository's
 GitHub Actions CPAN upload workflow.
 
-Tag pushes in the form C<vX.XX> are for
-the signed GitHub release path, while any GitHub-hosted CPAN upload remains a
+Push a C<vX.XX> tag so the tag-triggered GitHub release workflow can publish
+the signed release. It publishes the distribution tarball, checksum, and
+detached signature assets, together with build provenance. The provenance
+asset ends in C<.intoto.jsonl> and supports OpenSSF Scorecard's
+C<Signed-Releases> check. Tag pushes use the signed GitHub release path, while
+any GitHub-hosted CPAN upload remains a
 manual C<workflow_dispatch> action so an ordinary release tag cannot perform an
 unasked PAUSE upload behind the operator's back. A local C<dzil release> is a
 separate, explicitly invoked PAUSE upload path.
+
+Run the live Scorecard check after local gates and after the commit and push.
+Use the authenticated C<git-push-mf> helper when it is configured. The
+enforcement loop is: fix -> test -> commit -> push -> rerun scorecard. Do not treat Scorecard as a pre-commit local gate; it evaluates the pushed state.
 
 The coverage-closure suite includes managed collector loop start/stop paths
 under C<Devel::Cover>, including wrapped fork coverage in
@@ -4249,10 +4257,9 @@ exact staged tarball under test.
 
 =head2 Historical Performance and Verification Notes
 
-The profiling runs and coverage snapshots retained from the 6.03 work are
-archived in F<doc/problem-48-performance-research.md>.
-They are historical records, not claims about current performance or test
-status. Current development checks are listed in L</Testing And Coverage>.
+Historical profiling runs and coverage snapshots are archived separately.
+They are records of earlier measurements, not claims about current performance
+or test status. Current development checks are listed in L</Testing And Coverage>.
 
 =head1 SEE ALSO
 
