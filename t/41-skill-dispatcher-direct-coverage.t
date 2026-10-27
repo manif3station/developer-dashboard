@@ -813,6 +813,15 @@ is_deeply( { $dispatcher->_skill_nav_route_ids('') }, {},
         $guard_dispatcher->{_skill_nav_pages_snapshot} = { pages => [] };
         is( $guard_dispatcher->all_skill_nav_literal_items_html( sub { $_[0] } ), undef,
             'literal renderer declines page lists that do not match the snapshot identity' );
+        local *Developer::Dashboard::SkillDispatcher::all_skill_nav_pages = sub {
+            return 'not-an-array';
+        };
+        $guard_dispatcher->{_skill_nav_pages_snapshot} = { pages => $guard_pages };
+        is( $guard_dispatcher->all_skill_nav_literal_items_html( sub { $_[0] } ), undef,
+            'literal renderer declines a non-array rendered page list' );
+        local *Developer::Dashboard::SkillDispatcher::all_skill_nav_pages = sub {
+            return $guard_pages;
+        };
         $guard_dispatcher->{_skill_nav_pages_snapshot} = { pages => $guard_pages };
 
         my $error = '';

@@ -3,7 +3,7 @@ package Developer::Dashboard::Folder;
 use strict;
 use warnings;
 
-our $VERSION = '6.02';
+our $VERSION = '6.04';
 
 use Developer::Dashboard::PathIdentity qw(current_working_directory);
 use File::Basename qw(dirname);

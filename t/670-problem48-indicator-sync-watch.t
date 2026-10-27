@@ -224,6 +224,20 @@ my $watcher_new_unavailable_store = Developer::Dashboard::IndicatorStore->new( p
 }
 ok( $watcher_new_unavailable_store->{_indicator_sync_watcher_unavailable},
     'store memoizes an unavailable optional watcher' );
+my $watcher_new_available_store = Developer::Dashboard::IndicatorStore->new( paths => $paths );
+my $watcher_new_available = Local::Problem48Watcher->new;
+{
+    no warnings qw(redefine once);
+    local *Developer::Dashboard::IndicatorStore::Watch::new = sub {
+        return $watcher_new_available;
+    };
+    is( $watcher_new_available_store->_indicator_sync_watcher,
+        $watcher_new_available,
+        'store constructs and returns an available optional watcher' );
+    is( $watcher_new_available_store->_indicator_sync_watcher,
+        $watcher_new_available,
+        'store reuses its constructed optional watcher' );
+}
 
 my @unknown_failure_warnings;
 my $unknown_failure_store = Developer::Dashboard::IndicatorStore->new( paths => $paths );

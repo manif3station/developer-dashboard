@@ -764,6 +764,32 @@ is( $m->_page_fragment_html(undef), '', 'fragment for undef page' );
 # _nav_items_html defaults
 is( $m->_nav_items_html(), '', 'nav items without a page' );
 {
+    my $welcome = $store->load_saved_page('welcome');
+    for my $literal ( '', '<li data-nav-id="skill-nav">Skill</li>' ) {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Web::App::_saved_nav_items_snapshot_state = sub {
+            return { hit => 1, html => '' };
+        };
+        local *Developer::Dashboard::Web::App::_skill_dispatcher = sub {
+            return bless {}, 'Developer::Dashboard::SkillDispatcher';
+        };
+        local *Developer::Dashboard::SkillDispatcher::all_skill_nav_literal_items_html = sub {
+            return $literal;
+        };
+        my $html = $m->_nav_items_html(
+            page => $welcome,
+            runtime_context => { params => {}, current_page => '/x' },
+        );
+        if ($literal eq '') {
+            is( $html, '', 'empty cached literal skill-nav HTML adds no dashboard nav section' );
+        }
+        else {
+            like( $html, qr/\Q$literal\E/,
+                'non-empty cached literal skill-nav HTML is rendered in the dashboard nav section' );
+        }
+    }
+}
+{
     my $navskill = Developer::Dashboard::PageDocument->new( id => 'x', title => 'X', meta => { skill_route_id => 'nav/thing' } );
     is( $m->_nav_items_html( page => $navskill ), '', 'nav items skips nav skill route pages' );
 }
@@ -1804,6 +1830,31 @@ $m->{_current_request_context} ||= { host => '127.0.0.1', remote_addr => '127.0.
     my @unbounded_watch_paths = $no_boundary_methods_app->_saved_nav_items_watch_paths($roots);
     ok( @unbounded_watch_paths,
         'saved-nav watch paths remain usable when the path object provides no optional boundaries' );
+    my $false_boundary_app = bless {
+        pages => bless( {}, 'Local::Problem48SavedNavFalseBoundaryPaths' ),
+    }, 'Developer::Dashboard::Web::App';
+    my @false_boundary_paths = $false_boundary_app->_saved_nav_items_watch_paths(
+        ['/p48-missing-boundary-root']
+    );
+    ok( scalar( grep { $_ eq File::Spec->rootdir } @false_boundary_paths ),
+        'saved-nav path discovery continues when a candidate does not match a boundary' );
+
+    {
+        my $empty_watch_paths_app = bless {}, 'Developer::Dashboard::Web::App';
+        my $watcher = bless {}, 'Local::Problem48SavedNavSetupWithoutErrorMethod';
+        no warnings 'redefine';
+        local *Developer::Dashboard::Web::App::_saved_nav_items_watcher = sub {
+            return $watcher;
+        };
+        local *Developer::Dashboard::Web::App::_saved_nav_items_watch_paths = sub {
+            return ();
+        };
+        my $state = $empty_watch_paths_app->_saved_nav_items_snapshot_state(
+            ['/valid-but-unwatched-root']
+        );
+        ok( !$state->{cacheable},
+            'saved-nav cache remains disabled when a watcher has no valid paths' );
+    }
 
     for my $failure_case (qw(reported empty)) {
         my $watcher = bless {
@@ -2569,6 +2620,26 @@ sub home { return [] }
 sub current_project_root { return }
 
 package Local::Problem48SavedNavNoBoundaryMethods;
+
+package Local::Problem48SavedNavFalseBoundaryPaths;
+
+# home()
+# Supplies a scalar boundary while the injected identity check refuses a match.
+# Input: path-registry fixture instance.
+# Output: a non-existent absolute boundary path.
+sub home { return '/p48-unmatched-boundary' }
+
+# current_project_root()
+# Reports no project boundary for the watch-path fixture.
+# Input: path-registry fixture instance.
+# Output: undef, indicating that no project root is configured.
+sub current_project_root { return }
+
+# _same_or_descendant_path($path, $root)
+# Forces the boundary-mismatch branch while watch paths walk to the filesystem root.
+# Input: candidate and boundary path strings.
+# Output: false for every candidate.
+sub _same_or_descendant_path { return 0 }
 
 package Local::Problem48PageStoreWithoutLayers;
 

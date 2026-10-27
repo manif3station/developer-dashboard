@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 6.04
+
+- No runtime bug fixes in this version. The version records the final Perl
+  reference snapshot used for C++ compatibility work.
+
 ## 6.00
 
 - Reduce warmed navigation-list assembly overhead by appending saved and skill

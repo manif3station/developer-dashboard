@@ -1,3 +1,16 @@
+6.04  2026-10-18
+
+  - Freeze the final Perl reference implementation at 6.04 before continuing
+    the C++ rewrite. This is a release-metadata change only; Perl runtime
+    behavior is unchanged.
+
+6.03  2026-10-18
+
+  - Bump the final Perl distribution and every library module to 6.03 as the
+    C++ rewrite moves into the dedicated CODE workspace. No Perl runtime
+    behavior changed; the existing Perl implementation remains the reference
+    for C++ feature-parity work.
+
 6.02  2026-10-18
 
   - Finalize the measured Perl implementation snapshot before the C++ rewrite.

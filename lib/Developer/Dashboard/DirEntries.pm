@@ -3,7 +3,7 @@ package Developer::Dashboard::DirEntries;
 use strict;
 use warnings;
 
-our $VERSION = '6.02';
+our $VERSION = '6.04';
 
 use Exporter 'import';
 

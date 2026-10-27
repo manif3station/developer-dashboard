@@ -5,3 +5,9 @@ nytprof/
 .worktrees/
 dogfood-output/
 .perl5
+.env
+.build
+copilot-instructions.md
+Developer-Dashboard-*
+build_log.txt
+node_modules

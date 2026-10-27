@@ -2,7 +2,7 @@ package Developer::Dashboard::Crypto::PBKDF2;
 
 use strict;
 use warnings;
-our $VERSION = '6.02';
+our $VERSION = '6.04';
 
 our $BACKEND;
 
