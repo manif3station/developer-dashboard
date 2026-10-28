@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.04
+6.05
 
 # INTRODUCTION
 
@@ -80,6 +80,13 @@ The installer displays progress and may ask for the operating-system password
 when a system package manager requires elevated access. It prepares the
 runtime and shell configuration for future sessions; a terminal-backed
 installation also activates the new shell setup when possible.
+
+Security and release validation use a hardened Perl baseline: `5.44`. The
+Unix bootstrap accepts an existing host Perl from `5.38`; when it must build
+an isolated fallback, it installs `perlbrew --notest install perl-5.44.0`.
+The dependency set also pins `HTTP::Tiny` to `0.096` so the transitive
+minimum inherited through Plack cannot resolve to versions with known TLS,
+request-validation, or cross-origin redirect credential vulnerabilities.
 
 The Unix-like installer prepares its user-local Perl dependencies before
 installing the checkout and initialising the runtime.
@@ -2828,6 +2835,19 @@ If `cli/foo.java` is executable, `dashboard foo` compiles it with `javac`
 into an isolated temp directory and then runs the declared main class with
 `java`.
 
+To demonstrate a custom `update` command with a hook, create both files in a
+runtime CLI layer and then invoke the switchboard:
+
+    mkdir -p ~/.developer-dashboard/cli/update.d
+    printf '#!/usr/bin/env perl\nprint "custom update\\n";\n' > ~/.developer-dashboard/cli/update
+    chmod +x ~/.developer-dashboard/cli/update
+    printf '#!/bin/sh\nprintf "before update\\n"\n' > ~/.developer-dashboard/cli/update.d/01-log
+    chmod +x ~/.developer-dashboard/cli/update.d/01-log
+    perl -Ilib bin/dashboard update
+
+The command file is user-provided, not a built-in. The hook runs before it;
+project-local runtime layers take precedence over the home layer.
+
 If a user mistypes a command, dashboard now prints an explicit unknown-command
 error together with the closest matching public command before the usual usage
 summary. The same guidance also applies to dotted skill commands, so
@@ -3300,8 +3320,9 @@ Run the full Perl test suite from the repository root:
 
     prove -lr t
 
-The scenario list is in `TEST_PLAN.md`. The hosted workflows provide additional
-platform checks and packaging verification.
+The maintained end-to-end scenario plan defines expected routes, inputs, and
+outputs. Hosted workflows provide additional platform checks and packaging
+verification.
 
 ### Library coverage
 
@@ -3327,10 +3348,23 @@ After building a distribution, check its release metadata and kwalitee with:
 
     prove -lv t/36-release-kwalitee.t
 
-Security-sensitive changes also require the review described in
-`SECURITY_CHECKS.md`. That guide covers the OWASP ASVS review and repository
-security checks. Use `SCORECARD_ACTIONS.md` for the post-push Scorecard
-workflow. The full contribution and release sequence is in `CONTRIBUTING.pod`.
+Security-sensitive changes require the OWASP ASVS 5.0 review and a cross-check
+against the OWASP Top 10, alongside repository security checks. The full
+contribution and release sequence is documented in the contributor guide.
+
+Push a `vX.XX` tag so the tag-triggered GitHub release workflow runs. It
+publishes tarball, checksum, and detached signature assets. The release also
+publishes a `.intoto.jsonl` provenance asset; build provenance, not merely a
+signature, is required for the Signed-Releases Scorecard check.
+
+Do not treat Scorecard as a pre-commit local gate. Finish local tests,
+documentation, security, coverage, and packaging checks, then commit and push
+with the authenticated `git-push-mf` helper before running live Scorecard.
+For repository-fixable findings, repeat the sequence fix -> test -> commit -> push -> rerun scorecard until the checks pass.
+
+Run numeric coverage QA after the normal `prove -lr t` test gate. It applies
+to every change, not only releases; the target is 100.0 on all four metrics:
+statement, branch, condition, and subroutine coverage for `lib/`.
 
 # SEE ALSO
 

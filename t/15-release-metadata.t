@@ -290,13 +290,13 @@ unlike( $makefile, qr/install\.sh|install\.ps1/, 'Makefile.PL does not install c
 unlike( $makefile, qr/["']Test::Pod["']\s*=>\s*0/, 'Makefile.PL does not ship Test::Pod as a runtime prerequisite' );
 unlike( $makefile, qr/["']HTTP::Daemon["']\s*=>\s*0/, 'Makefile.PL no longer declares unused HTTP::Daemon metadata' );
 unlike( $makefile, qr/["']HTTP::Status["']\s*=>\s*0/, 'Makefile.PL no longer declares unused HTTP::Status metadata' );
-unlike( $makefile, qr/["']HTTP::Tiny["']\s*=>/, 'Makefile.PL does not require the forbidden and unused HTTP::Tiny module' );
+like( $makefile, qr/["']HTTP::Tiny["']\s*=>\s*["']0\.096["']/, 'Makefile.PL pins Plack\x27s transitive HTTP::Tiny dependency at the fixed security release' );
 my ($makefile_runtime_prereqs) = $makefile =~ /PREREQ_PM\s*=>\s*\{(.*?)\n\s*\},/s;
 unlike( $makefile_runtime_prereqs // q{}, qr/["']FFI::(?:Platypus|CheckLib)["']\s*=>/, 'Makefile.PL does not put optional FFI acceleration into PREREQ_PM' );
 like( $makefile, qr/prereqs\s*=>\s*\{\s*runtime\s*=>\s*\{\s*recommends\s*=>\s*\{\s*'FFI::Platypus'\s*=>\s*'2\.12'.*?'FFI::CheckLib'\s*=>\s*'0\.31'/s, 'Makefile.PL publishes FFI acceleration as optional runtime recommendations' );
 unlike( $cpanfile, qr/requires ['"]Test::Pod['"];/, 'cpanfile does not ship Test::Pod as an install-time prerequisite' );
-unlike( $cpanfile, qr/requires ['"]HTTP::Tiny['"]/, 'cpanfile does not require the forbidden and unused HTTP::Tiny module' );
-unlike( $dist, qr/^HTTP::Tiny\s*=/m, 'dist.ini does not require the forbidden and unused HTTP::Tiny module' );
+like( $cpanfile, qr/requires ['"]HTTP::Tiny['"]\s*,\s*['"]0\.096['"];/, 'cpanfile pins Plack\x27s transitive HTTP::Tiny dependency at the fixed security release' );
+like( $dist, qr/^HTTP::Tiny = 0\.096$/m, 'dist.ini pins Plack\x27s transitive HTTP::Tiny dependency at the fixed security release' );
 my ($dist_runtime_prereqs) = $dist =~ /^\[Prereqs\]\s*\n(.*?)(?=^\[|\z)/ms;
 unlike( $dist_runtime_prereqs // q{}, qr/^FFI::(?:Platypus|CheckLib)\s*=/m, 'dist.ini does not make optional FFI acceleration a hard runtime prerequisite' );
 my ($runtime_recommends) = $dist =~ /^\[Prereqs \/ RuntimeRecommends\]\s*\n(.*?)(?=^\[|\z)/ms;

@@ -52,6 +52,7 @@ WriteMakefile(
         'Getopt::Long'          => 0,
         'HTML::Parser'          => '3.84',
         'HTTP::Date'            => '6.08',
+        'HTTP::Tiny'            => '0.096',
         'HTTP::Request'         => 0,
         'JSON::XS'              => '4.04',
         'LWP::Protocol::https'  => '6.07',

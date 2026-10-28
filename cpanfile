@@ -28,6 +28,7 @@ requires 'Starman', '0.4018';
 requires 'Storable', '3.41';
 requires 'HTML::Parser', '3.84';
 requires 'HTTP::Date', '6.08';
+requires 'HTTP::Tiny', '0.096';
 requires 'HTTP::Request';
 requires 'LWP::Protocol::https', '6.07';
 requires 'LWP::UserAgent', '6.83';

@@ -1,5 +1,15 @@
 # Fixed Bugs
 
+## 6.05
+
+- The prompt performance test inherited `WORKSPACE_REF` from the invoking
+  environment and compared decorated output with an undecorated prompt. Its
+  fast, fallback, and compatibility probes now clear ticket and tmux state so
+  the test isolates the code path it intends to compare.
+- The HTML attribute escape Perl fallback lacked a regression assertion for a
+  defined overloaded reference. Added coverage for that condition when XS is
+  disabled; no production behaviour changed.
+
 ## 6.04
 
 - No runtime bug fixes in this version. The version records the final Perl

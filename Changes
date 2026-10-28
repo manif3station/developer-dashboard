@@ -1,3 +1,19 @@
+6.05  2026-10-28
+
+  - Complete the d2 ps1 XS feasibility study against the installed 6.03
+    baseline. Measured routes remained within noise at 0.98x to 1.03x, and
+    no Perl routine had enough measured cost to justify an XS conversion.
+    Preserve the existing implementation and record the evidence in the
+    prompt performance investigation document.
+  - Pin Plack's transitive HTTP::Tiny dependency to 0.096, the first stable
+    release with cross-origin credential stripping and HTTPS downgrade
+    redirect protections.
+  - Isolate prompt performance tests from inherited workspace and tmux
+    environment variables, and cover the overloaded-reference Perl fallback
+    for HTML attribute escaping.
+  - Align the main installation and release guide with the actual installer,
+    Scorecard, security, and coverage gates.
+
 6.04  2026-10-18
 
   - Freeze the final Perl reference implementation at 6.04 before continuing

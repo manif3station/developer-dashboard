@@ -22,6 +22,8 @@ is( Developer::Dashboard::HtmlEscape::_escape_html_attr(q{<a title="x'">}),
     'attribute escaping protects body metacharacters and both quote characters' );
 {
     local $Developer::Dashboard::HtmlEscape::XS_LOADED = 0;
+    is( Developer::Dashboard::HtmlEscape::_escape_html_attr(undef), '',
+        'undefined attribute input reaches the Perl fallback and returns an empty string' );
     local *Developer::Dashboard::HtmlEscape::_escape_html = sub {
         die "plain attribute values should bypass body escaping\n";
     };
@@ -55,6 +57,8 @@ is( Developer::Dashboard::HtmlEscape::_escape_html_perl('ordinary helper input')
     my $overloaded = bless {}, 'Local::Problem48DispatchOverloadedText';
     is( Developer::Dashboard::HtmlEscape::_escape_html($overloaded), '&lt;dispatch&gt;',
         'overloaded references retain Perl stringification without XS' );
+    is( Developer::Dashboard::HtmlEscape::_escape_html_attr($overloaded), '&lt;dispatch&gt;',
+        'defined overloaded attribute references take the Perl fallback without XS' );
 }
 {
     local $Developer::Dashboard::HtmlEscape::XS_LOADED = 0;
