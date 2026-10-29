@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.08
+6.09
 
 # INTRODUCTION
 
@@ -3369,6 +3369,11 @@ The release workflow runs tests and all-metric coverage before building or
 publishing; if either gate fails, the previous successful GitHub Release remains
 the latest. Check the tag's workflow run and its first failed step before
 retrying.
+
+Some optional native integrations are unavailable on release runners. Their
+success and failure paths therefore need deterministic fake-backend tests so
+the coverage gate verifies the actual adapter logic without relying on a host
+library being installed.
 
 Do not treat Scorecard as a pre-commit local gate. Finish local tests,
 documentation, security, coverage, and packaging checks, then commit and push

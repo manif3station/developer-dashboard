@@ -1,10 +1,18 @@
+6.09  2026-10-29
+
+  - Complete the GitHub release coverage fix by testing the successful Linux
+    inotify descriptor-wrap and byte-safe watch-registration paths in the fake
+    backend. The focused four-metric gate now reports 100.0% for
+    IndicatorStore::Watch.pm; no runtime behavior changed.
+
 6.08  2026-10-29
 
-  - Fix the GitHub release coverage gate on runners without optional
+  - Begin closing the GitHub release coverage gap on runners without optional
     FFI::Platypus by invoking the Linux inotify backend's close callback in the
     deterministic fake-backend test. Document that GitHub releases require a
     matching pushed vX.XX tag; changing dist.ini alone does not trigger a
-    release. No runtime behavior changed.
+    release. The next run exposed two additional successful native-adapter
+    paths, covered in 6.09. No runtime behavior changed.
 
 6.07  2026-10-29
 

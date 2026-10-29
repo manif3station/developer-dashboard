@@ -769,7 +769,12 @@ our $P48_FAKE_FD_RESULT;
     is( $fake_backend->{add_watch}->( $reader, $unicode_path, $module->event_mask ), -1,
         'Linux inotify refuses a path that cannot be represented as filesystem bytes' );
     is( 0 + $!, Errno::EILSEQ(), 'unrepresentable Linux watcher path sets EILSEQ' );
-    ok( $fake_backend->{close}->($reader),
+    $P48_FAKE_FD_RESULT = fileno($reader);
+    my $native_handle = $fake_backend->{initialize}->();
+    ok( defined $native_handle, 'Linux inotify wraps a valid descriptor' );
+    is( $fake_backend->{add_watch}->( $native_handle, '/path/with/ascii', $module->event_mask ),
+        fileno($reader), 'Linux inotify registers a byte-safe path' );
+    ok( $fake_backend->{close}->($native_handle),
         'Linux inotify backend closes its descriptor through the native close callback' );
     close $writer or die "Unable to close Unicode path fixture writer: $!";
 }

@@ -1,10 +1,19 @@
 # Fixed Bugs
 
+## 6.09
+
+- Complete Linux inotify coverage for release runners without optional
+  `FFI::Platypus`: the fake native adapter now exercises descriptor wrapping,
+  byte-safe `add_watch`, and descriptor close. The focused coverage gate reports
+  100.0% statement, branch, condition, and subroutine coverage for
+  `IndicatorStore::Watch.pm`.
+
 ## 6.08
 
-- Fix release coverage on CI runners without optional FFI::Platypus. The fake
-  Linux inotify adapter test now invokes its native close callback, covering
-  the only callback that the skipped native integration had left uncovered.
+- Add a regression assertion for the Linux inotify close callback on CI runners
+  without optional `FFI::Platypus`. A subsequent release run showed that native
+  descriptor wrapping and byte-safe watch registration also needed deterministic
+  success-path coverage; those paths are covered in 6.09.
 - Document that GitHub Release workflows are tag-triggered: a `dist.ini`
   version bump alone does not create a matching tag or publish a release.
 

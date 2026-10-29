@@ -29,9 +29,13 @@ optional `FFI::Platypus` module, so the live native integration can be skipped.
 The deterministic fake-backend test created that callback but did not call it.
 
 The regression test now invokes the fake Linux backend's close callback on its
-pipe fixture. This does not require FFI or change runtime behaviour. Verify the
-targeted test with and without the optional module, then run the full test and
-coverage gates before creating the next version tag. The failed `v6.07` tag is
+pipe fixture. The next run, `v6.08` at [workflow run
+40958667082](https://github.com/manif3station/developer-dashboard/actions/runs/40958667082),
+confirmed close coverage but found two further uncovered successful paths in
+the same adapter: wrapping a valid descriptor and registering a byte-safe path.
+The fake test now exercises all three callbacks without requiring FFI or
+changing runtime behaviour. The focused four-metric coverage gate reports
+100.0% for `IndicatorStore::Watch.pm`. The failed `v6.07` and `v6.08` tags are
 left unchanged; release attempts must use a new, matching version tag.
 
 ## Release checklist
