@@ -1,3 +1,9 @@
+6.07  2026-10-29
+
+  - Clarify five-field cron expressions with explicit hourly and per-minute
+    examples. `0 */1 * * *` runs at minute zero each hour; `* */1 * * *`
+    intentionally runs every minute. No scheduler runtime behavior changed.
+
 6.06  2026-10-29
 
   - Fix the installer bootstrap regression test by isolating TMPDIR and

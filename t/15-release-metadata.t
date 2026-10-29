@@ -26,6 +26,7 @@ my $readme = _slurp_optional( _repo_path('README.md') );
 my $plain_readme = _slurp_optional( _repo_path('README') );
 my $skill_guide = _slurp_optional( _repo_path('SKILL.md') );
 my $release_doc = _slurp_optional( _repo_path( 'doc', 'update-and-release.md' ) );
+my $collector_cron_doc = _slurp_optional( _repo_path( 'doc', 'collector-cron-scheduling.txt' ) );
 my $security_checks_doc = _slurp_optional( _repo_path('SECURITY_CHECKS.md') );
 my $security_doc = _slurp_optional( _repo_path( 'doc', 'security.md' ) );
 my $owasp_sow_doc = _slurp_optional( _repo_path( 'doc', 'owasp-compliance-sow.md' ) );
@@ -143,6 +144,18 @@ like(
     qr/\A<!-- Generated from lib\/Developer\/Dashboard\.pm POD by script\/sync-readme-from-pod\. Do not edit manually\. -->\n\n#/,
     'README.md is generated from the canonical POD source',
 ) if $readme ne '';
+like( $pm, qr/once at the start of every hour.*0 \*\/1 \* \* \*/is,
+    'main POD gives the correct minute-zero expression for one run each hour' );
+like( $pm, qr/\* \*\/1 \* \* \*.*every minute/is,
+    'main POD explains that a wildcard minute field runs every minute' );
+like( $readme, qr/once at the start of every hour.*0 \*\/1 \* \* \*/is,
+    'generated README gives the correct minute-zero expression for one run each hour' );
+like( $readme, qr/\* \*\/1 \* \* \*.*every minute/is,
+    'generated README explains that a wildcard minute field runs every minute' );
+like( $collector_cron_doc, qr/once at the start of every hour.*0 \*\/1 \* \* \*/is,
+    'collector cron reference gives the correct minute-zero expression for one run each hour' );
+like( $collector_cron_doc, qr/\* \*\/1 \* \* \*.*every minute/is,
+    'collector cron reference explains that a wildcard minute field runs every minute' );
 like( $dist, qr/^\[Prereqs \/ ConfigureRequires\]$/m, 'dist.ini declares explicit configure prerequisites for packaged installs' );
 like(
     $dist,
@@ -1257,7 +1270,10 @@ distribution carrying a published advisory cannot be permitted by the manifests
 even where no current advisory database is installed to notice.
 It also resolves every C<t/NN-name.t> path cited in the README, the markdown under
 C<doc/> and C<docs/>, and the POD of every Perl file, so a renamed test file
-cannot leave a stale citation behind in the documentation.
+cannot leave a stale citation behind in the documentation. The collector cron
+assertions distinguish a once-hourly expression from a wildcard-minute,
+per-minute expression in the plain reference, canonical POD, and generated
+README.
 
 =for comment FULL-POD-DOC START
 
@@ -1299,6 +1315,11 @@ Confirm the metadata guardrails still behave under the covered test path.
 Example 3:
 
   dzil build
+
+The cron documentation assertions fail until the canonical POD and plain
+collector scheduling reference explain C<0 */1 * * *> as hourly and
+C<* */1 * * *> as per-minute. The generated README is checked both for those
+examples and against the canonical POD renderer.
 
 Follow the metadata assertions with a real distribution build, because this test protects the release contract.
 

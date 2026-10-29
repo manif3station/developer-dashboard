@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 6.07
+
+- Clarify the cron minute/hour fields after an hourly schedule was entered as
+  `* */1 * * *`, which correctly runs every minute. The reference now shows
+  `0 */1 * * *` for a run at minute zero each hour. The scheduler implementation
+  was verified and did not require a runtime change.
+
 ## 6.06
 
 - GitHub issue 59 exposed a hardcoded `/tmp` expectation in the Homebrew

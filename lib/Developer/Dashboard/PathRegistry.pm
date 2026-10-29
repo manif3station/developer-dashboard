@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '6.06';
+our $VERSION = '6.07';
 
 use Digest::MD5 qw(md5_hex);
 use Errno qw(ENOENT);

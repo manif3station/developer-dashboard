@@ -68,7 +68,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.06
+6.07
 
 =head1 INTRODUCTION
 
@@ -839,6 +839,12 @@ Numeric values, comma-separated lists,
 ranges, range steps, C<*/step>, and case-insensitive month and weekday names
 are supported. When both day-of-month and day-of-week are restricted, either
 matching field makes the date due, following crontab semantics.
+
+To run once at the start of every hour, use C<0 */1 * * *>: the first field
+is the minute, so C<0> selects minute zero, and C<*/1> in the second field
+selects every hour. Do not use C<* */1 * * *> for an hourly run. Its first
+field is C<*>, which matches every minute, so it runs once per minute
+throughout each hour.
 
 An explicit
 C<schedule> value takes precedence over inferred scheduling; use

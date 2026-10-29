@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '6.06';
+our $VERSION = '6.07';
 
 use Developer::Dashboard::PathIdentity qw(current_working_directory);
 use Fcntl qw(:flock);
