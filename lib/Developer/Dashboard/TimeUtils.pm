@@ -3,7 +3,7 @@ package Developer::Dashboard::TimeUtils;
 use strict;
 use warnings;
 
-our $VERSION = '6.05';
+our $VERSION = '6.06';
 
 use Exporter 'import';
 use POSIX qw(strftime);

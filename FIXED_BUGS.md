@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 6.06
+
+- GitHub issue 59 exposed a hardcoded `/tmp` expectation in the Homebrew
+  installer regression test. The test now uses a case-local temporary
+  directory and derives both expected command paths from `TMPDIR`; production
+  installer behavior was already correct.
+
 ## 6.05
 
 - The prompt performance test inherited `WORKSPACE_REF` from the invoking

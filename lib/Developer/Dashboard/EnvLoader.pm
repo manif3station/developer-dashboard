@@ -3,7 +3,7 @@ package Developer::Dashboard::EnvLoader;
 use strict;
 use warnings;
 
-our $VERSION = '6.05';
+our $VERSION = '6.06';
 
 use File::Basename qw(dirname);
 use File::Spec;

@@ -2935,6 +2935,27 @@ and 1.624 ms/request for the current checkout (21.61x). This proves meaningful
 progress for one route, not the required 50x improvement for every subroutine;
 Problem 48 remains in progress.
 
+### Problem 49: Remove the install test's hardcoded `/tmp` assumption (done)
+
+GitHub issue 59 reported assertion 195 in `t/40-install-bootstrap.t` failing
+when the host's `TMPDIR` was not `/tmp`. The expected outcome is that the
+regression test validates the bootstrap script path selected by the configured
+temporary directory, without changing installer behavior. Reproduction with
+`TMPDIR` under `/var/tmp` failed because the test expected
+`/tmp/developer-dashboard-homebrew-install.sh`; `install.sh` correctly uses
+`${TMPDIR:-/tmp}`. The test now creates and selects a private temporary
+directory for the Homebrew case and constructs both expected command paths
+with `File::Spec`. The focused suite passes with the default environment and a
+non-`/tmp` `TMPDIR`; the failure was test-only. Full verification passed: 285
+files / 19,516 tests via `dzil test`, and 285 files / 25,879 tests through the
+coverage gate with statement, branch, condition, and subroutine coverage at
+100.0% for `lib/` (51,685 detail rows). The three required web/security suites
+passed 470 assertions. `dzil build` produced 6.06; `t/36-release-kwalitee.t`
+passed all 7 assertions at 100% kwalitee. The post-build Docker smart-router
+guard passed 7 assertions, and the blank-environment Docker integration
+installed the tarball via `cpanm` with its tests enabled and completed
+successfully. No production code or dependencies changed.
+
 ### Problem 48 stable collector-sync freshness cache (2026-10-15)
 
 Expected outcome: unchanged collector configuration and indicator files should

@@ -93,14 +93,14 @@ my $skills_pod = _extract_pod($skills_pm);
 my @problem_report_numbers = $problem_report =~ /^### Problem (\d+):/gm;
 is_deeply(
     \@problem_report_numbers,
-    [ 1 .. 48 ],
-    'problem-report.md has one ordered entry for every numbered problem 1 through 48, including explicitly unassigned numbers',
+    [ 1 .. 49 ],
+    'problem-report.md has one ordered entry for every numbered problem 1 through 49, including explicitly unassigned numbers',
 );
 my %problem_history_numbers = map { $_ => 1 } $problem_history =~ /^Problem (\d+):/gm;
 is_deeply(
     [ sort { $a <=> $b } keys %problem_history_numbers ],
-    [ 1 .. 48 ],
-    'problem-report.txt records evidence or an explicit unassigned entry for every numbered problem 1 through 48',
+    [ 1 .. 49 ],
+    'problem-report.txt records evidence or an explicit unassigned entry for every numbered problem 1 through 49',
 );
 like(
     $dist,

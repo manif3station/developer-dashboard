@@ -1,3 +1,9 @@
+6.06  2026-10-29
+
+  - Fix the installer bootstrap regression test by isolating TMPDIR and
+    deriving expected Homebrew temporary paths from it. The install.sh runtime
+    already honoured TMPDIR; no production installer behavior changed.
+
 6.05  2026-10-28
 
   - Complete the d2 ps1 XS feasibility study against the installed 6.03

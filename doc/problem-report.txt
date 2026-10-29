@@ -2309,6 +2309,11 @@ change, down from 16. This scoped gain does not meet the 50x-per-subroutine
 target; Problem 48 remains in progress.
 
 Problem 48: defer path table formatting on JSON output
+
+Problem 49: Fix the Homebrew install regression test's hardcoded /tmp path
+  GitHub issue 59 reproduced assertion 195 failing when TMPDIR pointed outside
+  /tmp. install.sh already honours TMPDIR; only the test expectation was wrong.
+  The test now isolates TMPDIR and derives both command paths with File::Spec.
 (2026-10-13) — in progress
 
 A red-first Docker regression found that the JSON-only paths helper eagerly

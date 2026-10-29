@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.05
+6.06
 
 # INTRODUCTION
 

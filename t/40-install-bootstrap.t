@@ -818,6 +818,9 @@ SH
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
     my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
+    my $bootstrap_tmpdir = File::Spec->catdir( $home, 'installer-tmp' );
+    make_path($bootstrap_tmpdir);
+    local $ENV{TMPDIR} = $bootstrap_tmpdir;
     _seed_fake_install_commands(
         fake_bin         => $fake_bin,
         log              => $log,
@@ -843,8 +846,9 @@ SH
     is_deeply(
         \@log_lines,
         [
-            'curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o /tmp/developer-dashboard-homebrew-install.sh',
-            '/bin/bash -c /tmp/developer-dashboard-homebrew-install.sh',
+            'curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o '
+              . File::Spec->catfile( $bootstrap_tmpdir, 'developer-dashboard-homebrew-install.sh' ),
+            '/bin/bash -c ' . File::Spec->catfile( $bootstrap_tmpdir, 'developer-dashboard-homebrew-install.sh' ),
             'brew install ' . join( ' ', @brew_packages ),
             'brew --prefix perl',
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
