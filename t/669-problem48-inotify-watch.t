@@ -769,7 +769,8 @@ our $P48_FAKE_FD_RESULT;
     is( $fake_backend->{add_watch}->( $reader, $unicode_path, $module->event_mask ), -1,
         'Linux inotify refuses a path that cannot be represented as filesystem bytes' );
     is( 0 + $!, Errno::EILSEQ(), 'unrepresentable Linux watcher path sets EILSEQ' );
-    close $reader or die "Unable to close Unicode path fixture reader: $!";
+    ok( $fake_backend->{close}->($reader),
+        'Linux inotify backend closes its descriptor through the native close callback' );
     close $writer or die "Unable to close Unicode path fixture writer: $!";
 }
 
@@ -984,8 +985,10 @@ The test injects a pipe-backed fake descriptor, configures directory watches,
 checks an event-free poll, writes an event, then verifies invalidation and
 watch-set replacement. It also exercises descriptor and watch registration
 failures without requiring a native library, plus mocked FSEvents and Win32
-API contracts. When a platform adapter is available, an integration case
-writes a real status file, observes cache invalidation, and closes native
+API contracts. The fake Linux adapter also invokes its native close callback,
+so coverage remains complete when FFI::Platypus is absent and the live native
+integration is skipped. When a platform adapter is available, an integration
+case writes a real status file, observes cache invalidation, and closes native
 resources.
 
 =cut

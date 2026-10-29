@@ -68,7 +68,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.07
+6.08
 
 =head1 INTRODUCTION
 
@@ -4136,6 +4136,13 @@ Push a C<vX.XX> tag so the tag-triggered GitHub release workflow runs. It
 publishes tarball, checksum, and detached signature assets. The release also
 publishes a C<.intoto.jsonl> provenance asset; build provenance, not merely a
 signature, is required for the Signed-Releases Scorecard check.
+
+Changing C<dist.ini> alone does not create a GitHub Release. The pushed tag must
+match the distribution version and point at the commit containing that version.
+The release workflow runs tests and all-metric coverage before building or
+publishing; if either gate fails, the previous successful GitHub Release remains
+the latest. Check the tag's workflow run and its first failed step before
+retrying.
 
 Do not treat Scorecard as a pre-commit local gate. Finish local tests,
 documentation, security, coverage, and packaging checks, then commit and push

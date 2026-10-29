@@ -3,7 +3,7 @@ package Developer::Dashboard::Auth;
 use strict;
 use warnings;
 
-our $VERSION = '6.07';
+our $VERSION = '6.08';
 
 use Crypt::URandom qw(urandom);
 use Fcntl qw(:mode);

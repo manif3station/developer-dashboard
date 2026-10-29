@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 6.08
+
+- Fix release coverage on CI runners without optional FFI::Platypus. The fake
+  Linux inotify adapter test now invokes its native close callback, covering
+  the only callback that the skipped native integration had left uncovered.
+- Document that GitHub Release workflows are tag-triggered: a `dist.ini`
+  version bump alone does not create a matching tag or publish a release.
+
 ## 6.07
 
 - Clarify the cron minute/hour fields after an hourly schedule was entered as

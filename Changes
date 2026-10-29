@@ -1,3 +1,11 @@
+6.08  2026-10-29
+
+  - Fix the GitHub release coverage gate on runners without optional
+    FFI::Platypus by invoking the Linux inotify backend's close callback in the
+    deterministic fake-backend test. Document that GitHub releases require a
+    matching pushed vX.XX tag; changing dist.ini alone does not trigger a
+    release. No runtime behavior changed.
+
 6.07  2026-10-29
 
   - Clarify five-field cron expressions with explicit hourly and per-minute
