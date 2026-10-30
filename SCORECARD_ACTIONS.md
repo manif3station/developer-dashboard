@@ -19,6 +19,49 @@ On this machine the live command is:
 bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"
 ```
 
+## Current Live Result (2026-10-30)
+
+After commit `96a740cb` was pushed, the authenticated interactive-shell check
+completed with aggregate score `8.1 / 10`. The command was run through the
+required `bash -ic` path inside `d2 exec`; Scorecard completed, although the
+dashboard bootstrap printed a local Perl/XS version mismatch warning before
+the report.
+
+- `10 / 10`: Binary-Artifacts, Dangerous-Workflow, Dependency-Update-Tool,
+  Fuzzing, License, Maintained, Packaging, Pinned-Dependencies, SAST,
+  Security-Policy, Signed-Releases, Token-Permissions, Vulnerabilities
+- `0 / 10`: Branch-Protection (master is not protected), CII-Best-Practices
+  (no badge detected), Code-Review (0/30 approved changesets)
+- `3 / 10`: Contributors (one contributing organization detected)
+- `?`: CI-Tests (no pull request found)
+
+Read-only GitHub evidence on the same date:
+
+- `gh api repos/manif3station/developer-dashboard --jq '.permissions'`
+  returned `admin: true` for the available token.
+- `gh api repos/manif3station/developer-dashboard/branches/master/protection`
+  returned HTTP 404, `Branch not protected`.
+- `gh release view` confirmed public release `v6.09`.
+
+The token can administer repository settings, but enabling required PR reviews
+on `master` would change the established direct-push workflow. Do not change
+that setting without the owner's decision. OpenSSF badge enrollment also needs
+the owner's participation. Scorecard's `Code-Review` score depends on approved
+PR history and cannot be manufactured by source changes; `Contributors` counts
+organizations and is likewise not a repository-side setting. A PR-backed CI
+result also requires choosing a PR workflow for future changes.
+
+### Remaining owner decisions
+
+- [ ] Decide whether `master` should require reviewed pull requests, replacing
+  direct pushes.
+- [ ] Decide whether to enrol the repository in OpenSSF Best Practices.
+- [ ] Choose a PR workflow so Scorecard can observe PR-backed CI and reviews.
+- [ ] Accept that contributor organization history cannot be changed by this
+  repository's source.
+- [ ] Do not claim the Scorecard gate is complete until the report reaches
+  `10 / 10` or every remaining check has a documented external limitation.
+
 ## Live Baseline
 
 Initial live result observed on `2026-04-08`:
