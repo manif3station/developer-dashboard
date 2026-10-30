@@ -68,7 +68,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.09
+6.10
 
 =head1 INTRODUCTION
 
@@ -3638,10 +3638,18 @@ success/error report for each sorted hook file.
 
 Environment files are part of the same C<DD-OOP-LAYERS> contract.
 When C<dashboard ...> runs, it loads every participating plain-directory env
-file and runtime-layer env file from root to leaf before command hooks,
-custom commands, or built-in helpers execute.
+file and runtime-layer env file from parent to child before command hooks,
+custom commands, or built-in helpers execute. This is one interleaved pass,
+not a pass over all plain directories followed by a pass over all runtime
+directories.
 
-That ordered runtime pass loads, when present:
+For each directory from the selected root toward the current directory, the
+pass loads its plain C<.env> and C<.env.pl> files, then the C<.env> and
+C<.env.pl> files in runtime roots located under that directory. Sibling
+C<.d2> and C<.developer-dashboard> roots retain their discovered order, with
+deeper directories loaded later. Explicit runtime roots outside the plain
+directory chain are loaded before that chain so child C<.env.pl> files can
+read their inherited values. The participating files are:
 
 =over 4
 
@@ -3673,7 +3681,8 @@ each participating F<.developer-dashboard/.env.pl> and F<.d2/.env.pl>
 
 Deeper files win because later layers overwrite earlier keys. Plain F<.env>
 files must contain explicit C<KEY=VALUE> lines, and the load order at one
-directory is always F<.env> first and then F<.env.pl>. Plain F<.env> parsing
+directory is always F<.env> first and then F<.env.pl>, followed by its
+runtime-root files. Plain F<.env> parsing
 ignores blank lines, whole-line C<#> comments, whole-line C<//> comments, and
 C</* ... */> block comments that can span multiple lines. Plain F<.env>
 values also support:

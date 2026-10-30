@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 6.10
+
+- Fix DKT-009: load runtime environment files in parent-to-child order with
+  plain files at each directory, allowing project `.env.pl` files to use home
+  runtime values and preserving child override precedence.
+
 ## 6.09
 
 - Complete Linux inotify coverage for release runners without optional

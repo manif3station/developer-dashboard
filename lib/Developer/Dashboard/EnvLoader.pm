@@ -3,7 +3,7 @@ package Developer::Dashboard::EnvLoader;
 use strict;
 use warnings;
 
-our $VERSION = '6.09';
+our $VERSION = '6.10';
 
 use File::Basename qw(dirname);
 use File::Spec;
@@ -16,9 +16,10 @@ our $INHERITED_ENV_KEYS = '_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS';
 
 # load_runtime_layers(%args)
 # Loads every participating plain-directory and DD-OOP-LAYER runtime env file
-# from the configured root toward the current working directory. Optional scope
-# selects all layers, home defaults only, or non-home descendant overrides.
-# Caller-exported variables remain above all file values.
+# in parent-to-child order, interleaving each directory's plain files before its
+# runtime subdirectory files. Optional scope selects all layers, home defaults
+# only, or non-home descendant overrides. Caller-exported variables remain
+# above all file values.
 # Input: hash with paths => Developer::Dashboard::PathRegistry object and
 # optional scope => all|home|descendants.
 # Output: ordered array reference of loaded env file paths.
@@ -40,8 +41,29 @@ sub load_runtime_layers {
         } @runtime_layers;
     }
     my @files;
-    push @files, map { $class->_env_file_candidates($_) } @plain_layers;
-    push @files, map { $class->_env_file_candidates($_) } @runtime_layers;
+    my %plain_index = map { $class->_path_identity( $plain_layers[$_] ) => $_ } 0 .. $#plain_layers;
+    my %runtime_by_parent;
+    my @unmatched_runtime;
+    for my $runtime_root (@runtime_layers) {
+        my $parent_id = $class->_path_identity( dirname($runtime_root) );
+        if ( exists $plain_index{$parent_id} ) {
+            push @{ $runtime_by_parent{$parent_id} }, $runtime_root;
+        }
+        else {
+            push @unmatched_runtime, $runtime_root;
+        }
+    }
+
+    # Explicit or out-of-tree runtime roots still precede files in the current
+    # directory, preserving inherited values for project-level .env.pl files.
+    push @files, map { $class->_env_file_candidates($_) } @unmatched_runtime;
+    for my $plain_root (@plain_layers) {
+        push @files, $class->_env_file_candidates($plain_root);
+        my $parent_id = $class->_path_identity($plain_root);
+        push @files,
+          map { $class->_env_file_candidates($_) }
+          @{ $runtime_by_parent{$parent_id} || [] };
+    }
     return $class->load_files(
         files => \@files,
     );
@@ -706,7 +728,15 @@ layer; files may set unset keys but cannot replace those caller values. The
 switchboard carries only the names of those inherited keys to helper
 processes, never their values.
 
-Plain C<.env> files load before C<.env.pl> at every participating directory.
+For runtime loading, plain-directory and runtime-root files are interleaved in
+parent-to-child order. At each physical directory, its plain C<.env> and
+C<.env.pl> files run before the runtime roots beneath it; each runtime root
+loads C<.env> before C<.env.pl>, and deeper directories load later. Explicit
+runtime roots outside the plain-directory chain are loaded before that chain
+so its C<.env.pl> files can use inherited values. For skill execution, the
+home runtime, skill roots, skill C<cli/> roots, and descendant runtime scopes
+retain the distinct precedence described above. At every participating
+directory, plain C<.env> files load before C<.env.pl>.
 The plain-file parser accepts C<KEY=VALUE> lines, ignores blank lines, whole
 line C<#> comments, whole line C<//> comments, and C</* ... */> block comments
 that can span multiple lines. It expands a leading C<~> to C<$ENV{HOME}>, bare
@@ -749,7 +779,9 @@ Example 1:
 
   Developer::Dashboard::EnvLoader->load_runtime_layers(paths => $paths);
 
-Load every participating plain-directory and runtime-layer env file from root to leaf for one dashboard process.
+Load every participating plain-directory and runtime-layer env file in
+parent-to-child order for one dashboard process. A project-root C<.env.pl>
+can therefore read a value already loaded from C<~/.developer-dashboard/.env>.
 
 Example 2:
 

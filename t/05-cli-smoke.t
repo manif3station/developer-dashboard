@@ -1140,10 +1140,11 @@ is( $of_file_alias, $custom_file_target . "\n", 'dashboard of resolves configure
     local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
     local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
 
-    my $env_project = File::Spec->catdir( $env_home, 'env-project', 'child' );
+    my $env_repo    = File::Spec->catdir( $env_home, 'env-project' );
+    my $env_project = File::Spec->catdir( $env_repo, 'child' );
     make_path(
         File::Spec->catdir( $env_home, '.developer-dashboard' ),
-        File::Spec->catdir( $env_home, 'env-project', '.git' ),
+        File::Spec->catdir( $env_repo, '.git' ),
         File::Spec->catdir( $env_project, '.developer-dashboard', 'cli' ),
         File::Spec->catdir( $env_project, '.developer-dashboard', 'skills', 'envskill', 'cli' ),
     );
@@ -1160,6 +1161,14 @@ CHAIN_REF=$ROOT_ENV/$SHARED_ENV
 comment */
 EOF
     close $home_env_fh or die "Unable to close $env_home/.env: $!";
+    open my $home_runtime_env_fh, '>:raw', File::Spec->catfile( $env_home, '.developer-dashboard', '.env' )
+      or die "Unable to write $env_home/.developer-dashboard/.env: $!";
+    print {$home_runtime_env_fh} "HOME_RUNTIME_ENV=home-runtime\n";
+    close $home_runtime_env_fh or die "Unable to close $env_home/.developer-dashboard/.env: $!";
+    open my $repo_env_pl_fh, '>:raw', File::Spec->catfile( $env_repo, '.env.pl' )
+      or die "Unable to write $env_repo/.env.pl: $!";
+    print {$repo_env_pl_fh} "\$ENV{PROJECT_ENV_PL} = \"\$ENV{HOME_RUNTIME_ENV}/project\";\n1;\n";
+    close $repo_env_pl_fh or die "Unable to close $env_repo/.env.pl: $!";
     open my $child_env_fh, '>:raw', File::Spec->catfile( $env_project, '.env' ) or die "Unable to write child .env: $!";
     print {$child_env_fh} "CHILD_ENV=child\nSHARED_ENV=child\n";
     close $child_env_fh or die "Unable to close child .env: $!";
@@ -1184,6 +1193,8 @@ print encode_json(
         root       => $ENV{ROOT_ENV},
         child      => $ENV{CHILD_ENV},
         child_pl   => $ENV{CHILD_PL_ENV},
+        home_runtime => $ENV{HOME_RUNTIME_ENV},
+        project_env_pl => $ENV{PROJECT_ENV_PL},
         shared     => $ENV{SHARED_ENV},
         home_ref   => $ENV{HOME_REF},
         default_ref => $ENV{DEFAULT_REF},
@@ -1222,6 +1233,8 @@ PL
     is( $regular_env->{root}, 'root', 'dashboard custom commands inherit env values from the home .env layer' );
     is( $regular_env->{child}, 'child', 'dashboard custom commands inherit env values from the child .env layer' );
     is( $regular_env->{child_pl}, 'child-pl', 'dashboard custom commands load child .env before child .env.pl at the same layer' );
+    is( $regular_env->{home_runtime}, 'home-runtime', 'dashboard custom commands load home runtime environment values' );
+    is( $regular_env->{project_env_pl}, 'home-runtime/project', 'project-root .env.pl can use a value from the home runtime .env' );
     is( $regular_env->{shared}, 'child', 'dashboard custom commands keep the deepest non-skill env value when no skill command is being run' );
     is( $regular_env->{home_ref}, File::Spec->catdir( $env_home, 'cli-home' ), 'dashboard custom commands receive tilde-expanded env values from .env files' );
     is( $regular_env->{default_ref}, 'cli-fallback', 'dashboard custom commands receive default-expanded ${NAME:-default} env values from .env files' );
@@ -3789,12 +3802,14 @@ instead of treating `grep` and its switches as filename patterns.
 Top-level log tests exercise `-t`, `-f`, `--tail N`, and `--tail=N` through
 public helper dispatch, including web, collector, mixed output, timestamped
 follow, and zero-line requests.
+The layered-environment fixture also proves that a project-root `.env.pl` can
+read values from the home `.developer-dashboard/.env` file.
 
 =for comment FULL-POD-DOC START
 
 =head1 PURPOSE
 
-This test is the executable regression contract for the thin CLI, helper staging, low-level runtime contracts, Docker help and completion, Docker service development overlays, and the user-facing `dashboard of grep` invocation. Its shell completion checks cover command-only root candidates, nested actions, parser-backed flags such as API's implicit list options, and bounded cdr directory traversal. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
+This test is the executable regression contract for the thin CLI, helper staging, low-level runtime contracts, layered environment inheritance, Docker help and completion, Docker service development overlays, and the user-facing `dashboard of grep` invocation. Its shell completion checks cover command-only root candidates, nested actions, parser-backed flags such as API's implicit list options, and bounded cdr directory traversal. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
 
 =head1 WHY IT EXISTS
 
@@ -3802,7 +3817,7 @@ It exists because the thin CLI, helper staging, and low-level runtime contracts 
 
 =head1 WHEN TO USE
 
-Use this file when changing the thin CLI, helper staging, completion candidate scope, cdr directory traversal, low-level runtime contracts, or public log timestamp/follow/tail behavior, when a focused CI failure points here, or when you want a faster regression loop than running the entire suite.
+Use this file when changing the thin CLI, helper staging, layered environment inheritance, completion candidate scope, cdr directory traversal, low-level runtime contracts, or public log timestamp/follow/tail behavior, when a focused CI failure points here, or when you want a faster regression loop than running the entire suite.
 
 =head1 HOW TO USE
 

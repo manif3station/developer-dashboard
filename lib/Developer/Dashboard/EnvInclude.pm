@@ -3,7 +3,7 @@ package Developer::Dashboard::EnvInclude;
 use strict;
 use warnings;
 
-our $VERSION = '6.09';
+our $VERSION = '6.10';
 
 use File::Spec;
 use Developer::Dashboard::DirEntries qw(sorted_dir_entries);

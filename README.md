@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.09
+6.10
 
 # INTRODUCTION
 
@@ -2966,10 +2966,18 @@ success/error report for each sorted hook file.
 
 Environment files are part of the same `DD-OOP-LAYERS` contract.
 When `dashboard ...` runs, it loads every participating plain-directory env
-file and runtime-layer env file from root to leaf before command hooks,
-custom commands, or built-in helpers execute.
+file and runtime-layer env file from parent to child before command hooks,
+custom commands, or built-in helpers execute. This is one interleaved pass,
+not a pass over all plain directories followed by a pass over all runtime
+directories.
 
-That ordered runtime pass loads, when present:
+For each directory from the selected root toward the current directory, the
+pass loads its plain `.env` and `.env.pl` files, then the `.env` and
+`.env.pl` files in runtime roots located under that directory. Sibling
+`.d2` and `.developer-dashboard` roots retain their discovered order, with
+deeper directories loaded later. Explicit runtime roots outside the plain
+directory chain are loaded before that chain so child `.env.pl` files can
+read their inherited values. The participating files are:
 
 - `<root>/.env`
 - `<root>/.env.pl`
@@ -2980,7 +2988,8 @@ That ordered runtime pass loads, when present:
 
 Deeper files win because later layers overwrite earlier keys. Plain `.env`
 files must contain explicit `KEY=VALUE` lines, and the load order at one
-directory is always `.env` first and then `.env.pl`. Plain `.env` parsing
+directory is always `.env` first and then `.env.pl`, followed by its
+runtime-root files. Plain `.env` parsing
 ignores blank lines, whole-line `#` comments, whole-line `//` comments, and
 `/* ... */` block comments that can span multiple lines. Plain `.env`
 values also support:

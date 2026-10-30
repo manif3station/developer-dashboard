@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFileGrep;
 use strict;
 use warnings;
 
-our $VERSION = '6.09';
+our $VERSION = '6.10';
 
 use Capture::Tiny qw(capture);
 use Exporter 'import';

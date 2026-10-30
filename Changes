@@ -1,3 +1,9 @@
+6.10  2026-10-30
+
+  - Fix DKT-009: interleave plain-directory and DD-OOP runtime env files in
+    parent-to-child order so project .env.pl files can read inherited home
+    runtime values while deeper values continue to override their parents.
+
 6.09  2026-10-29
 
   - Complete the GitHub release coverage fix by testing the successful Linux
