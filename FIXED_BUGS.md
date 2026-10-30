@@ -1,5 +1,14 @@
 # Fixed Bugs
 
+## 6.11
+
+- Fix the cross-platform full-suite workflow failing coverage-gate tests before
+  their assertions ran. It installed project dependencies but omitted
+  `Devel::Cover` and its `PERL5LIB` export, so child Perl processes could not
+  load `Devel::Cover::DB::IO`. The workflow now installs the tool into the
+  local library and exports that path before the suite; existing assertions
+  are preserved.
+
 ## 6.10
 
 - Fix DKT-009: load runtime environment files in parent-to-child order with

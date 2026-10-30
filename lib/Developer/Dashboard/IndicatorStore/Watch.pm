@@ -2,7 +2,7 @@ package Developer::Dashboard::IndicatorStore::Watch;
 
 use strict;
 use warnings;
-our $VERSION = '6.10';
+our $VERSION = '6.11';
 
 use Errno qw(EILSEQ);
 use IO::Select;

@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::RuntimeControl;
 use strict;
 use warnings;
 
-our $VERSION = '6.10';
+our $VERSION = '6.11';
 
 use Getopt::Long qw(GetOptionsFromArray);
 use Time::HiRes qw(sleep);

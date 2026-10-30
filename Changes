@@ -1,3 +1,10 @@
+6.11  2026-10-30
+
+  - Fix the platform compatibility workflow setup: install Devel::Cover into
+    the local dependency tree and export PERL5LIB before the full suite, so
+    coverage-gate child processes can load Devel::Cover::DB::IO. The original
+    assertions remain unchanged; Docker reruns pass all four affected tests.
+
 6.10  2026-10-30
 
   - Fix DKT-009: interleave plain-directory and DD-OOP runtime env files in

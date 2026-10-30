@@ -121,6 +121,26 @@ unlike( $readme, qr/runs\s+Test,\s*CodeQL,\s*Package\s*GHCR,\s*and\s*JS\s*Fuzz\s
             my ($test_step) = grep { ($_->{name} // '') eq 'Run complete test suite' } @{ $job->{steps} };
             like( $test_step->{run} || '', qr/prove\s+-lr\s+t/,
                 'the platform job runs the complete Perl test suite' );
+            my @steps = @{ $job->{steps} };
+            my ($test_tools_index) = grep {
+                ($steps[$_]{name} // '') eq 'Install test tools and export project environment'
+            } 0 .. $#steps;
+            ok( defined $test_tools_index,
+                'the platform job installs coverage test tools and exports the project environment' );
+            if ( defined $test_tools_index ) {
+                my $test_tools_run = $steps[$test_tools_index]{run} // '';
+                like( $test_tools_run, qr/cpanm\s+--notest\s+-L\s+local\s+Devel::Cover/,
+                    'the platform job installs Devel::Cover for coverage-gate regression tests' );
+                like( $test_tools_run, qr/PERL5LIB=.*GITHUB_ENV/s,
+                    'the platform job exports local dependencies so child Perl processes can load them' );
+                like( $test_tools_run, qr/-MDevel::Cover::DB::IO/,
+                    'the platform job verifies the coverage serializer in the exported local library' );
+                my ($test_index) = grep {
+                    ($steps[$_]{name} // '') eq 'Run complete test suite'
+                } 0 .. $#steps;
+                ok( defined $test_index && $test_tools_index < $test_index,
+                    'test tools and the child-process library path are prepared before the full suite' );
+            }
             my $benchmark_steps = join "\n", map { $_->{run} // '' } @{ $job->{steps} };
             like( $benchmark_steps,
                 qr/problem48-status-route-benchmark.*--indicators\s+50.*--portable-config-cache/s,

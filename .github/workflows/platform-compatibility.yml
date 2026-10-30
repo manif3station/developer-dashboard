@@ -82,14 +82,16 @@ jobs:
             cpanm -L local Mac::FSEvents
           fi
 
-      - name: Export project Perl environment
+      - name: Install test tools and export project environment
         shell: bash
         run: |
+          cpanm --notest -L local Devel::Cover
           perl5lib="$GITHUB_WORKSPACE/local/lib/perl5"
           if [ ! -d "$perl5lib" ]; then
             echo "dependency tree missing at $perl5lib" >&2
             exit 1
           fi
+          PERL5LIB="$perl5lib${PERL5LIB:+:$PERL5LIB}" perl -MDevel::Cover::DB::IO -e 'print "Devel::Cover serializer available\n"'
           echo "PERL5LIB=$perl5lib" >> "$GITHUB_ENV"
           echo "$GITHUB_WORKSPACE/local/bin" >> "$GITHUB_PATH"
 

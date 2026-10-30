@@ -68,7 +68,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.10
+6.11
 
 =head1 INTRODUCTION
 
@@ -4112,6 +4112,12 @@ Run the full Perl test suite from the repository root:
 The maintained end-to-end scenario plan defines expected routes, inputs, and
 outputs. Hosted workflows provide additional platform checks and packaging
 verification.
+
+The cross-platform compatibility workflow installs C<Devel::Cover> into its
+local dependency tree and exports that tree through C<PERL5LIB> before running
+the complete suite. Coverage-gate regression tests launch child Perl processes,
+so those processes must resolve the same coverage serializer and project
+dependencies as the parent test process.
 
 =head3 Library coverage
 
