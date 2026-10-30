@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '6.11';
+our $VERSION = '6.12';
 
 use Config ();
 use Developer::Dashboard::DirEntries qw(sorted_dir_entries);

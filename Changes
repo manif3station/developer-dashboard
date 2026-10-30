@@ -1,3 +1,13 @@
+6.12  2026-10-30
+
+  - Make macOS ARM64 OpenSSL selection explicit for the platform compatibility
+    workflow. Install or reuse Homebrew openssl@3, verify its ARM64 library,
+    export OPENSSL_PREFIX, and show verbose Net::SSLeay build diagnostics.
+    Add a Docker-run workflow contract test and document that the original
+    nested cpanm build log did not expose the precise compiler/linker failure.
+  - Raise the declared YAML minimum to 1.30 in all dependency manifests after
+    the live advisory gate found that 1.28 permits CPANSA-YAML-2017-20285.
+
 6.11  2026-10-30
 
   - Fix the platform compatibility workflow setup: install Devel::Cover into

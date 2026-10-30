@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '6.11';
+our $VERSION = '6.12';
 
 use Capture::Tiny qw(capture);
 use File::Spec;

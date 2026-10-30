@@ -22,7 +22,7 @@ requires 'Cpanel::JSON::XS', '4.41';
 requires 'Dancer2', '2.2.0';
 requires 'Plack', '1.0054';
 requires 'Pod::Text', '6.1.1';
-requires 'YAML', '1.28';
+requires 'YAML', '1.30';
 requires 'Socket', '2.041';
 requires 'Starman', '0.4018';
 requires 'Storable', '3.41';

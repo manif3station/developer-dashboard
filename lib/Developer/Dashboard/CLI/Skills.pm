@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Skills;
 use strict;
 use warnings;
 
-our $VERSION = '6.11';
+our $VERSION = '6.12';
 
 use Getopt::Long qw(GetOptionsFromArray);
 use Developer::Dashboard::PathIdentity qw(current_working_directory);

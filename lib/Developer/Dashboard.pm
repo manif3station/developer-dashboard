@@ -68,7 +68,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.11
+6.12
 
 =head1 INTRODUCTION
 
@@ -184,7 +184,9 @@ Unix bootstrap accepts an existing host Perl from C<5.38>; when it must build
 an isolated fallback, it installs C<perlbrew --notest install perl-5.44.0>.
 The dependency set also pins C<HTTP::Tiny> to C<0.096> so the transitive
 minimum inherited through Plack cannot resolve to versions with known TLS,
-request-validation, or cross-origin redirect credential vulnerabilities.
+request-validation, or cross-origin redirect credential vulnerabilities. It
+requires C<YAML> C<1.30> or newer because lower releases are affected by
+CPANSA-YAML-2017-20285.
 
 The Unix-like installer prepares its user-local Perl dependencies before
 installing the checkout and initialising the runtime.
@@ -4118,6 +4120,13 @@ local dependency tree and exports that tree through C<PERL5LIB> before running
 the complete suite. Coverage-gate regression tests launch child Perl processes,
 so those processes must resolve the same coverage serializer and project
 dependencies as the parent test process.
+
+On macOS ARM64, the same workflow installs Homebrew C<openssl@3>, verifies that
+its headers and C<libssl.dylib> are present for ARM64, and exports the formula
+prefix as C<OPENSSL_PREFIX> before building C<Net::SSLeay>. This makes the
+OpenSSL selection explicit for the native TLS dependency used by
+C<IO::Socket::SSL> and C<LWP::Protocol::https>. The runner log now includes
+verbose diagnostics from this focused C<Net::SSLeay> build if it fails.
 
 =head3 Library coverage
 

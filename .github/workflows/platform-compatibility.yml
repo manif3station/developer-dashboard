@@ -71,6 +71,35 @@ jobs:
         run: >-
           perl -MConfig -MPOSIX -e '$os = $^O; $machine = $os eq "MSWin32" ? $ENV{PROCESSOR_ARCHITECTURE} : (POSIX::uname())[4]; $machine = lc $machine; $actual_arch = $machine =~ /(?:aarch64|arm64)/ ? "arm64" : $machine =~ /(?:x86_64|amd64|x64)/ ? "x64" : "unknown"; die "Expected $ENV{DD_EXPECTED_OS}/$ENV{DD_EXPECTED_ARCH}, got $os/$actual_arch ($machine)\n" if $os ne $ENV{DD_EXPECTED_OS} || $actual_arch ne $ENV{DD_EXPECTED_ARCH}; print "Verified $os/$actual_arch ($Config{archname})\n"'
 
+      - name: Prepare Homebrew OpenSSL for macOS arm64
+        if: matrix.label == 'macOS arm64'
+        shell: bash
+        run: |
+          if ! brew list --versions openssl@3 >/dev/null; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install openssl@3
+          fi
+          prefix="$(brew --prefix openssl@3)"
+          if [ ! -x "$prefix/bin/openssl" ]; then
+            echo "OpenSSL executable missing at $prefix/bin/openssl" >&2
+            exit 1
+          fi
+          if [ ! -f "$prefix/include/openssl/ssl.h" ]; then
+            echo "OpenSSL headers missing under $prefix/include/openssl" >&2
+            exit 1
+          fi
+          if ! lipo -verify_arch arm64 "$prefix/lib/libssl.dylib"; then
+            echo "Homebrew OpenSSL libssl is not an arm64 library: $prefix/lib/libssl.dylib" >&2
+            exit 1
+          fi
+          echo "Using OpenSSL prefix: $prefix"
+          "$prefix/bin/openssl" version
+          echo "OPENSSL_PREFIX=$prefix" >> "$GITHUB_ENV"
+          echo "$prefix/bin" >> "$GITHUB_PATH"
+
+      - name: Install macOS arm64 Net::SSLeay with diagnostics
+        if: matrix.label == 'macOS arm64'
+        run: cpanm --verbose --notest -L local Net::SSLeay
+
       - name: Install project dependencies
         run: cpanm --installdeps --notest -L local .
 

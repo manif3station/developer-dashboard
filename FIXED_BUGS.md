@@ -1,5 +1,18 @@
 # Fixed Bugs
 
+## 6.12
+
+- DKT-012 / TSK-021: make the macOS ARM64 Net::SSLeay CI setup reproducible by
+  selecting Homebrew `openssl@3` through `OPENSSL_PREFIX` and checking the
+  library architecture before installation. The original runner log hid the
+  nested cpanm build log, so a focused verbose build step now exposes native
+  compiler and linker diagnostics. Hosted rerun evidence is still required to
+  confirm the fix.
+- Raise the YAML dependency floor from 1.28 to 1.30 in cpanfile, Makefile.PL,
+  and dist.ini after the live declared-chain audit found advisory
+  CPANSA-YAML-2017-20285 permits YAML 1.28. The existing audit gate verifies
+  that the vulnerable resolution is no longer allowed.
+
 ## 6.11
 
 - Fix the cross-platform full-suite workflow failing coverage-gate tests before
