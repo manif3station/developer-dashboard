@@ -68,7 +68,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.12
+6.13
 
 =head1 INTRODUCTION
 

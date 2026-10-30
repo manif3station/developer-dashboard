@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 6.13
+
+- Correct the macOS ARM64 workflow's OpenSSL architecture preflight. The first
+  hosted rerun showed that the runner's Apple `lipo` interpreted the library
+  path as an architecture argument for `-verify_arch`, so Net::SSLeay never ran.
+  The workflow now reads `lipo -archs` and checks for the exact `arm64` token.
+
 ## 6.12
 
 - DKT-012 / TSK-021: make the macOS ARM64 Net::SSLeay CI setup reproducible by

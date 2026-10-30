@@ -36,7 +36,8 @@ like(
 like( $workflow, qr/brew install openssl\@3/, 'the workflow installs the supported Homebrew OpenSSL formula' );
 like( $workflow, qr/OPENSSL_PREFIX=\$prefix.*GITHUB_ENV/s, 'the discovered OpenSSL prefix is exported to later steps' );
 like( $workflow, qr/\[ ! -f "\$prefix\/include\/openssl\/ssl\.h" \]/, 'the workflow fails clearly if OpenSSL headers are absent' );
-like( $workflow, qr/lipo -verify_arch arm64 .*libssl\.dylib/, 'the selected OpenSSL library is verified as arm64' );
+like( $workflow, qr/lipo -archs "\$prefix\/lib\/libssl\.dylib"/, 'the selected OpenSSL library architectures are inspected' );
+like( $workflow, qr/grep -Eq .*arm64/s, 'the selected OpenSSL library must include arm64' );
 like(
     $workflow,
     qr/name: Install macOS arm64 Net::SSLeay with diagnostics\s+if: matrix\.label == 'macOS arm64'.*?cpanm --verbose --notest -L local Net::SSLeay/s,

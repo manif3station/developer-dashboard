@@ -3,7 +3,7 @@ package Developer::Dashboard::DockerCompose;
 use strict;
 use warnings;
 
-our $VERSION = '6.12';
+our $VERSION = '6.13';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::PathIdentity qw(current_working_directory);

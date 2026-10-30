@@ -20,7 +20,7 @@ now:
 1. Installs `openssl@3` on the macOS ARM64 runner if it is not already present.
 2. Resolves the formula prefix with `brew --prefix openssl@3`.
 3. Fails visibly if the OpenSSL executable or headers are missing.
-4. Verifies that `libssl.dylib` contains ARM64 code with `lipo`.
+4. Reads `lipo -archs` output and requires the exact `arm64` architecture.
 5. Exports `OPENSSL_PREFIX` and the formula's `bin` directory to later steps.
 6. Builds `Net::SSLeay` separately with cpanm verbose output before installing
    the remaining project dependencies.
@@ -31,6 +31,14 @@ details in the Actions log. The workflow contract is tested by
 `t/229-platform-openssl-workflow.t` inside the development container. The
 hosted macOS ARM64 rerun is required to confirm the build itself; the local
 Docker test validates the workflow structure, not a macOS native build.
+
+The first hosted attempt with this setup exposed a defect in the architecture
+guard itself: Apple's `lipo -verify_arch` parsed the library path as an
+architecture argument and exited before Net::SSLeay ran. The guard now reads
+`lipo -archs` output and checks for the `arm64` token. The corrected hosted
+macOS ARM64 rerun is still required to confirm the OpenSSL setup and native
+dependency build; the local Docker test validates the workflow structure, not
+a macOS native build.
 
 The original failure is recorded in GitHub Actions run
 [41117859690](https://github.com/manif3station/developer-dashboard/actions/runs/41117859690),

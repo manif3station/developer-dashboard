@@ -87,8 +87,9 @@ jobs:
             echo "OpenSSL headers missing under $prefix/include/openssl" >&2
             exit 1
           fi
-          if ! lipo -verify_arch arm64 "$prefix/lib/libssl.dylib"; then
-            echo "Homebrew OpenSSL libssl is not an arm64 library: $prefix/lib/libssl.dylib" >&2
+          architectures="$(lipo -archs "$prefix/lib/libssl.dylib")"
+          if ! grep -Eq '(^|[[:space:]])arm64([[:space:]]|$)' <<< "$architectures"; then
+            echo "Homebrew OpenSSL libssl lacks arm64 (reported architectures: $architectures)" >&2
             exit 1
           fi
           echo "Using OpenSSL prefix: $prefix"
