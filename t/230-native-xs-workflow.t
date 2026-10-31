@@ -18,15 +18,6 @@ ok( ref($jobs) eq 'HASH', 'the workflow declares its platform jobs' );
 
 my $full_suite = $jobs->{'perl-tests'};
 ok( ref($full_suite) eq 'HASH', 'the cross-platform full-suite job is defined' );
-my ($xs_build) = grep {
-    ( $_->{name} // q{} ) eq 'Build the Dashboard XS extension'
-} @{ $full_suite->{steps} || [] };
-ok( ref($xs_build) eq 'HASH', 'the full-suite job builds the Dashboard XS extension' );
-my $build_run = $xs_build->{run} // q{};
-like( $build_run, qr/perl Makefile\.PL/, 'the full-suite job generates the native build files' );
-like( $build_run, qr/\bgmake\b/, 'Windows uses its GNU make toolchain for the XS build' );
-like( $build_run, qr/\bmake\b/, 'Unix platforms use make for the XS build' );
-unlike( $build_run, qr/FFI::Platypus|FFI::CheckLib/, 'the build step has no FFI prerequisite' );
 my ($full_suite_step) = grep {
     ( $_->{name} // q{} ) eq 'Run complete test suite'
 } @{ $full_suite->{steps} || [] };
@@ -41,9 +32,9 @@ my $arm_job = $jobs->{'windows-arm64-native-watcher'};
 ok( ref($arm_job) eq 'HASH', 'the Windows ARM64 native watcher job is defined' );
 is( $arm_job->{'runs-on'}, 'windows-11-arm', 'the native watcher job uses a Windows ARM64 runner' );
 my ($arm_build) = grep {
-    ( $_->{name} // q{} ) eq 'Build the Dashboard XS extension'
+    ( $_->{name} // q{} ) eq 'Build the Dashboard XS extension (Windows)'
 } @{ $arm_job->{steps} || [] };
-ok( ref($arm_build) eq 'HASH', 'the Windows ARM64 job builds the XS extension' );
+ok( ref($arm_build) eq 'HASH', 'the Windows ARM64 job builds the XS extension with Windows Perl' );
 my ($watch_test) = grep {
     ( $_->{name} // q{} ) eq 'Run Windows ARM64 native filesystem watcher test'
 } @{ $arm_job->{steps} || [] };
@@ -57,8 +48,57 @@ my ($architecture_check) = grep {
     ( $_->{name} // q{} ) eq 'Verify Windows ARM64 runner and report its Perl runtime'
 } @{ $arm_job->{steps} || [] };
 ok( ref($architecture_check) eq 'HASH', 'the ARM64 job verifies runner and Perl architecture' );
+like( $architecture_check->{run} // q{}, qr/PROCESSOR_ARCHITECTURE/,
+    'the ARM64 preflight still rejects a non-ARM64 runner' );
+like( $architecture_check->{run} // q{}, qr/native_perl=false/,
+    'the ARM64 preflight records when native Perl is unavailable' );
+like( $architecture_check->{run} // q{}, qr/::warning title=Native ARM64 Perl unavailable/,
+    'the ARM64 preflight makes unavailable Perl visible as a warning' );
 unlike( $architecture_check->{run} // q{}, qr/FFI::Platypus|FFI::CheckLib/,
     'the architecture check does not require FFI' );
+my ($arm_cpanm) = grep { ( $_->{name} // q{} ) eq 'Install cpanminus' } @{ $arm_job->{steps} || [] };
+is( $arm_cpanm->{if}, "steps.arm64-perl.outputs.native_perl == 'true'",
+    'ARM64 dependency installation only runs with native Perl' );
+my ($arm_dependencies) = grep {
+    ( $_->{name} // q{} ) eq 'Install project dependencies'
+} @{ $arm_job->{steps} || [] };
+is( $arm_dependencies->{if}, "steps.arm64-perl.outputs.native_perl == 'true'",
+    'ARM64 dependencies are not installed into an x64 Perl runtime' );
+is( $arm_build->{if}, "steps.arm64-perl.outputs.native_perl == 'true'",
+    'ARM64 XS compilation only runs with native Perl' );
+is( $watch_test->{if}, "steps.arm64-perl.outputs.native_perl == 'true'",
+    'the watcher test is visibly skipped unless native Perl is available' );
+
+my ($unix_build) = grep {
+    ( $_->{name} // q{} ) eq 'Build the Dashboard XS extension (Unix)'
+} @{ $full_suite->{steps} || [] };
+ok( ref($unix_build) eq 'HASH', 'the full-suite job has a Unix XS build step' );
+is( $unix_build->{shell}, 'bash', 'the Unix XS build uses bash' );
+like( $unix_build->{run} // q{}, qr/perl Makefile\.PL.*\bmake\b/s,
+    'the Unix XS build uses the configured Perl and make' );
+
+my ($windows_build) = grep {
+    ( $_->{name} // q{} ) eq 'Build the Dashboard XS extension (Windows)'
+} @{ $full_suite->{steps} || [] };
+ok( ref($windows_build) eq 'HASH', 'the Windows x64 job has its own XS build step' );
+is( $windows_build->{shell}, 'pwsh', 'the Windows XS build uses PowerShell, not Git Bash Perl' );
+like( $windows_build->{run} // q{}, qr/perl Makefile\.PL.*\bgmake\b/s,
+    'the Windows XS build uses the setup-perl runtime and GNU make' );
+unlike( $windows_build->{run} // q{}, qr/FFI::Platypus|FFI::CheckLib/,
+    'the Windows XS build has no FFI prerequisite' );
+
+my ($unix_test_tools) = grep {
+    ( $_->{name} // q{} ) eq 'Install test tools and export project environment (Unix)'
+} @{ $full_suite->{steps} || [] };
+ok( ref($unix_test_tools) eq 'HASH', 'the Unix test-tools step is explicit' );
+is( $unix_test_tools->{shell}, 'bash', 'the Unix test-tools step uses bash' );
+my ($windows_test_tools) = grep {
+    ( $_->{name} // q{} ) eq 'Install test tools and export project environment (Windows)'
+} @{ $full_suite->{steps} || [] };
+ok( ref($windows_test_tools) eq 'HASH', 'the Windows test-tools step is explicit' );
+is( $windows_test_tools->{shell}, 'pwsh', 'the Windows test-tools step uses PowerShell' );
+like( $windows_test_tools->{run} // q{}, qr/\$env:GITHUB_ENV/,
+    'the Windows test-tools step exports variables using Windows semantics' );
 
 my $workflow_text = do {
     open my $fh, '<:raw', $workflow_path or die "Unable to read '$workflow_path': $!";
@@ -81,8 +121,9 @@ __END__
 =head1 PURPOSE
 
 Checks that the platform compatibility workflow builds the shared Dashboard
-XS extension before running native tests, and that the Windows ARM64 job
-compiles the extension before loading the watcher test.
+XS extension before running native tests, selects the configured Windows Perl
+through PowerShell for build and coverage-tool steps, and does not report an
+ARM64 watcher pass when the hosted runner lacks native ARM64 Perl.
 
 =head1 WHY IT EXISTS
 
@@ -94,8 +135,9 @@ implementation, so the build and test paths must stay explicit.
 =head1 WHEN TO USE
 
 Run this source-checkout test when changing the cross-platform XS build,
-Windows ARM64 native watcher job, or optional native dependencies. The test
-skips only when workflow files are absent from a packaged distribution.
+Windows ARM64 native watcher job, Windows shell selection, or optional native
+dependencies. The test skips only when workflow files are absent from a
+packaged distribution.
 
 =head1 HOW TO USE
 
@@ -120,8 +162,14 @@ C<make> on Unix.
 
 =item *
 
-The Windows ARM64 job verifies its Perl architecture, builds the extension,
-and passes C<-Iblib/arch> to the native watcher test.
+The Windows ARM64 job verifies its runner and Perl architectures. If the
+runner has no native ARM64 Perl, it emits a warning and visibly skips
+Perl-dependent steps rather than claiming native watcher coverage.
+
+=item *
+
+Windows x64 builds the extension and prepares coverage tools in PowerShell so
+it uses the workflow-installed Perl rather than Git Bash's MSYS Perl.
 
 =back
 

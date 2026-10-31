@@ -1820,6 +1820,23 @@ uncoverable annotations. The release kwalitee test also passed all seven
 checks at 100 percent after refreshing the project dev image. No hosted-platform
 result or release is claimed here.
 
+#### Post-push Windows workflow correction (2026-10-31)
+
+The first hosted run of the XS change, 41156746869, passed Linux x64 and Linux
+ARM64. Windows x64 failed before tests because the XS build step explicitly
+used Git Bash, which selected its bundled MSYS Perl and could not load
+ExtUtils::MakeMaker, even though the workflow-installed Windows Perl was
+available to PowerShell steps. The build and coverage-tool setup now use
+separate Windows PowerShell and Unix Bash steps. A Docker workflow regression
+test failed first against the old workflow, then passed with checks for both
+shells and Windows path separators.
+
+That run also confirmed windows-11-arm is an ARM64 runner but supplies
+MSWin32-x64-multi-thread Perl. The ARM64 job now emits a visible warning and
+skips Perl-dependent install, build and watcher-test steps unless Perl itself
+is ARM64. It does not claim native ARM64 XS coverage when the runtime is
+unavailable. Hosted verification of the follow-up is pending.
+
 ### Problem 48 request-scoped installed-skill directory inventory (2026-10-14)
 
 The 50-skill NYTProf trace found that one `paths -o json` invocation read the

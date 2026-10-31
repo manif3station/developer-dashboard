@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.14
+6.15
 
 # INTRODUCTION
 
@@ -3355,10 +3355,15 @@ OpenSSL selection explicit for the native TLS dependency used by
 verbose diagnostics from this focused `Net::SSLeay` build if it fails.
 
 The platform workflow builds the Dashboard XS extension before running the
-suite on each supported platform. Its Windows ARM64 smoke job verifies that
-the runner supplies a native ARM64 Perl before exercising the native watcher;
-the general Windows x64 job also compiles the same extension and runs the
-complete suite.
+suite on each supported platform. Unix build and coverage-tool steps use Bash;
+Windows x64 uses PowerShell so those steps invoke the Perl installed by the
+workflow rather than Git Bash's unrelated Perl. Windows ARM64 first verifies
+the runner architecture and checks Perl's configured architecture. If the
+runner is ARM64 but the hosted image supplies only x64 Perl, the workflow emits
+a visible warning and skips Perl-dependent native watcher steps; it does not
+claim that Windows ARM64 XS code was tested. When native ARM64 Perl is
+available, the job builds the extension and runs the watcher contract test.
+The Windows x64 job compiles the same extension and runs the complete suite.
 
 ### Library coverage
 

@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 6.15
+
+- DKT-015: separate Windows PowerShell and Unix Bash workflow steps so XS
+  builds and coverage setup use the intended Perl runtime. The hosted Windows
+  ARM64 image currently has x64 Perl; the workflow now warns and skips native
+  Perl steps rather than treating that unavailable toolchain as a test pass.
+
 ## 6.14
 
 - DKT-015: remove FFI::Platypus and FFI::CheckLib from runtime/build

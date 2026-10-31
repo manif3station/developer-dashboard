@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Progress;
 use strict;
 use warnings;
 
-our $VERSION = '6.14';
+our $VERSION = '6.15';
 
 # new(%args)
 # Constructs a terminal progress renderer for restart/stop lifecycle commands.

@@ -1,3 +1,11 @@
+6.15  2026-10-31
+
+  - Fix Windows XS CI to use the workflow-installed Perl from PowerShell for
+    extension builds and coverage-tool setup, not Git Bash's MSYS Perl.
+  - Report missing native Windows ARM64 Perl with a visible workflow warning
+    and skip only the ARM64 Perl-dependent watcher steps without claiming a
+    native ARM64 test pass. Add Docker regression checks for both behaviours.
+
 6.14  2026-10-31
 
   - Replace FFI::Platypus and FFI::CheckLib runtime backends for PBKDF2,

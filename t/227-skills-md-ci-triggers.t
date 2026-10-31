@@ -122,28 +122,35 @@ unlike( $readme, qr/runs\s+Test,\s*CodeQL,\s*Package\s*GHCR,\s*and\s*JS\s*Fuzz\s
             like( $test_step->{run} || '', qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
                 'the platform job runs the complete Perl test suite with the built XS library paths' );
             my @steps = @{ $job->{steps} };
-            my ($test_tools_index) = grep {
-                ($steps[$_]{name} // '') eq 'Install test tools and export project environment'
-            } 0 .. $#steps;
-            ok( defined $test_tools_index,
-                'the platform job installs coverage test tools and exports the project environment' );
-            if ( defined $test_tools_index ) {
-                my $test_tools_run = $steps[$test_tools_index]{run} // '';
-                like( $test_tools_run, qr/cpanm\s+--notest\s+-L\s+local\s+Devel::Cover/,
-                    'the platform job installs Devel::Cover for coverage-gate regression tests' );
-                like( $test_tools_run, qr/PERL5LIB=.*GITHUB_ENV/s,
-                    'the platform job exports local dependencies so child Perl processes can load them' );
-                like( $test_tools_run, qr/Config\{archname\}/,
-                    'the platform job adds the active architecture-specific local module directory' );
-                like( $test_tools_run, qr/Config\{path_sep\}/,
-                    'the platform job joins local module paths with the host Perl path separator' );
-                like( $test_tools_run, qr/-MDevel::Cover::DB::IO/,
-                    'the platform job verifies the coverage serializer in the exported local library' );
-                my ($test_index) = grep {
-                    ($steps[$_]{name} // '') eq 'Run complete test suite'
+            my %test_tools_index;
+            for my $platform (qw(Unix Windows)) {
+                my ($index) = grep {
+                    ($steps[$_]{name} // '') eq "Install test tools and export project environment ($platform)"
                 } 0 .. $#steps;
-                ok( defined $test_index && $test_tools_index < $test_index,
-                    'test tools and the child-process library path are prepared before the full suite' );
+                $test_tools_index{$platform} = $index if defined $index;
+                ok( defined $index,
+                    "the $platform platform job installs coverage tools and exports the project environment" );
+                next if !defined $index;
+                my $test_tools_run = $steps[$index]{run} // '';
+                like( $test_tools_run, qr/cpanm\s+--notest\s+-L\s+local\s+Devel::Cover/,
+                    "$platform installs Devel::Cover for coverage-gate regression tests" );
+                like( $test_tools_run, qr/PERL5LIB=.*GITHUB_ENV/s,
+                    "$platform exports local dependencies for child Perl processes" );
+                like( $test_tools_run, qr/Config\{archname\}/,
+                    "$platform adds its architecture-specific local module directory" );
+                like( $test_tools_run, qr/Config\{path_sep\}/,
+                    "$platform joins module paths with its Perl path separator" );
+                like( $test_tools_run, qr/-MDevel::Cover::DB::IO/,
+                    "$platform verifies the coverage serializer in the local library" );
+            }
+            my ($test_index) = grep {
+                ($steps[$_]{name} // '') eq 'Run complete test suite'
+            } 0 .. $#steps;
+            ok( defined $test_index, 'the full-suite step exists after test-tools preparation' );
+            for my $platform (qw(Unix Windows)) {
+                ok( defined $test_tools_index{$platform} && defined $test_index
+                      && $test_tools_index{$platform} < $test_index,
+                    "$platform test tools are prepared before the full suite" );
             }
             my $benchmark_steps = join "\n", map { $_->{run} // '' } @{ $job->{steps} };
             like( $benchmark_steps,
@@ -158,9 +165,15 @@ unlike( $readme, qr/runs\s+Test,\s*CodeQL,\s*Package\s*GHCR,\s*and\s*JS\s*Fuzz\s
         if ( ref($windows_arm) eq 'HASH' ) {
             is( $windows_arm->{ 'runs-on' }, 'windows-11-arm',
                 'the dedicated job runs on a Windows ARM64 hosted runner' );
-            my $steps = join "\n", map { ($_->{run} // '') . "\n" . ($_->{name} // '') } @{ $windows_arm->{steps} || [] };
-            like( $steps, qr/Config\{archname\}.*arm64/i,
-                'the Windows ARM job verifies it uses a native ARM64 Perl runtime' );
+            my $steps = join "\n", map {
+                ($_->{if} // '') . "\n" . ($_->{run} // '') . "\n" . ($_->{name} // '')
+            } @{ $windows_arm->{steps} || [] };
+            like( $steps, qr/native_perl=false/,
+                'the Windows ARM job records when native ARM64 Perl is unavailable' );
+            like( $steps, qr/::warning title=Native ARM64 Perl unavailable/,
+                'the Windows ARM job visibly warns when native ARM64 Perl is unavailable' );
+            like( $steps, qr/steps\.arm64-perl\.outputs\.native_perl == 'true'/,
+                'Perl-dependent ARM64 watcher steps require native ARM64 Perl' );
             my ($native_test_step) = grep { ($_->{name} // '') eq 'Run Windows ARM64 native filesystem watcher test' } @{ $windows_arm->{steps} || [] };
             like( $native_test_step->{run} || '', qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-Ilib\s+-lv\s+t\/669-problem48-inotify-watch\.t/,
                 'the Windows ARM job executes the native filesystem watcher regression test' );
@@ -202,7 +215,7 @@ Use this file in a repository checkout whenever a C<.github/workflows/*.yml> tri
 
 =head1 HOW TO USE
 
-Run it directly with C<prove -lv t/227-skills-md-ci-triggers.t> while iterating, then keep it green under C<prove -lr t> and the coverage runs before release. It verifies full-suite jobs on Linux, macOS, and Windows x64, additional Linux/macOS arm64 full-suite jobs, a Windows ARM64 native watcher smoke job, and both config freshness measurements on each full-suite runner.
+Run it directly with C<prove -lv t/227-skills-md-ci-triggers.t> while iterating, then keep it green under C<prove -lr t> and the coverage runs before release. It verifies full-suite jobs on Linux, macOS, and Windows x64, additional Linux/macOS arm64 full-suite jobs, a Windows ARM64 native watcher job that explicitly reports unavailable native Perl, and both config freshness measurements on each full-suite runner.
 
 =head1 WHAT USES IT
 
