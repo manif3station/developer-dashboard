@@ -1,5 +1,20 @@
 # Fixed Bugs
 
+## 6.18
+
+- Keep the all-metric coverage report warning-free by excluding `t/` test
+  sources from instrumentation. Coverage remains complete for every `lib/`
+  module; Devel::Cover warnings still fail the gate.
+- DKT-012 / TSK-027: build the Dashboard XS extension in the Linux Test
+  workflow and expose `blib/arch` and `blib/lib` to the complete suite and
+  coverage-gate child processes, so native XS tests use the current checkout.
+  Disable optional gcov output in the Perl-only coverage report because C/XS
+  detail tables and diagnostics otherwise violate the report checker's single-
+  table input contract.
+- DKT-012 / TSK-026: correct a stale-cache test fixture so the missing portable
+  signature case is truly exercised, and cover the watcher path that declines
+  to cache when its initial freshness signature is unavailable.
+
 ## 6.17
 
 - DKT-012 / TSK-026: prevent the web worker from reusing a merged configuration

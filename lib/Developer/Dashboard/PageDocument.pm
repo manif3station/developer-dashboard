@@ -3,7 +3,7 @@ package Developer::Dashboard::PageDocument;
 use strict;
 use warnings;
 
-our $VERSION = '6.17';
+our $VERSION = '6.18';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::HtmlEscape ();

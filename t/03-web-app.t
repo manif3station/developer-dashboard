@@ -903,9 +903,9 @@ like( $fresh_settings_body, qr/read-only no-editor mode/, 'the fresh request use
     }
 }
 
-for my $cache_case (qw(no_watcher portable_hit portable_stale_signature portable_missing_environment portable_changed_environment portable_missing_signature invalid_cache missing_environment changed_environment missing_watch_signature changed_watcher complete_hit)) {
+for my $cache_case (qw(no_watcher portable_hit portable_stale_signature portable_missing_environment portable_changed_environment portable_missing_signature invalid_cache missing_environment changed_environment missing_watch_signature changed_watcher watcher_missing_portable_signature watcher_changed_portable_signature complete_hit)) {
     my $merged_config = bless {}, 'Local::Problem48MergedConfig';
-    my $watch = bless { unchanged => $cache_case eq 'changed_watcher' ? 0 : 1 }, 'Local::Problem48FixedWatch';
+    my $watch = bless { unchanged => $cache_case eq 'changed_watcher' ? 0 : 1, checks => 0 }, 'Local::Problem48FixedWatch';
     my $cached_snapshot = { merged_config => { cached => $cache_case }, skill_config_entries => [] };
     my $cached = $cache_case eq 'invalid_cache'
       ? []
@@ -918,6 +918,10 @@ for my $cache_case (qw(no_watcher portable_hit portable_stale_signature portable
     if ( $cache_case =~ /\Aportable_/ ) {
         $cached->{portable_signature} = $cache_case eq 'portable_stale_signature' ? 'stale-portable' : 'stable-portable'
           if $cache_case ne 'portable_missing_signature';
+        delete $cached->{portable_signature} if $cache_case eq 'portable_missing_signature';
+        ok( !defined $cached->{portable_signature},
+            'portable_missing_signature fixture omits the cached freshness signature' )
+          if $cache_case eq 'portable_missing_signature';
         delete $cached->{environment_signature} if $cache_case eq 'portable_missing_environment';
         $cached->{environment_signature} = 'stale' if $cache_case eq 'portable_changed_environment';
         delete $cached->{watch_signature};
@@ -925,6 +929,8 @@ for my $cache_case (qw(no_watcher portable_hit portable_stale_signature portable
     delete $cached->{environment_signature} if $cache_case eq 'missing_environment';
     $cached->{environment_signature} = 'stale' if $cache_case eq 'changed_environment';
     delete $cached->{watch_signature} if $cache_case eq 'missing_watch_signature';
+    delete $cached->{portable_signature} if $cache_case eq 'watcher_missing_portable_signature';
+    $cached->{portable_signature} = 'stale-portable' if $cache_case eq 'watcher_changed_portable_signature';
     my $snapshot_app = bless {
         config                    => $merged_config,
         pages                     => {},
@@ -941,9 +947,17 @@ for my $cache_case (qw(no_watcher portable_hit portable_stale_signature portable
             return { merged => 'fresh' };
         };
         local *Developer::Dashboard::Web::App::_config_snapshot_environment_signature = sub { return 'current' };
-        if ( $cache_case =~ /\Aportable_/ || $cache_case eq 'complete_hit' ) {
+        if ( $cache_case =~ /\Aportable_/ || $cache_case =~ /\Awatcher_/ || $cache_case eq 'changed_watcher' || $cache_case eq 'complete_hit' ) {
             local *Developer::Dashboard::Web::App::_config_snapshot_watch_paths = sub { return [] };
             local *Developer::Dashboard::Web::App::_config_snapshot_portable_signature = sub { return 'stable-portable' };
+            if ( $cache_case eq 'changed_watcher' ) {
+                local *Developer::Dashboard::Web::App::_config_snapshot_watcher = sub { return $watch };
+                my $snapshot = $snapshot_app->_request_config_snapshot;
+                is( $snapshot->{merged_config}{merged}, 'fresh', 'a changed native watcher rebuilds the config snapshot' );
+                is( $merge_count, 1, 'a changed native watcher performs one config merge' );
+                is( $watch->{checks}, 2, 'a changed native watcher is checked before and after the merge' );
+                next;
+            }
             if ( $cache_case eq 'portable_hit' ) {
                 my $snapshot = $snapshot_app->_request_config_snapshot;
                 is( $snapshot, $cached_snapshot, 'a matching portable signature returns its cached config snapshot' );
@@ -954,12 +968,18 @@ for my $cache_case (qw(no_watcher portable_hit portable_stale_signature portable
                 my $snapshot = $snapshot_app->_request_config_snapshot;
                 is( $snapshot, $cached_snapshot, 'a complete matching cache entry is returned without rebuilding' );
                 is( $merge_count, 0, 'a complete matching cache entry avoids another config merge' );
+                is( $watch->{checks}, 1, 'the matching watcher cache checks the native watcher before reuse' );
                 next;
             }
         }
         my $snapshot = $snapshot_app->_request_config_snapshot;
         is( $snapshot->{merged_config}{merged}, 'fresh', "$cache_case cache state safely rebuilds merged config" );
         is( $merge_count, 1, "$cache_case cache state performs exactly one config merge" );
+        ok( !exists $snapshot_app->{_config_snapshot_cache},
+            'a native watcher change evicts the stale application snapshot' )
+          if $cache_case eq 'changed_watcher';
+        is( $watch->{checks}, 1, 'a fully matching cached watcher entry is rejected when the watcher reports a change' )
+          if $cache_case eq 'changed_watcher';
     }
 }
 
@@ -991,7 +1011,7 @@ for my $cache_case (qw(no_watcher portable_hit portable_stale_signature portable
     }
 }
 
-for my $unstable_mode (qw(path_changed watcher_changed portable_changed)) {
+for my $unstable_mode (qw(path_changed watcher_changed portable_changed watcher_missing_signature watcher_portable_changed)) {
     my $merged_config = bless {}, 'Local::Problem48MergedConfig';
     my $unstable_watch = Local::Problem48ConfigSnapshotWatch->new;
     my $snapshot_app = bless {
@@ -1011,7 +1031,25 @@ for my $unstable_mode (qw(path_changed watcher_changed portable_changed)) {
             return $unstable_mode eq 'path_changed' && $path_call > 1 ? ['/changed'] : ['/initial'];
         };
         local *Developer::Dashboard::Web::App::_config_snapshot_portable_signature = sub { return 'stable-inventory'; };
-        if ( $unstable_mode eq 'portable_changed' ) {
+        if ( $unstable_mode eq 'watcher_missing_signature' ) {
+            my $signature_call = 0;
+            local *Developer::Dashboard::Web::App::_config_snapshot_portable_signature = sub {
+                return ++$signature_call == 1 ? undef : 'stable-inventory';
+            };
+            $snapshot_app->_request_config_snapshot;
+            is( $signature_call, 2,
+                'a watcher snapshot still rechecks freshness after the merge when its baseline is unavailable' );
+        }
+        elsif ( $unstable_mode eq 'watcher_portable_changed' ) {
+            my $signature_call = 0;
+            local *Developer::Dashboard::Web::App::_config_snapshot_portable_signature = sub {
+                return ++$signature_call == 1 ? 'before-merge' : 'changed-during-merge';
+            };
+            $snapshot_app->_request_config_snapshot;
+            is( $signature_call, 2,
+                'a watcher snapshot compares its fresh signature after the merge' );
+        }
+        elsif ( $unstable_mode eq 'portable_changed' ) {
             my $signature_call = 0;
             local *Developer::Dashboard::Web::App::_config_snapshot_portable_signature = sub {
                 return ++$signature_call == 1 ? 'before-merge' : 'changed-during-merge';
@@ -2696,7 +2734,10 @@ is_deeply(
     package Local::Problem48FixedWatch;
 
     sub configure { return 1 }
-    sub unchanged { return $_[0]->{unchanged} }
+    sub unchanged {
+        $_[0]->{checks}++;
+        return $_[0]->{unchanged};
+    }
 }
 
 {
@@ -2814,13 +2855,17 @@ template-service scopes. It also covers the status configuration snapshot
 watcher's cache-hit, invalidation, setup-failure, and runtime/project-boundary
 cases, plus the portable validator's unchanged cache hit, same-size config
 edit, and skill config file creation/removal when the native backend is
-unavailable. A controlled delayed-event watcher also proves that an atomic
-config replacement refreshes the next request through high-resolution file
+unavailable. It verifies that an absent initial freshness signature disables
+cache reuse in both portable and watcher-backed modes. A controlled
+delayed-event watcher also proves that an atomic config replacement refreshes
+the next request through high-resolution file
 metadata before the native event arrives. It verifies that normalized indicator
 collectors are reused only for an unchanged watched configuration and that a
 checker-filter change alters the cache signature. It protects the static
 raw-nav fast path while confirming dynamic Template Toolkit nav fragments
-still receive request context.
+still receive request context. Watcher-cache cases also exercise missing and
+mismatched portable signatures and prove that an otherwise matching cached
+entry is rejected when the watcher reports a change.
 
 =for comment FULL-POD-DOC START
 

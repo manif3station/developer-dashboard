@@ -71,8 +71,8 @@ jobs:
         run: >-
           perl -MConfig -MPOSIX -e '$os = $^O; $machine = $os eq "MSWin32" ? $ENV{PROCESSOR_ARCHITECTURE} : (POSIX::uname())[4]; $machine = lc $machine; $actual_arch = $machine =~ /(?:aarch64|arm64)/ ? "arm64" : $machine =~ /(?:x86_64|amd64|x64)/ ? "x64" : "unknown"; die "Expected $ENV{DD_EXPECTED_OS}/$ENV{DD_EXPECTED_ARCH}, got $os/$actual_arch ($machine)\n" if $os ne $ENV{DD_EXPECTED_OS} || $actual_arch ne $ENV{DD_EXPECTED_ARCH}; print "Verified $os/$actual_arch ($Config{archname})\n"'
 
-      - name: Prepare Homebrew OpenSSL for macOS arm64
-        if: matrix.label == 'macOS arm64'
+      - name: Prepare Homebrew OpenSSL 3 for macOS
+        if: startsWith(matrix.label, 'macOS')
         shell: bash
         run: |
           if ! brew list --versions openssl@3 >/dev/null; then
@@ -88,8 +88,12 @@ jobs:
             exit 1
           fi
           architectures="$(lipo -archs "$prefix/lib/libssl.dylib")"
-          if ! grep -Eq '(^|[[:space:]])arm64([[:space:]]|$)' <<< "$architectures"; then
-            echo "Homebrew OpenSSL libssl lacks arm64 (reported architectures: $architectures)" >&2
+          expected_arch=x86_64
+          if [ "$DD_EXPECTED_ARCH" = arm64 ]; then
+            expected_arch=arm64
+          fi
+          if ! grep -Eq "(^|[[:space:]])${expected_arch}([[:space:]]|$)" <<< "$architectures"; then
+            echo "Homebrew OpenSSL libssl lacks $expected_arch (reported architectures: $architectures)" >&2
             exit 1
           fi
           echo "Using OpenSSL prefix: $prefix"
@@ -97,8 +101,8 @@ jobs:
           echo "OPENSSL_PREFIX=$prefix" >> "$GITHUB_ENV"
           echo "$prefix/bin" >> "$GITHUB_PATH"
 
-      - name: Install macOS arm64 Net::SSLeay with diagnostics
-        if: matrix.label == 'macOS arm64'
+      - name: Install macOS Net::SSLeay with diagnostics
+        if: startsWith(matrix.label, 'macOS')
         run: cpanm --verbose --notest -L local Net::SSLeay
 
       - name: Install project dependencies
@@ -138,6 +142,7 @@ jobs:
             exit 1
           fi
           perl5lib="$(perl -MConfig -e 'print join $Config{path_sep}, @ARGV' \
+            "$GITHUB_WORKSPACE/blib/arch" "$GITHUB_WORKSPACE/blib/lib" \
             "$local_lib" "$local_lib/$(perl -MConfig -e 'print $Config{archname}')")"
           PERL5LIB="$perl5lib${PERL5LIB:+:$PERL5LIB}" perl -MDevel::Cover::DB::IO -e 'print "Devel::Cover serializer available\n"'
           echo "PERL5LIB=$perl5lib" >> "$GITHUB_ENV"
@@ -147,8 +152,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cpanm --notest -L local Devel::Cover
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'The Windows compatibility job runs the full suite without coverage instrumentation; all-metric coverage is enforced by the Linux Test workflow.'
           $localLib = Join-Path $env:GITHUB_WORKSPACE 'local/lib/perl5'
           if (-not (Test-Path $localLib -PathType Container)) {
             throw "dependency tree missing at $localLib"
@@ -157,13 +161,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $pathSep = & perl -MConfig -e 'print $Config{path_sep}'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $perlPaths = @($localLib, (Join-Path $localLib $arch))
+          $perlPaths = @(
+            (Join-Path $env:GITHUB_WORKSPACE 'blib/arch'),
+            (Join-Path $env:GITHUB_WORKSPACE 'blib/lib'),
+            $localLib,
+            (Join-Path $localLib $arch)
+          )
           if ($env:PERL5LIB) {
             $perlPaths += $env:PERL5LIB -split [regex]::Escape($pathSep)
           }
           $perl5lib = $perlPaths -join $pathSep
-          & perl -MDevel::Cover::DB::IO -e 'print "Devel::Cover serializer available\n"'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "PERL5LIB=$perl5lib" >> $env:GITHUB_ENV
           "$env:GITHUB_WORKSPACE/local/bin" >> $env:GITHUB_PATH
 
@@ -174,7 +181,13 @@ jobs:
         run: perl script/problem48-status-route-benchmark --indicators 50 --iterations 100 --runs 7 --portable-config-cache
 
       - name: Run complete test suite
-        run: prove -Iblib/arch -Iblib/lib -lr t
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            prove -Iblib/arch -Iblib/lib -lrv t
+          else
+            prove -Iblib/arch -Iblib/lib -lr t
+          fi
 
   windows-arm64-native-watcher:
     name: Windows ARM64 native watcher availability

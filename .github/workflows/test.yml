@@ -33,6 +33,11 @@ jobs:
       - name: Install project dependencies
         run: cpanm --installdeps --notest -L local .
 
+      - name: Build the Dashboard XS extension
+        run: |
+          perl Makefile.PL
+          make
+
       # Resolves every action pin above against its upstream tag and reads the
       # runtime the pinned commit really declares. The version comment beside a
       # 40-hex SHA is the only human-readable part of a pin and the guardrail
@@ -102,10 +107,14 @@ jobs:
           # PERL5LIB, and the next step failed with nineteen "cannot load module"
           # errors that named nothing. local::lib was never needed: prove only
           # needs PERL5LIB, and the path is known.
-          perl5lib="$GITHUB_WORKSPACE/local/lib/perl5"
-          if [ ! -d "$perl5lib" ]; then
-            echo "dependency tree missing at $perl5lib - cpanm --installdeps did not populate it" >&2
+          local_lib="$GITHUB_WORKSPACE/local/lib/perl5"
+          if [ ! -d "$local_lib" ]; then
+            echo "dependency tree missing at $local_lib - cpanm --installdeps did not populate it" >&2
             exit 1
+          fi
+          perl5lib="$GITHUB_WORKSPACE/blib/arch:$GITHUB_WORKSPACE/blib/lib:$local_lib"
+          if [ -n "${PERL5LIB:-}" ]; then
+            perl5lib="$perl5lib:$PERL5LIB"
           fi
           echo "PERL5LIB=$perl5lib" >> "$GITHUB_ENV"
           echo "$GITHUB_WORKSPACE/local/bin" >> "$GITHUB_PATH"
@@ -152,7 +161,7 @@ jobs:
           ) &
           watcher=$!
           trap 'kill "$watcher" 2>/dev/null || true' EXIT
-          prove -lr t
+          prove -Iblib/arch -Iblib/lib -lr t
 
       # ALWAYS RUN THIS, EVEN IF AN EARLIER STEP FAILED (DD-568).
       #

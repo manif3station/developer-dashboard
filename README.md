@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.17
+6.18
 
 # INTRODUCTION
 
@@ -3381,6 +3381,13 @@ claim that Windows ARM64 XS code was tested. When native ARM64 Perl is
 available, the job builds the extension and runs the watcher contract test.
 The Windows x64 job compiles the same extension and runs the complete suite.
 
+The Linux Test workflow also builds the XS extension before running its test
+suite. It passes `blib/arch` and `blib/lib` to `prove` and exports those
+paths together with the local dependency library through `PERL5LIB`. This is
+necessary because tests and the coverage gate launch child Perl processes;
+those processes must load the extension built by the current checkout rather
+than an older or absent installed copy.
+
 ### Library coverage
 
 Install Devel::Cover into the local development library and run the repository
@@ -3392,8 +3399,14 @@ gate:
     perl script/coverage-gate
 
 The gate requires 100.0% statement, subroutine, branch, and condition coverage
-for `lib/`. A passing run exits with status `0`. Run one coverage job at a
-time on a host.
+for `lib/`. Its report disables optional `gcov` output from compiled XS
+artefacts: this gate measures Perl modules, while native XS behavior is checked
+by functional tests, and extra C-file tables or diagnostics would invalidate
+the single-table report parser. The instrumented run also excludes the
+repository `t/` tree: test files are not coverage targets, and their dynamic
+fixtures can cause Devel::Cover source-map warnings. This does not reduce
+coverage because the report is explicitly scoped to `lib/`. A passing run exits
+with status `0`. Run one coverage job at a time on a host.
 
 ### Integration and release checks
 

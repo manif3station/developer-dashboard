@@ -129,19 +129,27 @@ unlike( $readme, qr/runs\s+Test,\s*CodeQL,\s*Package\s*GHCR,\s*and\s*JS\s*Fuzz\s
                 } 0 .. $#steps;
                 $test_tools_index{$platform} = $index if defined $index;
                 ok( defined $index,
-                    "the $platform platform job installs coverage tools and exports the project environment" );
+                    "the $platform platform job prepares its test environment" );
                 next if !defined $index;
                 my $test_tools_run = $steps[$index]{run} // '';
-                like( $test_tools_run, qr/cpanm\s+--notest\s+-L\s+local\s+Devel::Cover/,
-                    "$platform installs Devel::Cover for coverage-gate regression tests" );
+                if ( $platform eq 'Unix' ) {
+                    like( $test_tools_run, qr/cpanm\s+--notest\s+-L\s+local\s+Devel::Cover/,
+                        'Unix installs Devel::Cover for coverage-gate regression tests' );
+                    like( $test_tools_run, qr/-MDevel::Cover::DB::IO/,
+                        'Unix verifies the coverage serializer in the local library' );
+                }
+                else {
+                    unlike( $test_tools_run, qr/cpanm .*Devel::Cover/,
+                        'Windows full-suite verification does not require coverage instrumentation' );
+                    unlike( $test_tools_run, qr/Devel::Cover::DB::IO/,
+                        'Windows dependency setup is independent of Devel::Cover configuration support' );
+                }
                 like( $test_tools_run, qr/PERL5LIB=.*GITHUB_ENV/s,
                     "$platform exports local dependencies for child Perl processes" );
                 like( $test_tools_run, qr/Config\{archname\}/,
                     "$platform adds its architecture-specific local module directory" );
                 like( $test_tools_run, qr/Config\{path_sep\}/,
                     "$platform joins module paths with its Perl path separator" );
-                like( $test_tools_run, qr/-MDevel::Cover::DB::IO/,
-                    "$platform verifies the coverage serializer in the local library" );
             }
             my ($test_index) = grep {
                 ($steps[$_]{name} // '') eq 'Run complete test suite'
@@ -208,6 +216,9 @@ native modules, or comparable latency on other operating systems. Windows
 ARM64 is a focused watcher smoke test, not a full-suite leg: the hosted image
 currently provides Perl 5.32.1, below this project's Perl 5.38 minimum, and
 the Perl setup action does not support that runner target.
+The Windows x64 full-suite leg does not install Devel::Cover because that
+module's configure step fails on the hosted toolchain. All-metric coverage is
+instead enforced by the dedicated Linux Test workflow.
 
 =head1 WHEN TO USE
 

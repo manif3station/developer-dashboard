@@ -162,13 +162,15 @@ path, serializer module and the exact commands before spending a slot, and
 `perl script/coverage-gate --database DIR t/some-file.t` to collect a focused
 run into a scratch database.
 
-The instrumented run excludes only disposable `/tmp/` and staged
-`.developer-dashboard/` source trees from Devel::Cover collection because tests
-remove those fixtures before report generation. The enforced report still
-includes every `lib/` source file; these exclusions do not lower the coverage
-scope. A Devel::Cover warning in the report fails the gate even when the Total
-row says 100.0, because the source mapping is not trustworthy until the warning
-is resolved.
+The instrumented run excludes disposable `/tmp/` and staged
+`.developer-dashboard/` source trees and the repository `t/` tree from
+Devel::Cover collection. Tests remove the first two fixture roots before report
+generation; test files themselves are not coverage targets and dynamic fixtures
+can produce stale source-map warnings. The enforced report still includes every
+`lib/` source file; these exclusions do not lower the coverage scope. A
+Devel::Cover warning in the report fails the gate even when the Total row says
+100.0, because the source mapping is not trustworthy until the warning is
+resolved.
 The gate stores its Devel::Cover reader-identity stamp beside `cover_db`, not
 inside it, so Devel::Cover does not treat the stamp as database content. On
 first use it verifies and migrates the earlier in-database marker.

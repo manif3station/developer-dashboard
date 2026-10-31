@@ -1,3 +1,15 @@
+6.18  2026-10-31
+
+  - Fix the Linux Test workflow to compile the Dashboard XS extension before
+    running native tests and export both blib paths to test and coverage child
+    processes. Keep the four-metric Perl coverage report free of unrelated gcov
+    tables from compiled XS artefacts. Add workflow and configuration-snapshot
+    freshness regression coverage.
+  - Exclude test sources from Devel::Cover instrumentation because they are not
+    part of the lib-only coverage target and dynamic fixtures produce stale
+    source-map warnings. Keep every lib module instrumented and the warning gate
+    strict.
+
 6.17  2026-10-31
 
   - Fix stale web configuration snapshots when macOS filesystem watcher

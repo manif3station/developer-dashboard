@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '6.17';
+our $VERSION = '6.18';
 
 use Capture::Tiny qw(capture);
 use Digest::SHA qw(sha256_hex);
@@ -345,11 +345,21 @@ sub _request_config_snapshot {
         && $cached->{environment_signature} eq $environment_signature
         && defined $cached->{watch_signature}
         && defined $cached->{portable_signature}
-        && $cached->{portable_signature} eq $portable_signature
-        && $watcher->unchanged( $cached->{watch_signature} ) )
+        && $cached->{portable_signature} eq $portable_signature )
     {
-        $self->{_request_config_snapshot} = $cached->{snapshot};
-        return $cached->{snapshot};
+        # Keep the watcher result as a separate decision after the cache
+        # signatures have matched; this makes the event-backed reuse check
+        # explicit and independently testable for both outcomes.
+        my $watcher_unchanged = $watcher->unchanged( $cached->{watch_signature} );
+        if ($watcher_unchanged) {
+            $self->{_request_config_snapshot} = $cached->{snapshot};
+            return $cached->{snapshot};
+        }
+        else {
+            # A native change makes this application snapshot stale. Drop it
+            # before rebuilding so a failed refresh cannot leave stale data.
+            delete $self->{_config_snapshot_cache};
+        }
     }
 
     my $watch_signature;

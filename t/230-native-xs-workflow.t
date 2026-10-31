@@ -27,6 +27,11 @@ like(
     qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
     'the complete suite loads the just-built XS extension from blib'
 );
+like(
+    $full_suite_step->{run} // q{},
+    qr/RUNNER_OS.*macOS.*prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lrv\s+t/s,
+    'the macOS full-suite leg streams individual TAP assertions for hang diagnosis'
+);
 
 my $arm_job = $jobs->{'windows-arm64-native-watcher'};
 ok( ref($arm_job) eq 'HASH', 'the Windows ARM64 native watcher job is defined' );
@@ -99,6 +104,16 @@ ok( ref($windows_test_tools) eq 'HASH', 'the Windows test-tools step is explicit
 is( $windows_test_tools->{shell}, 'pwsh', 'the Windows test-tools step uses PowerShell' );
 like( $windows_test_tools->{run} // q{}, qr/\$env:GITHUB_ENV/,
     'the Windows test-tools step exports variables using Windows semantics' );
+unlike( $windows_test_tools->{run} // q{}, qr/cpanm .*Devel::Cover/,
+    'the Windows platform suite does not require the unsupported coverage module' );
+like( $unix_test_tools->{run} // q{}, qr{blib/arch},
+    'the platform Unix job exports the built XS architecture path to child processes' );
+like( $unix_test_tools->{run} // q{}, qr{blib/lib},
+    'the platform Unix job exports the built XS library path to child processes' );
+like( $windows_test_tools->{run} // q{}, qr{blib[/\\]arch},
+    'the platform Windows job exports the built XS architecture path to child processes' );
+like( $windows_test_tools->{run} // q{}, qr{blib[/\\]lib},
+    'the platform Windows job exports the built XS library path to child processes' );
 
 my $workflow_text = do {
     open my $fh, '<:raw', $workflow_path or die "Unable to read '$workflow_path': $!";
@@ -107,6 +122,49 @@ my $workflow_text = do {
 };
 unlike( $workflow_text, qr/FFI::Platypus|FFI::CheckLib/,
     'the platform workflow contains no FFI dependency install or reference' );
+
+my $test_workflow_path = File::Spec->catfile( $root, '.github', 'workflows', 'test.yml' );
+my $test_workflow = LoadFile($test_workflow_path);
+my $test_job = $test_workflow->{jobs}{test};
+ok( ref($test_job) eq 'HASH', 'the Linux test workflow declares its test job' );
+my $test_steps = $test_job->{steps} || [];
+my ($test_xs_build_index) = grep {
+    ( $test_steps->[$_]{name} // q{} ) eq 'Build the Dashboard XS extension'
+} 0 .. $#{$test_steps};
+ok( defined $test_xs_build_index, 'the Linux test workflow builds the shared XS extension' );
+my $test_xs_build = defined $test_xs_build_index ? $test_steps->[$test_xs_build_index] : {};
+like( $test_xs_build->{run} // q{}, qr/perl Makefile\.PL.*\bmake\b/s,
+    'the Linux test workflow builds XS with its configured Perl and make' );
+my ($test_run_index) = grep {
+    ( $test_steps->[$_]{name} // q{} ) eq 'Run tests'
+} 0 .. $#{$test_steps};
+ok( defined $test_run_index, 'the Linux test workflow runs its test suite' );
+my $test_run = defined $test_run_index ? $test_steps->[$test_run_index] : {};
+cmp_ok( defined $test_xs_build_index ? $test_xs_build_index : -1, '<', $test_run_index,
+    'the Linux test workflow builds XS before running the test suite' );
+like( $test_run->{run} // q{}, qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
+    'the Linux test suite loads the just-built XS extension from blib' );
+my ($test_coverage_index) = grep {
+    ( $test_steps->[$_]{name} // q{} ) eq 'Verify all-metric lib coverage'
+} 0 .. $#{$test_steps};
+ok( defined $test_coverage_index, 'the Linux test workflow runs its all-metric coverage gate' );
+my $test_coverage = defined $test_coverage_index ? $test_steps->[$test_coverage_index] : {};
+my ($test_tools_index) = grep {
+    ( $test_steps->[$_]{name} // q{} ) eq 'Install test tools and export project environment'
+} 0 .. $#{$test_steps};
+ok( defined $test_tools_index, 'the Linux test workflow prepares test tools and library paths' );
+my $test_tools = defined $test_tools_index ? $test_steps->[$test_tools_index] : {};
+cmp_ok( defined $test_xs_build_index ? $test_xs_build_index : -1, '<', $test_coverage_index,
+    'the Linux test workflow builds XS before the coverage gate' );
+cmp_ok( $test_tools_index, '<', $test_coverage_index,
+    'the Linux test workflow exports test libraries before the coverage gate' );
+my $test_tools_run = $test_tools->{run} // q{};
+like( $test_tools_run, qr{blib/arch},
+    'the Linux workflow exports the built XS architecture path to test children' );
+like( $test_tools_run, qr{blib/lib},
+    'the Linux workflow exports the built XS library path to test children' );
+like( $test_tools_run, qr{local/lib/perl5},
+    'the Linux workflow exports local dependencies to test children' );
 
 done_testing;
 
@@ -124,6 +182,8 @@ Checks that the platform compatibility workflow builds the shared Dashboard
 XS extension before running native tests, selects the configured Windows Perl
 through PowerShell for build and coverage-tool steps, and does not report an
 ARM64 watcher pass when the hosted runner lacks native ARM64 Perl.
+It also checks that the main Linux Test workflow builds XS and exports the
+resulting C<blib> paths to both the ordinary and coverage test runs.
 
 =head1 WHY IT EXISTS
 
@@ -131,13 +191,15 @@ Crypto and filesystem notification backends now use the distribution's XS
 extension rather than optional FFI distributions. A workflow that only runs
 Perl tests without compiling the extension would silently skip the native
 implementation, so the build and test paths must stay explicit.
+The main Linux Test workflow has its own build and coverage path; it must not
+run the source suite without the just-built XS API available.
 
 =head1 WHEN TO USE
 
 Run this source-checkout test when changing the cross-platform XS build,
 Windows ARM64 native watcher job, Windows shell selection, or optional native
-dependencies. The test skips only when workflow files are absent from a
-packaged distribution.
+dependencies, or the main Linux Test workflow. The test skips only when
+workflow files are absent from a packaged distribution.
 
 =head1 HOW TO USE
 
@@ -159,6 +221,12 @@ omit XS compilation or reintroduce FFI dependencies.
 
 The full-suite job runs C<perl Makefile.PL> and selects C<gmake> on Windows or
 C<make> on Unix.
+
+=item *
+
+The main Linux Test workflow builds the XS extension before C<prove>, and
+exports C<blib/arch>, C<blib/lib>, and the local dependency library so every
+test and coverage subprocess loads the same extension.
 
 =item *
 

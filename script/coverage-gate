@@ -325,7 +325,7 @@ sub main {
     my @delete = ( 'cover', $database, '-delete' );
     my @suite  = ( 'prove', '-lr', @tests );
     my @report = (
-        'cover', $database, '-report', 'text', '-select_re', '^lib/',
+        'cover', $database, '-report', 'text', '-select_re', '^lib/', '-gcov', '0',
         '-coverage', 'statement',
         '-coverage', 'branch',
         '-coverage', 'condition',
@@ -350,10 +350,12 @@ sub main {
     # helper trees under /tmp and .developer-dashboard, then remove those trees;
     # asking Devel::Cover to hash those non-target files during report generation
     # produces missing-file warnings after cleanup. Keep its defaults and exclude
-    # only those disposable source roots, leaving every repository lib/ file
-    # instrumented and graded.
+    # only those disposable source roots and t/ itself. Test files are inputs to
+    # the coverage run, not coverage targets; instrumenting them makes Devel::Cover
+    # report stale source structures for tests which exercise dynamic fixtures.
+    # Every repository lib/ file remains instrumented and graded.
     local $ENV{HARNESS_PERL_SWITCHES}
-        = "-MDevel::Cover=-db,$database,-blib,0,+ignore,^/tmp/,\\.developer-dashboard/";
+        = "-MDevel::Cover=-db,$database,-blib,0,+ignore,^/tmp/,\\.developer-dashboard/,/t/";
     my $ran = _run( 'instrumented suite', @suite );
 
     my $after = _grading_identity();
@@ -772,7 +774,12 @@ The coverage collector excludes only disposable C</tmp/> and staged
 C<.developer-dashboard/> source trees. Tests remove those temporary helper files
 before report generation, which would otherwise make Devel::Cover emit missing
 source warnings. The enforced report still includes every repository C<lib/>
-source; these exclusions do not reduce the library coverage target.
+source; these exclusions do not reduce the library coverage target. The report
+also disables optional C<gcov> output: its contract covers Perl files under
+C<lib/>, while native XS paths are verified by functional tests. C<gcov> adds
+extra C-file tables and diagnostics to the text stream, which the fail-closed
+Perl report checker must reject rather than mistake for part of its single
+coverage table.
 
 It takes TWO locks, and they guard different things. The first is named after
 the coverage B<database>, so two gates conflict exactly when they would share a
