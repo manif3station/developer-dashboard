@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '6.16';
+our $VERSION = '6.17';
 
 use Capture::Tiny qw(capture);
 use Digest::SHA qw(sha256_hex);
@@ -302,8 +302,9 @@ sub _web_settings {
 
 # _request_config_snapshot()
 # Lazily reads merged runtime configuration once within handle(), reusing an
-# application snapshot only while its watched configuration roots and relevant
-# environment selectors remain unchanged. The request-local copy retains skill
+# application snapshot only while its watched configuration roots, high-resolution
+# config-file metadata, native watcher state, and relevant environment selectors
+# remain unchanged. The request-local copy retains skill
 # entries and the lazily normalized indicator collector projection; direct calls
 # outside a request do not use the request cache.
 # Input: none.
@@ -322,9 +323,9 @@ sub _request_config_snapshot {
     my $portable_signature;
     my @skill_entries;
     my $watch_paths;
+    $watch_paths = $self->_config_snapshot_watch_paths( \@skill_entries );
+    $portable_signature = $self->_config_snapshot_portable_signature( $watch_paths, \@skill_entries, $watcher ? 1 : 0 );
     if ( !$watcher ) {
-        $watch_paths = $self->_config_snapshot_watch_paths( \@skill_entries );
-        $portable_signature = $self->_config_snapshot_portable_signature( $watch_paths, \@skill_entries );
         if ( ref($cached) eq 'HASH' ) {
             if ( defined $cached->{environment_signature} ) {
                 if ( $cached->{environment_signature} eq $environment_signature ) {
@@ -343,6 +344,8 @@ sub _request_config_snapshot {
         && defined $cached->{environment_signature}
         && $cached->{environment_signature} eq $environment_signature
         && defined $cached->{watch_signature}
+        && defined $cached->{portable_signature}
+        && $cached->{portable_signature} eq $portable_signature
         && $watcher->unchanged( $cached->{watch_signature} ) )
     {
         $self->{_request_config_snapshot} = $cached->{snapshot};
@@ -352,7 +355,6 @@ sub _request_config_snapshot {
     my $watch_signature;
     my $watch_ready = 0;
     if ($watcher) {
-        $watch_paths = $self->_config_snapshot_watch_paths( \@skill_entries );
         $watch_signature = json_encode(
             {
                 environment => $environment_signature,
@@ -384,12 +386,16 @@ sub _request_config_snapshot {
     if ($watch_ready) {
         my @fresh_skill_entries;
         my $fresh_paths = $self->_config_snapshot_watch_paths( \@fresh_skill_entries );
+        my $fresh_portable_signature = $self->_config_snapshot_portable_signature( $fresh_paths, \@fresh_skill_entries, 1 );
         if ( join( "\0", @{$fresh_paths} ) eq join( "\0", @{$watch_paths} )
+            && defined $portable_signature
+            && $fresh_portable_signature eq $portable_signature
             && $watcher->unchanged($watch_signature) )
         {
             $self->{_config_snapshot_cache} = {
                 environment_signature => $environment_signature,
                 watch_signature       => $watch_signature,
+                portable_signature    => $portable_signature,
                 snapshot              => $snapshot,
             };
         }
@@ -417,17 +423,20 @@ sub _request_config_snapshot {
 }
 
 # _config_snapshot_portable_signature($watch_paths, $skill_entries)
-# Builds a cross-platform freshness signature for configuration snapshots when
-# native filesystem notifications are unavailable. Directory metadata catches
-# layer and skill additions/removals; SHA-256 of each exact config input catches
-# same-size in-place edits regardless of filesystem timestamp resolution.
+# Builds a cross-platform freshness signature for configuration snapshots.
+# Directory metadata catches layer and skill additions/removals. When native
+# filesystem notifications are unavailable, SHA-256 of every exact config
+# input catches same-size in-place edits regardless of timestamp resolution.
+# With a native watcher, high-resolution metadata provides a cheap guard against
+# delayed event delivery while the watcher remains the primary invalidator.
 # Input: array reference of existing directories returned by
 # _config_snapshot_watch_paths(), and optional array reference of installed
-# skill entries captured during that same discovery pass.
+# skill entries captured during that same discovery pass, plus an optional true
+# value to omit content reads when a native watcher is active.
 # Output: deterministic SHA-256 signature string; filesystem read failures die
 #         visibly rather than allowing stale configuration to be reused.
 sub _config_snapshot_portable_signature {
-    my ( $self, $watch_paths, $skill_entries ) = @_;
+    my ( $self, $watch_paths, $skill_entries, $metadata_only ) = @_;
     die "Config snapshot watch paths must be an array reference\n"
       if ref($watch_paths) ne 'ARRAY';
     die "Config snapshot skill entries must be an array reference\n"
@@ -479,7 +488,7 @@ sub _config_snapshot_portable_signature {
         my @stat = $self->_config_snapshot_stat($file);
         die "Unable to inspect config snapshot file '$file': $!\n" if !@stat;
         my $digest;
-        if ( -f $file ) {
+        if ( -f $file && !$metadata_only ) {
             my $fh = $self->_config_snapshot_open($file);
             die "Unable to read config snapshot file '$file': $!\n" if !$fh;
             my $sha = Digest::SHA->new(256);
@@ -500,7 +509,7 @@ sub _config_snapshot_portable_signature {
 # Output: list of lstat fields, or an empty list when the path is unavailable.
 sub _config_snapshot_lstat {
     my ( $self, $path ) = @_;
-    return CORE::lstat($path);
+    return Time::HiRes::lstat($path);
 }
 
 # _config_snapshot_stat($path)
@@ -510,7 +519,7 @@ sub _config_snapshot_lstat {
 # Output: list of stat fields, or an empty list when the target is unavailable.
 sub _config_snapshot_stat {
     my ( $self, $path ) = @_;
-    return CORE::stat($path);
+    return Time::HiRes::stat($path);
 }
 
 # _config_snapshot_open($path)

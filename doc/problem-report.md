@@ -3065,6 +3065,43 @@ a formatter in the test image; the complete core `perlsec.pod` source was
 reviewed directly. The all-routine 50x goal remains open, so Problem 48 remains
 in progress.
 
+### DKT-012 / TSK-026: delayed macOS configuration watcher events (2026-10-31)
+
+Expected outcome: a web request observes an atomically replaced runtime
+configuration even when the native macOS FSEvents callback has not been
+delivered yet; stable requests still reuse their merged snapshot.
+
+Reproduction: in Docker, create a web app with a native watcher, issue a request
+that seeds the merged-config cache, atomically replace the config with a
+setting that disables the editor, and issue a second request before the fake
+watcher reports a change. Before the fix, the second response remained HTTP
+200 and did not merge configuration again instead of returning HTTP 403.
+
+Root cause: the watcher was the only cache invalidator on native platforms.
+Some watcher backends deliver filesystem events asynchronously, so a request
+could arrive after the file rename but before the callback marked the cached
+snapshot stale.
+
+Fix: watcher-backed cache checks now compare a high-resolution metadata
+signature for watched roots and config inputs in addition to watcher and
+environment signatures. The signature includes file identity, size, mtime,
+and ctime, so atomic replacement is detected without reading config contents
+on every watched request. The no-watcher portable validator continues to
+hash file contents, preserving same-size edit detection when no native event
+source is available. Both paths verify the inventory again after a fresh
+merge before retaining the snapshot.
+
+Verification: a test-first delayed-event regression failed on the old path
+(HTTP 200 and one merge) and passes after the change (HTTP 403 and two merges).
+The focused `t/03-web-app.t` run passes 548 assertions. A Docker route benchmark
+with five nav fragments measured 0.542 ms/request with native watching and
+0.809 ms/request with the portable no-watcher path, retaining identical
+response status, byte count, and SHA-256. A synthetic 100 skill-nav-fragment
+run retained exact response parity at 8.470 ms/request; this higher workload
+has no before-fix comparison and is not used as a speedup claim. Full-suite,
+coverage, documentation, packaging, blank-container installation, and hosted
+macOS rerun evidence remain pending for this release candidate.
+
 ### Problem 48 stable status-path join reuse (2026-10-15)
 
 Expected outcome: while validating an unchanged cached status response, each

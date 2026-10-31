@@ -1,3 +1,11 @@
+6.17  2026-10-31
+
+  - Fix stale web configuration snapshots when macOS filesystem watcher
+    events arrive after an atomic config-file replacement. Native-watcher
+    cache hits now verify high-resolution path and file metadata before reuse;
+    the content-hash fallback remains in place when native watching is absent.
+    Add a delayed-event regression and document the cache invalidation model.
+
 6.16  2026-10-31
 
   - Fix Makefile.PL on Windows runners where HOME is unset: resolve the

@@ -432,6 +432,55 @@ like( $fresh_settings_body, qr/read-only no-editor mode/, 'the fresh request use
 }
 
 {
+    my $delayed_app = Developer::Dashboard::Web::App->new(
+        auth     => $auth,
+        config   => $config,
+        pages    => $store,
+        prompt   => $prompt,
+        runtime  => $runtime,
+        sessions => $sessions,
+    );
+    my $delayed_watch = Local::Problem48ConfigSnapshotWatch->new;
+    my $merged_calls = 0;
+    my $original_merged = Developer::Dashboard::Config->can('merged');
+    my ( $initial_status, $updated_status, $unchanged_calls );
+    {
+        no warnings qw(redefine once);
+        local *Developer::Dashboard::IndicatorStore::Watch::new = sub { return $delayed_watch };
+        local *Local::Problem48ConfigSnapshotWatch::unchanged = sub {
+            $delayed_watch->{unchanged_calls}++;
+            return 1;
+        };
+        local *Developer::Dashboard::Config::merged = sub {
+            $merged_calls++;
+            return $original_merged->(@_);
+        };
+        is( $delayed_app->_config_snapshot_watcher, $delayed_watch, 'delayed-event fixture installs its controlled watcher' );
+        $config->save_global_web_settings( no_editor => 0 );
+        $initial_status = $delayed_app->handle(
+            path        => '/app/welcome',
+            query       => '',
+            remote_addr => '127.0.0.1',
+            headers     => { host => '127.0.0.1' },
+        )->[0];
+        $unchanged_calls = $delayed_watch->{unchanged_calls};
+        $config->save_global_web_settings( no_editor => 1 );
+        $updated_status = $delayed_app->handle(
+            path        => '/app/welcome/edit',
+            query       => '',
+            remote_addr => '127.0.0.1',
+            headers     => { host => '127.0.0.1' },
+        )->[0];
+        $config->save_global_web_settings( no_editor => 0 );
+    }
+    is( $initial_status, 200, 'a watched request initially sees the editable page' );
+    is( $updated_status, 403, 'a watched request sees an atomic config change before its native event is delivered' );
+    is( $merged_calls, 2, 'a changed config bypasses an apparently unchanged native watcher snapshot' );
+    cmp_ok( $delayed_watch->{unchanged_calls}, '>', $unchanged_calls,
+        'the delayed-event fixture reports its unchanged state on the later request' );
+}
+
+{
     my $signature_app = bless { pages => $store }, 'Developer::Dashboard::Web::App';
     my $before = $signature_app->_config_snapshot_environment_signature;
     like( $before, qr/\ADASHBOARD_CONFIG_SNAPSHOT\0v1\0/, 'snapshot environment signature uses versioned unambiguous framing' );
@@ -863,6 +912,7 @@ for my $cache_case (qw(no_watcher portable_hit portable_stale_signature portable
       : {
         environment_signature => 'current',
         watch_signature       => 'stable-watch',
+        portable_signature    => 'stable-portable',
         snapshot              => $cached_snapshot,
       };
     if ( $cache_case =~ /\Aportable_/ ) {
@@ -891,7 +941,7 @@ for my $cache_case (qw(no_watcher portable_hit portable_stale_signature portable
             return { merged => 'fresh' };
         };
         local *Developer::Dashboard::Web::App::_config_snapshot_environment_signature = sub { return 'current' };
-        if ( $cache_case =~ /\Aportable_/ ) {
+        if ( $cache_case =~ /\Aportable_/ || $cache_case eq 'complete_hit' ) {
             local *Developer::Dashboard::Web::App::_config_snapshot_watch_paths = sub { return [] };
             local *Developer::Dashboard::Web::App::_config_snapshot_portable_signature = sub { return 'stable-portable' };
             if ( $cache_case eq 'portable_hit' ) {
@@ -900,16 +950,16 @@ for my $cache_case (qw(no_watcher portable_hit portable_stale_signature portable
                 is( $merge_count, 0, 'a portable cache hit avoids another merged-config load' );
                 next;
             }
+            if ( $cache_case eq 'complete_hit' ) {
+                my $snapshot = $snapshot_app->_request_config_snapshot;
+                is( $snapshot, $cached_snapshot, 'a complete matching cache entry is returned without rebuilding' );
+                is( $merge_count, 0, 'a complete matching cache entry avoids another config merge' );
+                next;
+            }
         }
         my $snapshot = $snapshot_app->_request_config_snapshot;
-        if ( $cache_case eq 'complete_hit' ) {
-            is( $snapshot, $cached_snapshot, 'a complete matching cache entry is returned without rebuilding' );
-            is( $merge_count, 0, 'a complete matching cache entry avoids another config merge' );
-        }
-        else {
-            is( $snapshot->{merged_config}{merged}, 'fresh', "$cache_case cache state safely rebuilds merged config" );
-            is( $merge_count, 1, "$cache_case cache state performs exactly one config merge" );
-        }
+        is( $snapshot->{merged_config}{merged}, 'fresh', "$cache_case cache state safely rebuilds merged config" );
+        is( $merge_count, 1, "$cache_case cache state performs exactly one config merge" );
     }
 }
 
@@ -960,6 +1010,7 @@ for my $unstable_mode (qw(path_changed watcher_changed portable_changed)) {
             $path_call++;
             return $unstable_mode eq 'path_changed' && $path_call > 1 ? ['/changed'] : ['/initial'];
         };
+        local *Developer::Dashboard::Web::App::_config_snapshot_portable_signature = sub { return 'stable-inventory'; };
         if ( $unstable_mode eq 'portable_changed' ) {
             my $signature_call = 0;
             local *Developer::Dashboard::Web::App::_config_snapshot_portable_signature = sub {
@@ -2578,6 +2629,7 @@ is_deeply(
 
     sub unchanged {
         my ( $self, $signature ) = @_;
+        $self->{unchanged_calls}++;
         return 0 if !defined $self->{signature} || $self->{signature} ne $signature;
         return $self->{stable} ? 1 : 0;
     }
@@ -2762,7 +2814,9 @@ template-service scopes. It also covers the status configuration snapshot
 watcher's cache-hit, invalidation, setup-failure, and runtime/project-boundary
 cases, plus the portable validator's unchanged cache hit, same-size config
 edit, and skill config file creation/removal when the native backend is
-unavailable. It verifies that normalized indicator
+unavailable. A controlled delayed-event watcher also proves that an atomic
+config replacement refreshes the next request through high-resolution file
+metadata before the native event arrives. It verifies that normalized indicator
 collectors are reused only for an unchanged watched configuration and that a
 checker-filter change alters the cache signature. It protects the static
 raw-nav fast path while confirming dynamic Template Toolkit nav fragments

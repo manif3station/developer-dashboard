@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.16
+6.17
 
 # INTRODUCTION
 
@@ -2256,6 +2256,16 @@ Adding or
 removing a fragment changes that signature and refreshes the next request.
 Only the filename inventory is reused: every fragment's contents are loaded
 and rendered for each request, so edits remain visible without an ID rescan.
+
+Merged runtime configuration is also cached between web requests when the
+native filesystem watcher is active. Before reusing a cached configuration,
+the worker checks high-resolution metadata for watched roots and exact config
+files as well as the watcher and environment signatures. This catches atomic
+config-file replacement immediately, even if a macOS filesystem event has not
+yet been delivered. If native watching is unavailable, the portable validator
+also hashes config contents so same-size edits remain visible. A fresh merge
+is cached only when the before-and-after signatures still match; filesystem
+inspection and read failures remain explicit.
 
 Missing nav directories continue to contribute no items; an incomplete
 directory scan is not cached, and filesystem stat, read, or close failures

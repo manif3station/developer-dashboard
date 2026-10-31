@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 6.17
+
+- DKT-012 / TSK-026: prevent the web worker from reusing a merged configuration
+  snapshot after an atomic config-file replacement when macOS FSEvents delivery
+  is delayed. Native watcher cache hits now compare high-resolution metadata;
+  the portable no-watcher path continues to hash file contents.
+
 ## 6.16
 
 - DKT-015: Fix Makefile.PL's local::lib lookup when Windows provides
