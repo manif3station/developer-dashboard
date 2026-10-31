@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '6.13';
+our $VERSION = '6.14';
 
 use Developer::Dashboard::PathIdentity qw(current_working_directory);
 use Fcntl qw(:flock);
@@ -504,7 +504,7 @@ sub _collector_sync_files_unchanged {
 
 # _indicator_sync_watcher()
 # Returns the store's optional native watcher, constructing it at most once.
-# Missing FFI or an unsupported platform is memoized as an unavailable backend.
+# Missing XS support or an unsupported platform is memoized as unavailable.
 # Input: none.
 # Output: watcher object or undef when native filesystem events are unavailable.
 sub _indicator_sync_watcher {

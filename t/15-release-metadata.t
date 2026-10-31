@@ -42,6 +42,9 @@ my $dist = _slurp_optional( _repo_path('dist.ini') );
 my $meta = _slurp_optional( _repo_path('META.json') );
 my $cpanfile = _slurp( _repo_path('cpanfile') );
 my $makefile = _slurp( _repo_path('Makefile.PL') );
+my $platform_workflow = _slurp( _repo_path( '.github', 'workflows', 'platform-compatibility.yml' ) );
+my $pbkdf2_module = _slurp( _repo_path( 'lib', 'Developer', 'Dashboard', 'Crypto', 'PBKDF2.pm' ) );
+my $watch_module = _slurp( _repo_path( 'lib', 'Developer', 'Dashboard', 'IndicatorStore', 'Watch.pm' ) );
 my $agents_override = _slurp_optional( _repo_path('AGENTS.override.md') );
 my $security_pod = _slurp_optional( _repo_path('SECURITY.pod') );
 my $contributing_pod = _slurp_optional( _repo_path('CONTRIBUTING.pod') );
@@ -305,19 +308,18 @@ unlike( $makefile, qr/["']HTTP::Daemon["']\s*=>\s*0/, 'Makefile.PL no longer dec
 unlike( $makefile, qr/["']HTTP::Status["']\s*=>\s*0/, 'Makefile.PL no longer declares unused HTTP::Status metadata' );
 like( $makefile, qr/["']HTTP::Tiny["']\s*=>\s*["']0\.096["']/, 'Makefile.PL pins Plack\x27s transitive HTTP::Tiny dependency at the fixed security release' );
 my ($makefile_runtime_prereqs) = $makefile =~ /PREREQ_PM\s*=>\s*\{(.*?)\n\s*\},/s;
-unlike( $makefile_runtime_prereqs // q{}, qr/["']FFI::(?:Platypus|CheckLib)["']\s*=>/, 'Makefile.PL does not put optional FFI acceleration into PREREQ_PM' );
-like( $makefile, qr/prereqs\s*=>\s*\{\s*runtime\s*=>\s*\{\s*recommends\s*=>\s*\{\s*'FFI::Platypus'\s*=>\s*'2\.12'.*?'FFI::CheckLib'\s*=>\s*'0\.31'/s, 'Makefile.PL publishes FFI acceleration as optional runtime recommendations' );
+unlike( $makefile_runtime_prereqs // q{}, qr/["']FFI::(?:Platypus|CheckLib)["']\s*=>/, 'Makefile.PL has no FFI runtime prerequisite' );
+unlike( $makefile, qr/FFI::(?:Platypus|CheckLib)/, 'Makefile.PL has no FFI recommendation or dependency' );
 unlike( $cpanfile, qr/requires ['"]Test::Pod['"];/, 'cpanfile does not ship Test::Pod as an install-time prerequisite' );
 like( $cpanfile, qr/requires ['"]HTTP::Tiny['"]\s*,\s*['"]0\.096['"];/, 'cpanfile pins Plack\x27s transitive HTTP::Tiny dependency at the fixed security release' );
 like( $dist, qr/^HTTP::Tiny = 0\.096$/m, 'dist.ini pins Plack\x27s transitive HTTP::Tiny dependency at the fixed security release' );
 my ($dist_runtime_prereqs) = $dist =~ /^\[Prereqs\]\s*\n(.*?)(?=^\[|\z)/ms;
-unlike( $dist_runtime_prereqs // q{}, qr/^FFI::(?:Platypus|CheckLib)\s*=/m, 'dist.ini does not make optional FFI acceleration a hard runtime prerequisite' );
-my ($runtime_recommends) = $dist =~ /^\[Prereqs \/ RuntimeRecommends\]\s*\n(.*?)(?=^\[|\z)/ms;
-like( $runtime_recommends // q{}, qr/^FFI::Platypus = 2\.12$/m, 'dist.ini recommends the tested FFI::Platypus version' );
-like( $runtime_recommends // q{}, qr/^FFI::CheckLib = 0\.31$/m, 'dist.ini recommends the tested FFI::CheckLib version' );
-unlike( $cpanfile, qr/^requires ['"]FFI::(?:Platypus|CheckLib)['"]/m, 'cpanfile does not require optional FFI acceleration modules' );
-like( $cpanfile, qr/^recommends ['"]FFI::Platypus['"]\s*,\s*['"]2\.12['"];/m, 'cpanfile recommends the tested FFI::Platypus version' );
-like( $cpanfile, qr/^recommends ['"]FFI::CheckLib['"]\s*,\s*['"]0\.31['"];/m, 'cpanfile recommends the tested FFI::CheckLib version' );
+unlike( $dist_runtime_prereqs // q{}, qr/^FFI::(?:Platypus|CheckLib)\s*=/m, 'dist.ini has no FFI runtime prerequisite' );
+unlike( $dist // q{}, qr/FFI::(?:Platypus|CheckLib)/, 'dist.ini has no FFI recommendation or dependency' );
+unlike( $cpanfile, qr/FFI::(?:Platypus|CheckLib)/, 'cpanfile has no FFI dependency or recommendation' );
+unlike( $pbkdf2_module, qr/FFI::(?:Platypus|CheckLib)/, 'PBKDF2 runtime module does not load an FFI package' );
+unlike( $watch_module, qr/FFI::(?:Platypus|CheckLib)/, 'watch runtime module does not load an FFI package' );
+unlike( $platform_workflow, qr/FFI::(?:Platypus|CheckLib)/, 'platform workflow does not install an FFI package' );
 my %runtime_prereq_minimum = (
     'JSON::XS'               => '4.04',
     'YAML::XS'               => '0.903.0',

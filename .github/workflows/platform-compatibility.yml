@@ -104,23 +104,34 @@ jobs:
       - name: Install project dependencies
         run: cpanm --installdeps --notest -L local .
 
-      - name: Install optional filesystem watcher backends
+      - name: Install optional macOS filesystem watcher backend
         shell: bash
         run: |
-          cpanm -L local FFI::Platypus
           if [ "$RUNNER_OS" = "macOS" ]; then
             cpanm -L local Mac::FSEvents
+          fi
+
+      - name: Build the Dashboard XS extension
+        shell: bash
+        run: |
+          perl Makefile.PL
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            gmake
+          else
+            make
           fi
 
       - name: Install test tools and export project environment
         shell: bash
         run: |
           cpanm --notest -L local Devel::Cover
-          perl5lib="$GITHUB_WORKSPACE/local/lib/perl5"
-          if [ ! -d "$perl5lib" ]; then
-            echo "dependency tree missing at $perl5lib" >&2
+          local_lib="$GITHUB_WORKSPACE/local/lib/perl5"
+          if [ ! -d "$local_lib" ]; then
+            echo "dependency tree missing at $local_lib" >&2
             exit 1
           fi
+          perl5lib="$(perl -MConfig -e 'print join $Config{path_sep}, @ARGV' \
+            "$local_lib" "$local_lib/$(perl -MConfig -e 'print $Config{archname}')")"
           PERL5LIB="$perl5lib${PERL5LIB:+:$PERL5LIB}" perl -MDevel::Cover::DB::IO -e 'print "Devel::Cover serializer available\n"'
           echo "PERL5LIB=$perl5lib" >> "$GITHUB_ENV"
           echo "$GITHUB_WORKSPACE/local/bin" >> "$GITHUB_PATH"
@@ -132,7 +143,7 @@ jobs:
         run: perl script/problem48-status-route-benchmark --indicators 50 --iterations 100 --runs 7 --portable-config-cache
 
       - name: Run complete test suite
-        run: prove -lr t
+        run: prove -Iblib/arch -Iblib/lib -lr t
 
   windows-arm64-native-watcher:
     name: Windows ARM64 native watcher smoke
@@ -159,11 +170,17 @@ jobs:
         shell: pwsh
         run: cpan App::cpanminus
 
-      - name: Install native FFI dependency
+      - name: Install project dependencies
         shell: pwsh
-        run: cpanm -L local FFI::Platypus
+        run: cpanm --installdeps --notest -L local .
+
+      - name: Build the Dashboard XS extension
+        shell: pwsh
+        run: |
+          perl Makefile.PL
+          gmake
 
       - name: Run Windows ARM64 native filesystem watcher test
         env:
           PERL5LIB: ${{ github.workspace }}/local/lib/perl5
-        run: prove -lv t/669-problem48-inotify-watch.t
+        run: prove -Iblib/arch -Iblib/lib -Ilib -lv t/669-problem48-inotify-watch.t

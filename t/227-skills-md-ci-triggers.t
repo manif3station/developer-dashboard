@@ -119,8 +119,8 @@ unlike( $readme, qr/runs\s+Test,\s*CodeQL,\s*Package\s*GHCR,\s*and\s*JS\s*Fuzz\s
                 'the full-suite matrix covers Linux, macOS, and Windows on x64, plus Linux and macOS arm64',
             );
             my ($test_step) = grep { ($_->{name} // '') eq 'Run complete test suite' } @{ $job->{steps} };
-            like( $test_step->{run} || '', qr/prove\s+-lr\s+t/,
-                'the platform job runs the complete Perl test suite' );
+            like( $test_step->{run} || '', qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
+                'the platform job runs the complete Perl test suite with the built XS library paths' );
             my @steps = @{ $job->{steps} };
             my ($test_tools_index) = grep {
                 ($steps[$_]{name} // '') eq 'Install test tools and export project environment'
@@ -133,6 +133,10 @@ unlike( $readme, qr/runs\s+Test,\s*CodeQL,\s*Package\s*GHCR,\s*and\s*JS\s*Fuzz\s
                     'the platform job installs Devel::Cover for coverage-gate regression tests' );
                 like( $test_tools_run, qr/PERL5LIB=.*GITHUB_ENV/s,
                     'the platform job exports local dependencies so child Perl processes can load them' );
+                like( $test_tools_run, qr/Config\{archname\}/,
+                    'the platform job adds the active architecture-specific local module directory' );
+                like( $test_tools_run, qr/Config\{path_sep\}/,
+                    'the platform job joins local module paths with the host Perl path separator' );
                 like( $test_tools_run, qr/-MDevel::Cover::DB::IO/,
                     'the platform job verifies the coverage serializer in the exported local library' );
                 my ($test_index) = grep {
@@ -158,7 +162,7 @@ unlike( $readme, qr/runs\s+Test,\s*CodeQL,\s*Package\s*GHCR,\s*and\s*JS\s*Fuzz\s
             like( $steps, qr/Config\{archname\}.*arm64/i,
                 'the Windows ARM job verifies it uses a native ARM64 Perl runtime' );
             my ($native_test_step) = grep { ($_->{name} // '') eq 'Run Windows ARM64 native filesystem watcher test' } @{ $windows_arm->{steps} || [] };
-            like( $native_test_step->{run} || '', qr/prove\s+-lv\s+t\/669-problem48-inotify-watch\.t/,
+            like( $native_test_step->{run} || '', qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-Ilib\s+-lv\s+t\/669-problem48-inotify-watch\.t/,
                 'the Windows ARM job executes the native filesystem watcher regression test' );
         }
     }

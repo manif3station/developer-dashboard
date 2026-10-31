@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '6.13';
+our $VERSION = '6.14';
 
 use Capture::Tiny qw(capture);
 use Digest::SHA qw(sha256_hex);
@@ -536,10 +536,11 @@ sub _config_snapshot_close {
 
 # _config_snapshot_watcher()
 # Constructs the optional native watcher once for cross-request configuration
-# reuse. Missing FFI or an unsupported platform selects the portable metadata
+# reuse. Missing XS support or an unsupported platform selects the portable metadata
 # and SHA-256 validator; setup errors are reported by _request_config_snapshot().
-# Its module is loaded from this file's absolute source path so request-time
-# working-directory changes cannot invalidate a relative @INC entry.
+# Its module is loaded by its canonical package name with this file's library
+# root temporarily first in @INC, so request-time working-directory changes do
+# not affect resolution or cause duplicate absolute and canonical %INC entries.
 # Input: none.
 # Output: watcher object or undef when no native watcher is available.
 sub _config_snapshot_watcher {
@@ -547,11 +548,12 @@ sub _config_snapshot_watcher {
     return $self->{_config_snapshot_watcher}
       if ref( $self->{_config_snapshot_watcher} );
     return if $self->{_config_snapshot_watcher_unavailable};
-    if ( !$INC{'Developer/Dashboard/IndicatorStore/Watch.pm'} ) {
-        my $watcher_module = File::Spec->catfile(
-            dirname( dirname($MODULE_SOURCE_PATH) ), 'IndicatorStore', 'Watch.pm'
-        );
-        require $watcher_module;
+    if ( !$INC{'Developer/Dashboard/IndicatorStore/Watch.pm'}
+        && !Developer::Dashboard::IndicatorStore::Watch->can('new') )
+    {
+        my $library_root = dirname( dirname( dirname($MODULE_SOURCE_PATH) ) );
+        local @INC = ( $library_root, @INC );
+        require Developer::Dashboard::IndicatorStore::Watch;
     }
     my $watcher = Developer::Dashboard::IndicatorStore::Watch->new;
     if ( !$watcher ) {
@@ -2997,8 +2999,9 @@ sub _saved_nav_items_snapshot_state {
 
 # _saved_nav_items_watcher()
 # Lazily constructs the optional native watcher used to validate cached saved-nav HTML.
-# Loads the module from the absolute application source path because a request
-# may change the current directory before this first watcher access.
+# Loads the module by its canonical package name with the application library
+# root temporarily first in @INC because a request may change the current
+# directory before this first watcher access.
 # Input: none.
 # Output: watcher object, or undef when no native backend is available.
 sub _saved_nav_items_watcher {
@@ -3006,11 +3009,12 @@ sub _saved_nav_items_watcher {
     return $self->{_saved_nav_items_watcher}
       if ref( $self->{_saved_nav_items_watcher} );
     return if $self->{_saved_nav_items_watcher_unavailable};
-    if ( !$INC{'Developer/Dashboard/IndicatorStore/Watch.pm'} ) {
-        my $watcher_module = File::Spec->catfile(
-            dirname( dirname($MODULE_SOURCE_PATH) ), 'IndicatorStore', 'Watch.pm'
-        );
-        require $watcher_module;
+    if ( !$INC{'Developer/Dashboard/IndicatorStore/Watch.pm'}
+        && !Developer::Dashboard::IndicatorStore::Watch->can('new') )
+    {
+        my $library_root = dirname( dirname( dirname($MODULE_SOURCE_PATH) ) );
+        local @INC = ( $library_root, @INC );
+        require Developer::Dashboard::IndicatorStore::Watch;
     }
     my $watcher = Developer::Dashboard::IndicatorStore::Watch->new;
     if ( !$watcher ) {

@@ -1786,7 +1786,7 @@ recorded as import hygiene rather than a material speed claim. Problem 48's
 
 The full gate reported the Problem 48 PBKDF2 adapter at 63.4% total coverage
 because the Docker image lacks optional FFI packages, leaving native-success
-and error branches unexercised. `t/651-crypto-pbkdf2-ffi.t` now provides a
+and error branches unexercised. `t/651-crypto-pbkdf2-xs.t` now provides a
 deterministic fake FFI boundary independent of installed modules or system
 `libcrypto`. It verifies cached and lazy initialization, digest parity,
 UTF-8 byte-boundary decline, signed-int input limits, short-output rejection,
@@ -1799,6 +1799,26 @@ across `lib/` (47,329 detail rows; no stale uncoverable annotations).
 `perldoc perlsec` also completed successfully in the benchmark container.
 Coverage is now verified for this worktree; Problem 48's 50x-per-subroutine
 objective is still open.
+
+### DKT-015 FFI-to-XS replacement (2026-10-30)
+
+The runtime use of `FFI::Platypus` and `FFI::CheckLib` was removed. PBKDF2,
+Linux inotify, and Windows directory notifications now call native functions
+from the shared distribution XS extension while keeping their existing Perl
+module APIs. macOS continues to use `Mac::FSEvents`. The platform workflow now
+builds the XS extension before native tests and includes a Windows ARM64
+watcher smoke test. Focused XS parity, workflow, watcher, and API tests pass in
+the Docker development container. A fresh-interpreter regression test first
+reproduced the duplicate module cache-key problem: absolute-path `require`
+left the canonical `%INC` key empty, so a later canonical import re-evaluated
+`Watch.pm`. The lazy loaders now prepend their own library root to `@INC` and
+require the canonical package name. The focused `t/08`, `t/10`, and `t/104`
+rerun passed with zero watcher redefinition warnings. The final full Docker run
+passed 290 files and 25,955 tests; statement, branch, condition, and subroutine
+coverage each measured 100.0 percent across 51,606 detail rows, with no stale
+uncoverable annotations. The release kwalitee test also passed all seven
+checks at 100 percent after refreshing the project dev image. No hosted-platform
+result or release is claimed here.
 
 ### Problem 48 request-scoped installed-skill directory inventory (2026-10-14)
 

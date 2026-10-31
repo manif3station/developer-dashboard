@@ -57,7 +57,7 @@ my $paths = Developer::Dashboard::PathRegistry->new;
 my $store = Developer::Dashboard::IndicatorStore->new( paths => $paths );
 # This file verifies the portable metadata/stat validator and its path-cache
 # counters. Keep the optional native watcher disabled so these assertions stay
-# deterministic on systems where FFI::Platypus is installed.
+# deterministic on systems where the native XS watcher is available.
 $store->{_indicator_sync_watcher_unavailable} = 1;
 my @jobs = map {
     {

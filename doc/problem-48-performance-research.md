@@ -798,7 +798,7 @@ does not prove 50x against v5.88 for all subroutines.
 This review covers the performance work in the current Problem 48 change set,
 not the repository's blanket compliance status. The relevant higher-trust work
 is the OpenSSL PBKDF2 adapter and the native HTML escaper. Evidence includes
-the full Docker suite and coverage gate, `t/651-crypto-pbkdf2-ffi.t`,
+the full Docker suite and coverage gate, `t/651-crypto-pbkdf2-xs.t`,
 `t/665-problem48-xs-html-escape.t`, `t/667-problem48-collector-sync-roots.t`,
 `t/668-problem48-status-response-cache.t`, and the web-security trio (466
 assertions). ASVS Level 3 scrutiny was applied to authentication/cryptography
@@ -1571,7 +1571,7 @@ Focused command:
 ```sh
 d2 docker compose --service bench -f /tmp/d2-problem48-bench.yml \
   --project-name dd-problem48-bench run --rm bench sh -c \
-  'export PERL5LIB=/bench-perl/lib/perl5/x86_64-linux-gnu-thread-multi:/bench-perl/lib/perl5; cd /checkout; prove -lv t/651-crypto-pbkdf2-ffi.t t/82-auth-coverage.t t/09-runtime-manager.t t/15-release-metadata.t'
+  'export PERL5LIB=/bench-perl/lib/perl5/x86_64-linux-gnu-thread-multi:/bench-perl/lib/perl5; cd /checkout; prove -lv t/651-crypto-pbkdf2-xs.t t/82-auth-coverage.t t/09-runtime-manager.t t/15-release-metadata.t'
 ```
 
 The focused functional/auth/runtime/release-metadata run passed 6,010 tests
@@ -5150,3 +5150,17 @@ Statement, branch, condition, and subroutine coverage are each 100.0% across
 Windows QEMU, CPANTS, POD, and audit-tool checks were explicitly skipped when
 their external dependencies were unavailable. This gate verifies code coverage;
 it does not establish the universal 50x objective or hosted platform results.
+
+### Native FFI replacement with the shared XS extension (2026-10-30)
+
+For ticket DKT-015, the PBKDF2, Linux inotify, and Windows directory-notification
+adapters were moved from runtime FFI bindings to the existing distribution XS
+extension. The Perl-facing module names and call sites remain unchanged, and
+macOS retains its existing Mac::FSEvents backend. MakeMaker builds one shared
+extension; platform CI now builds it before exercising native paths and no
+longer installs FFI::Platypus or FFI::CheckLib. Focused XS tests passed in the
+Docker development container. The first full suite passed but exposed an
+uncovered pair of XS availability branches and repeated module redefinition
+warnings. Regression tests now cover those branches and prevent duplicate
+watcher loading. The clean full coverage rerun is in progress; this note will
+be updated with its evidence before the ticket is considered complete.

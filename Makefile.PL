@@ -9,9 +9,9 @@ use Cwd qw(cwd);
 
 install_share dist => 'share';
 
-# Detect the project-local Perl library root so generated Perl invocations
-# (e.g.  make test) can reach locally-installed CPAN modules without the
-# calling shell having set PERL5LIB.
+# Find a local::lib root whose module directories contain installed modules.
+# This keeps generated test commands able to discover developer dependencies,
+# while the wrapper below avoids make-implementation-specific export syntax.
 my $local_lib_root;
 for my $candidate ( '.perl5', "$ENV{HOME}/perl5" ) {
     my $lib = File::Spec->catdir( $candidate, 'lib', 'perl5' );
@@ -33,6 +33,7 @@ WriteMakefile(
     VERSION_FROM => 'lib/Developer/Dashboard/Version.pm',
     XS           => { 'HtmlEscape.xs' => 'HtmlEscape.c' },
     OBJECT       => 'HtmlEscape$(OBJ_EXT)',
+    LIBS         => [ $^O eq 'linux' ? '-ldl' : q{} ],
     ABSTRACT     => 'Project-neutral local developer dashboard runtime',
     AUTHOR       => 'Developer Dashboard Contributors',
     EXE_FILES    => [
@@ -103,10 +104,7 @@ WriteMakefile(
         },
         prereqs => {
             runtime => {
-                recommends => {
-                    'FFI::Platypus' => '2.12',
-                    'FFI::CheckLib' => '0.31',
-                },
+                recommends => {},
             },
         },
     },
@@ -114,44 +112,72 @@ WriteMakefile(
 
 package MY;
 
-# _local_lib_perl5_path()
-# Convenience helper: returns the PERL5LIB path fragment for the detected
-# local Perl library root, or an empty string if none was configured.
-# Includes both the base perl5 directory and any arch-specific subdirs
-# that local::lib creates for the active Perl.
-# Called from postamble() to inject the path into the generated Makefile.
-# Input: none.
-# Output: platform-separated absolute paths suitable for PERL5LIB, or ''.
-sub _local_lib_perl5_path {
-    return '' if !$local_lib_root || $local_lib_root eq '';
+# _local_lib_perl5_paths()
+# Resolves the selected local::lib root to the base, architecture, and active
+# Perl-version directories used by the build's generated Perl launcher.
+# Input: none; reads the detected root and active Perl Config values.
+# Output: an ordered list of absolute module search paths.
+sub _local_lib_perl5_paths {
     my $base = File::Spec->catdir( $local_lib_root, 'lib', 'perl5' );
     $base = File::Spec->rel2abs( $base, Cwd::cwd() );
     my @paths = ($base);
     for my $platform_dir ( @Config::Config{qw(archname version)} ) {
-        my $d = File::Spec->catdir( $base, $platform_dir );
-        push @paths, $d if -d $d;
+        my $path = File::Spec->catdir( $base, $platform_dir );
+        push @paths, $path if -d $path;
     }
-    return join $Config::Config{path_sep}, @paths;
+    return @paths;
+}
+
+# _write_local_lib_runner($paths)
+# Writes a small Perl launcher that adds local::lib paths to PERL5LIB before
+# executing the configured Perl with the original arguments. This lets child
+# processes inherit the paths without make-specific export directives.
+# Input: list of absolute local::lib directories.
+# Output: relative generated launcher path; dies if writing or closing fails.
+sub _write_local_lib_runner {
+    my (@paths) = @_;
+    my $runner = '.dd-perl5lib-runner.pl';
+    my @quoted_paths = map {
+        my $path = $_;
+        $path =~ s/\\/\\\\/g;
+        $path =~ s/'/\\'/g;
+        "    '$path'";
+    } @paths;
+    open my $fh, '>', $runner or die "Unable to create $runner: $!";
+    print {$fh} "use strict;\nuse warnings;\nuse Config;\n\n",
+      "my \@local_lib_paths = (\n", join( ",\n", @quoted_paths ), ");\n",
+      "my \$separator = quotemeta(\$Config{path_sep});\n",
+      "my \@inherited = grep { length \$_ } split /\$separator/, \$ENV{PERL5LIB} // '';\n",
+      "\$ENV{PERL5LIB} = join \$Config{path_sep}, \@local_lib_paths, \@inherited;\n",
+      "my \$perl = \$^X;\nexec { \$perl } \$perl, \@ARGV;\n",
+      "die \"Unable to execute \$perl: \$!\\n\";\n",
+      "__END__\n\n=head1 NAME\n\n.dd-perl5lib-runner.pl - portable local Perl library launcher\n\n",
+      "=head1 DESCRIPTION\n\nAdds the build's local::lib module directories to PERL5LIB, then replaces itself with the active Perl interpreter and forwards all arguments. It is generated beside the Makefile and removed by the clean target.\n\n",
+      "=head1 EXAMPLE\n\n  perl .dd-perl5lib-runner.pl -MModule::Name -e 'print qq(ok\\n)'\n\n=cut\n",
+      or die "Unable to write $runner: $!";
+    close $fh or die "Unable to close $runner: $!";
+    return $runner;
 }
 
 # postamble()
 # Appends the File::ShareDir::Install postamble so packaged installs refresh
 # dist share assets, then adds the home-runtime helper bootstrap hook used by
-# checkout and local installs.  Also prepends a PERL5LIB export so the local
-# Perl library (e.g. .perl5) is reachable during "make test" without the
-# calling shell having set PERL5LIB manually.
+# checkout and local installs. A Perl launcher provides local module paths to
+# MakeMaker commands and their children without make-specific export syntax.
 # Input: ExtUtils::MakeMaker MY package object.
 # Output: full make postamble text string.
 sub postamble {
     my $self = shift;
     my $share_postamble = File::ShareDir::Install::postamble($self);
+    my $runner = _write_local_lib_runner( _local_lib_perl5_paths() );
 
-    my $local_perl5 = _local_lib_perl5_path();
-    my $perl5lib_preamble = $local_perl5 ne ''
-        ? "PERL5LIB := $local_perl5$Config::Config{path_sep}\$(PERL5LIB)\nexport PERL5LIB\n\n"
-        : '';
+    return "FULLPERL = \$(PERL) $runner\n\n" . $share_postamble . <<'END_POSTAMBLE';
+.PHONY: clean-local-perl5lib-runner
+clean :: clean-local-perl5lib-runner
 
-    return $perl5lib_preamble . $share_postamble . <<'END_POSTAMBLE';
+clean-local-perl5lib-runner:
+	$(RM_F) .dd-perl5lib-runner.pl
+
 .PHONY: install pure_install install-private-cli-tools
 install ::
 	$(NOECHO) $(PERL) -e "1;"
@@ -162,3 +188,58 @@ install-private-cli-tools :
 	$(NOECHO) $(PERL) -e 'use File::Copy; use File::Path qw(make_path); use File::Spec; my $$home = $$ENV{HOME} || $$ENV{USERPROFILE} || eval { (getpwuid($$>))[7] } || die "Unable to resolve a home directory for the private CLI helper staging\n"; my $$cli_dir = File::Spec->catdir($$home, ".developer-dashboard", "cli"); make_path($$cli_dir) unless -d $$cli_dir; for my $$cmd (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file workspace file files path paths ps1 encode decode indicator collector config auth api ask init cpan page action docker serve stop restart log shell doctor housekeeper skills which upgrade complete)) { my $$src = File::Spec->catfile("share", "private-cli", $$cmd); my $$dst = File::Spec->catfile($$cli_dir, $$cmd); if (-f $$src) { File::Copy::copy($$src, $$dst) or warn "Failed to copy $$src to $$dst: $$!"; chmod(0755, $$dst); print "Installed $$cmd to $$cli_dir\n"; } }'
 END_POSTAMBLE
 }
+
+__END__
+
+=head1 NAME
+
+Makefile.PL - configure and generate the Developer::Dashboard build Makefile
+
+=head1 DESCRIPTION
+
+This script configures the Developer::Dashboard Perl distribution with
+ExtUtils::MakeMaker. It declares runtime and configuration prerequisites,
+version metadata, executable scripts, XS extension sources, shared assets, and
+repository metadata. Its MakeMaker postamble installs private command helpers
+and removes its generated local-library launcher during C<make clean>.
+
+When local::lib modules are present under C<.perl5> or C<$HOME/perl5>, the
+generated Makefile runs Perl commands through a small generated launcher. The
+launcher adds the active local-library directories to C<PERL5LIB> before
+running Perl and forwarding the original arguments. Child commands inherit the
+same environment. The launcher avoids GNU make-only assignment and export
+syntax, so source distributions remain parseable by BSD and Solaris make.
+
+=head1 WHEN TO USE
+
+Run this configuration script when building or testing a source checkout with
+MakeMaker. Dist::Zilla invokes it as part of distribution testing and
+installation.
+
+=head1 HOW TO USE
+
+  perl Makefile.PL
+  make
+  make test
+  make clean
+
+The generated Makefile and launcher belong to the build tree; neither is
+required as a checked-in source file.
+
+=head1 EXAMPLES
+
+Example 1: configure and test a source checkout:
+
+  perl Makefile.PL && make test
+
+Example 2: remove generated build files after testing:
+
+  make clean
+
+=head1 USERS
+
+Maintainers and source-distribution installers use this file to configure the
+distribution. CPAN testers use the generated Makefile with the platform's
+native make implementation.
+
+=cut

@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.13
+6.14
 
 # INTRODUCTION
 
@@ -2366,12 +2366,12 @@ In practice that means the developer at the machine gets friction-free local
 admin access, while shared or forwarded access is forced through explicit
 helper accounts. Helper passwords use PBKDF2-HMAC-SHA256 with 210,000 iterations.
 
-When
-FFI::Platypus and a compatible system OpenSSL `libcrypto` are available, the
-same derivation runs through OpenSSL's native PBKDF2 function; this preserves
-the existing salts, stored hashes, and verification format. If the native
-library is unavailable or the password cannot safely use the byte-oriented
-FFI path, authentication uses the existing `Digest::SHA` implementation.
+When the compiled Dashboard XS extension and a compatible system OpenSSL
+`libcrypto` are available, the same derivation runs through OpenSSL's native
+PBKDF2 function; this preserves the existing salts, stored hashes, and
+verification format. If the native library is unavailable or the password
+cannot safely use the byte-oriented XS path, authentication uses the existing
+`Digest::SHA` implementation.
 
 MakeMaker compiles the extension as
 part of the normal distribution build; a source checkout without the compiled
@@ -3353,6 +3353,12 @@ prefix as `OPENSSL_PREFIX` before building `Net::SSLeay`. This makes the
 OpenSSL selection explicit for the native TLS dependency used by
 `IO::Socket::SSL` and `LWP::Protocol::https`. The runner log now includes
 verbose diagnostics from this focused `Net::SSLeay` build if it fails.
+
+The platform workflow builds the Dashboard XS extension before running the
+suite on each supported platform. Its Windows ARM64 smoke job verifies that
+the runner supplies a native ARM64 Perl before exercising the native watcher;
+the general Windows x64 job also compiles the same extension and runs the
+complete suite.
 
 ### Library coverage
 

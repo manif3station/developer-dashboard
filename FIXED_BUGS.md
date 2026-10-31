@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 6.14
+
+- DKT-015: remove FFI::Platypus and FFI::CheckLib from runtime/build
+  dependencies. PBKDF2 and Linux/Windows native watcher APIs now use the
+  distribution's shared XS extension, with deterministic API and behaviour
+  tests. Platform workflows build that extension before running tests,
+  including the Windows ARM64 watcher job.
+
 ## 6.13
 
 - Correct the macOS ARM64 workflow's OpenSSL architecture preflight. The first

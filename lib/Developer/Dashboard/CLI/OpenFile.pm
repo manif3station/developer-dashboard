@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use sort 'stable';
 
-our $VERSION = '6.13';
+our $VERSION = '6.14';
 
 use Developer::Dashboard::PathIdentity qw(current_working_directory);
 use Exporter 'import';

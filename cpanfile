@@ -36,8 +36,6 @@ requires 'Template', '3.103';
 requires 'URI', '5.36';
 requires 'URI::Escape', '5.36';
 requires 'XML::Parser', '2.48';
-recommends 'FFI::Platypus', '2.12';
-recommends 'FFI::CheckLib', '0.31';
 
 on 'develop' => sub {
     recommends 'DBI';

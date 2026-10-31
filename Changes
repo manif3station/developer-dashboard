@@ -1,3 +1,10 @@
+6.14  2026-10-31
+
+  - Replace FFI::Platypus and FFI::CheckLib runtime backends for PBKDF2,
+    Linux inotify, and Windows directory notifications with the distribution's
+    shared XS extension. Build and load the extension explicitly in platform
+    workflows, including Windows ARM64, and add parity and workflow tests.
+
 6.13  2026-10-30
 
   - Correct the macOS ARM64 OpenSSL architecture preflight after the hosted

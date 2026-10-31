@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '6.13';
+our $VERSION = '6.14';
 
 use Config ();
 use Developer::Dashboard::DirEntries qw(sorted_dir_entries);
@@ -861,8 +861,9 @@ sub _skill_nav_paths_signature {
 # Lazily constructs the existing optional native filesystem watcher for an
 # aggregate literal-nav snapshot; absent optional backends retain portable page
 # inventory validation rather than disabling route loading. It resolves the
-# module relative to this absolute source path so nested skill working-directory
-# changes cannot invalidate a relative @INC entry.
+# module by its canonical package name with this file's library root temporarily
+# first in @INC so nested skill working-directory changes cannot invalidate a
+# relative @INC entry or create a second %INC cache key.
 # Input: none.
 # Output: watcher object or undef when the current platform has no backend.
 sub _skill_nav_pages_watcher {
@@ -870,11 +871,12 @@ sub _skill_nav_pages_watcher {
     return $self->{_skill_nav_pages_watcher}
       if ref( $self->{_skill_nav_pages_watcher} );
     return if $self->{_skill_nav_pages_watcher_unavailable};
-    if ( !$INC{'Developer/Dashboard/IndicatorStore/Watch.pm'} ) {
-        my $watcher_module = File::Spec->catfile(
-            dirname($MODULE_SOURCE_PATH), 'IndicatorStore', 'Watch.pm'
-        );
-        require $watcher_module;
+    if ( !$INC{'Developer/Dashboard/IndicatorStore/Watch.pm'}
+        && !Developer::Dashboard::IndicatorStore::Watch->can('new') )
+    {
+        my $library_root = dirname( dirname($MODULE_SOURCE_PATH) );
+        local @INC = ( $library_root, @INC );
+        require Developer::Dashboard::IndicatorStore::Watch;
     }
     my $watcher = Developer::Dashboard::IndicatorStore::Watch->new;
     if ( !$watcher ) {

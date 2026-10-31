@@ -43,13 +43,13 @@ _open_write(
 _open_write( File::Spec->catfile( $active_arch, 'DDPortableProbe.pm' ), "package DDPortableProbe;\n1;\n" );
 _open_write( File::Spec->catfile( $active_version, 'DDVersionProbe.pm' ), "package DDVersionProbe;\n1;\n" );
 
-# Feature: portable generated PERL5LIB
+# Feature: portable generated Perl launcher with local-lib support
 # Scenario: an installation uses an absolute HOME local-lib
 #   Given modules exist beneath the active Perl architecture and version roots
 #   When Makefile.PL generates its Makefile
-#   Then each absolute library path is preserved without a checkout prefix
-#   And the active platform path separator is used
-#   And configuration emits no postamble redefinition warning.
+#   Then local-lib paths are added by the generated Perl launcher
+#   And the active platform path separator is used at runtime
+#   And the Makefile contains no make-specific environment export syntax.
 # Locate the configure-time dependency in THIS process, where PERL5LIB is still
 # intact, so the fixture below can be given it explicitly.
 require File::ShareDir::Install;
@@ -79,21 +79,35 @@ is( $exit, 0, 'ATDD: Makefile.PL configures an absolute HOME local-lib fixture' 
 unlike( $stderr, qr/Subroutine postamble redefined/, 'BDD: configuration does not redefine the imported postamble helper' );
 
 my $generated = _slurp( File::Spec->catfile( $fixture, 'Makefile' ) );
-my ($perl5lib_line) = $generated =~ /^(PERL5LIB\s*:=.*)$/m;
-ok( defined $perl5lib_line, 'ATDD: generated Makefile exports a local PERL5LIB preamble' );
-like( $perl5lib_line, qr/\Q$local_perl5\E/, 'BDD: generated PERL5LIB contains the absolute local-lib base' );
-like( $perl5lib_line, qr/\Q$active_arch\E/, 'BDD: generated PERL5LIB contains the active Config architecture directory' );
-like( $perl5lib_line, qr/\Q$active_version\E/, 'BDD: generated PERL5LIB contains the active Config version directory' );
-unlike(
-    $perl5lib_line,
-    qr/\Q$fixture\E[\\\/]+\Q$home\E/,
-    'BDD: an absolute HOME local-lib is not incorrectly prefixed with the configure cwd',
-);
-like(
-    $perl5lib_line,
-    qr/\Q$local_perl5$Config{path_sep}$active_arch$Config{path_sep}$active_version\E/,
-    'ATDD: generated PERL5LIB joins paths with the active Config path separator',
-);
+my $runner = File::Spec->catfile( $fixture, '.dd-perl5lib-runner.pl' );
+ok( -f $runner, 'ATDD: Makefile.PL writes a Perl launcher for local-lib commands' );
+like( $generated, qr/^FULLPERL\s*=\s*\$\(PERL\)\s+\.dd-perl5lib-runner\.pl\s*$/m,
+    'BDD: generated Makefile invokes the portable launcher through FULLPERL' );
+unlike( $generated, qr/^PERL5LIB\s*:=/m,
+    'BDD: generated Makefile avoids GNU-only PERL5LIB assignment syntax' );
+unlike( $generated, qr/^export\s+PERL5LIB\s*$/m,
+    'BDD: generated Makefile avoids GNU-only export syntax' );
+
+my $runner_source = _slurp($runner);
+like( $runner_source, qr/\Q$local_perl5\E/,
+    'BDD: launcher preserves an absolute HOME local-lib base without a checkout prefix' );
+like( $runner_source, qr/\Q$active_arch\E/,
+    'BDD: launcher includes the active Config architecture directory' );
+like( $runner_source, qr/\Q$active_version\E/,
+    'BDD: launcher includes the active Config version directory' );
+like( $runner_source, qr/\$Config\{path_sep\}/,
+    'BDD: launcher joins paths with the active Config path separator' );
+
+my ( $probe_stdout, $probe_stderr, $probe_exit );
+{
+    local $ENV{PERL5LIB} = '';
+    ( $probe_stdout, $probe_stderr, $probe_exit ) = capture {
+        system( $^X, $runner, '-MDDPortableProbe', '-MDDVersionProbe', '-e', 'print "portable\\n"' );
+    };
+}
+is( $probe_exit, 0, 'ATDD: launcher makes both local-lib probe modules available without inherited PERL5LIB' );
+is( $probe_stdout, "portable\n", 'BDD: launcher forwards arguments to Perl and preserves its output' );
+is( $probe_stderr, '', 'BDD: launcher emits no errors for local modules' );
 
 my $source = _slurp($source_makefile_pl);
 like( $source, qr/use Config\b/, 'ATDD: Makefile.PL derives platform values from Config' );
@@ -137,8 +151,9 @@ t/24-makefile-perl5lib-portability.t - portable Makefile.PL local-lib contract
 
 =head1 PURPOSE
 
-Verifies that Makefile.PL generates PERL5LIB from the active Perl configuration,
-preserves absolute local-lib roots, and does not redefine an imported postamble.
+Verifies that Makefile.PL generates a portable Perl launcher from the active
+Perl configuration, preserves absolute local-lib roots, and does not redefine
+an imported postamble or use GNU-only Makefile environment syntax.
 
 =head1 WHY IT EXISTS
 
@@ -148,8 +163,8 @@ postamble redefinition warning. This test prevents those packaging regressions.
 
 =head1 WHEN TO USE
 
-Run this test when changing Makefile.PL local-lib discovery, generated PERL5LIB
-paths, platform handling, or File::ShareDir::Install postamble integration.
+Run this test when changing Makefile.PL local-lib discovery, generated Perl
+launcher paths, platform handling, or File::ShareDir::Install postamble integration.
 
 =head1 HOW TO USE
 
