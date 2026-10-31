@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.15
+6.16
 
 # INTRODUCTION
 
@@ -180,6 +180,12 @@ Or install from a checkout with:
     make
     make test
     make install
+
+`Makefile.PL` uses a project-local `.perl5` library when it contains
+installed modules. Otherwise it checks the user's `perl5` library under
+`HOME` on Unix or `USERPROFILE` on Windows. If neither home variable is set,
+it safely uses only the project-local candidate and emits no
+undefined-variable warning.
 
 ## First Run
 

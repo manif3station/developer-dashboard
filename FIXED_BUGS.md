@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 6.16
+
+- DKT-015: Fix Makefile.PL's local::lib lookup when Windows provides
+  USERPROFILE but not HOME. The build now checks HOME, then USERPROFILE, and
+  safely falls back to the project-local `.perl5` tree without warnings.
+  Regression tests cover both home-variable absence and USERPROFILE lookup.
+
 ## 6.15
 
 - DKT-015: separate Windows PowerShell and Unix Bash workflow steps so XS

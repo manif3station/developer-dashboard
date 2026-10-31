@@ -60,6 +60,62 @@ ok( $makefile !~ qr/^export\s+PERL5LIB\s*$/m,
 ok( $makefile !~ qr/^PERL5LIB\b/m,
     'generated Makefile does not inject local Perl paths into make syntax' );
 
+unlink $makefile_path or die "Unable to remove generated Makefile before no-HOME check: $!";
+my ( $no_home_stdout, $no_home_stderr, $no_home_exit ) = do {
+    local $ENV{HOME};
+    local $ENV{USERPROFILE};
+    delete $ENV{HOME};
+    delete $ENV{USERPROFILE};
+    my $original_dir = getcwd();
+    chdir $fixture or die "Unable to enter Makefile fixture for no-HOME check: $!";
+    my @captured = capture {
+        system( $^X, 'Makefile.PL' );
+    };
+    chdir $original_dir or die "Unable to restore working directory after no-HOME check: $!";
+    @captured;
+};
+
+is( $no_home_exit, 0, 'Makefile.PL builds when neither HOME nor USERPROFILE is set' );
+is( $no_home_stderr, '', 'Makefile.PL does not warn while HOME and USERPROFILE are unset' );
+ok( -f $makefile_path, 'Makefile.PL still creates the generated Makefile without a home variable' );
+
+my $profile_home = File::Spec->catdir( $fixture, 'profile-home' );
+my $profile_local_lib = File::Spec->catdir( $profile_home, 'perl5', 'lib', 'perl5' );
+make_path($profile_local_lib);
+my $profile_marker = File::Spec->catfile( $profile_local_lib, 'ProfileProbe.pm' );
+open my $profile_fh, '>', $profile_marker
+  or die "Unable to create profile-local marker: $!";
+print {$profile_fh} "package ProfileProbe; 1;\n";
+close $profile_fh or die "Unable to close profile-local marker: $!";
+unlink File::Spec->catfile( $fixture_local_lib, 'PortabilityProbe.pm' )
+  or die "Unable to remove the project-local marker before profile lookup: $!";
+
+my ( $profile_stdout, $profile_stderr, $profile_exit ) = do {
+    local $ENV{HOME};
+    local $ENV{USERPROFILE} = $profile_home;
+    delete $ENV{HOME};
+    my $original_dir = getcwd();
+    chdir $fixture or die "Unable to enter Makefile fixture for USERPROFILE check: $!";
+    my @captured = capture {
+        system( $^X, 'Makefile.PL' );
+    };
+    chdir $original_dir or die "Unable to restore working directory after USERPROFILE check: $!";
+    @captured;
+};
+
+is( $profile_exit, 0, 'Makefile.PL builds when USERPROFILE is the only home variable' );
+is( $profile_stderr, '', 'Makefile.PL does not warn when resolving USERPROFILE' );
+my $runner_path = File::Spec->catfile( $fixture, '.dd-perl5lib-runner.pl' );
+my $runner = '';
+if ( -f $runner_path ) {
+    open my $runner_fh, '<', $runner_path or die "Unable to read generated runner: $!";
+    local $/;
+    $runner = <$runner_fh> // '';
+    close $runner_fh or die "Unable to close generated runner: $!";
+}
+like( $runner, qr/profile-home/,
+    'Makefile.PL selects modules from the USERPROFILE Perl library when HOME is absent' );
+
 done_testing();
 
 __END__

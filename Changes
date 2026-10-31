@@ -1,3 +1,10 @@
+6.16  2026-10-31
+
+  - Fix Makefile.PL on Windows runners where HOME is unset: resolve the
+    developer local::lib from USERPROFILE, avoid undefined-value warnings,
+    and retain the project-local fallback when neither home variable exists.
+    Add regression coverage for Unix, Windows, and no-home environments.
+
 6.15  2026-10-31
 
   - Fix Windows XS CI to use the workflow-installed Perl from PowerShell for

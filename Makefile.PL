@@ -9,11 +9,18 @@ use Cwd qw(cwd);
 
 install_share dist => 'share';
 
-# Find a local::lib root whose module directories contain installed modules.
-# This keeps generated test commands able to discover developer dependencies,
-# while the wrapper below avoids make-implementation-specific export syntax.
+# Find a local::lib root with installed modules, preferring the project-local
+# tree and then the current user's Perl tree. HOME is common on Unix and
+# USERPROFILE is the Windows fallback. This keeps generated test commands able
+# to discover developer dependencies without interpolating an unset variable.
 my $local_lib_root;
-for my $candidate ( '.perl5', "$ENV{HOME}/perl5" ) {
+my @local_lib_candidates = ('.perl5');
+my $home = $ENV{HOME};
+$home = $ENV{USERPROFILE} if !defined $home || $home eq '';
+push @local_lib_candidates, File::Spec->catdir( $home, 'perl5' )
+  if defined $home && $home ne '';
+
+for my $candidate (@local_lib_candidates) {
     my $lib = File::Spec->catdir( $candidate, 'lib', 'perl5' );
     my @module_dirs = (
         $lib,
@@ -203,12 +210,15 @@ version metadata, executable scripts, XS extension sources, shared assets, and
 repository metadata. Its MakeMaker postamble installs private command helpers
 and removes its generated local-library launcher during C<make clean>.
 
-When local::lib modules are present under C<.perl5> or C<$HOME/perl5>, the
-generated Makefile runs Perl commands through a small generated launcher. The
-launcher adds the active local-library directories to C<PERL5LIB> before
-running Perl and forwarding the original arguments. Child commands inherit the
-same environment. The launcher avoids GNU make-only assignment and export
-syntax, so source distributions remain parseable by BSD and Solaris make.
+When local::lib modules are present under C<.perl5> or the current user's
+C<perl5> directory, the generated Makefile runs Perl commands through a small
+generated launcher. The user's directory is resolved from C<HOME> on Unix or
+C<USERPROFILE> on Windows; if neither variable exists, only C<.perl5> is
+considered. The launcher adds the active local-library directories to
+C<PERL5LIB> before running Perl and forwarding the original arguments. Child
+commands inherit the same environment. The launcher avoids GNU make-only
+assignment and export syntax, so source distributions remain parseable by BSD
+and Solaris make.
 
 =head1 WHEN TO USE
 

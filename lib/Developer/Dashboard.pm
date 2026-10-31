@@ -68,7 +68,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.15
+6.16
 
 =head1 INTRODUCTION
 
@@ -278,6 +278,12 @@ Or install from a checkout with:
   make
   make test
   make install
+
+C<Makefile.PL> uses a project-local C<.perl5> library when it contains
+installed modules. Otherwise it checks the user's C<perl5> library under
+C<HOME> on Unix or C<USERPROFILE> on Windows. If neither home variable is set,
+it safely uses only the project-local candidate and emits no
+undefined-variable warning.
 
 =head2 First Run
 

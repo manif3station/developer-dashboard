@@ -21,8 +21,12 @@ PowerShell. A hosted run on 2026-10-31 exposed that invoking `perl Makefile.PL`
 from Git Bash selected its MSYS Perl, whose @INC lacks ExtUtils::MakeMaker,
 even though the workflow's Windows Perl was installed correctly. Separate
 Windows and Unix steps now keep each platform on its configured Perl and path
-separator. The Docker workflow contract checks these shell choices; hosted
-verification of the follow-up is pending.
+separator. The next hosted run exposed a separate Makefile.PL portability
+defect: Windows supplied USERPROFILE but no HOME, and Makefile.PL interpolated
+the missing HOME while searching for local::lib. Makefile.PL now prefers HOME,
+falls back to USERPROFILE, and safely uses only `.perl5` if neither is set. The
+Docker regression covers all three cases. Hosted verification of this fix is
+pending.
 
 macOS continues to install Mac::FSEvents as its platform-specific event
 backend. Linux inotify and Windows directory notifications are provided by
