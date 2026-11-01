@@ -2,6 +2,8 @@ use strict;
 use warnings;
 use utf8;
 
+use Cwd qw(abs_path);
+use Config;
 use File::Spec;
 use File::Temp qw(tempdir);
 use Test::More;
@@ -14,6 +16,17 @@ use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Platform ();
+
+my @test_perl_libs = map { abs_path($_) }
+  grep { -d $_ }
+  ( 'blib/lib', 'blib/arch', 'lib' );
+my $test_perl5lib = join $Config{path_sep},
+  grep { defined && -d $_ }
+  map  { abs_path($_) }
+  (
+    @test_perl_libs,
+    ( grep { !ref($_) && defined($_) } @INC ),
+  );
 
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
@@ -151,22 +164,13 @@ SKIP: {
     print {$helper_fh} <<'HELPER';
 use strict;
 use warnings;
+use Developer::Dashboard::GoRoutine ();
 $| = 1;
 my ($pidfile) = @ARGV;
-my $descendant;
-if ( $^O eq 'MSWin32' ) {
-    $descendant = system 1, $^X, '-e', '$| = 1; print "descendant-ready\\n"; sleep 30';
-    die "Unable to spawn timeout descendant: $!" if !defined $descendant || $descendant < 1;
-}
-else {
-    $descendant = fork();
-    die "Unable to fork timeout descendant: $!" if !defined $descendant;
-    if ( !$descendant ) {
-        print "descendant-ready\n";
-        sleep 30;
-        exit 0;
-    }
-}
+my $descendant = Developer::Dashboard::GoRoutine::spawn(
+    [ $^X, '-e', '$| = 1; print "descendant-ready\\n"; sleep 30' ],
+    {},
+);
 open my $pid_fh, '>', $pidfile or die "Unable to write $pidfile: $!";
 print {$pid_fh} "$$ $descendant\n";
 close $pid_fh or die "Unable to close $pidfile: $!";
@@ -177,14 +181,20 @@ HELPER
     close $helper_fh or die "Unable to close $helper: $!";
 
     my $shell = Developer::Dashboard::Platform::is_windows() ? 'cmd' : 'sh';
+    my @build_inc = map { '-I' . $_ } @test_perl_libs;
     my $command = join ' ',
       map { Developer::Dashboard::Platform::shell_quote_for( $shell, $_ ) }
-      ( $^X, $helper, $pidfile );
-    my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_command(
-        source     => $command,
-        cwd        => $home,
-        timeout_ms => 100,
-    );
+      ( $^X, @build_inc, $helper, $pidfile );
+    my ( $stdout, $stderr, $exit_code, $timed_out );
+    {
+        local $ENV{PERL5LIB} = $test_perl5lib;
+        ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_command(
+            source     => $command,
+            cwd        => $home,
+            env        => { PERL5LIB => $test_perl5lib },
+            timeout_ms => 100,
+        );
+    }
 
     is( $exit_code, 124, 'a command-subtree timeout returns exit 124' );
     ok( $timed_out, 'a command-subtree timeout is flagged as timed out' );
