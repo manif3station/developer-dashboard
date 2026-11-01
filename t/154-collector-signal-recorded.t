@@ -10,6 +10,7 @@ use Time::HiRes ();
 
 use lib 'lib';
 
+use Developer::Dashboard::GoRoutine ();
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::FileRegistry;
@@ -60,9 +61,10 @@ like( $said, qr/received by pid \d+/, 'and which process received it, so the rec
 # refuses 'Z'. Asserted here so that stays true, because the obvious
 # simplification is to replace it with kill 0.
 {
-    my $zombie = fork();
-    die "Unable to fork a zombie for the test: $!" if !defined $zombie;
-    exit 0 if !$zombie;
+    my $zombie = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'exit 0' ],
+        {},
+    );
 
     # Do NOT reap it: an unreaped exited child IS a zombie, which is the state
     # under test.
@@ -77,6 +79,20 @@ like( $said, qr/received by pid \d+/, 'and which process received it, so the rec
     is( $runner->_is_managed_loop( $zombie, $name ), 0, 'and does not mistake one for a managed collector loop' );
 
     waitpid $zombie, 0;
+}
+
+# Keep a direct process-API parity assertion separate from the zombie fixture:
+# CollectorRunner may reap any exited child while refreshing its loop inventory.
+{
+    my $child = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'exit 0' ],
+        {},
+    );
+    is(
+        Developer::Dashboard::GoRoutine::wait_process($child),
+        0,
+        'GoRoutine wait_process returns the child exit status',
+    );
 }
 
 # AC-3: a supervisor that has exited must leave no record claiming it is running.
@@ -132,11 +148,14 @@ Whenever the collector's signal handling or shutdown path changes.
 
 =head1 HOW TO USE
 
-    PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/154-collector-signal-recorded.t
+    d2 docker compose exec dev prove -blv t/154-collector-signal-recorded.t
 
 =head1 WHAT USES IT
 
 Nothing; it is a regression test for C<Developer::Dashboard::CollectorRunner>.
+Its zombie and exit-status fixtures launch native children with
+C<Developer::Dashboard::GoRoutine::spawn>; the separate exit-status fixture
+also verifies C<wait_process>. The test does not use Perl C<fork>.
 
 =head1 EXAMPLES
 
