@@ -45,6 +45,26 @@ is( 0 + $map->{incremented}, 10, 'storing an already-applied increment does not 
 --$counter;
 is( 0 + $counter, 9, 'pre-decrement applies to the shared scalar' );
 
+share my ($group_left, $group_right) = (5, 6);
+is( 0 + $group_left, 5, 'grouped share declaration initializes its first scalar' );
+is( 0 + $group_right, 6, 'grouped share declaration initializes its second scalar' );
+share my @declared_array = qw(red green);
+is_deeply( [@declared_array], [qw(red green)],
+    'aggregate share declaration preserves its array initializer' );
+share my %declared_hash = (enabled => 1);
+is( 0 + $declared_hash{enabled}, 1,
+    'aggregate share declaration preserves its hash initializer' );
+
+my $existing_scalar = 7;
+my @existing_array = qw(one two);
+my %existing_hash = (ready => 1);
+share $existing_scalar, @existing_array, %existing_hash;
+is( 0 + $existing_scalar, 7, 'existing-variable share preserves scalar data' );
+is_deeply( [@existing_array], [qw(one two)],
+    'existing-variable share preserves array data' );
+is( 0 + $existing_hash{ready}, 1,
+    'existing-variable share preserves hash data' );
+
 my $other;
 share $other = 2;
 my $direct_ref_error = eval { $counter = $other; 1 };
