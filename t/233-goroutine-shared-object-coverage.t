@@ -3,6 +3,8 @@
 use strict;
 use warnings;
 
+use File::Temp qw(tempfile);
+use Scalar::Util qw(reftype);
 use Test::More;
 
 use lib 'lib';
@@ -23,8 +25,14 @@ ok( !!$counter_proxy, 'non-zero shared scalar proxy is true' );
 my $operation = $counter_proxy + 2;
 is( 0 + $operation, 11, 'unassigned shared operation can be evaluated' );
 is( 0 + ( 20 - $counter_proxy ), 11, 'reverse arithmetic evaluates with the right operand first' );
+is( 0 + ( $counter_proxy * 3 ), 27, 'shared scalar supports multiplication' );
+is( 0 + ( $counter_proxy / 3 ), 3, 'shared scalar supports division' );
+is( 0 + ( 20 / $counter_proxy ), 20 / 9, 'shared scalar supports reverse division' );
+is( 0 + ( $counter_proxy % 4 ), 1, 'shared scalar supports modulo' );
 my $concatenated = $counter_proxy . '!';
 is( "$concatenated", '9!', 'shared operation can be evaluated as a concatenation' );
+ok( !!($counter_proxy + 1), 'non-zero shared operation is true in boolean context' );
+ok( !($counter_proxy - 9), 'zero-valued shared operation is false in boolean context' );
 my $already_applied = ++$counter;
 is( 0 + $counter, 10, 'pre-increment applies to the shared scalar' );
 my $map;
@@ -107,6 +115,93 @@ ok( !Developer::Dashboard::GoRoutine::_value_for_ptr(0), 'a null native handle h
 is( Developer::Dashboard::GoRoutine::_scalar_snapshot('plain'), 'plain', 'ordinary scalar snapshot is unchanged' );
 is( Developer::Dashboard::GoRoutine::_scalar_snapshot($counter_proxy), 9, 'shared scalar snapshot reads its native value' );
 
+my $channel = channel(2);
+is( $channel->capacity, 2, 'buffered channel wrapper reports its capacity' );
+is( $channel->size, 0, 'empty buffered channel wrapper reports zero size' );
+is( $channel->send('queued'), $channel,
+    'channel send returns the wrapper for chaining' );
+is( $channel->size, 1, 'buffered channel wrapper reports a queued value' );
+my ( $channel_value, $channel_ok ) = $channel->receive;
+is( $channel_value, 'queued', 'buffered channel wrapper receives its queued value' );
+ok( $channel_ok, 'buffered channel receive reports a successful value' );
+$channel->send('scalar-context');
+is( scalar $channel->receive, 'scalar-context',
+    'buffered channel receive returns the value in scalar context' );
+is( $channel->close, $channel, 'channel close returns the wrapper for chaining' );
+ok( $channel->is_closed, 'closed channel wrapper reports its closed state' );
+my ( $closed_value, $closed_ok ) = $channel->receive;
+ok( !defined $closed_value, 'closed channel returns no further value' );
+ok( !$closed_ok, 'closed channel receive reports failure' );
+my $closed_send = eval { $channel->send('rejected'); 1 };
+ok( !$closed_send, 'channel wrapper propagates send-after-close errors' );
+like( $@, qr/closed/, 'send-after-close failure has an explicit diagnostic' );
+my $invalid_channel = bless {}, 'Developer::Dashboard::GoRoutine::Channel';
+my $invalid_channel_ok = eval { $invalid_channel->size; 1 };
+ok( !$invalid_channel_ok, 'channel wrapper rejects a missing native handle' );
+like( $@, qr/invalid channel handle/, 'invalid channel diagnostic names the handle' );
+my $invalid_routine = bless {}, 'Developer::Dashboard::GoRoutine::Routine';
+my $invalid_routine_ok = eval { $invalid_routine->is_running; 1 };
+ok( !$invalid_routine_ok, 'routine wrapper rejects a missing native handle' );
+like( $@, qr/invalid go routine handle/, 'invalid routine diagnostic names the handle' );
+
+my $regexp_ptr = Developer::Dashboard::GoRoutine::_shared_node_new();
+Developer::Dashboard::GoRoutine::_shared_node_set( $regexp_ptr, qr/^native+$/i );
+my $regexp_proxy = Developer::Dashboard::GoRoutine::_value_for_ptr($regexp_ptr);
+is( ref($regexp_proxy), 'Regexp', 'native regexp node materializes as a Perl regexp' );
+ok( 'NATIVEEE' =~ $regexp_proxy, 'materialized regexp preserves matching behavior' );
+
+my $field_ptr = Developer::Dashboard::GoRoutine::_shared_node_new();
+Developer::Dashboard::GoRoutine::_shared_node_set( $field_ptr, 4 );
+my $field_ref = Developer::Dashboard::GoRoutine::_field_ref_for_ptr($field_ptr);
+is( 0 + $$field_ref, 4, 'native scalar field materializes as a tied scalar reference' );
+$$field_ref = 8;
+is( 0 + $$field_ref, 8, 'tied field reference writes through to its shared node' );
+
+my ( $remote_fh, $remote_path ) = tempfile();
+ok( Developer::Dashboard::GoRoutine::_handle_remote_dispatch(
+        $remote_fh, 'PRINT', "first\n" ),
+    'remote handle dispatcher prints to its private handle' );
+ok( Developer::Dashboard::GoRoutine::_handle_remote_dispatch(
+        $remote_fh, 'PRINTF', "%s %d\n", 'second', 2 ),
+    'remote handle dispatcher supports formatted output' );
+ok( Developer::Dashboard::GoRoutine::_handle_remote_dispatch(
+        $remote_fh, 'SEEK', 0, 0 ),
+    'remote handle dispatcher seeks' );
+is( Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'TELL'), 0,
+    'remote handle dispatcher reports position' );
+is( scalar Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'READLINE_SCALAR'),
+    "first\n", 'remote handle dispatcher reads one line in scalar context' );
+my @line = Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'READLINE_LIST');
+is_deeply( \@line, [ "second 2\n" ], 'remote handle dispatcher reads remaining lines in list context' );
+ok( Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'EOF'),
+    'remote handle dispatcher detects end of file' );
+ok( Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'SEEK', 0, 0),
+    'remote handle dispatcher can rewind before byte reads' );
+is( Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'GETC'), 'f',
+    'remote handle dispatcher reads a character' );
+my ( $read_count, $read_buffer ) = Developer::Dashboard::GoRoutine::_handle_remote_dispatch(
+    $remote_fh, 'READ', 4
+);
+is( $read_count, 4, 'remote handle dispatcher returns byte count' );
+is( $read_buffer, 'irst', 'remote handle dispatcher returns the requested bytes' );
+ok( Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'SEEK', 0, 2),
+    'remote handle dispatcher seeks to a write offset' );
+is( Developer::Dashboard::GoRoutine::_handle_remote_dispatch(
+        $remote_fh, 'WRITE', 'replacement', 4, 0 ),
+    4, 'remote handle dispatcher writes the requested substring' );
+ok( Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'BINMODE'),
+    'remote handle dispatcher supports binmode' );
+ok( defined Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'FILENO'),
+    'remote handle dispatcher reports a real file descriptor' );
+my $unsupported_handle_op = eval {
+    Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'NOPE'); 1;
+};
+ok( !$unsupported_handle_op, 'remote handle dispatcher rejects unknown operations' );
+like( $@, qr/unsupported shared filehandle operation/, 'unknown handle operation has a clear diagnostic' );
+
+ok( Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'CLOSE'),
+    'remote handle dispatcher closes the private handle' );
+
 my $routine_state = {
     ptr     => 1,
     running => 1,
@@ -138,6 +233,54 @@ for my $bad_timeout ( undef, [], 'not-a-number', 'NaN', 'Inf', -1 ) {
     my $ok = eval { $routine->timeout($bad_timeout); 1 };
     ok( !$ok, 'invalid timeout is rejected' );
     like( $@, qr/timeout\(\) requires a non-negative number/, 'invalid timeout has a clear diagnostic' );
+}
+
+{
+    my $scalar_value = 21;
+    my @array_values = qw(alpha beta);
+    my %hash_values = ( key => 'value' );
+    Developer::Dashboard::GoRoutine::_share_many(
+        \$scalar_value, \@array_values, \%hash_values
+    );
+    is( 0 + $scalar_value, 21, '_share_many ties a scalar reference and preserves its initial value' );
+    is_deeply( [@array_values], [qw(alpha beta)], '_share_many ties an array and preserves its items' );
+    is_deeply( { %hash_values }, { key => 'value' }, '_share_many ties a hash and preserves its entries' );
+
+    my $already_shared = eval { Developer::Dashboard::GoRoutine::_share_many(
+            \$scalar_value, \@array_values, \%hash_values
+        ); 1 };
+    ok( $already_shared, '_share_many accepts its own already-shared scalar, array, and hash values' );
+
+    my $code = sub { return 1 };
+    my $unsupported = eval {
+        Developer::Dashboard::GoRoutine::_share_many($code);
+        1;
+    };
+    ok( !$unsupported, '_share_many rejects a code reference' );
+    like( $@, qr/expects scalar, array, or hash/, 'unsupported shared-reference error names accepted types' );
+}
+
+{
+    package Local::UnsupportedSharedScalar;
+    sub TIESCALAR { return bless {}, shift }
+    package Local::UnsupportedSharedArray;
+    sub TIEARRAY { return bless {}, shift }
+    package Local::UnsupportedSharedHash;
+    sub TIEHASH { return bless {}, shift }
+    package main;
+
+    tie my $foreign_scalar, 'Local::UnsupportedSharedScalar';
+    tie my @foreign_array, 'Local::UnsupportedSharedArray';
+    tie my %foreign_hash, 'Local::UnsupportedSharedHash';
+    for my $case (
+        [ \$foreign_scalar, qr/already tied scalar/ ],
+        [ \@foreign_array, qr/already tied array/ ],
+        [ \%foreign_hash, qr/already tied hash/ ],
+    ) {
+        my $accepted = eval { Developer::Dashboard::GoRoutine::_share_many( $case->[0] ); 1 };
+        ok( !$accepted, '_share_many rejects an incompatible pre-tied aggregate' );
+        like( $@, $case->[1], 'incompatible tied-aggregate diagnostic is explicit' );
+    }
 }
 
 done_testing;
