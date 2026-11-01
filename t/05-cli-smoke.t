@@ -6,9 +6,11 @@ use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::PerlEnv;
 use Cwd qw(abs_path getcwd);
+use Config ();
 use Digest::SHA qw(sha256_hex);
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CLI::SeededPages ();
+use Developer::Dashboard::GoRoutine ();
 use Developer::Dashboard::EnvAudit;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::IndicatorStore;
@@ -57,16 +59,14 @@ local $ENV{HOME} = tempdir(CLEANUP => 1);
 # which destroys any $HOME-relative resolution of the module path, and the
 # literal was added to compensate - the two lines are adjacent for that reason.
 #
-# It was INERT anywhere that path does not exist (both this file and t/31 pass
-# in a container with no /home/mv), so it broke nothing. What it did was MASK:
-# the spec could not fail for a caller who had not set PERL5LIB, because it
-# supplied the deps itself. A spec that cannot fail for a missing dependency
-# cannot report one, and this repository's documented invocation carries
-# PERL5LIB explicitly for exactly that reason.
-#
-# The caller's value is still passed through below, which is the whole of what
-# this line legitimately needs to do.
-local $ENV{PERL5LIB} = join Developer::Dashboard::PerlEnv::path_separator(), grep { defined && $_ ne '' } ( $ENV{PERL5LIB} || () );
+# Do not inject a developer-local dependency directory here: the caller's
+# PERL5LIB remains authoritative for prerequisites. `prove -l` adds blib to
+# its own @INC but does not ensure shell-launched children inherit the current
+# native extension path. When a built extension exists, place this checkout's
+# blib paths first so an older installed Dashboard.so cannot satisfy HtmlEscape
+# while omitting this build's GoRoutine XSUBs.
+my @built_perl_libs = grep { -d $_ } map { File::Spec->catdir( $repo, 'blib', $_ ) } qw(arch lib);
+local $ENV{PERL5LIB} = join Developer::Dashboard::PerlEnv::path_separator(), grep { defined && $_ ne '' } ( @built_perl_libs, $ENV{PERL5LIB} || () );
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
@@ -75,6 +75,15 @@ my $perl = $^X;
 chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
 my $lib = File::Spec->catdir( $repo, 'lib' );
 my $dashboard = File::Spec->catfile( $repo, 'bin', 'dashboard' );
+my $built_dashboard_xs = File::Spec->catfile(
+    $repo, 'blib', 'arch', 'auto', 'Developer', 'Dashboard', 'Dashboard.' . $Config::Config{dlext},
+);
+if ( -f $built_dashboard_xs ) {
+    my $goroutine_xs_probe = _run(
+        "$perl -I'$lib' -MDeveloper::Dashboard::GoRoutine -e 'print defined(&Developer::Dashboard::GoRoutine::spawn) ? \"spawn\\n\" : \"missing\\n\"'"
+    );
+    is( $goroutine_xs_probe, "spawn\n", 'child Perl processes load GoRoutine XSUBs from the current build before an installed older XS copy' );
+}
 my $expected_version = _module_version( File::Spec->catfile( $lib, 'Developer', 'Dashboard.pm' ) );
 my $runtime_cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
 my $runtime_dd_cli_root = File::Spec->catdir( $runtime_cli_root, 'dd' );
@@ -572,12 +581,14 @@ else {
 }
 if ( !$UNDER_COVER ) {
     my $live_status_port = _find_free_port();
-    my $live_status_pid = fork();
-    die 'Unable to fork live dashboard status probe' if !defined $live_status_pid;
-    if ( !$live_status_pid ) {
+    my $live_status_pid;
+    {
+        local @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)};
         delete @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)} if _coverage_requested();
-        exec $perl, '-I' . $lib, $dashboard, 'serve', '--foreground', '--host', '127.0.0.1', '--port', $live_status_port;
-        die "Unable to exec live dashboard serve: $!";
+        $live_status_pid = Developer::Dashboard::GoRoutine::spawn(
+            [ $perl, '-I' . $lib, $dashboard, 'serve', '--foreground', '--host', '127.0.0.1', '--port', $live_status_port ],
+            {},
+        );
     }
     my $status_ua = LWP::UserAgent->new( timeout => 5 );
     my $status_response;
@@ -588,8 +599,10 @@ if ( !$UNDER_COVER ) {
     }
     ok( $status_response && $status_response->is_success, 'live foreground runtime exposes the system status endpoint' );
     like( decode( 'UTF-8', $status_response->content ), qr/"alias"\s*:\s*"🔑"/, 'live foreground runtime syncs configured collector indicator icons into system status' );
-    kill 'TERM', $live_status_pid;
-    waitpid( $live_status_pid, 0 );
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $live_status_pid, 'TERM' ),
+        'live foreground status process stops through the GoRoutine process API' );
+    is( Developer::Dashboard::GoRoutine::wait_process($live_status_pid), 0,
+        'live foreground status process shuts down cleanly and is reaped through the GoRoutine process API' );
 }
 my $dashboard_log_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'logs', 'dashboard.log' );
 make_path( File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'logs' ) );
@@ -3804,6 +3817,10 @@ public helper dispatch, including web, collector, mixed output, timestamped
 follow, and zero-line requests.
 The layered-environment fixture also proves that a project-root `.env.pl` can
 read values from the home `.developer-dashboard/.env` file.
+When this checkout has a built XS extension, child Perl commands also verify
+that the current `blib/arch` is preferred over an installed older copy.
+The live foreground status probe is launched, terminated, and reaped through
+the Dashboard GoRoutine process API to keep process control portable.
 
 =for comment FULL-POD-DOC START
 

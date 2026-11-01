@@ -25,6 +25,7 @@ use Local::CollectorFixture qw(wait_for_managed_loop);
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CollectorRunner;
+use Developer::Dashboard::GoRoutine ();
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::Config;
 use Developer::Dashboard::Doctor;
@@ -91,6 +92,15 @@ sub is_same_paths {
 
 sub _child_perl5opt {
     return join ' ', grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
+}
+
+# _child_perl_inc_args()
+# Returns explicit include switches for isolated Perl process fixtures.
+# Input: none.
+# Output: argument list preserving existing string-valued include directories.
+sub _child_perl_inc_args {
+    return map { ('-I', File::Spec->rel2abs($_)) }
+      grep { defined($_) && !ref($_) && -d $_ } @INC;
 }
 
 is(
@@ -4296,28 +4306,45 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 
 {
     my $name = 'worker.error.loop';
-    my $pid = fork();
-    die "fork failed for worker error test: $!" if !defined $pid;
-    if ( !$pid ) {
+    my @inc = _child_perl_inc_args();
+    my $child_script = q{
+        use strict;
+        use warnings;
+        use Developer::Dashboard::PathRegistry;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::Collector;
+        use Developer::Dashboard::CollectorRunner;
+        use Developer::Dashboard::IndicatorStore;
+        my $home = shift @ARGV or die "Missing fixture home\n";
+        my $paths = Developer::Dashboard::PathRegistry->new(
+            home => $home,
+            app_name => 'dashboard-test',
+        );
+        my $files = Developer::Dashboard::FileRegistry->new(paths => $paths);
+        my $collectors = Developer::Dashboard::Collector->new(paths => $paths);
+        my $runner = Developer::Dashboard::CollectorRunner->new(
+            collectors => $collectors,
+            files => $files,
+            indicators => Developer::Dashboard::IndicatorStore->new(paths => $paths),
+            paths => $paths,
+        );
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::run_once = sub {
             die "worker run_once exploded\n";
         };
         $runner->_run_loop_worker(
-            {
-                name     => $name,
-                command  => q{printf worker},
-                cwd      => 'home',
-                interval => 12,
-            },
-            $name,
+            { name => 'worker.error.loop', command => 'printf worker', cwd => 'home', interval => 12 },
+            'worker.error.loop',
             'dashboard collector: worker.error.loop',
             77777,
         );
-        POSIX::_exit(0);
-    }
-    waitpid( $pid, 0 );
-    is( $? >> 8, 255, '_run_loop_worker exits 255 when run_once dies inside the worker child' );
+    };
+    my $pid = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, @inc, '-e', $child_script, $home ],
+        {},
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($pid), 255,
+        '_run_loop_worker exits 255 when run_once dies inside the worker process' );
     my $loop_state = $runner->loop_state($name);
     is( $loop_state->{status}, 'error', '_run_loop_worker records an error status when the worker run dies' );
     is( $loop_state->{pid}, 77777, '_run_loop_worker preserves the parent loop pid in the error state payload' );
@@ -4354,21 +4381,26 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 }
 
 {
-    my $child = fork();
-    die 'Unable to fork test child' if !defined $child;
-    if ( !$child ) {
+    my @inc = map { ('-I', File::Spec->rel2abs($_)) }
+      grep { defined($_) && !ref($_) && -d $_ } @INC;
+    my $manual_worker = q{
+        use strict;
+        use warnings;
         $ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = 'manual';
         $0 = 'dashboard collector: manual';
         sleep 30;
-        POSIX::_exit(0);
-    }
+    };
+    my $child = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, @inc, '-e', $manual_worker ],
+        {},
+    );
     my $pidfile = File::Spec->catfile( $paths->collectors_root, 'manual.pid' );
     open my $manual_pid, '>', $pidfile or die $!;
     print {$manual_pid} "$child\n";
     close $manual_pid;
     # This pidfile carries no loop state, so the child's process title is the
-    # only evidence that it is a managed loop, and it adopts that title after the
-    # fork. Probing stop_loop first makes it take the unmanaged branch: the child
+    # only evidence that it is a managed loop, and it adopts that title after
+    # launch. Probing stop_loop first makes it take the unmanaged branch: the child
     # is never signalled, so waitpid below reports 0 ("still there") instead of
     # -1. Wait for the runner's own predicate to agree before asking it to stop
     # the loop. Production is not exposed to this - start_loop writes loop state
@@ -4483,12 +4515,10 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 }
 
 {
-    my $child = fork();
-    die 'Unable to fork state-backed stop child' if !defined $child;
-    if ( !$child ) {
-        sleep 30;
-        POSIX::_exit(0);
-    }
+    my $child = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, _child_perl_inc_args(), '-e', 'sleep 30' ],
+        {},
+    );
     my $pidfile = File::Spec->catfile( $paths->collectors_root, 'state-backed.pid' );
     open my $state_pid, '>', $pidfile or die $!;
     print {$state_pid} "$child\n";
@@ -4847,12 +4877,10 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 }
 
 {
-    my $child = fork();
-    die 'Unable to fork sort child' if !defined $child;
-    if ( !$child ) {
-        sleep 30;
-        POSIX::_exit(0);
-    }
+    my $child = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, _child_perl_inc_args(), '-e', 'sleep 30' ],
+        {},
+    );
     for my $entry (
         [ 'alpha-sort', $child ],
         [ 'zeta-sort',  $$ ],
@@ -4901,16 +4929,37 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             status       => 'running',
         }
     );
-    my $child = fork();
-    die 'Unable to fork signal-stop child' if !defined $child;
-    if ( !$child ) {
-        local $Developer::Dashboard::CollectorRunner::SIGNAL_RUNNER    = $runner;
+    my $child_script = q{
+        use strict;
+        use warnings;
+        use Developer::Dashboard::PathRegistry;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::Collector;
+        use Developer::Dashboard::CollectorRunner;
+        use Developer::Dashboard::IndicatorStore;
+        my $home = shift @ARGV or die "Missing fixture home\n";
+        my $paths = Developer::Dashboard::PathRegistry->new(
+            home => $home,
+            app_name => 'dashboard-test',
+        );
+        my $files = Developer::Dashboard::FileRegistry->new(paths => $paths);
+        my $collectors = Developer::Dashboard::Collector->new(paths => $paths);
+        my $runner = Developer::Dashboard::CollectorRunner->new(
+            collectors => $collectors,
+            files => $files,
+            indicators => Developer::Dashboard::IndicatorStore->new(paths => $paths),
+            paths => $paths,
+        );
+        local $Developer::Dashboard::CollectorRunner::SIGNAL_RUNNER = $runner;
         local $Developer::Dashboard::CollectorRunner::SIGNAL_LOOP_NAME = 'signal-stop';
         Developer::Dashboard::CollectorRunner::_signal_stop();
-        exit 99;
-    }
-    waitpid( $child, 0 );
-    is( $? >> 8, 0, '_signal_stop routes to shutdown logic and exits cleanly' );
+    };
+    my $child = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, _child_perl_inc_args(), '-e', $child_script, $home ],
+        {},
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($child), 0,
+        '_signal_stop routes to shutdown logic and exits cleanly' );
     ok( !-f $pidfile, '_signal_stop cleanup removes the pidfile' );
     ok( !defined $runner->loop_state('signal-stop'), '_signal_stop cleanup removes the loop metadata' );
 }
@@ -5229,6 +5278,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             [ $runner->_windows_background_loop_command('alpha.collector') ],
             [
                 'C:\\Strawberry\\perl\\bin\\perl.exe',
+                $runner->_perl_library_args,
                 $staged_helper,
                 'collector-loop-foreground',
                 '--name',
@@ -5240,6 +5290,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             [ $runner->_windows_background_worker_command( 'alpha.collector', 4242 ) ],
             [
                 'C:\\Strawberry\\perl\\bin\\perl.exe',
+                $runner->_perl_library_args,
                 $staged_helper,
                 'collector-worker-foreground',
                 '--name',
@@ -5408,6 +5459,13 @@ SCRIPT
         my $stderr_log = $stdout_log . '.stderr';
         local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
         local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        require Developer::Dashboard::GoRoutine;
+        my ( $spawned_argv, $spawned_options );
+        no warnings 'redefine';
+        local *Developer::Dashboard::GoRoutine::spawn = sub {
+            ( $spawned_argv, $spawned_options ) = @_;
+            return 51515;
+        };
         is(
             Developer::Dashboard::CollectorRunner::_powershell_single_quote(q{C:\Users\O'Hara\AppData}),
             q{'C:\Users\O''Hara\AppData'},
@@ -5418,17 +5476,18 @@ SCRIPT
             'collector-loop-foreground',
             q{O'Hara},
         );
-        is( $spawned_pid, 51515, '_spawn_windows_background_command returns the detached collector pid written by Start-Process' );
-        open my $args_fh, '<', File::Spec->catfile( $fakebin, 'powershell.args' )
-          or die "Unable to read $fakebin/powershell.args: $!";
-        local $/;
-        my $args = <$args_fh>;
-        close $args_fh or die "Unable to close $fakebin/powershell.args: $!";
-        like( $args, qr/Start-Process/, '_spawn_windows_background_command shells out through Start-Process for collector helpers' );
-        like( $args, qr/'C:\\Program Files\\Perl\\perl\.exe'/, '_spawn_windows_background_command quotes the Windows collector executable path for PowerShell' );
-        like( $args, qr/'O''Hara'/, '_spawn_windows_background_command escapes embedded collector arguments for PowerShell' );
-        like( $args, qr/\Q$stdout_log\E/, '_spawn_windows_background_command redirects collector stdout to the collector log' );
-        like( $args, qr/\Q$stderr_log\E/, '_spawn_windows_background_command redirects collector stderr to the collector error log' );
+        is( $spawned_pid, 51515, '_spawn_windows_background_command returns the GoRoutine child pid' );
+        is_deeply(
+            $spawned_argv,
+            [ q{C:\Program Files\Perl\perl.exe},
+              'collector-loop-foreground', q{O'Hara} ],
+            '_spawn_windows_background_command passes literal argv and Perl library paths to GoRoutine',
+        );
+        is_deeply(
+            $spawned_options,
+            { stdin => File::Spec->devnull(), stdout => $stdout_log, stderr => $stderr_log },
+            '_spawn_windows_background_command redirects child streams through GoRoutine',
+        );
     }
 }
 
@@ -5490,11 +5549,10 @@ is_deeply( [ $runner->running_loops ], [], 'running_loops prunes stale pidfiles'
 }
 
 {
-    my $zombie = fork();
-    die "fork failed: $!" if !defined $zombie;
-    if ( !$zombie ) {
-        POSIX::_exit(0);
-    }
+    my $zombie = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, _child_perl_inc_args(), '-MPOSIX', '-e', 'POSIX::_exit(0)' ],
+        {},
+    );
     for ( 1 .. 50 ) {
         last if ( $runner->_read_process_state($zombie) || '' ) eq 'Z';
         sleep 0.01;
@@ -5518,11 +5576,32 @@ is_deeply( [ $runner->running_loops ], [], 'running_loops prunes stale pidfiles'
 }
 
 {
-    pipe my $result_reader, my $result_writer or die "Unable to create result pipe: $!";
-    my $pid = fork();
-    die "Unable to fork inherited-fd collector test child: $!" if !defined $pid;
-    if ( !$pid ) {
-        close $result_reader;
+    my $scratch = tempdir( 'dd-close-fds-XXXXXX', CLEANUP => 1, TMPDIR => 1 );
+    my $result_file = File::Spec->catfile( $scratch, 'result' );
+    my $error_file = File::Spec->catfile( $scratch, 'stderr' );
+    my $child_script = q{
+        use strict;
+        use warnings;
+        use POSIX ();
+        use Developer::Dashboard::PathRegistry;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::Collector;
+        use Developer::Dashboard::CollectorRunner;
+        use Developer::Dashboard::IndicatorStore;
+        $| = 1;
+        my $home = shift @ARGV or die "Missing fixture home\n";
+        my $paths = Developer::Dashboard::PathRegistry->new(
+            home => $home,
+            app_name => 'dashboard-test',
+        );
+        my $files = Developer::Dashboard::FileRegistry->new(paths => $paths);
+        my $collectors = Developer::Dashboard::Collector->new(paths => $paths);
+        my $runner = Developer::Dashboard::CollectorRunner->new(
+            collectors => $collectors,
+            files => $files,
+            indicators => Developer::Dashboard::IndicatorStore->new(paths => $paths),
+            paths => $paths,
+        );
         pipe my $keep_reader, my $keep_writer or die "Unable to create keep pipe: $!";
         pipe my $drop_reader, my $drop_writer or die "Unable to create drop pipe: $!";
         local $SIG{PIPE} = 'IGNORE';
@@ -5532,28 +5611,28 @@ is_deeply( [ $runner->running_loops ], [], 'running_loops prunes stale pidfiles'
             warn $warning;
         };
         $runner->_close_inherited_fds(
-            keep => [
-                fileno($result_writer),
-                fileno($keep_reader),
-                fileno($keep_writer),
-            ],
+            keep => [ fileno($keep_reader), fileno($keep_writer) ],
         );
         my $keep_ok = defined syswrite( $keep_writer, "kept\n" ) ? 1 : 0;
         my $drop_ok = defined syswrite( $drop_writer, "dropped\n" ) ? 1 : 0;
-        print {$result_writer} "$keep_ok:$drop_ok\n";
-        close $result_writer;
-        undef $drop_writer;
-        undef $keep_writer;
-        undef $keep_reader;
-        undef $result_reader;
+        print "$keep_ok:$drop_ok\n" or die "Unable to report descriptor result: $!";
         POSIX::_exit(0);
-    }
-    close $result_writer;
-    my $payload = <$result_reader>;
-    close $result_reader;
-    waitpid( $pid, 0 );
+    };
+    my $pid = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, _child_perl_inc_args(), '-e', $child_script, $home ],
+        { stdout => $result_file, stderr => $error_file },
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($pid), 0,
+        'GoRoutine descriptor-cleanup process exits successfully' );
+    CORE::open( my $result_fh, '<', $result_file ) or die "Unable to read descriptor result: $!";
+    my $payload = <$result_fh>;
+    close $result_fh or die "Unable to close descriptor result: $!";
+    CORE::open( my $error_fh, '<', $error_file ) or die "Unable to read descriptor stderr: $!";
+    my $error = do { local $/; <$error_fh> } // '';
+    close $error_fh or die "Unable to close descriptor stderr: $!";
+    is( $error, '', 'descriptor cleanup process emits no warnings or errors' );
     chomp $payload if defined $payload;
-    is( $payload, '1:0', '_close_inherited_fds keeps explicit collector child descriptors open while closing the rest' );
+    is( $payload, '1:0', '_close_inherited_fds preserves selected descriptors and closes unselected descriptors' );
 }
 
 my $empty_config = Developer::Dashboard::Config->new(

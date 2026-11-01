@@ -4,23 +4,11 @@ use strict;
 use warnings;
 use utf8;
 
-# The web server forks its internal SSL backend and its per-connection
-# handlers directly through the fork builtin, so the only way to drive the
-# "fork failed" arms is to override the global fork op before the module under
-# test is compiled. The override stays transparent unless a test opts in.
-our $FORK_OVERRIDE;
-our $EXIT_OVERRIDE;
+# Keep signal forwarding injectable for unit coverage without creating a
+# process in the test harness.
 our $KILL_OVERRIDE;
 
 BEGIN {
-    *CORE::GLOBAL::fork = sub {
-        return $main::FORK_OVERRIDE->() if $main::FORK_OVERRIDE;
-        return CORE::fork();
-    };
-    *CORE::GLOBAL::exit = sub {
-        return $main::EXIT_OVERRIDE->(@_) if $main::EXIT_OVERRIDE;
-        return CORE::exit(@_);
-    };
     *CORE::GLOBAL::kill = sub {
         return $main::KILL_OVERRIDE->(@_) if $main::KILL_OVERRIDE;
         return CORE::kill(@_);
@@ -281,6 +269,18 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     internal_port => 17903,
 );
 
+# is_running()
+# Reports that the synchronously completed test routine is no longer active.
+# Input: routine fixture object.
+# Output: false value.
+sub Local::CompletedRoutine::is_running { return 0 }
+
+# kill()
+# Satisfies the routine lifecycle interface if cleanup attempts cancellation.
+# Input: routine fixture object.
+# Output: true value.
+sub Local::CompletedRoutine::kill { return 1 }
+
 # --- new(): worker count validation -----------------------------------------
 {
     my $blank = eval {
@@ -371,15 +371,17 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     is( $url, undef, 'listening_url returns nothing when no daemon descriptor is available' );
 }
 
-# --- _serve_ssl_frontend(): fork failures and loop exits ---------------------
+# --- _serve_ssl_frontend(): managed backend and routine lifecycle ------------
 {
-    local $main::FORK_OVERRIDE = sub { return undef };
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { die "simulated backend process launch failure\n" };
     my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
-    ok( !$ok, 'SSL frontend fails when the internal backend process cannot be forked' );
+    ok( !$ok, 'SSL frontend fails when the backend process cannot be spawned' );
     like(
         $@,
-        qr/Unable to fork SSL backend process/,
-        'SSL frontend reports a failed backend fork explicitly',
+        qr/simulated backend process launch failure/,
+        'SSL frontend propagates the GoRoutine process launch error',
     );
 }
 
@@ -393,64 +395,46 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
             return undef;
         },
         sub { return $client },
+        sub {
+            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
+            return;
+        },
     );
 
-    my $forks = 0;
-    local $main::FORK_OVERRIDE = sub {
-        $forks++;
-        return 991001 if $forks == 1;
-        $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
-        return 991002;
+    my @spawned;
+    my $handled = 0;
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub {
+        @spawned = @_;
+        return 991001;
     };
 
     my @stopped;
     no warnings 'redefine';
     local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    local *Developer::Dashboard::GoRoutine::go = sub {
+        my ($callback) = @_;
+        $callback->();
+        return bless {}, 'Local::CompletedRoutine';
+    };
+    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client = sub { $handled++; return 1 };
     local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub {
         push @stopped, $_[0];
         return 1;
     };
-    local *Developer::Dashboard::Web::Server::_wait_for_managed_child = sub { return 1 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready = sub { return 1 };
 
     is(
         $ssl_server->_serve_ssl_frontend($ssl_daemon),
         1,
         'SSL frontend retries an interrupted accept and then exits once shutdown is requested',
     );
-    is( $forks, 2, 'SSL frontend forks the backend once and one connection handler' );
+    is_deeply( \@spawned, [ [ $^X, '-e', 'exit 0' ], { process_group => 1 } ],
+        'SSL frontend starts its backend with the managed process-group option' );
+    is( $handled, 1, 'accepted client is handled by one GoRoutine worker' );
     is_deeply( \@stopped, [991001], 'SSL frontend stops the internal backend before returning' );
 
     close $client_peer or die "Unable to close frontend client fixture peer: $!";
-}
-
-{
-    socketpair( my $client, my $client_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to build frontend handler-fork fixture: $!";
-
-    local @Local::ScriptedListener::ACCEPTS = ( sub { return $client } );
-
-    my $forks = 0;
-    local $main::FORK_OVERRIDE = sub {
-        $forks++;
-        return 991003 if $forks == 1;
-        return undef;
-    };
-
-    no warnings 'redefine';
-    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
-    local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub { return 1 };
-    local *Developer::Dashboard::Web::Server::_wait_for_managed_child = sub { return 1 };
-
-    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
-    ok( !$ok, 'SSL frontend fails when a connection handler cannot be forked' );
-    like(
-        $@,
-        qr/Unable to fork SSL frontend connection handler/,
-        'SSL frontend reports a failed connection-handler fork explicitly',
-    );
-
-    close $client      or die "Unable to close handler-fork fixture client: $!";
-    close $client_peer or die "Unable to close handler-fork fixture peer: $!";
 }
 
 # --- SSL frontend helper argument guards ------------------------------------
@@ -584,7 +568,7 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     close $backend_peer or die "Unable to close proxy write-error backend peer: $!";
 }
 
-# --- child bookkeeping helpers ----------------------------------------------
+# --- process and reap bookkeeping helper contracts --------------------------
 {
     is(
         Developer::Dashboard::Web::Server::_stop_ssl_backend(0),
@@ -1447,7 +1431,14 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
 }
 
 {
+    no warnings 'redefine';
+    my @process_events;
+    local *Developer::Dashboard::GoRoutine::process_running = sub { push @process_events, ['running', $_[0]]; return 1 };
+    local *Developer::Dashboard::GoRoutine::terminate_process = sub { push @process_events, ['terminate', @_]; return 1 };
+    local *Developer::Dashboard::GoRoutine::wait_process = sub { push @process_events, ['wait', $_[0]]; return 0 };
     is( Developer::Dashboard::Web::Server::_stop_ssl_backend(4242), 1, 'backend stop helper signals a known backend and waits for it' );
+    is_deeply( \@process_events, [ ['running', 4242], ['terminate', 4242, 'TERM'], ['wait', 4242] ],
+        'backend stop uses GoRoutine process inspection, termination, and wait operations' );
     my @signals;
     local $main::KILL_OVERRIDE = sub { push @signals, [@_]; return 1 };
     is( Developer::Dashboard::Web::Server::_signal_default_term(), 1, 'default TERM helper re-signals the current process through the signal adapter' );
@@ -1483,35 +1474,14 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
 }
 
 {
-    my $pid = CORE::fork();
-    die "Unable to isolate SSL child-handler test: $!" if !defined $pid;
-    if ( !$pid ) {
-        socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-          or CORE::exit(30);
-        local @Local::ScriptedListener::ACCEPTS = ( sub { return $client } );
-        my $fork_count = 0;
-        local $main::FORK_OVERRIDE = sub { return ++$fork_count == 1 ? 991111 : 0 };
-        local $main::EXIT_OVERRIDE = sub { $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1; return 1 };
-        no warnings 'redefine';
-        local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
-        local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client = sub { return 1 };
-        local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub { return 1 };
-        local *Developer::Dashboard::Web::Server::_wait_for_managed_child = sub { return 1 };
-        my $result = $ssl_server->_serve_ssl_frontend($ssl_daemon);
-        CORE::exit( $result == 1 ? 0 : 31 );
-    }
-    waitpid( $pid, 0 );
-    is( $? >> 8, 0, 'SSL frontend connection child handles the client, exits, and allows parent cleanup' );
-}
-
-{
     my $reached = 0;
     local @Local::ScriptedListener::ACCEPTS = ( sub { $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1; $! = EINTR; return } );
-    local $main::FORK_OVERRIDE = sub { return 991222 };
     no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 991222 };
     local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
     local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub { $reached++; return 1 };
-    local *Developer::Dashboard::Web::Server::_wait_for_managed_child = sub { return 1 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready = sub { return 1 };
     is( $ssl_server->_serve_ssl_frontend($ssl_daemon), 1, 'SSL accept loop exits on EINTR after shutdown has been requested' );
     is( $reached, 1, 'SSL accept shutdown still stops its backend' );
 }
@@ -1552,11 +1522,12 @@ t/88-web-server-coverage.t - branch and condition coverage for the PSGI web serv
 
 This test is the executable contract for the failure and fallback arms of
 C<Developer::Dashboard::Web::Server>: worker-count validation, listen-socket
-reservation and close failures, the SSL frontend fork/accept loop, the raw
+reservation and close failures, the SSL frontend managed-process and GoRoutine
+accept loop, the raw
 HTTP-to-HTTPS redirect helpers, SAN normalization, self-signed certificate
 generation, the certificate directory's home resolution order, and certificate
 profile verification. It drives every branch and condition those paths own,
-including the ones that only appear when a socket, a pipe, a fork, or openssl
+including the ones that only appear when a socket, a pipe, a process launch, or openssl
 itself fails.
 
 The home resolution cases matter because Windows exports no HOME variable: the

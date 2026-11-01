@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '6.18';
+our $VERSION = '6.19';
 
 use File::Spec;
 use File::Path qw(make_path);
@@ -103,6 +103,8 @@ sub load_global {
           if ref( $merged->{collectors} ) eq 'ARRAY';
         $merged->{providers} = $self->_merge_named_hash_array( [], $merged->{providers}, 'id' )
           if ref( $merged->{providers} ) eq 'ARRAY';
+        $merged->{indicators} = $self->_merge_named_hash_array( [], $merged->{indicators}, 'name' )
+          if ref( $merged->{indicators} ) eq 'ARRAY';
     }
     return $merged;
 }
@@ -221,6 +223,10 @@ sub _merge_hashes {
                 $merged{$key} = $self->_merge_named_hash_array( $left->{$key}, $right->{$key}, 'id' );
                 next;
             }
+            if ( $key eq 'indicators' ) {
+                $merged{$key} = $self->_merge_named_hash_array( $left->{$key}, $right->{$key}, 'name' );
+                next;
+            }
         }
         $merged{$key} = $right->{$key};
     }
@@ -234,6 +240,8 @@ sub _merge_hashes {
       if ref( $merged{collectors} ) eq 'ARRAY';
     $merged{providers} = $self->_merge_named_hash_array( [], $merged{providers}, 'id' )
       if ref( $merged{providers} ) eq 'ARRAY';
+    $merged{indicators} = $self->_merge_named_hash_array( [], $merged{indicators}, 'name' )
+      if ref( $merged{indicators} ) eq 'ARRAY';
 
     return \%merged;
 }

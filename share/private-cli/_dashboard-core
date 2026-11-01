@@ -1110,6 +1110,27 @@ elsif ( $cmd eq 'web-foreground' ) {
     );
     exit 0;
 }
+elsif ( $cmd eq 'web-ssl-backend-foreground' ) {
+    _load_configured_path_aliases();
+    _migrate_saved_pages();
+    my $host = '127.0.0.1';
+    my $port = 0;
+    my $workers = 1;
+    GetOptionsFromArray(
+        \@ARGV,
+        'host=s'    => \$host,
+        'port=i'    => \$port,
+        'workers=i' => \$workers,
+    );
+    die "Usage: dashboard web-ssl-backend-foreground --host HOST --port PORT [--workers N]\n"
+      if @ARGV || !$port;
+    my $status = $runtime->serve_ssl_backend_foreground(
+        host    => $host,
+        port    => $port,
+        workers => $workers,
+    );
+    exit $status;
+}
 elsif ( $cmd eq 'collector-loop-foreground' ) {
     my $name = '';
     GetOptionsFromArray(
@@ -1121,7 +1142,7 @@ elsif ( $cmd eq 'collector-loop-foreground' ) {
     my $schedule_mode = $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' );
     my $interval = $runner->_effective_interval_seconds($job);
     $runner->_run_loop_child(
-        daemonize     => 0,
+        daemonize     => 1,
         interval      => $interval,
         job           => $job,
         name          => $name,
@@ -1152,10 +1173,7 @@ elsif ( $cmd eq 'collector-worker-foreground' ) {
 elsif ( $cmd eq 'collector-supervisor-foreground' ) {
     _load_configured_path_aliases();
     _migrate_saved_pages();
-    $runtime->_run_collector_supervisor_child(
-        daemonize => 0,
-        redirect  => 0,
-    );
+    $runtime->_run_collector_supervisor_child();
     exit 0;
 }
 elsif ( $cmd eq 'stop' ) {

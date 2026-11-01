@@ -21,6 +21,7 @@ use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::RuntimeManager;
+use Developer::Dashboard::GoRoutine ();
 
 # Keep runtime readiness polling instant and hermetic under coverage.
 $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS}    = 1;
@@ -169,9 +170,7 @@ ok( $manager->_pid_is_running($$),        '_pid_is_running confirms the current 
     is( $manager->_reap_any_child_processes, 0, '_reap_any_child_processes stops when waitpid yields undef' );
 }
 {
-    my $child = fork();
-    die "fork failed: $!" if !defined $child;
-    if ( !$child ) { POSIX::_exit(0) }
+    my $child = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'exit 0' ], {} );
     my $reaped = 0;
     for ( 1 .. 40 ) {
         $reaped = $manager->_reap_any_child_processes;
@@ -782,12 +781,15 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
           if !defined $sleep_bin;
 
         my $probe_title = 'dd-rm-empty-environ-probe';
-        my $child       = fork();
-        die "fork failed: $!" if !defined $child;
-        if ( !$child ) {
+        my $empty_environment_exec = q{
+            my ( $program, $title ) = @ARGV;
             %ENV = ();
-            exec { $sleep_bin } $probe_title, '30' or POSIX::_exit(127);
-        }
+            exec { $program } $title, '30' or exit 127;
+        };
+        my $child = Developer::Dashboard::GoRoutine::spawn(
+            [ $^X, '-e', $empty_environment_exec, $sleep_bin, $probe_title ],
+            {},
+        );
 
         # BOUND BY WALL-CLOCK, NOT A POLL COUNT (DD-767, closing a gap DD-482
         # specified but never shipped). A fixed iteration count is not a time
@@ -846,8 +848,8 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
         is( $probe_environ, '', 'the probe child exposes a readable zero-length environ' );
         is( $manager->_read_process_env_marker( $child, 'HOME' ), undef,
             '_read_process_env_marker returns undef when the process environment is empty' );
-        kill 'KILL', $child;
-        waitpid( $child, 0 );
+        Developer::Dashboard::GoRoutine::terminate_process( $child, 'KILL' );
+        Developer::Dashboard::GoRoutine::wait_process($child);
     }
 }
 
@@ -1260,7 +1262,7 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
     local *Developer::Dashboard::RuntimeManager::_dashboard_core_helper_path = sub { return '/dd/core' };
     local *Developer::Dashboard::RuntimeManager::_current_perl_command = sub { return 'perl.exe' };
     my @plain = $manager->_windows_background_web_command( host => '0.0.0.0', port => 7890, workers => 2 );
-    is_deeply( \@plain, [ 'perl.exe', '/dd/core', 'web-foreground', '--host', '0.0.0.0', '--port', 7890, '--workers', 2 ], '_windows_background_web_command builds the plain command' );
+    is_deeply( \@plain, [ 'perl.exe', $manager->_perl_library_args, '/dd/core', 'web-foreground', '--host', '0.0.0.0', '--port', 7890, '--workers', 2 ], '_windows_background_web_command builds the plain command with active Perl library paths' );
     my @ssl = $manager->_windows_background_web_command( host => '0.0.0.0', port => 7890, workers => 2, ssl => 1 );
     is( $ssl[-1], '--ssl', '_windows_background_web_command appends the ssl flag when requested' );
 }
@@ -1775,16 +1777,16 @@ $manager->_cleanup_web_files;
     }
 }
 
-# --- start_web fork failure paths -------------------------------------------
+# --- start_web launcher failure paths ---------------------------------------
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     {
-        local *Developer::Dashboard::RuntimeManager::_fork_process = sub { return undef };
+        local *Developer::Dashboard::RuntimeManager::_start_web_background = sub { die "launcher failed\n" };
         my $err = eval { $manager->start_web( host => '0.0.0.0', port => 7890 ); 1 } ? '' : $@;
-        like( $err, qr/Unable to fork dashboard web service/, 'start_web dies when the fork wrapper fails' );
+        like( $err, qr/launcher failed/, 'start_web surfaces GoRoutine launcher failures' );
     }
 }
 
@@ -2033,31 +2035,35 @@ is( $manager->_tail_text( "a\n",       5 ), "a\n",    '_tail_text clamps the sta
     $manager->_cleanup_web_files;
 }
 
-# --- _run_web_child parent daemonize returns zero ----------------------------
+# --- _run_web_child detached mode delegates to the GoRoutine launcher --------
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::_detach_web_process_session = sub { return 1 };
-    local *Developer::Dashboard::RuntimeManager::_fork_process = sub { return 123 };
+    my @launch_args;
+    local *Developer::Dashboard::RuntimeManager::_start_web_background = sub {
+        my ( $self, %args ) = @_;
+        @launch_args = %args;
+        return 123;
+    };
     open my $wr, '>', \my $buf or die $!;
-    is( $manager->_run_web_child( $wr, '0.0.0.0', 7890, detach => 1, redirect => 0 ), 0, '_run_web_child returns zero in the daemonize parent branch' );
+    is( $manager->_run_web_child( $wr, '0.0.0.0', 7890, detach => 1, redirect => 0, workers => 2, ssl => 1 ), 0, '_run_web_child detached mode returns after delegating startup' );
+    is_deeply( { @launch_args }, { host => '0.0.0.0', port => 7890, workers => 2, ssl => 1 }, '_run_web_child forwards listener options to the GoRoutine launcher' );
+    like( $buf, qr/^ok\|123\|0\.0\.0\.0\|7890\n\z/, '_run_web_child reports the delegated listener through the startup pipe' );
 }
 
-# --- _run_web_child redirect+detach child branch (in-process, fds restored) --
+# --- _run_web_child redirect branch runs the server in-process ---------------
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::_detach_web_process_session = sub { return 1 };
-    local *Developer::Dashboard::RuntimeManager::_fork_process = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_close_inherited_fds = sub { return 1 };
     my $child_manager = build_manager( app_builder => sub { return Local::Server->new } );
     open my $wr, '>', \my $buf or die $!;
     open my $save_in,  '<&', \*STDIN  or die $!;
     open my $save_out, '>&', \*STDOUT or die $!;
     open my $save_err, '>&', \*STDERR or die $!;
-    my $exit = $child_manager->_run_web_child( $wr, '0.0.0.0', 7890, workers => 2, ssl => 1 );
+    my $exit = $child_manager->_run_web_child( $wr, '0.0.0.0', 7890, workers => 2, ssl => 1, detach => 0, redirect => 1 );
     open STDIN,  '<&', $save_in  or die $!;
     open STDOUT, '>&', $save_out or die $!;
     open STDERR, '>&', $save_err or die $!;
-    is( $exit, 0, '_run_web_child returns zero after a clean redirected daemonized serve loop' );
+    is( $exit, 0, '_run_web_child returns zero after a clean redirected in-process serve loop' );
 }
 
 # --- _collector_supervisor_state read failure -------------------------------
@@ -2331,20 +2337,18 @@ is( $manager->_looks_like_collector_supervisor_process( {} ),  0, '_looks_like_c
     }
 }
 
-# start_web: the parent reads a real child startup line and adopts the pid
+# start_web: detached launcher pid is returned to the caller
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::RuntimeManager::_run_web_child = sub {
-        my ( undef, $writer ) = @_;
-        syswrite( $writer, "ok|4242|0.0.0.0|7890\n" );
-        return 0;
+    local *Developer::Dashboard::RuntimeManager::_start_web_background = sub {
+        my ( undef, %args ) = @_;
+        is_deeply( \%args, { host => '0.0.0.0', port => 7890, workers => 1, ssl => 0 }, 'start_web forwards normalized listener arguments' );
+        return 4242;
     };
-    local *Developer::Dashboard::RuntimeManager::_fork_process = sub { return CORE::fork() };
     my $pid = $manager->start_web( host => '0.0.0.0', port => 7890 );
-    is( $pid, 4242, 'start_web reads the child startup line and returns the started pid' );
-    1 while waitpid( -1, WNOHANG ) > 0;
+    is( $pid, 4242, 'start_web returns the pid from its GoRoutine-backed detached launcher' );
 }
 $manager->_cleanup_web_files;
 
@@ -2506,16 +2510,29 @@ $manager->_cleanup_web_files;
     unlink File::Spec->catfile( $lockdir, 'x.pid' );
 }
 
-# _start_collector_supervisor: Unix fork parent writes the pid file (lines 1486/1488)
+# _start_collector_supervisor: native spawn result is persisted by the parent.
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
-    local *Developer::Dashboard::RuntimeManager::_run_collector_supervisor_child = sub { POSIX::_exit(0) };
+    require Developer::Dashboard::GoRoutine;
+    my ( $spawned_command, $spawned_options );
+    local *Developer::Dashboard::GoRoutine::spawn = sub {
+        ( $spawned_command, $spawned_options ) = @_;
+        return 9876;
+    };
     $manager->_write_collector_supervisor_state( { watched_names => ['a'] } );
     my $pid = $manager->_start_collector_supervisor;
-    ok( $pid && $pid > 0, '_start_collector_supervisor forks a Unix watchdog and returns its pid' );
-    waitpid( $pid, 0 ) if $pid;
+    is( $pid, 9876, '_start_collector_supervisor returns the native spawned watchdog pid' );
+    is_deeply(
+        $spawned_command,
+        [ $manager->_current_perl_command, $manager->_perl_library_args, $manager->_dashboard_core_helper_path('collector-supervisor-foreground'), 'collector-supervisor-foreground' ],
+        '_start_collector_supervisor starts the shared foreground helper with literal arguments',
+    );
+    is( $spawned_options->{stdin}, File::Spec->devnull(), '_start_collector_supervisor closes child stdin' );
+    is( $spawned_options->{stdout}, $files->collector_log, '_start_collector_supervisor redirects child stdout to collector log' );
+    is( $spawned_options->{stderr}, $files->collector_log . '.stderr', '_start_collector_supervisor redirects child stderr to collector error log' );
+    is( $manager->_collector_supervisor_state->{pid}, 9876, '_start_collector_supervisor persists the native pid in state' );
     $manager->_cleanup_collector_supervisor_files;
 }
 
@@ -2523,17 +2540,23 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
-    # hardcoding it, so forcing is_windows is no longer enough to reach the
-    # PowerShell branch - the resolver must also yield a command. Same stub
-    # CollectorRunner's tests have always used.
-    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_current_perl_command = sub { return 'perl.exe' };
     local *Developer::Dashboard::RuntimeManager::_dashboard_core_helper_path = sub { return "C:/dd/$_[1]" };
-    local *Developer::Dashboard::RuntimeManager::_spawn_windows_background_command = sub { return 5566 };
+    require Developer::Dashboard::GoRoutine;
+    my ( $spawned_command, $spawned_options );
+    local *Developer::Dashboard::GoRoutine::spawn = sub {
+        ( $spawned_command, $spawned_options ) = @_;
+        return 5566;
+    };
     $manager->_write_collector_supervisor_state( { watched_names => ['a'] } );
     is( $manager->_start_collector_supervisor, 5566, '_start_collector_supervisor starts a detached Windows watchdog' );
+    is_deeply(
+        $spawned_command,
+        [ 'perl.exe', $manager->_perl_library_args, 'C:/dd/collector-supervisor-foreground', 'collector-supervisor-foreground' ],
+        '_start_collector_supervisor starts the Windows helper with literal arguments',
+    );
+    is( $spawned_options->{stdin}, File::Spec->devnull(), '_start_collector_supervisor closes Windows child stdin' );
     $manager->_cleanup_collector_supervisor_files;
 }
 
@@ -2738,6 +2761,19 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
     local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'dashboard web: 0.0.0.0:1' };
     ok( $manager->_is_managed_web($$), '_is_managed_web falls through to the process title when no marker exists' );
+}
+
+# _is_managed_web: saved state plus a live listener proves a Starman master (line 2430)
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return undef };
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'starman master' };
+    local *Developer::Dashboard::RuntimeManager::_read_settled_web_state = sub {
+        return ( { pid => $$, port => 7890, status => 'running' }, 0 );
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($$) };
+    ok( $manager->_is_managed_web($$), '_is_managed_web trusts a saved running Starman pid only while it owns the saved listener port' );
 }
 
 # _current_perl_command: an undef $^X falls back to PATH (line 2487)
@@ -3038,14 +3074,13 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
     is( $manager->_stop_collector_supervisor, 4242, '_stop_collector_supervisor signals a running supervisor pid' );
 }
 
-# _run_web_child: fork failure in the daemonize parent (line 1920)
+# _run_web_child: detached launcher failure propagates (line 1920)
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::_detach_web_process_session = sub { return 1 };
-    local *Developer::Dashboard::RuntimeManager::_fork_process = sub { return undef };
+    local *Developer::Dashboard::RuntimeManager::_start_web_background = sub { die "launcher failed\n" };
     open my $wr, '>', \my $buf or die $!;
     my $err = eval { $manager->_run_web_child( $wr, '0.0.0.0', 7890, detach => 1, redirect => 0 ); 1 } ? '' : $@;
-    like( $err, qr/Unable to complete dashboard web daemonize/, '_run_web_child dies when the daemonize fork fails' );
+    like( $err, qr/launcher failed/, '_run_web_child surfaces detached launcher errors' );
 }
 
 # _run_web_child: neither detach nor redirect (line 1956 false)
@@ -3500,17 +3535,17 @@ uncovered branch or condition in this module.
 
 =head1 HOW TO USE
 
-Run it directly while iterating:
+Run it in the dev Docker container while iterating:
 
-  perl -Ilib t/100-runtimemanager-coverage.t
+  d2 docker compose exec dev prove -blv t/100-runtimemanager-coverage.t
 
 Then confirm the coverage it is responsible for:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/100-runtimemanager-coverage.t
+  d2 docker compose exec dev env HARNESS_PERL_SWITCHES=-MDevel::Cover prove -blv t/100-runtimemanager-coverage.t
 
 Keep it green under the whole suite before release:
 
-  prove -lr t
+  d2 docker compose exec dev prove -blr t
 
 =head1 WHAT USES IT
 
@@ -3522,19 +3557,19 @@ condition coverage of the runtime manager from regressing.
 
 Example 1:
 
-  perl -Ilib t/100-runtimemanager-coverage.t
+  d2 docker compose exec dev prove -blv t/100-runtimemanager-coverage.t
 
 Run the focused coverage-closure test by itself while iterating.
 
 Example 2:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/100-runtimemanager-coverage.t
+  d2 docker compose exec dev env HARNESS_PERL_SWITCHES=-MDevel::Cover prove -blv t/100-runtimemanager-coverage.t
 
 Collect coverage for the runtime manager from just this focused file.
 
 Example 3:
 
-  prove -lr t
+  d2 docker compose exec dev prove -blr t
 
 Put the change back through the full repository suite before release.
 

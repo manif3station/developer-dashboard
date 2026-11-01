@@ -40,7 +40,12 @@ WriteMakefile(
     VERSION_FROM => 'lib/Developer/Dashboard/Version.pm',
     XS           => { 'HtmlEscape.xs' => 'HtmlEscape.c' },
     OBJECT       => 'HtmlEscape$(OBJ_EXT)',
+    depend       => {
+        'HtmlEscape.c' => 'GoRoutine012.xs GoRoutineProcess.xs GoRoutine012Native.h GoRoutineProcessNative.h Native.xs SystemMenu.xs SystemMenuNative.h',
+        'HtmlEscape$(OBJ_EXT)' => 'GoRoutineNative.h GoRoutineShared.h SystemMenuNative.h',
+    },
     LIBS         => [ $^O eq 'linux' ? '-ldl' : q{} ],
+    CCFLAGS      => $Config{ccflags} . ( $^O eq 'MSWin32' ? q{} : ' -pthread' ),
     ABSTRACT     => 'Project-neutral local developer dashboard runtime',
     AUTHOR       => 'Developer Dashboard Contributors',
     EXE_FILES    => [
@@ -59,6 +64,7 @@ WriteMakefile(
         'Cpanel::JSON::XS'      => '4.41',
         'Getopt::Long'          => 0,
         'HTML::Parser'          => '3.84',
+        'Filter::Simple'        => 0,
         'HTTP::Date'            => '6.08',
         'HTTP::Tiny'            => '0.096',
         'HTTP::Request'         => 0,
@@ -97,6 +103,10 @@ WriteMakefile(
         'ExtUtils::MakeMaker'    => 0,
         'File::ShareDir::Install' => 0,
     },
+    TEST_REQUIRES => {
+        'Devel::Cover' => 0,
+        'Test::Harness' => '3.48',
+    },
     META_MERGE   => {
         resources => {
             homepage   => 'https://github.mf/manif3station/developer-dashboard',
@@ -125,6 +135,12 @@ package MY;
 # Input: none; reads the detected root and active Perl Config values.
 # Output: an ordered list of absolute module search paths.
 sub _local_lib_perl5_paths {
+    # An explicit PERL5LIB is the active runtime's dependency contract. Do not
+    # append a checkout-local .perl5 tree in that case: it may contain XS
+    # binaries built for another Perl ABI and shadow compatible system modules
+    # in the spawned test or helper processes.
+    return () if defined $ENV{PERL5LIB} && $ENV{PERL5LIB} ne '';
+
     my $base = File::Spec->catdir( $local_lib_root, 'lib', 'perl5' );
     $base = File::Spec->rel2abs( $base, Cwd::cwd() );
     my @paths = ($base);
@@ -136,9 +152,10 @@ sub _local_lib_perl5_paths {
 }
 
 # _write_local_lib_runner($paths)
-# Writes a small Perl launcher that adds local::lib paths to PERL5LIB before
-# executing the configured Perl with the original arguments. This lets child
-# processes inherit the paths without make-specific export directives.
+# Writes a small Perl launcher that appends local::lib paths after inherited
+# PERL5LIB entries before executing the configured Perl with original arguments.
+# Existing paths retain precedence, avoiding stale local XS libraries shadowing
+# the active interpreter's compatible modules in child processes.
 # Input: list of absolute local::lib directories.
 # Output: relative generated launcher path; dies if writing or closing fails.
 sub _write_local_lib_runner {
@@ -150,16 +167,26 @@ sub _write_local_lib_runner {
         $path =~ s/'/\\'/g;
         "    '$path'";
     } @paths;
+    my @test_paths = map { File::Spec->rel2abs( File::Spec->catdir( 'blib', $_ ), Cwd::cwd() ) } qw(lib arch);
+    my @quoted_test_paths = map {
+        my $path = $_;
+        $path =~ s/\\/\\\\/g;
+        $path =~ s/'/\\'/g;
+        "    '$path'";
+    } @test_paths;
     open my $fh, '>', $runner or die "Unable to create $runner: $!";
     print {$fh} "use strict;\nuse warnings;\nuse Config;\n\n",
       "my \@local_lib_paths = (\n", join( ",\n", @quoted_paths ), ");\n",
+      "my \@test_lib_paths = (\n", join( ",\n", @quoted_test_paths ), ");\n",
       "my \$separator = quotemeta(\$Config{path_sep});\n",
       "my \@inherited = grep { length \$_ } split /\$separator/, \$ENV{PERL5LIB} // '';\n",
-      "\$ENV{PERL5LIB} = join \$Config{path_sep}, \@local_lib_paths, \@inherited;\n",
+      "my \$is_test_harness = grep { \$_ eq '-MTest::Harness' } \@ARGV;\n",
+      "my \@prefix = \$is_test_harness ? \@test_lib_paths : ();\n",
+      "\$ENV{PERL5LIB} = join \$Config{path_sep}, \@prefix, \@inherited, \@local_lib_paths;\n",
       "my \$perl = \$^X;\nexec { \$perl } \$perl, \@ARGV;\n",
       "die \"Unable to execute \$perl: \$!\\n\";\n",
       "__END__\n\n=head1 NAME\n\n.dd-perl5lib-runner.pl - portable local Perl library launcher\n\n",
-      "=head1 DESCRIPTION\n\nAdds the build's local::lib module directories to PERL5LIB, then replaces itself with the active Perl interpreter and forwards all arguments. It is generated beside the Makefile and removed by the clean target.\n\n",
+      "=head1 DESCRIPTION\n\nPreserves inherited PERL5LIB entries before optional local::lib fallback paths, then replaces itself with the active Perl interpreter and forwards all arguments. When MakeMaker invokes Test::Harness, it prepends the distribution's absolute blib/lib and blib/arch paths so subprocesses load the current build and its matching XS object. Keeping these active paths ahead of local fallbacks prevents stale XS binaries from shadowing modules compatible with the active interpreter. It is generated beside the Makefile and removed by the clean target.\n\n",
       "=head1 EXAMPLE\n\n  perl .dd-perl5lib-runner.pl -MModule::Name -e 'print qq(ok\\n)'\n\n=cut\n",
       or die "Unable to write $runner: $!";
     close $fh or die "Unable to close $runner: $!";
@@ -177,8 +204,42 @@ sub postamble {
     my $self = shift;
     my $share_postamble = File::ShareDir::Install::postamble($self);
     my $runner = _write_local_lib_runner( _local_lib_perl5_paths() );
+    my $helper_name = $^O eq 'MSWin32'
+      ? 'system_menu_helper.exe'
+      : 'system_menu_helper';
+    my ( $helper_source, $helper_compile );
+    if ( $^O eq 'linux' ) {
+        $helper_source = 'native/system_menu_helper_linux.c';
+        $helper_compile = q{$(CC) $(CCFLAGS) -Werror=deprecated-declarations -o "$@" native/system_menu_helper_linux.c `pkg-config --cflags --libs ayatana-appindicator3-0.1 gtk+-3.0`};
+    }
+    elsif ( $^O eq 'darwin' ) {
+        $helper_source = 'native/system_menu_helper_mac.m';
+        $helper_compile = q{$(CC) $(CCFLAGS) -o "$@" native/system_menu_helper_mac.m -framework AppKit -framework Foundation};
+    }
+    elsif ( $^O eq 'MSWin32' ) {
+        $helper_source = 'native/system_menu_helper_win.c';
+        $helper_compile = q{$(CC) $(CCFLAGS) -o "$@" native/system_menu_helper_win.c -lshell32 -luser32 -lgdi32};
+    }
+    else {
+        die "System Menu native helper is unsupported on $^O\n";
+    }
+    my $helper_target = '$(INST_ARCHAUTODIR)/' . $helper_name;
+    my $helper_rules = join "\n",
+      '.PHONY: build-system-menu-helper clean-system-menu-helper',
+      'all :: build-system-menu-helper',
+      "build-system-menu-helper: $helper_target",
+      "$helper_target: $helper_source",
+      "\t\$(MKPATH) \$(INST_ARCHAUTODIR)",
+      "\t$helper_compile",
+      'clean :: clean-system-menu-helper',
+      'clean-system-menu-helper:',
+      "\t\$(RM_F) $helper_target",
+      q{};
 
-    return "FULLPERL = \$(PERL) $runner\n\n" . $share_postamble . <<'END_POSTAMBLE';
+    return "FULLPERL = \$(PERL) $runner\n\n"
+      . $share_postamble
+      . $helper_rules
+      . <<'END_POSTAMBLE';
 .PHONY: clean-local-perl5lib-runner
 clean :: clean-local-perl5lib-runner
 

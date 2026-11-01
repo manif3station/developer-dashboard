@@ -101,6 +101,7 @@ sub supervisor_liveness {
 # earlier run left behind reports machine history, not correctness (DD-518).
 my $name = "accumulation-probe-$$";
 my $job  = { name => $name, interval => 3600, mode => 'singleton', command => 'true' };
+my @owned_supervisor_pids;
 
 # Purpose: every live process this host currently believes is a supervisor loop
 #          for one collector, established from the PROCESS TABLE rather than from
@@ -153,9 +154,17 @@ sub _why_not {
 }
 
 my $first = $runner->start_loop($job);
+push @owned_supervisor_pids, $first if $first;
 ok( $first, 'the collector starts and reports a supervisor pid' );
-ok( wait_for_managed_loop( $runner, $first, $name ),
-    'the supervisor is recognised as this collector before anything else is asserted' );
+my $first_is_managed = wait_for_managed_loop( $runner, $first, $name );
+if ( !$first_is_managed ) {
+    my $error_log = $runner->{files}->collector_log . '.stderr';
+    my $error_text = _read_optional_file($error_log);
+    my @command = $runner->_windows_background_loop_command($name);
+    diag('Supervisor helper argv: ' . join ' ', map { defined $_ ? $_ : '<undef>' } @command);
+    diag("Supervisor helper stderr ($error_log): $error_text") if $error_text ne '';
+}
+ok( $first_is_managed, 'the supervisor is recognised as this collector before anything else is asserted' );
 
 # THE DEFECT. Twenty-seven supervisor loops were alive at once for a collector
 # declared singleton, from starts spanning 04:33 to 07:21. Each fired every 900
@@ -308,6 +317,7 @@ SKIP: {
     # between a liveness reading and the assertion that trusts it - rather than
     # waiting for a sibling test's END block to do it under load.
     my $forced_pid = $runner->start_loop($forced_job);
+    push @owned_supervisor_pids, $forced_pid if $forced_pid;
     ok( $forced_pid, 'AC-1 setup: the probe collector starts and reports a supervisor pid' );
     ok( wait_for_managed_loop( $runner, $forced_pid, $forced_name ),
         'AC-1 setup: the probe supervisor is recognised before the forced kill' );
@@ -363,6 +373,7 @@ SKIP: {
     Time::HiRes::sleep(0.2) if live_supervisors($second_forced_name);
 
     my $healthy_pid = $runner->start_loop($second_forced_job);
+    push @owned_supervisor_pids, $healthy_pid if $healthy_pid;
     ok( $healthy_pid, 'AC-2 setup: a second probe collector starts' );
     ok( wait_for_managed_loop( $runner, $healthy_pid, $second_forced_name ),
         'AC-2 setup: the healthy probe supervisor is recognised' );
@@ -379,9 +390,29 @@ SKIP: {
 
 # Leave nothing behind whatever the assertions did.
 END {
-    for my $pid ( live_supervisors($name) ) {
-        kill 'TERM', $pid;
+    my %seen;
+    for my $pid ( grep { defined && /^\d+\z/ && $_ > 0 && !$seen{$_}++ } @owned_supervisor_pids ) {
+        kill 'TERM', $pid if kill 0, $pid;
+        for ( 1 .. 100 ) {
+            my $reaped = waitpid( $pid, WNOHANG );
+            last if $reaped == $pid || $reaped == -1;
+            Time::HiRes::sleep(0.01);
+        }
     }
+}
+
+# _read_optional_file($path)
+# Reads one diagnostic file when present without changing test control flow.
+# Input: path string.
+# Output: complete text or an empty string when no readable file exists.
+sub _read_optional_file {
+    my ($path) = @_;
+    return '' if !defined $path || !-f $path;
+    open my $fh, '<', $path or return '';
+    local $/;
+    my $content = <$fh> // '';
+    close $fh or die "Unable to close $path: $!";
+    return $content;
 }
 
 # Coverage for the paths this card added, exercised directly rather than only

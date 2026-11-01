@@ -509,18 +509,12 @@ my $source_page = Developer::Dashboard::PageDocument->new(
     ok( !$runner->_pid_is_running( $result->{pid} ), 'background action deadline terminates a slow command' );
 }
 
-# An exec failure in the detached command child is surfaced through the pipe
-# (line 185 die side).
+# Failure to launch the detached native supervisor is reported synchronously.
 {
-    my $fork_calls = 0;
+    require Developer::Dashboard::GoRoutine;
     no warnings 'redefine';
-    local *Developer::Dashboard::ActionRunner::_fork_process = sub {
-        $fork_calls++;
-        return fork() if $fork_calls == 1;
-        return 0;
-    };
-    local *Developer::Dashboard::ActionRunner::shell_command_argv = sub { return ('/definitely/missing-action-runner-binary') };
-    my $exec_fail = eval {
+    local *Developer::Dashboard::GoRoutine::spawn = sub { die "native spawn failure\n" };
+    my $spawn_fail = eval {
         $runner->run_command_action(
             command    => 'never-execs',
             cwd        => $home,
@@ -529,29 +523,15 @@ my $source_page = Developer::Dashboard::PageDocument->new(
         );
         1;
     };
-    ok( !$exec_fail, 'background action surfaces a detached-child exec failure' );
-    like( $@, qr/Unable to exec background action command/, 'exec failure explains itself' );
+    ok( !$spawn_fail, 'background action surfaces a native supervisor spawn failure' );
+    like( $@, qr/native spawn failure/, 'native spawn failure remains visible to the caller' );
 }
 
-# A detach failure makes the eval body die, so the boot-failure path writes the
-# error back to the parent (lines 213 true, 214, 215 true).
+# Invalid supervisor input is rejected rather than silently starting a command.
 {
-    no warnings 'redefine';
-    local *Developer::Dashboard::ActionRunner::_detach_background_session = sub {
-        $! = 1;
-        return undef;
-    };
-    my $boot_fail = eval {
-        $runner->run_command_action(
-            command    => 'never-detaches',
-            cwd        => $home,
-            background => 1,
-            timeout_ms => 1000,
-        );
-        1;
-    };
-    ok( !$boot_fail, 'background action surfaces a detach failure' );
-    like( $@, qr/Unable to detach background action session/, 'detach failure explains itself' );
+    my $valid = eval { Developer::Dashboard::ActionRunner->run_background_supervisor('{}'); 1 };
+    ok( !$valid, 'background supervisor rejects an incomplete payload' );
+    like( $@, qr/missing command/, 'invalid supervisor payload identifies the missing field' );
 }
 
 # DD-597: same bug class DD-585/589-593 fixed elsewhere - _run_command's own

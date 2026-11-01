@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '6.18';
+our $VERSION = '6.19';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -20,8 +20,8 @@ use Developer::Dashboard::JSON qw(json_encode json_decode json_decode_state);
 use Developer::Dashboard::Platform qw(command_in_path is_windows);
 use Developer::Dashboard::ProcessSupervision qw(
     _current_perl_command
+    _perl_library_args
     _descriptor_is_inherited_pipe
-    _fork_process
     _open_file_descriptors
     _overwrite_state_file_in_place
     _pid_is_running
@@ -92,6 +92,12 @@ sub start_web {
 
     if ($foreground) {
         $self->_close_inherited_fds( preserve_harness => 1 );
+        local $ENV{DEVELOPER_DASHBOARD_WEB_SERVICE} = 1;
+        local $ENV{DEVELOPER_DASHBOARD_WEB_HOST}    = $host;
+        local $ENV{DEVELOPER_DASHBOARD_WEB_PORT}    = $port;
+        local $ENV{DEVELOPER_DASHBOARD_WEB_WORKERS} = $workers;
+        local $ENV{DEVELOPER_DASHBOARD_WEB_SSL}     = $ssl;
+        local $0 = $self->_web_process_title( $host, $port );
         my $server = $self->{app_builder}->( host => $host, port => $port, workers => $workers, ssl => $ssl );
         return $server->run;
     }
@@ -110,40 +116,104 @@ sub start_web {
         );
     }
 
+    return $self->_start_web_background(
+        host    => $host,
+        port    => $port,
+        workers => $workers,
+        ssl     => $ssl,
+    );
+}
+
+# serve_ssl_backend_foreground(%args)
+# Rebuilds the normal web application in the isolated TLS backend helper and
+# runs its Starman runner against the frontend's internal loopback endpoint.
+# Input: internal host, internal port, and worker count.
+# Output: backend runner exit status.
+sub serve_ssl_backend_foreground {
+    my ( $self, %args ) = @_;
+    my $host = $args{host} // die 'Missing SSL backend host';
+    my $port = $args{port} // die 'Missing SSL backend port';
+    my $workers = $args{workers} // 1;
+    die 'SSL backend port must be a positive integer' if $port !~ /\A\d+\z/ || $port < 1;
+    die 'Worker count must be a positive integer' if $workers !~ /\A\d+\z/ || $workers < 1;
+    my $server = $self->{app_builder}->(
+        host    => $host,
+        port    => $port,
+        workers => $workers,
+        ssl     => 1,
+    );
+    require Developer::Dashboard::Web::Server::Daemon;
+    my $daemon = Developer::Dashboard::Web::Server::Daemon->new(
+        host          => $host,
+        port          => $port,
+        internal_host => $host,
+        internal_port => $port,
+    );
+    return $server->_run_ssl_backend_process($daemon);
+}
+
+# _start_web_background(%args)
+# Launches the web listener as an independently supervised GoRoutine child and
+# persists its identity after the configured endpoint accepts connections.
+# Input: host, port, worker count, and ssl flag.
+# Output: listener process id; dies with the child status if startup fails.
+sub _start_web_background {
+    my ( $self, %args ) = @_;
+    my $host = defined $args{host} ? $args{host} : '0.0.0.0';
+    my $port = defined $args{port} ? $args{port} : 7890;
+    my $workers = defined $args{workers} ? $args{workers} : 1;
+    my $ssl = $args{ssl} ? 1 : 0;
+
     $self->_cleanup_web_files;
+    my @command = $self->_background_web_command(
+        host    => $host,
+        port    => $port,
+        workers => $workers,
+        ssl     => $ssl,
+    );
+    require Developer::Dashboard::GoRoutine;
+    my $log = $self->{files}->dashboard_log;
+    my $pid = Developer::Dashboard::GoRoutine::spawn(
+        \@command,
+        {
+            stdin  => File::Spec->devnull(),
+            stdout => $log,
+            stderr => $log . '.stderr',
+            env    => {
+                DEVELOPER_DASHBOARD_WEB_SERVICE => 1,
+                DEVELOPER_DASHBOARD_WEB_HOST    => $host,
+                DEVELOPER_DASHBOARD_WEB_PORT    => $port,
+                DEVELOPER_DASHBOARD_WEB_WORKERS => $workers,
+                DEVELOPER_DASHBOARD_WEB_SSL     => $ssl,
+            },
+        },
+    );
+    die "Unable to launch dashboard web service process\n" if !$pid;
 
-    pipe my $reader, my $writer or die "Unable to create startup pipe: $!";
-    my $pid = $self->_fork_process();
-    die "Unable to fork dashboard web service: $!" if !defined $pid;
-
-    if ($pid) {
-        CORE::close($writer);
-        my $line = <$reader>;
-        close $reader;
-        $self->_reap_child_process($pid);
-        die "Unable to start dashboard web service\n" if !defined $line;
-        chomp $line;
-        die "$line\n" if $line =~ /^err:/;
-        my ( undef, $started_pid, $bound_host, $bound_port ) = split /\|/, $line, 4;
-        $started_pid = $self->_normalized_process_id($started_pid);
-        my $state = {
-            host         => $host,
-            pid          => $started_pid,
-            port         => $bound_port + 0,
-            process_name => $self->_web_process_title( $host, $port ),
-            started_at   => _now_iso8601( tz => "utc" ),
-            status       => 'running',
-            bound_host   => $bound_host,
-            workers      => $workers + 0,
-            ssl          => $ssl + 0,
-        };
-        $self->{files}->write( 'web_pid', "$started_pid\n" );
-        $self->_write_web_state($state);
-        return $started_pid;
+    for ( 1 .. $self->_runtime_stability_polls ) {
+        my @listener_pids = $self->_listener_pids_for_port($port);
+        if (@listener_pids && $self->_port_accepting_connections($port)) {
+            my $listener_pid = $listener_pids[0] || $pid;
+            my $state = {
+                host         => $host,
+                pid          => $listener_pid,
+                port         => $port + 0,
+                process_name => $self->_web_process_title( $host, $port ),
+                started_at   => _now_iso8601( tz => 'utc' ),
+                status       => 'running',
+                workers      => $workers + 0,
+                ssl          => $ssl + 0,
+            };
+            $self->{files}->write( 'web_pid', "$listener_pid\n" );
+            $self->_write_web_state($state);
+            return $listener_pid;
+        }
+        sleep $self->_runtime_poll_interval;
     }
 
-    close $reader;
-    POSIX::_exit( $self->_run_web_child( $writer, $host, $port, workers => $workers, ssl => $ssl ) );
+    Developer::Dashboard::GoRoutine::terminate_process( $pid, 'KILL' );
+    my $exit = Developer::Dashboard::GoRoutine::wait_process($pid);
+    die "Unable to start dashboard web service on $host:$port (child $pid exited with status $exit); see $log and $log.stderr\n";
 }
 
 # _start_web_windows_background(%args)
@@ -1590,48 +1660,35 @@ sub _start_collector_supervisor {
         return $running;
     }
 
-    if (is_windows()) {
-        my @command = $self->_windows_background_collector_supervisor_command;
-        my $pid = $self->_spawn_windows_background_command(@command);
-        $self->{paths}->secure_file_permissions( $self->_collector_supervisor_pidfile );
-        open my $fh, '>', $self->_collector_supervisor_pidfile or die "Unable to write " . $self->_collector_supervisor_pidfile . ": $!";
-        print {$fh} $pid;
-        close $fh;
-        $self->{paths}->secure_file_permissions( $self->_collector_supervisor_pidfile );
-        $self->_write_collector_supervisor_state(
-            {
-                %{$state},
-                pid          => $pid,
-                process_name => $self->_collector_supervisor_process_title,
-                status       => 'running',
-                started_at   => _now_iso8601( tz => "utc" ),
-                heartbeat_at => _now_iso8601( tz => "utc" ),
-            }
-        );
-        return $pid;
-    }
+    require Developer::Dashboard::GoRoutine;
+    my @command = $self->_background_collector_supervisor_command;
+    my $log = $self->{files}->collector_log;
+    my $pid = Developer::Dashboard::GoRoutine::spawn(
+        \@command,
+        {
+            stdin  => File::Spec->devnull(),
+            stdout => $log,
+            stderr => $log . '.stderr',
+        },
+    );
+    die "Unable to launch detached collector supervisor process\n" if !$pid;
 
-    my $pid = fork();
-    die "Unable to fork collector supervisor: $!" if !defined $pid;
-    if ($pid) {
-        open my $fh, '>', $self->_collector_supervisor_pidfile or die "Unable to write " . $self->_collector_supervisor_pidfile . ": $!";
-        print {$fh} $pid;
-        close $fh;
-        $self->{paths}->secure_file_permissions( $self->_collector_supervisor_pidfile );
-        $self->_write_collector_supervisor_state(
-            {
-                %{$state},
-                pid          => $pid,
-                process_name => $self->_collector_supervisor_process_title,
-                status       => 'running',
-                started_at   => _now_iso8601( tz => "utc" ),
-                heartbeat_at => _now_iso8601( tz => "utc" ),
-            }
-        );
-        return $pid;
-    }
-
-    return $self->_run_collector_supervisor_child;
+    my $pidfile = $self->_collector_supervisor_pidfile;
+    open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
+    print {$fh} $pid or die "Unable to write collector supervisor pid to $pidfile: $!";
+    CORE::close($fh) or die "Unable to close collector supervisor pidfile $pidfile: $!";
+    $self->{paths}->secure_file_permissions($pidfile);
+    $self->_write_collector_supervisor_state(
+        {
+            %{$state},
+            pid          => $pid,
+            process_name => $self->_collector_supervisor_process_title,
+            status       => 'running',
+            started_at   => _now_iso8601( tz => "utc" ),
+            heartbeat_at => _now_iso8601( tz => "utc" ),
+        }
+    );
+    return $pid;
 }
 
 # _run_collector_supervisor_child(%args)
@@ -2074,10 +2131,14 @@ sub _run_web_child {
     my $workers  = exists $args{workers}  ? $args{workers}  : 1;
     my $ssl      = exists $args{ssl}      ? $args{ssl}      : 0;
     if ($detach) {
-        $self->_detach_web_process_session;
-        my $pid = $self->_fork_process();
-        die "Unable to complete dashboard web daemonize: $!" if !defined $pid;
-        return 0 if $pid;
+        my $pid = $self->_start_web_background(
+            host    => $host,
+            port    => $port,
+            workers => $workers,
+            ssl     => $ssl,
+        );
+        $self->_write_startup_pipe_message( $writer, join( '|', 'ok', $pid, $host, $port ) . "\n" );
+        return 0;
     }
     if ($redirect) {
         open STDIN, '<', File::Spec->devnull() or die $!;
@@ -2480,21 +2541,36 @@ sub _is_managed_web {
     my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_WEB_SERVICE' );
     return 1 if defined $marker && $marker eq '1';
     my $title = $self->_read_process_title($pid);
-    return 0 if !defined $title || $title eq '';
-    return $title =~ /^dashboard web:/ ? 1 : 0;
+    return 1 if defined $title && $title =~ /^dashboard web:/;
+
+    # Starman replaces the helper's process title with "starman master" and
+    # may re-exec its listener without the helper's runtime marker. Trust that
+    # otherwise opaque process only when persisted running state names this pid
+    # and the live socket table confirms it owns that exact saved listener port.
+    my ( $state ) = $self->_read_settled_web_state;
+    return 0 if ref($state) ne 'HASH'
+      || ( $state->{status} || '' ) ne 'running'
+      || !$state->{pid}
+      || $state->{pid} !~ /^\d+$/
+      || $state->{pid} != $pid
+      || !defined $state->{port}
+      || $state->{port} !~ /^\d+$/
+      || $state->{port} < 1;
+    return scalar( grep { $_ == $pid } $self->_listener_pids_for_port( $state->{port} ) ) ? 1 : 0;
 }
 
-# _windows_background_web_command(%args)
-# Builds the detached helper command used to host the foreground Windows web
-# listener in its own process without also starting collector loops.
+# _background_web_command(%args)
+# Builds the detached helper command used to host the foreground web listener
+# in its own process without also starting collector loops.
 # Input: host, port, worker count, and ssl flag.
-# Output: command list suitable for system 1, @command on Windows.
-sub _windows_background_web_command {
+# Output: argument list for the private foreground supervisor helper.
+sub _background_web_command {
     my ( $self, %args ) = @_;
     my $core = $self->_dashboard_core_helper_path('web-foreground');
     my $perl = $self->_current_perl_command;
     my @command = (
         $perl,
+        $self->_perl_library_args,
         $core,
         'web-foreground',
         '--host',
@@ -2508,17 +2584,28 @@ sub _windows_background_web_command {
     return @command;
 }
 
-# _windows_background_collector_supervisor_command()
-# Builds the detached helper command used to host the collector watchdog on
-# Windows without tying it to the current process lifetime.
+# _windows_background_web_command(%args)
+# Retains the historical Windows helper name while delegating to the shared
+# platform-neutral command builder.
+# Input: host, port, worker count, and ssl flag.
+# Output: argument list for the private foreground supervisor helper.
+sub _windows_background_web_command {
+    my ( $self, %args ) = @_;
+    return $self->_background_web_command(%args);
+}
+
+# _background_collector_supervisor_command()
+# Builds the helper command used to start the detached collector watchdog on
+# every supported platform.
 # Input: none.
 # Output: command list suitable for system 1, @command on Windows.
-sub _windows_background_collector_supervisor_command {
+sub _background_collector_supervisor_command {
     my ($self) = @_;
     my $core = $self->_dashboard_core_helper_path('collector-supervisor-foreground');
     my $perl = $self->_current_perl_command;
     return (
         $perl,
+        $self->_perl_library_args,
         $core,
         'collector-supervisor-foreground',
     );
@@ -2682,8 +2769,8 @@ sub _looks_like_web_process {
     my ( $self, $proc ) = @_;
     return 0 if !$proc || !$proc->{pid} || !$proc->{args};
     return 1 if $proc->{args} =~ /^dashboard web:\s+\S+:\d+$/;
-    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
-    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$}i;
+    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground|web-ssl-backend-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
+    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground|web-ssl-backend-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$}i;
     return 1 if $proc->{args} =~ m{^(?:\S+/env\s+)?perl(?:\s+-\S+)*\s+(?:\S+/)?dashboard\s+serve(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
     return 1 if $proc->{args} =~ m{^(?:\S+/)?dashboard\s+serve(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
     return 0;
@@ -3386,7 +3473,7 @@ quiet period does not trigger repeated restart warnings.
 
 =head1 METHODS
 
-=head2 new, start_web, running_web, stop_web, start_collectors, serve_all, stop_collectors, stop_all, restart_all, web_state, web_log
+=head2 new, start_web, serve_ssl_backend_foreground, running_web, stop_web, start_collectors, serve_all, stop_collectors, stop_all, restart_all, web_state, web_log
 
 Construct and manage the dashboard runtime.
 
@@ -3407,6 +3494,13 @@ Use this file when changing how the web process is launched, how restart waits f
 For cron collectors, keep scheduler-loop heartbeat separate from job progress:
 an old execution timestamp is normal between scheduled runs, while a stale
 loop heartbeat still indicates that the scheduler may need recovery.
+
+The C<serve_ssl_backend_foreground> helper entry point rebuilds the normal
+dashboard application in the separately supervised internal TLS backend
+process. It accepts a host, positive port, and positive worker count, then
+serves the TLS Starman runner on that internal endpoint and returns its exit
+status. The public SSL frontend launches it through GoRoutine's native process
+API so foreground and managed web serving share the same lifecycle contract.
 
 The C<web_log> method reads the dashboard log, optionally returns only the last
 N lines, or follows appended data after printing that tail. A zero line count

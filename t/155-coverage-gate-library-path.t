@@ -106,8 +106,8 @@ SKIP: {
         'and the non-existent tree is never added to the path, so it cannot mask or misdirect a later failure' );
 
     my $source = do { open my $fh, '<', $gate or die $!; local $/; <$fh> };
-    like( $source, qr/if \( -d \$local_lib \)/,
-        'the source adds the tree only when it exists - the guarantee that an absent module stays absent' );
+    like( $source, qr/my \@leading_paths = grep \{ defined \$_ && -d \$_ \}/,
+        'the source adds only existing build and local-library paths - absent modules stay absent' );
     # Against the BLOCK, not the whole file: the first version matched the word
     # "install" in the script's own help text and failed on its own prose.
     my ($block) = $source =~ /^BEGIN \{(.*?)^\}/ms;

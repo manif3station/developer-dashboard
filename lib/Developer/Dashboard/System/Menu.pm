@@ -3,8 +3,6 @@ package Developer::Dashboard::System::Menu;
 use strict;
 use warnings;
 
-=encoding UTF-8
-
 use Exporter 'import';
 use Encode ();
 use JSON::XS ();
@@ -381,6 +379,8 @@ sub remove {
 1;
 
 __END__
+
+=encoding UTF-8
 
 =head1 NAME
 

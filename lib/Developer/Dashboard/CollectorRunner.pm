@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '6.18';
+our $VERSION = '6.19';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::PathIdentity qw(current_working_directory);
@@ -23,8 +23,8 @@ use Developer::Dashboard::TimeUtils qw(_now_iso8601);
 use Developer::Dashboard::Platform qw(command_in_path is_windows shell_command_argv);
 use Developer::Dashboard::ProcessSupervision qw(
     _current_perl_command
+    _perl_library_args
     _descriptor_is_inherited_pipe
-    _fork_process
     _open_file_descriptors
     _overwrite_state_file_in_place
     _pid_is_running
@@ -390,72 +390,13 @@ sub start_loop {
     );
     return $adopted_pid if defined $adopted_pid;
 
-    if ( is_windows() ) {
-        return $self->_start_windows_loop_process(
-            configured_interval => $configured_interval,
-            interval            => $interval,
-            job                 => $job,
-            name                => $name,
-            schedule_mode       => $schedule_mode,
-            title               => $title,
-        );
-    }
-
-    my $pid = $self->_fork_process();
-    die "Unable to fork collector '$name': $!" if !defined $pid;
-
-    if ($pid) {
-        # The loop STATE is written before the pidfile, and the order is
-        # load-bearing rather than stylistic.
-        #
-        # running_loops keys on the pidfile: it lists pidfiles, and for each one
-        # decides whether that pid is a loop it manages. It recognises the pid
-        # either by its process title or by this recorded state. Written the other
-        # way round there is a window - pidfile present, state not yet written -
-        # in which a freshly forked child that has not yet adopted its title is
-        # unrecognisable by either route. A concurrent running_loops in any other
-        # process then treats a perfectly healthy loop as an orphan and unlinks
-        # its pidfile.
-        #
-        # The consequence is the exact failure the surrounding code exists to
-        # prevent: stop_loop returns early on a missing pidfile so the loop can no
-        # longer be stopped by name, and start_loop consults the loop-state
-        # fallback only inside its `-f $pidfile` branch, so the next supervisor
-        # start forks a DUPLICATE. The fallback that would have caught it cannot
-        # fire, because the sweep deleted the evidence it reads.
-        #
-        # Writing the state first closes the window instead of widening a wait:
-        # the pidfile - the thing the sweep keys on - never exists without the
-        # state that identifies it.
-        $self->_write_loop_state(
-            $name,
-            {
-                pid          => $pid,
-                name         => $name,
-                process_name => $title,
-                command      => $job->{command},
-                cwd          => $job->{cwd},
-                interval     => $interval,
-                ( $interval != $configured_interval ? ( configured_interval => $configured_interval ) : () ),
-                schedule     => $schedule_mode,
-                status       => 'starting',
-                started_at   => _now_iso8601( tz => "local" ),
-                heartbeat_at => _now_iso8601( tz => "local" ),
-            }
-        );
-        open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
-        print {$fh} $pid;
-        close $fh;
-        $self->{paths}->secure_file_permissions($pidfile);
-        return $pid;
-    }
-
-    return $self->_run_loop_child(
-        interval      => $interval,
-        job           => $job,
-        name          => $name,
-        schedule_mode => $schedule_mode,
-        title         => $title,
+    return $self->_start_windows_loop_process(
+        configured_interval => $configured_interval,
+        interval            => $interval,
+        job                 => $job,
+        name                => $name,
+        schedule_mode       => $schedule_mode,
+        title               => $title,
     );
 }
 
@@ -560,8 +501,8 @@ sub _adopt_existing_loop_if_running {
 
 
 # _start_windows_loop_process(%args)
-# Launches one detached collector loop helper on Windows instead of relying on
-# Perl pseudo-fork semantics for long-lived background processes.
+# Launches one detached collector loop helper through the native GoRoutine
+# process API on every supported operating system.
 # Input: collector job hash, collector name, title, effective interval,
 # configured interval, and schedule mode.
 # Output: detached loop pid integer.
@@ -589,10 +530,6 @@ sub _start_windows_loop_process {
     my $pid = $self->_spawn_windows_background_command(@command);
     die "Unable to launch collector '$name' on Windows\n" if !$pid;
 
-    open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
-    print {$fh} $pid;
-    close $fh;
-    $self->{paths}->secure_file_permissions($pidfile);
     $self->_write_loop_state(
         $name,
         {
@@ -609,6 +546,10 @@ sub _start_windows_loop_process {
             heartbeat_at => _now_iso8601( tz => "local" ),
         }
     );
+    open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
+    print {$fh} $pid;
+    close $fh;
+    $self->{paths}->secure_file_permissions($pidfile);
     return $pid;
 }
 
@@ -804,14 +745,8 @@ sub _is_dashboard_subcommand_collector {
 # Output: worker pid integer in the parent or never returns in the child.
 sub _start_loop_worker {
     my ( $self, $job, $name, $title ) = @_;
-    if ( is_windows() ) {
-        my @command = $self->_windows_background_worker_command( $name, $$ );
-        return $self->_spawn_windows_background_command(@command);
-    }
-    my $pid = $self->_fork_process();
-    die "Unable to fork collector worker '$name': $!" if !defined $pid;
-    return $pid if $pid;
-    return $self->_run_loop_worker( $job, $name, $title, $$ );
+    my @command = $self->_windows_background_worker_command( $name, $$ );
+    return $self->_spawn_windows_background_command(@command);
 }
 
 # _run_loop_worker($job, $name, $title, $loop_pid)
@@ -1433,6 +1368,7 @@ sub _windows_background_loop_command {
     my $perl = $self->_current_perl_command;
     return (
         $perl,
+        $self->_perl_library_args,
         $core,
         'collector-loop-foreground',
         '--name',
@@ -1451,6 +1387,7 @@ sub _windows_background_worker_command {
     my $perl = $self->_current_perl_command;
     return (
         $perl,
+        $self->_perl_library_args,
         $core,
         'collector-worker-foreground',
         '--name',
@@ -1468,35 +1405,17 @@ sub _windows_background_worker_command {
 # Output: spawned pid integer.
 sub _spawn_windows_background_command {
     my ( $self, @command ) = @_;
-
-    # DD-597: system() below mutates the caller's global $? as a side effect;
-    # without this guard that stays set in the caller's process after this
-    # sub returns.
-    local $?;
-    my $powershell = _powershell_command;
-    die "Unable to launch detached Windows collector process: powershell is unavailable\n"
-      if !defined $powershell || $powershell eq '';
-
+    require Developer::Dashboard::GoRoutine;
     my $stdout_log = $self->{files}->collector_log;
-    my $stderr_log = $stdout_log . '.stderr';
-    my @script = (
-        q{$ErrorActionPreference = 'Stop'},
-        '$job = Start-Process'
-          . ' -FilePath ' . _powershell_single_quote( $command[0] )
-          . ' -ArgumentList ' . join( ', ', map { _powershell_single_quote($_) } @command[ 1 .. $#command ] )
-          . ' -WindowStyle Hidden'
-          . ' -RedirectStandardOutput ' . _powershell_single_quote($stdout_log)
-          . ' -RedirectStandardError ' . _powershell_single_quote($stderr_log)
-          . ' -PassThru',
-        q{[Console]::Out.WriteLine($job.Id)},
+    my $pid = Developer::Dashboard::GoRoutine::spawn(
+        \@command,
+        {
+            stdin  => File::Spec->devnull(),
+            stdout => $stdout_log,
+            stderr => $stdout_log . '.stderr',
+        },
     );
-    my ( $stdout, $stderr, $exit_code ) = capture {
-        system $powershell, '-NoLogo', '-NoProfile', '-Command', join '; ', @script;
-        return $? >> 8;
-    };
-    die "Unable to launch detached Windows collector process: $stderr$stdout"
-      if $exit_code != 0;
-    my ($pid) = grep { /^\d+$/ && $_ > 0 } split /\r?\n/, ( $stdout || '' );
+    die "Unable to launch detached collector process\n" if !$pid;
     return $pid;
 }
 

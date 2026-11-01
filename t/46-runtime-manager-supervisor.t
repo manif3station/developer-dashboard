@@ -17,6 +17,7 @@ use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::RuntimeManager;
+use Developer::Dashboard::GoRoutine ();
 
 {
     package Local::SupervisorRunner;
@@ -26,8 +27,50 @@ use Developer::Dashboard::RuntimeManager;
 }
 
 my $original_cwd = getcwd();
+my $repo_lib = File::Spec->catdir( $original_cwd, 'lib' );
 my $test_cwd = tempdir( CLEANUP => 1 );
 chdir $test_cwd or die "Unable to chdir to $test_cwd: $!";
+
+# _runtime_fixture_script($body)
+# Builds Perl source for an isolated runtime-manager process fixture.
+# Input: statements to run after a filesystem-backed manager is reconstructed.
+# Output: complete child Perl source string for GoRoutine::spawn.
+sub _runtime_fixture_script {
+    my ($body) = @_;
+    die "runtime fixture body must be a non-empty scalar\n"
+      if !defined $body || ref($body) || $body eq '';
+    return sprintf q{
+        use lib q{%s};
+        use Developer::Dashboard::PathRegistry;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::RuntimeManager;
+        use Developer::Dashboard::GoRoutine ();
+        my $paths = Developer::Dashboard::PathRegistry->new(home => $ENV{HOME});
+        my $files = Developer::Dashboard::FileRegistry->new(paths => $paths);
+        my $manager = Developer::Dashboard::RuntimeManager->new(
+            app_builder => sub { die "unexpected app build in process fixture\n" },
+            config => bless({}, 'Local::FixtureConfig'),
+            files => $files,
+            paths => $paths,
+            runner => bless({}, 'Local::FixtureRunner'),
+        );
+        %s
+    }, $repo_lib, $body;
+}
+
+# _spawn_perl_fixture($script, $options)
+# Starts a Perl child fixture through the native GoRoutine process API.
+# Input: child source and optional process options hash reference.
+# Output: positive child process identifier.
+sub _spawn_perl_fixture {
+    my ( $script, $options ) = @_;
+    die "process fixture source must be a non-empty scalar\n"
+      if !defined $script || ref($script) || $script eq '';
+    return Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', $script ],
+        $options || {},
+    );
+}
 
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
@@ -343,14 +386,14 @@ ok(
         return "C:/dd/$command";
     };
     is_deeply(
-        [ $manager->_windows_background_collector_supervisor_command ],
-        [ 'perl.exe', 'C:/dd/collector-supervisor-foreground', 'collector-supervisor-foreground' ],
+        [ $manager->_background_collector_supervisor_command ],
+        [ 'perl.exe', $manager->_perl_library_args, 'C:/dd/collector-supervisor-foreground', 'collector-supervisor-foreground' ],
         'collector supervisor Windows helper command uses the private foreground entrypoint',
     );
 }
 
 {
-    my @spawned;
+    my ( $spawned_argv, $spawned_options );
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { 1 };
     local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
@@ -359,9 +402,8 @@ ok(
         my ( undef, $command ) = @_;
         return "C:/dd/$command";
     };
-    local *Developer::Dashboard::RuntimeManager::_spawn_windows_background_command = sub {
-        my ( undef, @command ) = @_;
-        @spawned = @command;
+    local *Developer::Dashboard::GoRoutine::spawn = sub {
+        ( $spawned_argv, $spawned_options ) = @_;
         return 5566;
     };
     $manager->_write_collector_supervisor_state(
@@ -371,9 +413,18 @@ ok(
     );
     is( $manager->_start_collector_supervisor, 5566, 'collector supervisor starts through the Windows detached helper path' );
     is_deeply(
-        \@spawned,
-        [ 'perl.exe', 'C:/dd/collector-supervisor-foreground', 'collector-supervisor-foreground' ],
-        'collector supervisor Windows start launches the expected helper command',
+        $spawned_argv,
+        [ 'perl.exe', $manager->_perl_library_args, 'C:/dd/collector-supervisor-foreground', 'collector-supervisor-foreground' ],
+        'collector supervisor start launches the expected helper command without a shell',
+    );
+    is_deeply(
+        $spawned_options,
+        {
+            stdin  => File::Spec->devnull(),
+            stdout => $files->collector_log,
+            stderr => $files->collector_log . '.stderr',
+        },
+        'collector supervisor start redirects helper standard streams',
     );
     is( $manager->_collector_supervisor_state->{pid}, 5566, 'collector supervisor Windows start persists the supervisor pid' );
 }
@@ -392,17 +443,31 @@ ok(
 {
     my $child_pid;
     no warnings 'redefine';
+    my ( $spawned_argv, $spawned_options );
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { 0 };
     local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
-    local *Developer::Dashboard::RuntimeManager::_run_collector_supervisor_child = sub { exit 0 };
+    local *Developer::Dashboard::RuntimeManager::_current_perl_command = sub { return 'perl' };
+    local *Developer::Dashboard::RuntimeManager::_dashboard_core_helper_path = sub {
+        my ( undef, $command ) = @_;
+        return "/tmp/$command";
+    };
+    local *Developer::Dashboard::GoRoutine::spawn = sub {
+        ( $spawned_argv, $spawned_options ) = @_;
+        return 6677;
+    };
     $manager->_write_collector_supervisor_state(
         {
             watched_names => ['alpha'],
         }
     );
     $child_pid = $manager->_start_collector_supervisor;
-    ok( $child_pid > 0, 'collector supervisor starts through the Unix fork path' );
-    waitpid( $child_pid, 0 );
+    is( $child_pid, 6677, 'collector supervisor starts through the GoRoutine process path on Unix' );
+    is_deeply(
+        $spawned_argv,
+        [ 'perl', $manager->_perl_library_args, '/tmp/collector-supervisor-foreground', 'collector-supervisor-foreground' ],
+        'collector supervisor launches the private foreground helper on Unix',
+    );
+    is( $spawned_options->{stdout}, $files->collector_log, 'Unix supervisor output is redirected to the collector log' );
 }
 
 {
@@ -440,15 +505,13 @@ ok(
 
 {
     my $marker = File::Spec->catfile( $home, 'collector-supervisor-defaults.marker' );
-    my $child = fork();
-    die "fork failed: $!" if !defined $child;
-    if ( !$child ) {
+    my $child_script = _runtime_fixture_script(q{
         no warnings 'redefine';
         local *Developer::Dashboard::RuntimeManager::_collector_supervisor_state = sub {
             return { watched_names => ['alpha'] };
         };
         local *Developer::Dashboard::RuntimeManager::_detach_web_process_session = sub {
-            open my $fh, '>>', $marker or die $!;
+            open my $fh, '>>', $ENV{DASHBOARD_SUPERVISOR_MARKER} or die $!;
             print {$fh} "detached\n";
             close $fh;
             return 1;
@@ -456,20 +519,28 @@ ok(
         local *Developer::Dashboard::RuntimeManager::_supervise_collectors_once = sub { return {} };
         local *Developer::Dashboard::RuntimeManager::_shutdown_collector_supervisor = sub {
             my ( undef, $status ) = @_;
-            open my $fh, '>>', $marker or die $!;
+            open my $fh, '>>', $ENV{DASHBOARD_SUPERVISOR_MARKER} or die $!;
             print {$fh} "shutdown:$status\n";
             close $fh;
             exit 0;
         };
         local *Developer::Dashboard::RuntimeManager::sleep = sub {
-            kill 'TERM', $$;
+            Developer::Dashboard::GoRoutine::terminate_process( $$, 'TERM' );
             return 0;
         };
         $manager->_run_collector_supervisor_child;
         exit 1;
-    }
-    waitpid( $child, 0 );
-    is( $? >> 8, 0, 'collector supervisor child default daemonize and redirect path exits cleanly after TERM' );
+    });
+    my $child = _spawn_perl_fixture(
+        $child_script,
+        {
+            env => { HOME => $home, DASHBOARD_SUPERVISOR_MARKER => $marker },
+            stdout => "$home/collector-supervisor-defaults.out",
+            stderr => "$home/collector-supervisor-defaults.err",
+        },
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($child), 0,
+        'collector supervisor child default daemonize and redirect path exits cleanly after TERM' );
     open my $fh, '<', $marker or die "Unable to read $marker: $!";
     my @marker_lines = <$fh>;
     close $fh;
@@ -503,9 +574,7 @@ ok(
 }
 
 {
-    my $child = fork();
-    die "fork failed: $!" if !defined $child;
-    if ( !$child ) {
+    my $child_script = _runtime_fixture_script(q{
         $manager->_write_collector_supervisor_state(
             {
                 watched_names => ['alpha'],
@@ -515,20 +584,24 @@ ok(
         print {$fh} "$$\n";
         close $fh;
         $manager->_shutdown_collector_supervisor('stopped');
-    }
-    waitpid( $child, 0 );
-    is( $? >> 8, 0, 'collector supervisor shutdown exits cleanly' );
+    });
+    my $child = _spawn_perl_fixture(
+        $child_script,
+        {
+            env => { HOME => $home },
+            stdout => "$home/collector-supervisor-shutdown.out",
+            stderr => "$home/collector-supervisor-shutdown.err",
+        },
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($child), 0,
+        'collector supervisor shutdown exits cleanly through GoRoutine' );
     ok( !-f $manager->_collector_supervisor_pidfile, 'collector supervisor shutdown removes the pidfile' );
     ok( !-f $manager->_collector_supervisor_statefile, 'collector supervisor shutdown removes the statefile' );
 }
 
 {
-    my $child = fork();
-    die "fork failed: $!" if !defined $child;
-    if ( !$child ) {
-        $SIG{TERM} = sub { exit 0 };
-        while (1) { sleep 0.1 }
-    }
+    my $child = _spawn_perl_fixture(q{$SIG{TERM} = sub { exit 0 }; while (1) { select undef, undef, undef, 0.1 }},
+        { env => { HOME => $home }, stdout => "$home/collector-supervisor-stop.out", stderr => "$home/collector-supervisor-stop.err" });
     sleep 0.2;
     open my $fh, '>', $manager->_collector_supervisor_pidfile or die $!;
     print {$fh} "$child\n";
@@ -540,16 +613,14 @@ ok(
         return $pid == $child ? 1 : 0;
     };
     is( $manager->_stop_collector_supervisor, $child, 'collector supervisor stop returns the managed child pid' );
-    is( waitpid( $child, 1 ), -1, 'collector supervisor stop reaps the managed child instead of leaving a zombie behind' );
+    ok( !Developer::Dashboard::GoRoutine::process_running($child),
+        'collector supervisor stop reaps the GoRoutine-spawned child instead of leaving it running' );
     ok( !-f $manager->_collector_supervisor_pidfile, 'collector supervisor stop removes the pidfile after shutdown' );
 }
 
 {
-    my $child = fork();
-    die "fork failed: $!" if !defined $child;
-    if ( !$child ) {
-        POSIX::_exit(0);
-    }
+    my $child = _spawn_perl_fixture('exit 0;',
+        { env => { HOME => $home }, stdout => "$home/collector-supervisor-reap.out", stderr => "$home/collector-supervisor-reap.err" });
     my $reaped = 0;
     for ( 1 .. 20 ) {
         $reaped = $manager->_reap_any_child_processes;
@@ -557,7 +628,8 @@ ok(
         select undef, undef, undef, 0.05;
     }
     is( $reaped, 1, 'collector supervisor reap helper reaps one exited direct child' );
-    is( waitpid( $child, 1 ), -1, 'collector supervisor reap helper leaves no zombie behind after reaping the child' );
+    ok( !Developer::Dashboard::GoRoutine::process_running($child),
+        'collector supervisor reap helper leaves no GoRoutine child running after reaping it' );
 }
 
 END {

@@ -68,7 +68,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.18
+6.19
 
 =head1 INTRODUCTION
 
@@ -271,6 +271,16 @@ older C<podlators> releases are vulnerable to CPU and memory exhaustion when
 formatting deeply nested POD (CVE-2026-82560). The minimum is declared in
 C<cpanfile>, C<Makefile.PL>, and C<dist.ini>, and regression tests keep the
 three dependency sources aligned.
+
+The cross-platform test workflow also declares C<Test::Harness> 3.48 as a
+test-only prerequisite. Its C<TAP::Harness::Env> module is needed by nested
+Windows test runs and is not guaranteed to be present in Strawberry Perl, so
+the Windows job installs and verifies it in the local test environment. This
+does not add C<Test::Harness> to end-user runtime installation. The workflow
+uses separate full-suite steps: Unix-like runners retain C<prove> in Bash,
+while Windows uses PowerShell and invokes C<App::Prove> through the
+workflow-selected Perl. This avoids Git Bash selecting or rewriting paths for
+a different Perl installation.
 
 Or install from a checkout with:
 
@@ -1548,6 +1558,14 @@ C<dashboard serve> starts the web service in the background by default
 
 =item *
 
+On POSIX, background web startup launches the private C<web-foreground>
+helper through GoRoutine's shell-free process API. The runtime records the
+listener only after the configured port accepts connections; if readiness
+times out, it terminates and reaps the child and reports its exit status and
+log paths.
+
+=item *
+
 C<dashboard serve> starts the configured collector loops alongside the web
 service, so a plain serve keeps collectors and the web runtime under the same
 lifecycle action
@@ -1565,6 +1583,13 @@ configured C<web.ssl_subject_alt_names>, regenerates older dashboard certs when
 they are stale, redirects non-HTTPS requests to the matching C<https://...>
 URL, and reuses the saved SSL setting on later C<dashboard restart> runs unless
 you override it
+
+=item *
+
+In SSL mode, the public frontend starts C<web-ssl-backend-foreground> with
+GoRoutine's shell-free OS-process API. Accepted client sockets are handled by
+GoRoutine routines using the 0.12 shared filehandle support; shutdown stops
+and waits for the backend process and drains client routine errors explicitly.
 
 =item *
 
@@ -3088,6 +3113,23 @@ render failures are explicit collector errors: the collector C<stderr> records
 the template problem and the indicator stays red instead of silently falling
 back.
 
+=head3 System menu indicator configuration
+
+C<Developer::Dashboard::SystemMenu-E<gt>items_for_platform> projects
+configured indicator names and their current icons for the C<macos>,
+C<windows>, or C<ubuntu> selector. Each platform selector is opt-in; a missing
+or false value disables that item. Invalid values for any supported selector
+are rejected even when the current host is another platform. The projection
+preserves configuration order and does not start a native menu. The native
+System::Menu adapter starts the platform helper in a controlled GoRoutine
+worker and forwards configured items and state changes. On Ubuntu, the helper
+uses Ayatana AppIndicator3 and a GTK menu; rendered status icons are kept in a
+private temporary icon-theme directory and removed when the helper shuts down.
+Building from source requires the Ayatana AppIndicator3 and GTK3 development
+packages; runtime requires a desktop session with AppIndicator support. The
+helper reports a clear error when no desktop session is available. Source and
+compile tests do not prove that a desktop shell visibly displayed the menu.
+
 
 
 
@@ -4097,6 +4139,64 @@ See L</Layered
 Env Files> for the C<.env>-file-native C<# include E<lt>skill.pathE<gt>>
 directive this method mirrors.
 
+=head2 Native concurrent work and shared Perl data
+
+C<Developer::Dashboard::GoRoutine> provides a distribution-owned XS API for
+native worker callbacks, shared Perl data, and explicit child-process
+supervision. It is part of the Developer Dashboard Perl namespace; callers do
+not need to install or load a separate GoRoutine distribution.
+
+Use C<go> to run a Perl callback on a native worker and C<wait_all> when the
+parent needs a completion barrier. Workers execute in cloned Perl interpreters.
+On Windows, cloning also requests the host-clone flag when the active Perl
+headers provide it, while retaining the pointer table needed to map callbacks.
+The process-wide worker count is drained during normal interpreter shutdown,
+and callback exceptions are reported as Perl warnings rather than silently
+discarded.
+
+The GoRoutine 0.04 contract adds graph-based sharing through C<share>; it is
+distinct from the GoRoutine 0.05 routine-control API. GoRoutine 0.05 makes
+C<go> return a C<Developer::Dashboard::GoRoutine::Routine> handle with
+C<is_running>, C<age>, C<status>, C<kill>, C<timeout>, and C<is_killed>
+methods. Timeouts can be replaced or disabled with zero, and Perl C<exit>
+inside a worker ends that worker rather than the parent process. Cancellation
+is cooperative at Perl opcode boundaries. POSIX workers can also be woken from
+blocking waits, but an opaque native or system call is not forcibly terminated;
+use C<spawn> when an independently terminable process is required.
+
+C<share> makes an object graph visible across the parent and worker
+interpreters. Supported values are scalars, hashes, arrays, nested combinations,
+scalar references, and ordinary blessed objects whose data is held by those
+Perl reference types. The API preserves aliases, cycles, blessing, normal
+dereferencing, and methods that operate on shared Perl data. Perl Unicode string
+semantics are preserved across the XS boundary. Compiled regular expressions
+are shared as pattern text and reconstructed as native C<REGEXP> references,
+including inline modifiers. Named format references are shared as fully
+qualified symbol names and resolved as native C<FORMAT> references in each
+interpreter. Scalar updates and hash/array structural operations are protected
+by a native lock. References to
+opaque interpreter or library resources, including code references, file or
+socket handles, and objects backed by native pointers, are not supported as
+shared data.
+
+For example:
+
+    use Developer::Dashboard::GoRoutine;
+
+    share my $state = { completed => 0, results => [] };
+    go sub {
+        $state->{completed}++;
+        push $state->{results}->@*, { ok => 1 };
+    } for 1 .. 4;
+    wait_all();
+
+C<spawn>, C<process_running>, C<wait_process>, and C<terminate_process> are a
+separate API for OS child processes. C<spawn> takes an executable argument
+vector and optional working-directory and standard-stream paths; it does not
+invoke a shell. Use it where a distinct process ID, process isolation, or
+child-process lifecycle is required. Worker threads are not substitutes for
+those process semantics.
+
 =head1 MAINTAINER GUIDE
 
 Build, change, and verify the project using these contributor notes.
@@ -4137,6 +4237,19 @@ the complete suite. Coverage-gate regression tests launch child Perl processes,
 so those processes must resolve the same coverage serializer and project
 dependencies as the parent test process.
 
+When a MakeMaker build has created C<blib/arch>, dashboard-managed Perl
+environments put that directory ahead of installed Perl libraries. This keeps
+source modules paired with the checkout's freshly built XS extension instead
+of loading an older installed binary that may not provide the current XSUB
+API. The coverage gate also includes C<blib/arch> in its child-process
+C<PERL5LIB>, while the test suite continues loading its Perl modules from
+C<lib/>.
+
+C<Devel::Cover> is declared as a test prerequisite in the distribution
+metadata. This lets a clean release-tarball test environment run its coverage
+gate tests without an undeclared manual install. It is not an end-user runtime
+dependency.
+
 On macOS ARM64, the same workflow installs Homebrew C<openssl@3>, verifies that
 its headers and C<libssl.dylib> are present for ARM64, and exports the formula
 prefix as C<OPENSSL_PREFIX> before building C<Net::SSLeay>. This makes the
@@ -4155,12 +4268,25 @@ claim that Windows ARM64 XS code was tested. When native ARM64 Perl is
 available, the job builds the extension and runs the watcher contract test.
 The Windows x64 job compiles the same extension and runs the complete suite.
 
+Checkout dependencies are installed into C<local/lib/perl5>. The Linux Test
+and platform workflows add that directory to C<PERL5LIB> before invoking
+C<perl Makefile.PL>, because the configure-time C<File::ShareDir::Install>
+dependency is needed before MakeMaker can create C<blib>. The Windows build
+uses Perl's configured path separator when assembling the same local library
+path. A workflow regression test checks all three build paths.
+
 The Linux Test workflow also builds the XS extension before running its test
 suite. It passes C<blib/arch> and C<blib/lib> to C<prove> and exports those
 paths together with the local dependency library through C<PERL5LIB>. This is
 necessary because tests and the coverage gate launch child Perl processes;
 those processes must load the extension built by the current checkout rather
 than an older or absent installed copy.
+
+The GitHub Release workflow follows the same rule: it builds the extension
+before running the complete test suite and invokes C<prove> with C<blib/arch>
+and C<blib/lib>. Without those paths, source-tree tests could select a Perl
+fallback or an unrelated installed binary, leaving the release verification
+without evidence that the release checkout's native extension works.
 
 =head3 Library coverage
 
@@ -4179,8 +4305,12 @@ by functional tests, and extra C-file tables or diagnostics would invalidate
 the single-table report parser. The instrumented run also excludes the
 repository C<t/> tree: test files are not coverage targets, and their dynamic
 fixtures can cause Devel::Cover source-map warnings. This does not reduce
-coverage because the report is explicitly scoped to C<lib/>. A passing run exits
-with status C<0>. Run one coverage job at a time on a host.
+coverage because the report is explicitly scoped to C<lib/>. The three
+GoRoutine ithread tests (C<t/231>, C<t/237> and C<t/238>) run in a separate,
+uninstrumented C<prove> process because Devel::Cover cannot safely instrument
+ithreads. They remain mandatory tests, and a failure in either suite prevents a
+coverage verdict. A passing run exits with status C<0>. Run one coverage job at
+a time on a host.
 
 =head3 Integration and release checks
 

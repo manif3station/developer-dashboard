@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '6.18';
+our $VERSION = '6.19';
 
 use Cwd qw(abs_path);
 use File::Basename qw(basename);

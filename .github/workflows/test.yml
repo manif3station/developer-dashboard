@@ -35,6 +35,7 @@ jobs:
 
       - name: Build the Dashboard XS extension
         run: |
+          export PERL5LIB="$GITHUB_WORKSPACE/local/lib/perl5${PERL5LIB:+:$PERL5LIB}"
           perl Makefile.PL
           make
 

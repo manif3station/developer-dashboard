@@ -118,9 +118,14 @@ unlike( $readme, qr/runs\s+Test,\s*CodeQL,\s*Package\s*GHCR,\s*and\s*JS\s*Fuzz\s
                 [ sort qw(macos-26 macos-26-intel ubuntu-24.04-arm ubuntu-latest windows-latest) ],
                 'the full-suite matrix covers Linux, macOS, and Windows on x64, plus Linux and macOS arm64',
             );
-            my ($test_step) = grep { ($_->{name} // '') eq 'Run complete test suite' } @{ $job->{steps} };
-            like( $test_step->{run} || '', qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
-                'the platform job runs the complete Perl test suite with the built XS library paths' );
+            my ($unix_test_step) = grep { ($_->{name} // '') eq 'Run complete test suite (Unix)' } @{ $job->{steps} };
+            like( $unix_test_step->{run} || '', qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
+                'the Unix platform job runs the complete suite with the built XS library paths' );
+            my ($windows_test_step) = grep { ($_->{name} // '') eq 'Run complete test suite (Windows)' } @{ $job->{steps} };
+            is( $windows_test_step->{shell}, 'pwsh',
+                'the Windows complete suite runs in PowerShell rather than Git Bash' );
+            like( $windows_test_step->{run} || '', qr/perl\s+-MApp::Prove.*process_args.*-Iblib\/arch/s,
+                'the Windows complete suite uses App::Prove from the setup-perl runtime' );
             my @steps = @{ $job->{steps} };
             my %test_tools_index;
             for my $platform (qw(Unix Windows)) {
@@ -151,13 +156,17 @@ unlike( $readme, qr/runs\s+Test,\s*CodeQL,\s*Package\s*GHCR,\s*and\s*JS\s*Fuzz\s
                 like( $test_tools_run, qr/Config\{path_sep\}/,
                     "$platform joins module paths with its Perl path separator" );
             }
-            my ($test_index) = grep {
-                ($steps[$_]{name} // '') eq 'Run complete test suite'
-            } 0 .. $#steps;
-            ok( defined $test_index, 'the full-suite step exists after test-tools preparation' );
+            my %full_suite_index;
             for my $platform (qw(Unix Windows)) {
-                ok( defined $test_tools_index{$platform} && defined $test_index
-                      && $test_tools_index{$platform} < $test_index,
+                my ($index) = grep {
+                    ($steps[$_]{name} // '') eq "Run complete test suite ($platform)"
+                } 0 .. $#steps;
+                $full_suite_index{$platform} = $index if defined $index;
+                ok( defined $index, "$platform full-suite step exists after test-tools preparation" );
+            }
+            for my $platform (qw(Unix Windows)) {
+                ok( defined $test_tools_index{$platform} && defined $full_suite_index{$platform}
+                      && $test_tools_index{$platform} < $full_suite_index{$platform},
                     "$platform test tools are prepared before the full suite" );
             }
             my $benchmark_steps = join "\n", map { $_->{run} // '' } @{ $job->{steps} };
@@ -219,6 +228,11 @@ the Perl setup action does not support that runner target.
 The Windows x64 full-suite leg does not install Devel::Cover because that
 module's configure step fails on the hosted toolchain. All-metric coverage is
 instead enforced by the dedicated Linux Test workflow.
+
+The platform workflow keeps distinct Unix and Windows complete-suite steps.
+Unix uses C<prove> in Bash; Windows invokes C<App::Prove> with the setup-perl
+interpreter from PowerShell so Git Bash cannot select MSYS Perl or rewrite
+Windows library paths.
 
 =head1 WHEN TO USE
 

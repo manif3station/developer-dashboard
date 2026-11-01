@@ -3,6 +3,9 @@
 #include "XSUB.h"
 #include <string.h>
 #include "Native.h"
+#include "GoRoutineProcessNative.h"
+#include "SystemMenuNative.h"
+#include "GoRoutine012Native.h"
 
 /* Native.xs is included at the end to keep every XSUB in one boot module. */
 
@@ -211,3 +214,6 @@ _xs_escape_html_chunked(input)
     RETVAL
 
 INCLUDE: Native.xs
+INCLUDE: GoRoutine012.xs
+INCLUDE: GoRoutineProcess.xs
+INCLUDE: SystemMenu.xs

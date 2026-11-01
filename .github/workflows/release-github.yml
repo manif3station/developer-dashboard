@@ -137,9 +137,14 @@ jobs:
           cpanm --notest -L audit-local CPAN::Audit
           echo "$GITHUB_WORKSPACE/audit-local/bin" >> "$GITHUB_PATH"
 
+      - name: Build the Dashboard XS extension
+        run: |
+          perl Makefile.PL
+          make
+
       - name: Run tests
         run: |
-          prove -lr t
+          prove -Iblib/arch -Iblib/lib -lr t
 
       - name: Verify all-metric lib coverage
         run: |

@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '6.18';
+our $VERSION = '6.19';
 
 use Capture::Tiny qw(capture);
 use Errno qw(EINTR);
@@ -11,15 +11,19 @@ use File::Spec;
 use File::Temp qw(tempfile);
 use IO::Select;
 use IO::Socket::INET;
+use IO::Socket::SSL ();
 use Plack::Runner;
 use Socket qw(MSG_PEEK);
+use Time::HiRes qw(sleep time);
 
+use Developer::Dashboard::GoRoutine;
 use Developer::Dashboard::Platform qw(is_windows);
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::DancerApp;
 use Developer::Dashboard::Web::Server::Daemon;
 
 our $SSL_BACKEND_PID;
+our %SSL_BACKEND_REAPED;
 our $SSL_SHUTDOWN_REQUESTED;
 our %SSL_PREVIOUS_SIGNAL;
 
@@ -55,6 +59,7 @@ sub new {
         port                  => $port,
         workers               => $workers + 0,
         ssl                   => $ssl,
+        ssl_backend_command_builder => $args{ssl_backend_command_builder},
         ssl_subject_alt_names => $ssl_subject_alt_names,
     }, $class;
 }
@@ -199,18 +204,17 @@ sub _build_runner {
 # Output: true value when the frontend loop exits.
 sub _serve_ssl_frontend {
     my ( $self, $daemon ) = @_;
-    my $backend_pid = fork();
-    die "Unable to fork SSL backend process: $!" if !defined $backend_pid;
-
-    if ( !$backend_pid ) {
-        my $exit_code = $self->_run_ssl_backend_process($daemon);
-        exit $exit_code;
-    }
+    my $backend_command = $self->_ssl_backend_command($daemon);
+    my $backend_pid = Developer::Dashboard::GoRoutine::spawn(
+        $backend_command,
+        { process_group => 1 },
+    );
 
     my $previous_term = $SIG{TERM};
     my $previous_int  = $SIG{INT};
     my $previous_hup  = $SIG{HUP};
     local $SSL_BACKEND_PID = $backend_pid;
+    local %SSL_BACKEND_REAPED;
     local %SSL_PREVIOUS_SIGNAL = (
         TERM => $previous_term,
         INT  => $previous_int,
@@ -220,17 +224,24 @@ sub _serve_ssl_frontend {
     local $SIG{INT}  = \&_ssl_int_handler;
     local $SIG{HUP}  = \&_ssl_hup_handler;
     local $SSL_SHUTDOWN_REQUESTED = 0;
+    $self->_wait_for_ssl_backend_ready( $daemon, $backend_pid );
     my %reaped_children;
-    local $SIG{CHLD} = sub {
-        _reap_ssl_children( \%reaped_children );
-        return;
-    };
-
     my $listener = $self->_open_ssl_frontend_listener_or_die(
         daemon          => $daemon,
         backend_pid     => $backend_pid,
         reaped_children => \%reaped_children,
     );
+
+    my @client_routines;
+    share my @client_errors;
+    share my $shutdown_workers = 0;
+    my $worker_server = bless {
+        host                  => $self->{host},
+        ssl_subject_alt_names => [ @{ $self->{ssl_subject_alt_names} || [] } ],
+    }, ref($self);
+    share $worker_server;
+    my $shared_daemon = $daemon;
+    share $shared_daemon;
 
     while (1) {
         last if $SSL_SHUTDOWN_REQUESTED;
@@ -239,28 +250,92 @@ sub _serve_ssl_frontend {
             next if $! == EINTR && !$SSL_SHUTDOWN_REQUESTED;
             last;
         }
-        my $pid = fork();
-        die "Unable to fork SSL frontend connection handler: $!" if !defined $pid;
-        if ($pid) {
-            close $client;
-            next;
-        }
-
-        close $listener;
-        eval {
-            $self->_handle_ssl_frontend_client(
-                client => $client,
-                daemon => $daemon,
-            );
-        };
-        close $client;
-        exit 0;
+        my $shared_client = $client;
+        share $shared_client;
+        push @client_routines, Developer::Dashboard::GoRoutine::go(sub {
+            my $ok = eval {
+                $worker_server->_handle_ssl_frontend_client(
+                    client => $shared_client,
+                    daemon => $shared_daemon,
+                );
+                1;
+            };
+            push @client_errors, "$@" if !$ok && !$shutdown_workers;
+            close $shared_client or push @client_errors, "Unable to close SSL frontend client: $!";
+        });
+        close $client or die "Unable to release SSL frontend client in listener: $!";
     }
 
-    close $listener;
+    close $listener or die "Unable to close SSL frontend listener: $!";
+    $shutdown_workers = 1;
+    for my $routine (@client_routines) {
+        $routine->kill if $routine->is_running;
+    }
+    while ( grep { $_->is_running } @client_routines ) {
+        sleep 0.01;
+    }
+    my @routine_errors = grep { defined && $_ ne '' } @client_errors;
     _stop_ssl_backend( $backend_pid, \%reaped_children );
-    _wait_for_managed_child( $backend_pid, \%reaped_children );
+    die "SSL frontend client handler failed: $routine_errors[0]" if @routine_errors;
     return 1;
+}
+
+# _wait_for_ssl_backend_ready($daemon, $pid)
+# Waits until the isolated SSL backend completes a loopback TLS handshake or reports
+# a startup failure, preventing public requests from racing backend startup.
+# Input: daemon descriptor and GoRoutine-managed backend process identifier.
+# Output: true when the backend listener accepts a connection; dies on failure.
+sub _wait_for_ssl_backend_ready {
+    my ( $self, $daemon, $pid ) = @_;
+    my $deadline = time() + 10;
+    while ( time() < $deadline ) {
+        if ( !Developer::Dashboard::GoRoutine::process_running($pid) ) {
+            my $status = Developer::Dashboard::GoRoutine::wait_process($pid);
+            $SSL_BACKEND_REAPED{$pid} = 1;
+            die "SSL backend exited before becoming ready (status $status)";
+        }
+        my $backend = IO::Socket::SSL->new(
+            PeerAddr => $daemon->internal_sockhost,
+            PeerPort => $daemon->internal_sockport,
+            Proto    => 'tcp',
+            SSL_verify_mode => 0,
+            SSL_hostname    => 'localhost',
+            Timeout         => 1,
+        );
+        if ($backend) {
+            close $backend or die "Unable to close SSL backend readiness probe: $!";
+            return 1;
+        }
+        sleep 0.05;
+    }
+    _stop_ssl_backend($pid);
+    die 'Timed out waiting for SSL backend listener readiness';
+}
+
+# _ssl_backend_command($daemon)
+# Builds the private-helper command that runs the isolated SSL Starman backend.
+# Input: daemon descriptor with public and internal endpoints.
+# Output: argv array reference safe for GoRoutine's native process API.
+sub _ssl_backend_command {
+    my ( $self, $daemon ) = @_;
+    if ( ref( $self->{ssl_backend_command_builder} ) eq 'CODE' ) {
+        my $command = $self->{ssl_backend_command_builder}->(
+            $daemon->internal_sockhost,
+            $daemon->internal_sockport,
+            $self->{workers},
+        );
+        die 'SSL backend command builder must return an argv array reference'
+          if ref($command) ne 'ARRAY' || !@{$command};
+        return $command;
+    }
+    my $helper = $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER};
+    die 'Missing private Dashboard helper for SSL backend process' if !defined $helper || $helper eq '';
+    return [
+        $^X, $helper, 'web-ssl-backend-foreground',
+        '--host',    $daemon->internal_sockhost,
+        '--port',    $daemon->internal_sockport,
+        '--workers', $self->{workers},
+    ];
 }
 
 # _run_ssl_backend_process($daemon)
@@ -312,6 +387,10 @@ sub _handle_ssl_frontend_client {
     my ( $self, %args ) = @_;
     my $client = $args{client} || die 'Missing frontend client socket';
     my $daemon = $args{daemon} || die 'Missing daemon descriptor';
+    my $client_select = IO::Select->new($client);
+    while ( !$client_select->can_read(0.25) ) {
+        # Timed readiness waits let a GoRoutine worker observe cancellation.
+    }
     my $first = '';
     my $peeked = recv( $client, $first, 1, MSG_PEEK );
     return 1 if !defined $peeked || $first eq '';
@@ -355,7 +434,9 @@ sub _socket_looks_like_tls {
 sub _read_http_request_head {
     my ($socket) = @_;
     my $head = '';
+    my $select = IO::Select->new($socket);
     while ( length($head) < 16384 ) {
+        next if !$select->can_read(0.25);
         my $chunk = '';
         my $read = sysread( $socket, $chunk, 1024 );
         last if !defined $read || $read <= 0;
@@ -431,7 +512,9 @@ sub _http_redirect_response {
 sub _proxy_streams {
     my ( $client, $backend ) = @_;
     my $select = IO::Select->new( $client, $backend );
-    while ( my @ready = $select->can_read ) {
+    while (1) {
+        my @ready = $select->can_read(0.25);
+        next if !@ready;
         for my $source (@ready) {
             my $chunk = '';
             my $read = sysread( $source, $chunk, 8192 );
@@ -456,8 +539,11 @@ sub _proxy_streams {
 sub _stop_ssl_backend {
     my ( $pid, $reaped_children ) = @_;
     return 1 if !$pid;
-    kill 15, $pid;
-    _wait_for_managed_child( $pid, $reaped_children );
+    return 1 if $SSL_BACKEND_REAPED{$pid};
+    Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' )
+      if Developer::Dashboard::GoRoutine::process_running($pid);
+    Developer::Dashboard::GoRoutine::wait_process($pid);
+    $SSL_BACKEND_REAPED{$pid} = 1;
     return 1;
 }
 
@@ -470,8 +556,7 @@ sub _wait_for_managed_child {
     my ( $pid, $reaped_children ) = @_;
     return 1 if !$pid;
     return 1 if ref($reaped_children) eq 'HASH' && $reaped_children->{$pid};
-    my $waited = _waitpid( $pid, 0 );
-    return 1 if $waited == $pid || $waited == -1;
+    Developer::Dashboard::GoRoutine::wait_process($pid);
     return 1;
 }
 
@@ -1024,13 +1109,29 @@ and runs it under Starman through Plack::Runner.
 
 =head1 METHODS
 
-=head2 new, run, start_daemon, listening_url, serve_daemon, psgi_app, _build_runner, _default_headers, _ssl_certificate_directory, generate_self_signed_cert, get_ssl_cert_paths
+=head2 new, run, start_daemon, listening_url, serve_daemon, psgi_app, _build_runner, _serve_ssl_frontend, _ssl_backend_command, _wait_for_ssl_backend_ready, _handle_ssl_frontend_client, _default_headers, _ssl_certificate_directory, generate_self_signed_cert, get_ssl_cert_paths
 
 Construct and run the local PSGI web server with optional SSL/HTTPS support.
 
-When C<ssl => 1> is passed to new(), generates or refreshes self-signed certificates in C<~/.developer-dashboard/certs/> with SAN coverage for C<localhost>, C<127.0.0.1>, C<::1>, the concrete non-wildcard bind host, and any configured extra aliases/IPs, runs an internal HTTPS Starman backend, exposes a public frontend on the requested port, redirects plain HTTP requests on that public port to the equivalent C<https://...> URL, and proxies real HTTPS traffic through to the internal backend. The listening_url() method returns https:// when SSL is enabled.
+When C<ssl => 1> is passed to new(), generates or refreshes self-signed certificates in C<~/.developer-dashboard/certs/> with SAN coverage for C<localhost>, C<127.0.0.1>, C<::1>, the concrete non-wildcard bind host, and any configured extra aliases/IPs. It launches the internal HTTPS Starman backend as an argv-based GoRoutine-managed helper process, waits for a successful loopback TLS handshake before opening the public listener, and runs accepted client handlers as cancellable GoRoutine routines sharing their socket and minimal server state. Shutdown cancels and joins handlers, terminates and waits for the backend, and reports handler or lifecycle errors. The public frontend redirects plain HTTP requests to the equivalent C<https://...> URL and proxies TLS traffic to the internal backend. The listening_url() method returns https:// when SSL is enabled.
 
 =head1 SSL SUPPORT
+
+The public front-proxy owns the external listener. It starts the internal
+Starman server with the private C<web-ssl-backend-foreground> helper using an
+argument vector, not a shell command. The helper reconstructs the ordinary
+application and serves only on the reserved internal endpoint. Startup is not
+considered ready until a TLS handshake succeeds; premature helper exit and
+readiness timeout are reported as errors.
+
+Each accepted client socket is handed to a GoRoutine worker with shared socket,
+daemon descriptor, and minimal host/SAN state. Workers use bounded readiness
+waits so shutdown cancellation also works when a client remains idle. The
+front-end cancels and joins workers before stopping and waiting for the backend,
+and surfaces worker failures unless shutdown itself requested cancellation.
+The worker contract depends on GoRoutine's supported shared filehandle and
+reference types; it does not claim that arbitrary opaque native pointers can
+be shared.
 
 Pass C<ssl => 1> to the new() constructor to enable HTTPS:
 

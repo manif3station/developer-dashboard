@@ -162,6 +162,11 @@ path, serializer module and the exact commands before spending a slot, and
 `perl script/coverage-gate --database DIR t/some-file.t` to collect a focused
 run into a scratch database.
 
+When a MakeMaker build has created `blib/arch`, the gate puts that directory
+first in the child-process `PERL5LIB`. This makes versioned XS lookups use the
+checkout's freshly built extension instead of an older installed copy, while
+the test suite continues loading its Perl modules from `lib/`.
+
 The instrumented run excludes disposable `/tmp/` and staged
 `.developer-dashboard/` source trees and the repository `t/` tree from
 Devel::Cover collection. Tests remove the first two fixture roots before report
@@ -425,7 +430,8 @@ The test suite also covers collector loop management:
 
 The runtime-manager tests also cover:
 
-- background web startup handshake and web-state persistence
+- POSIX GoRoutine background web startup, listener-readiness persistence, and
+  timeout child termination/reaping
 - `dashboard serve` collector startup and failure handling, including explicit startup errors and cleanup of already-started loops when a later collector fails
 - disabled collector lifecycle handling, including skip-on-start, stop-if-running, and explicit rejection of named starts for collectors with `disable => 1`
 - collector watchdog supervision after startup, including automatic restart of unexpectedly-dead loops and explicit `attention_required` state after repeated crashes inside the watchdog window
@@ -644,6 +650,36 @@ For Windows-targeted changes, keep the verification layered:
 - run the real Strawberry Perl smoke on a Windows host with `integration/windows/run-strawberry-smoke.ps1`
 - when the checkout bootstrap changes, rerun that same smoke with `-UseInstallBootstrap` so the guest executes `install.ps1` through the streamed `Invoke-Expression` shape instead of only the file path
 - run the full-system QEMU guest smoke with `integration/windows/run-host-windows-smoke.sh` before making a release-grade Windows compatibility claim
+
+The cross-platform workflow installs test prerequisites from the checkout
+metadata before running `prove`. `Test::Harness` 3.48 is a test-only
+prerequisite: nested Windows test runs need its `TAP::Harness::Env` module,
+which is not guaranteed to be present in the Strawberry Perl image. It is
+declared in `cpanfile`, `Makefile.PL`, and `dist.ini`; the Windows job installs
+it into the local test library and checks that the module loads before running
+the suite. It is not an end-user runtime dependency. The workflow uses
+separate full-suite steps: Unix-like runners retain `prove` in Bash, while
+Windows uses PowerShell and invokes `App::Prove` through the Perl selected by
+the setup action. This avoids routing Windows paths through Git Bash, where
+MSYS can select or rewrite paths for a different Perl installation.
+
+`Devel::Cover` is also declared as a test prerequisite in all three metadata
+files. This is required when a release tarball runs the coverage-gate tests in
+a clean environment; it is a test-only dependency and is not installed for
+end users.
+
+Checkout dependencies are installed into `local/lib/perl5`. Before running
+`perl Makefile.PL`, the Linux Test and platform workflow build steps expose
+that directory in `PERL5LIB`; otherwise MakeMaker cannot load the configure
+prerequisite `File::ShareDir::Install` from the local install. The Windows
+PowerShell step uses the active Perl's configured path separator. The
+workflow regression test checks the Linux, Unix and Windows build paths.
+
+The GitHub Release workflow builds the Dashboard XS extension before running
+the full test suite, then passes `blib/arch` and `blib/lib` to `prove`. This
+keeps release verification aligned with the platform and Linux Test workflows:
+tests exercise the extension built from the release checkout rather than
+silently relying on the Perl fallback or an installed binary.
 
 The Strawberry smoke verifies `dashboard shell ps`, `dashboard ps1`, one
 PowerShell-backed collector command, one saved Ajax handler through

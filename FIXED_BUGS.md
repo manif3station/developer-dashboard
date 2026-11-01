@@ -1,5 +1,50 @@
 # Fixed Bugs
 
+## 6.19
+
+- Preserve GoRoutine shared regular expressions as compiled `REGEXP` values
+  with inline modifiers, and resolve named `FORMAT` references in each
+  interpreter. Docker regression tests cover parent and worker materialization.
+- Use GoRoutine's platform-aware interpreter clone flags so Windows Perl builds
+  that expose `CLONEf_CLONE_HOST` receive the expected host-clone semantics;
+  the optional flag remains guarded for Perl builds that do not define it.
+  Docker regression coverage verifies the clone call, guard, and worker control
+  behavior.
+- Replace deprecated Ubuntu GTK tray APIs with Ayatana AppIndicator3 and
+  compile the native helper with deprecated-declaration diagnostics treated
+  as errors. Add focused Docker coverage for the API and build contract.
+- Integrate the GoRoutine 0.04 shared-data contract into the Developer
+  Dashboard XS extension. `share` supports nested hashes and arrays, scalar
+  references, aliased and cyclic graphs, and ordinary blessed Perl-data
+  objects while keeping normal dereferencing and object methods available.
+  Docker tests cover concurrent updates across the shared graph.
+- Integrate the GoRoutine 0.06 unsupported-reference diagnostic contract.
+  Shared graph errors identify the actual Perl reference type, and the Docker
+  regression test verifies that a rejected code reference is reported as
+  `CODE` rather than as an undifferentiated unsupported value.
+- Fix the Windows x64 platform workflow failure where nested test runs could
+  not load `TAP::Harness::Env`. Declare `Test::Harness` 3.48 as a test-only
+  prerequisite in `cpanfile`, `Makefile.PL`, and `dist.ini`; install it in the
+  Windows workflow's local test environment and verify the module is loadable.
+  It is not part of runtime installation. Invoke `App::Prove` using the
+  workflow-selected Perl under PowerShell; keep the Unix suite in Bash so
+  Windows does not use Git Bash's MSYS Perl or path conversion.
+- Declare `Devel::Cover` as a test prerequisite so clean tarball installs can
+  execute coverage-gate tests. Make the coverage gate put the checkout's
+  `blib/arch` before installed Perl libraries in child `PERL5LIB`, ensuring
+  versioned XS loads use the current build rather than a stale installed copy.
+- Build the Dashboard XS extension in the GitHub Release workflow before its
+  test run and pass `blib/arch` and `blib/lib` to `prove`, so release checks
+  validate the extension produced by the release checkout.
+- Fix checkout-based Linux and cross-platform CI builds that install
+  `File::ShareDir::Install` into `local/lib/perl5` but run `perl Makefile.PL`
+  without exposing that directory. The Unix and Windows workflow build steps
+  now set `PERL5LIB` before MakeMaker, and a regression test covers each path.
+- Keep a checkout's built `blib/arch` ahead of installed Perl libraries in
+  dashboard child environments. Without that ordering, an older
+  `Dashboard.so` in the active Perl's site library could load successfully but
+  lack the GoRoutine XSUBs required by the current source module.
+
 ## 6.18
 
 - Keep the all-metric coverage report warning-free by excluding `t/` test

@@ -14,6 +14,11 @@
 use strict;
 use warnings;
 
+use Config ();
+use Cwd ();
+use File::Spec ();
+use FindBin qw($RealBin);
+
 # BEFORE anything tries to load Devel::Cover. The product's dependencies live in
 # the operator's local library tree, and PERL5LIB is exported only by the
 # interactive shell profile - so cron, transient systemd units and agent
@@ -28,26 +33,31 @@ use warnings;
 # typed as three shell lines can set the library path on one and omit it from the
 # next, leaving the reader unable to parse what the writer just wrote.
 BEGIN {
+    my $repository = Cwd::abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
+    my $blib_arch = defined $repository
+      ? File::Spec->catdir( $repository, 'blib', 'arch' )
+      : undef;
     my $home = $ENV{HOME};
-    if ( defined $home && length $home ) {
-        my $local_lib = "$home/perl5/lib/perl5";
-        if ( -d $local_lib ) {
-            my $current = $ENV{PERL5LIB};
-            if ( !defined $current || !grep { $_ eq $local_lib } split /:/, $current ) {
-                $ENV{PERL5LIB} = defined $current && length $current ? "$local_lib:$current" : $local_lib;
-            }
-            unshift @INC, $local_lib if !grep { $_ eq $local_lib } @INC;
-        }
+    my $local_lib = defined $home && length $home ? "$home/perl5/lib/perl5" : undef;
+    my @leading_paths = grep { defined $_ && -d $_ } ( $blib_arch, $local_lib );
+    my $path_sep = $Config::Config{path_sep} || ':';
+    my %seen;
+    my @perl5lib = grep { length $_ && !$seen{$_}++ } (
+        @leading_paths,
+        split( /\Q$path_sep\E/, $ENV{PERL5LIB} // q{} ),
+    );
+    $ENV{PERL5LIB} = join $path_sep, @perl5lib if @perl5lib;
+
+    for my $path ( reverse @leading_paths ) {
+        unshift @INC, $path if !grep { $_ eq $path } @INC;
     }
 }
 
 use Capture::Tiny qw(capture);
-use Cwd ();
 use Digest::SHA qw(sha256_hex);
 use Fcntl qw(:flock);
 use File::Find ();
-use File::Basename qw(dirname);
-use File::Spec;
+use File::Basename qw(basename dirname);
 use Getopt::Long qw(GetOptions);
 
 use constant EXIT_CLEAN    => 0;
@@ -272,6 +282,17 @@ sub main {
 
     chdir $repository or return _unusable("cannot enter the repository root $repository: $!");
 
+    my @test_files = _expand_test_paths(@tests);
+    my %native_thread_tests = map { $_ => 1 } qw(
+        231-goroutine-integration.t
+        237-goroutine-shared-objects.t
+        238-goroutine-routine-controls.t
+    );
+    my @native_thread_tests = grep { $native_thread_tests{ basename($_) } } @test_files;
+    my @instrumented_tests = grep { !$native_thread_tests{ basename($_) } } @test_files;
+    return _unusable('no instrumentable test files remain after separating native-thread tests')
+        if !@instrumented_tests;
+
     my $instrument = _instrument_module();
     return _unusable(
         'Devel::Cover::DB::IO could not be loaded, so this chain could neither write nor read a '
@@ -323,7 +344,8 @@ sub main {
     return $stamp_failure if defined $stamp_failure;
 
     my @delete = ( 'cover', $database, '-delete' );
-    my @suite  = ( 'prove', '-lr', @tests );
+    my @suite  = ( 'prove', '-l', @instrumented_tests );
+    my @native_thread_suite = @native_thread_tests ? ( 'prove', '-l', @native_thread_tests ) : ();
     my @report = (
         'cover', $database, '-report', 'text', '-select_re', '^lib/', '-gcov', '0',
         '-coverage', 'statement',
@@ -332,7 +354,7 @@ sub main {
         '-coverage', 'subroutine',
     );
 
-    _announce( $instrument, $database, \@delete, \@suite, \@report );
+    _announce( $instrument, $database, \@delete, \@suite, \@native_thread_suite, \@report );
     return EXIT_CLEAN if $dry_run;
 
     # Taken after the dry run returns, so describing the chain never blocks on a
@@ -358,16 +380,22 @@ sub main {
         = "-MDevel::Cover=-db,$database,-blib,0,+ignore,^/tmp/,\\.developer-dashboard/,/t/";
     my $ran = _run( 'instrumented suite', @suite );
 
-    my $after = _grading_identity();
-    if ( $before ne $after ) {
-        print "coverage gate: refusing to report - the code being graded changed while the suite ran\n";
-        print "coverage gate: t/ or lib/ is not what it was at the start, so this run describes no single "
-            . "state of the tree and its number would be unsafe to trust\n";
-        print "coverage gate: rerun it on a tree nobody is moving\n";
-        return EXIT_MOVED;
+    if ( $ran != EXIT_CLEAN ) {
+        return _grading_identity() eq $before ? $ran : _tree_moved();
     }
 
-    return $ran if $ran != EXIT_CLEAN;
+    if (@native_thread_suite) {
+        {
+            local $ENV{HARNESS_PERL_SWITCHES};
+            delete $ENV{HARNESS_PERL_SWITCHES};
+            $ran = _run( 'native-thread suite', @native_thread_suite );
+        }
+        if ( $ran != EXIT_CLEAN ) {
+            return _grading_identity() eq $before ? $ran : _tree_moved();
+        }
+    }
+
+    return _tree_moved() if _grading_identity() ne $before;
 
     my ( $stdout, $stderr, $status ) = capture {
         system(@report);
@@ -377,6 +405,49 @@ sub main {
         if $status != 0;
 
     return _judge( $checker, $database, $stdout . $stderr );
+}
+
+# Purpose: expand requested test files and directories into an explicit stable
+#          list so selected ithread tests can run outside Devel::Cover.
+# Input: one or more test file or directory paths.
+# Output: test file paths in request order, with each directory's files sorted.
+sub _expand_test_paths {
+    my (@requested) = @_;
+    my @expanded;
+
+    for my $path (@requested) {
+        if ( !-d $path ) {
+            push @expanded, $path;
+            next;
+        }
+
+        my @found;
+        File::Find::find(
+            {
+                no_chdir => 1,
+                wanted   => sub {
+                    my $candidate = $File::Find::name;
+                    push @found, $candidate if -f $candidate && $candidate =~ /\.t\z/;
+                },
+            },
+            $path,
+        );
+        push @expanded, sort @found;
+    }
+
+    return @expanded;
+}
+
+# Purpose: emit the standard refusal when grading inputs changed during either
+#          test suite, so a coverage number cannot describe a moving tree.
+# Input: none.
+# Output: EXIT_MOVED after writing a visible diagnostic.
+sub _tree_moved {
+    print "coverage gate: refusing to report - the code being graded changed while the suite ran\n";
+    print "coverage gate: t/ or lib/ is not what it was at the start, so this run describes no single "
+        . "state of the tree and its number would be unsafe to trust\n";
+    print "coverage gate: rerun it on a tree nobody is moving\n";
+    return EXIT_MOVED;
 }
 
 # Purpose: fingerprint Perl source and tests so the gate can refuse a result
@@ -576,7 +647,7 @@ sub _slurp_stamp {
 # Input: the resolved instrument path, the database, and the three command lists.
 # Output: nothing; writes to standard output.
 sub _announce {
-    my ( $instrument, $database, $delete, $suite, $report ) = @_;
+    my ( $instrument, $database, $delete, $suite, $native_thread_suite, $report ) = @_;
 
     print "coverage gate: one environment for the whole chain\n";
     printf "coverage gate:   perl        : %s\n",       $^X;
@@ -588,7 +659,8 @@ sub _announce {
     # a --dry-run inspection (DD-744).
     printf "coverage gate:   database    : %s\n",       File::Spec->rel2abs($database);
     printf "coverage gate:   drop        : %s\n", join ' ', @{$delete};
-    printf "coverage gate:   suite       : %s\n", join ' ', @{$suite};
+    printf "coverage gate:   instrumented suite: %s\n", join ' ', @{$suite};
+    printf "coverage gate:   native-thread suite: %s\n", @{$native_thread_suite} ? join ' ', @{$native_thread_suite} : '(none)';
     printf "coverage gate:   report      : %s\n", join ' ', @{$report};
 
     return;
@@ -684,12 +756,13 @@ Runs the whole four-metric coverage gate as one process, so every command in the
 chain inherits one environment:
 
   1. drop the coverage database
-  2. run the instrumented suite (default: the whole t/ tree)
-  3. collect the lib/ report for statement, branch, condition and subroutine
-  4. enforce 100.0 on all four through script/check-all-metric-coverage
+  2. run ordinary tests under Devel::Cover
+  3. run GoRoutine's three ithread tests without the unsupported coverage hook
+  4. collect the lib/ report for statement, branch, condition and subroutine
+  5. enforce 100.0 on all four through script/check-all-metric-coverage
 
   --database DIR  use DIR as the coverage database (default: cover_db)
-  --dry-run       print the resolved environment and the three commands, run none
+  --dry-run       print the resolved environment and each command, run none
   --help          print this text
 
 Exit status: 0 all four metrics at 100.0, 1 a genuine shortfall, 2 the gate could
@@ -707,9 +780,10 @@ coverage-gate - run the whole four-metric coverage gate inside one environment
 =head1 WHAT IT IS
 
 The canonical entrypoint for the repository coverage gate. It drops the coverage
-database, runs the instrumented test suite, collects the C<lib/> report for
-statement, branch, condition and subroutine coverage, and enforces 100.0 on all
-four through C<script/check-all-metric-coverage>.
+database, runs ordinary tests under Devel::Cover, runs the three GoRoutine
+ithread tests separately without that unsupported hook, collects the C<lib/>
+report for statement, branch, condition and subroutine coverage, and enforces
+100.0 on all four through C<script/check-all-metric-coverage>.
 
 =head1 WHAT IT IS FOR
 
@@ -759,10 +833,17 @@ so a copy running from a scratch directory is unaffected.
 
 The resolved database is reported as an ABSOLUTE path. The configured name is
 relative and therefore identical whichever tree it lands in, which is precisely
-why a C<--dry-run> inspection could not tell two trees apart. Give it test paths
-to narrow the instrumented run, C<--database> to keep the database somewhere
-other than C<cover_db>, and C<--dry-run> to see the resolved environment and the
-exact commands before spending a suite slot.
+why a C<--dry-run> inspection could not tell two trees apart. The default C<t/>
+directory is expanded to an explicit sorted list. The three GoRoutine ithread
+tests are excluded from the instrumented invocation and run in a second
+C<prove> process because Devel::Cover cannot instrument ithreads safely. That
+invocation uses C<-l> to load checkout modules alongside built XS libraries
+from C<PERL5LIB>. They remain mandatory functional tests; a failure in either suite prevents report
+generation. A request containing only those three tests is refused because it
+cannot produce a meaningful library coverage report. Give it test paths to
+narrow the run, C<--database> to keep the database somewhere other than
+C<cover_db>, and C<--dry-run> to see the resolved environment and every command
+before spending a suite slot.
 
 The reader identity stamp is stored in a hidden sibling file next to the
 database, never inside C<cover_db>, because Devel::Cover treats unknown files

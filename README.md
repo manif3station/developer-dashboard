@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.18
+6.19
 
 # INTRODUCTION
 
@@ -173,6 +173,16 @@ older `podlators` releases are vulnerable to CPU and memory exhaustion when
 formatting deeply nested POD (CVE-2026-82560). The minimum is declared in
 `cpanfile`, `Makefile.PL`, and `dist.ini`, and regression tests keep the
 three dependency sources aligned.
+
+The cross-platform test workflow also declares `Test::Harness` 3.48 as a
+test-only prerequisite. Its `TAP::Harness::Env` module is needed by nested
+Windows test runs and is not guaranteed to be present in Strawberry Perl, so
+the Windows job installs and verifies it in the local test environment. This
+does not add `Test::Harness` to end-user runtime installation. The workflow
+uses separate full-suite steps: Unix-like runners retain `prove` in Bash,
+while Windows uses PowerShell and invokes `App::Prove` through the
+workflow-selected Perl. This avoids Git Bash selecting or rewriting paths for
+a different Perl installation.
 
 Or install from a checkout with:
 
@@ -1363,6 +1373,11 @@ by real path identity instead of raw string spelling.
 The runtime manager follows the older local-service pattern:
 
 - `dashboard serve` starts the web service in the background by default
+- On POSIX, background web startup launches the private `web-foreground`
+helper through GoRoutine's shell-free process API. The runtime records the
+listener only after the configured port accepts connections; if readiness
+times out, it terminates and reaps the child and reports its exit status and
+log paths.
 - `dashboard serve` starts the configured collector loops alongside the web
 service, so a plain serve keeps collectors and the web runtime under the same
 lifecycle action
@@ -1374,6 +1389,10 @@ configured `web.ssl_subject_alt_names`, regenerates older dashboard certs when
 they are stale, redirects non-HTTPS requests to the matching `https://...`
 URL, and reuses the saved SSL setting on later `dashboard restart` runs unless
 you override it
+- In SSL mode, the public frontend starts `web-ssl-backend-foreground` with
+GoRoutine's shell-free OS-process API. Accepted client sockets are handled by
+GoRoutine routines using the 0.12 shared filehandle support; shutdown stops
+and waits for the backend process and drains client routine errors explicitly.
 - `dashboard serve --no-editor` and `dashboard serve --no-endit` keep the
 browser in read-only mode by hiding Share, Play, and View Source chrome,
 denying `/app/<id>/edit`, `/app/<id>/source`, and
@@ -2494,6 +2513,23 @@ render failures are explicit collector errors: the collector `stderr` records
 the template problem and the indicator stays red instead of silently falling
 back.
 
+### System menu indicator configuration
+
+`Developer::Dashboard::SystemMenu->items_for_platform` projects
+configured indicator names and their current icons for the `macos`,
+`windows`, or `ubuntu` selector. Each platform selector is opt-in; a missing
+or false value disables that item. Invalid values for any supported selector
+are rejected even when the current host is another platform. The projection
+preserves configuration order and does not start a native menu. The native
+System::Menu adapter starts the platform helper in a controlled GoRoutine
+worker and forwards configured items and state changes. On Ubuntu, the helper
+uses Ayatana AppIndicator3 and a GTK menu; rendered status icons are kept in a
+private temporary icon-theme directory and removed when the helper shuts down.
+Building from source requires the Ayatana AppIndicator3 and GTK3 development
+packages; runtime requires a desktop session with AppIndicator support. The
+helper reports a clear error when no desktop session is available. Source and
+compile tests do not prove that a desktop shell visibly displayed the menu.
+
 If optional watcher setup fails and watcher shutdown also fails, the dispatcher
 reports the close failure even when that watcher has no `last_error` method.
 
@@ -3323,6 +3359,64 @@ See ["Layered
 Env Files"](#layered-env-files) for the `.env`-file-native `# include <skill.path>`
 directive this method mirrors.
 
+## Native concurrent work and shared Perl data
+
+`Developer::Dashboard::GoRoutine` provides a distribution-owned XS API for
+native worker callbacks, shared Perl data, and explicit child-process
+supervision. It is part of the Developer Dashboard Perl namespace; callers do
+not need to install or load a separate GoRoutine distribution.
+
+Use `go` to run a Perl callback on a native worker and `wait_all` when the
+parent needs a completion barrier. Workers execute in cloned Perl interpreters.
+On Windows, cloning also requests the host-clone flag when the active Perl
+headers provide it, while retaining the pointer table needed to map callbacks.
+The process-wide worker count is drained during normal interpreter shutdown,
+and callback exceptions are reported as Perl warnings rather than silently
+discarded.
+
+The GoRoutine 0.04 contract adds graph-based sharing through `share`; it is
+distinct from the GoRoutine 0.05 routine-control API. GoRoutine 0.05 makes
+`go` return a `Developer::Dashboard::GoRoutine::Routine` handle with
+`is_running`, `age`, `status`, `kill`, `timeout`, and `is_killed`
+methods. Timeouts can be replaced or disabled with zero, and Perl `exit`
+inside a worker ends that worker rather than the parent process. Cancellation
+is cooperative at Perl opcode boundaries. POSIX workers can also be woken from
+blocking waits, but an opaque native or system call is not forcibly terminated;
+use `spawn` when an independently terminable process is required.
+
+`share` makes an object graph visible across the parent and worker
+interpreters. Supported values are scalars, hashes, arrays, nested combinations,
+scalar references, and ordinary blessed objects whose data is held by those
+Perl reference types. The API preserves aliases, cycles, blessing, normal
+dereferencing, and methods that operate on shared Perl data. Perl Unicode string
+semantics are preserved across the XS boundary. Compiled regular expressions
+are shared as pattern text and reconstructed as native `REGEXP` references,
+including inline modifiers. Named format references are shared as fully
+qualified symbol names and resolved as native `FORMAT` references in each
+interpreter. Scalar updates and hash/array structural operations are protected
+by a native lock. References to
+opaque interpreter or library resources, including code references, file or
+socket handles, and objects backed by native pointers, are not supported as
+shared data.
+
+For example:
+
+    use Developer::Dashboard::GoRoutine;
+
+    share my $state = { completed => 0, results => [] };
+    go sub {
+        $state->{completed}++;
+        push $state->{results}->@*, { ok => 1 };
+    } for 1 .. 4;
+    wait_all();
+
+`spawn`, `process_running`, `wait_process`, and `terminate_process` are a
+separate API for OS child processes. `spawn` takes an executable argument
+vector and optional working-directory and standard-stream paths; it does not
+invoke a shell. Use it where a distinct process ID, process isolation, or
+child-process lifecycle is required. Worker threads are not substitutes for
+those process semantics.
+
 # MAINTAINER GUIDE
 
 Build, change, and verify the project using these contributor notes.
@@ -3363,6 +3457,19 @@ the complete suite. Coverage-gate regression tests launch child Perl processes,
 so those processes must resolve the same coverage serializer and project
 dependencies as the parent test process.
 
+When a MakeMaker build has created `blib/arch`, dashboard-managed Perl
+environments put that directory ahead of installed Perl libraries. This keeps
+source modules paired with the checkout's freshly built XS extension instead
+of loading an older installed binary that may not provide the current XSUB
+API. The coverage gate also includes `blib/arch` in its child-process
+`PERL5LIB`, while the test suite continues loading its Perl modules from
+`lib/`.
+
+`Devel::Cover` is declared as a test prerequisite in the distribution
+metadata. This lets a clean release-tarball test environment run its coverage
+gate tests without an undeclared manual install. It is not an end-user runtime
+dependency.
+
 On macOS ARM64, the same workflow installs Homebrew `openssl@3`, verifies that
 its headers and `libssl.dylib` are present for ARM64, and exports the formula
 prefix as `OPENSSL_PREFIX` before building `Net::SSLeay`. This makes the
@@ -3381,12 +3488,25 @@ claim that Windows ARM64 XS code was tested. When native ARM64 Perl is
 available, the job builds the extension and runs the watcher contract test.
 The Windows x64 job compiles the same extension and runs the complete suite.
 
+Checkout dependencies are installed into `local/lib/perl5`. The Linux Test
+and platform workflows add that directory to `PERL5LIB` before invoking
+`perl Makefile.PL`, because the configure-time `File::ShareDir::Install`
+dependency is needed before MakeMaker can create `blib`. The Windows build
+uses Perl's configured path separator when assembling the same local library
+path. A workflow regression test checks all three build paths.
+
 The Linux Test workflow also builds the XS extension before running its test
 suite. It passes `blib/arch` and `blib/lib` to `prove` and exports those
 paths together with the local dependency library through `PERL5LIB`. This is
 necessary because tests and the coverage gate launch child Perl processes;
 those processes must load the extension built by the current checkout rather
 than an older or absent installed copy.
+
+The GitHub Release workflow follows the same rule: it builds the extension
+before running the complete test suite and invokes `prove` with `blib/arch`
+and `blib/lib`. Without those paths, source-tree tests could select a Perl
+fallback or an unrelated installed binary, leaving the release verification
+without evidence that the release checkout's native extension works.
 
 ### Library coverage
 
@@ -3405,8 +3525,12 @@ by functional tests, and extra C-file tables or diagnostics would invalidate
 the single-table report parser. The instrumented run also excludes the
 repository `t/` tree: test files are not coverage targets, and their dynamic
 fixtures can cause Devel::Cover source-map warnings. This does not reduce
-coverage because the report is explicitly scoped to `lib/`. A passing run exits
-with status `0`. Run one coverage job at a time on a host.
+coverage because the report is explicitly scoped to `lib/`. The three
+GoRoutine ithread tests (`t/231`, `t/237` and `t/238`) run in a separate,
+uninstrumented `prove` process because Devel::Cover cannot safely instrument
+ithreads. They remain mandatory tests, and a failure in either suite prevents a
+coverage verdict. A passing run exits with status `0`. Run one coverage job at
+a time on a host.
 
 ### Integration and release checks
 

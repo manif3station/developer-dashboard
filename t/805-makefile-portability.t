@@ -93,7 +93,11 @@ unlink File::Spec->catfile( $fixture_local_lib, 'PortabilityProbe.pm' )
 my ( $profile_stdout, $profile_stderr, $profile_exit ) = do {
     local $ENV{HOME};
     local $ENV{USERPROFILE} = $profile_home;
+    local $ENV{PERL5LIB};
     delete $ENV{HOME};
+    # Exercise USERPROFILE fallback itself, not the test runner's inherited
+    # module path, which intentionally suppresses local-lib discovery.
+    delete $ENV{PERL5LIB};
     my $original_dir = getcwd();
     chdir $fixture or die "Unable to enter Makefile fixture for USERPROFILE check: $!";
     my @captured = capture {

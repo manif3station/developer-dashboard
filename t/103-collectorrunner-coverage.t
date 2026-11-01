@@ -22,6 +22,7 @@ use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::GoRoutine ();
 
 # ---------------------------------------------------------------------------
 # Hermetic runtime rooted in a throwaway HOME. The config root resolves from
@@ -760,36 +761,21 @@ is_deeply( [ $runner->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '
     }
 }
 
-# _spawn_windows_background_command: missing PowerShell, non-zero exit, and pid parse.
-like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? '' : $@ ), qr/powershell is unavailable/, '_spawn_windows_background_command dies when PowerShell is unavailable' );
+# _spawn_windows_background_command: native spawn failure and PID validation.
 {
-    no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_powershell_command = sub { return undef };
-    like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? '' : $@ ), qr/powershell is unavailable/, '_spawn_windows_background_command dies when PowerShell resolves to undef' );
+    no warnings qw(redefine once);
+    local *Developer::Dashboard::GoRoutine::spawn = sub { die "native spawn failed\n" };
+    like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? '' : $@ ), qr/native spawn failed/, '_spawn_windows_background_command exposes native spawn errors' );
 }
 {
-    no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_powershell_command = sub { return 'pwsh' };
-    local *Developer::Dashboard::CollectorRunner::capture             = sub { return ( 'boom', 'err', 1 ) };
-    like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? '' : $@ ), qr/Unable to launch detached Windows collector process/, '_spawn_windows_background_command dies on a non-zero PowerShell exit' );
+    no warnings qw(redefine once);
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return undef };
+    like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? '' : $@ ), qr/Unable to launch detached collector process/, '_spawn_windows_background_command rejects a missing process id' );
 }
 {
-    no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_powershell_command = sub { return 'pwsh' };
-    local *Developer::Dashboard::CollectorRunner::capture             = sub { return ( "42\nabc\n0\n", '', 0 ) };
-    is( $runner->_spawn_windows_background_command( 'perl', 'x' ), 42, '_spawn_windows_background_command parses the first positive numeric pid from stdout' );
-}
-{
-    no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_powershell_command = sub { return 'pwsh' };
-    local *Developer::Dashboard::CollectorRunner::capture             = sub { return ( '', '', 0 ) };
-    is( $runner->_spawn_windows_background_command( 'perl', 'x' ), undef, '_spawn_windows_background_command returns undef when stdout carries no pid' );
-}
-{
-    no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_powershell_command = sub { return 'pwsh' };
-    local *Developer::Dashboard::CollectorRunner::capture             = sub { return ( "0\n", '', 0 ) };
-    is( $runner->_spawn_windows_background_command( 'perl', 'x' ), undef, '_spawn_windows_background_command rejects a zero pid' );
+    no warnings qw(redefine once);
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 4242 };
+    is( $runner->_spawn_windows_background_command( 'perl', 'x' ), 4242, '_spawn_windows_background_command returns the native process id' );
 }
 
 # ===========================================================================
@@ -1152,34 +1138,38 @@ like( ( eval { $runner->_run_code( source => '1', cwd => File::Spec->catdir( $ho
 }
 
 # ===========================================================================
-# start_loop: name guard, fork failure, pidfile-open failure, and the parent
-# branch (mocked fork) with matching and differing configured intervals.
+# start_loop: name guard, GoRoutine process-launch failure, pidfile-open failure,
+# and returned process identifiers with matching and differing intervals.
 # ===========================================================================
 like( ( eval { $runner->start_loop( {} ); 1 } ? '' : $@ ), qr/missing name/, 'start_loop requires a collector name' );
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_fork_process = sub { return undef };
-    like( ( eval { $runner->start_loop( { name => 'forkfail.loop', command => 'sleep 1', cwd => $home, interval => 5 } ); 1 } ? '' : $@ ), qr/Unable to fork/, 'start_loop dies when fork fails' );
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return undef };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return undef };
+    like( ( eval { $runner->start_loop( { name => 'forkfail.loop', command => 'sleep 1', cwd => $home, interval => 5 } ); 1 } ? '' : $@ ), qr/Unable to launch detached collector process/, 'start_loop dies when GoRoutine cannot launch the collector process' );
 }
 {
     my $dir_pidfile = $runner->_pidfile('pidfiledir.loop');
     make_path($dir_pidfile);
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_fork_process = sub { return 4242 };
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return undef };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 4242 };
     like( ( eval { $runner->start_loop( { name => 'pidfiledir.loop', command => 'sleep 1', cwd => $home, interval => 5 } ); 1 } ? '' : $@ ), qr/Unable to write/, 'start_loop dies when the pidfile cannot be written' );
 }
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_fork_process = sub { return 515151 };
-    is( $runner->start_loop( { name => 'parent.matching.loop', command => 'sleep 1', cwd => $home, interval => 5 } ), 515151, 'start_loop returns the (mocked) child pid in the parent branch' );
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return undef };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 515151 };
+    is( $runner->start_loop( { name => 'parent.matching.loop', command => 'sleep 1', cwd => $home, interval => 5 } ), 515151, 'start_loop returns the GoRoutine process identifier' );
     my $state = $runner->loop_state('parent.matching.loop');
     ok( !exists $state->{configured_interval}, 'start_loop omits configured_interval when the effective interval matches' );
     $runner->_cleanup_loop_files('parent.matching.loop');
 }
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_fork_process = sub { return 525252 };
-    is( $runner->start_loop( { name => 'parent.floored.loop', command => 'dashboard status', cwd => $home, interval => 1 } ), 525252, 'start_loop returns the (mocked) child pid for a floored dashboard collector' );
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return undef };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 525252 };
+    is( $runner->start_loop( { name => 'parent.floored.loop', command => 'dashboard status', cwd => $home, interval => 1 } ), 525252, 'start_loop returns the GoRoutine process identifier for a floored dashboard collector' );
     is( $runner->loop_state('parent.floored.loop')->{configured_interval}, 1, 'start_loop records configured_interval when the effective interval is floored' );
     $runner->_cleanup_loop_files('parent.floored.loop');
 }
@@ -1216,7 +1206,8 @@ like( ( eval { $runner->start_loop( {} ); 1 } ? '' : $@ ), qr/missing name/, 'st
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::_is_managed_loop            = sub { return 0 };
     local *Developer::Dashboard::CollectorRunner::_state_confirms_managed_loop = sub { return 0 };
-    local *Developer::Dashboard::CollectorRunner::_fork_process               = sub { return 636363 };
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop           = sub { return undef };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 636363 };
     is( $runner->start_loop( { name => $name, command => 'sleep 1', cwd => $home, interval => 5 } ), 636363, 'start_loop replaces a stale pidfile and starts a new loop' );
     $runner->_cleanup_loop_files($name);
 }
@@ -1226,7 +1217,8 @@ like( ( eval { $runner->start_loop( {} ); 1 } ? '' : $@ ), qr/missing name/, 'st
     print {$fh} "0\n";
     close $fh;
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_fork_process = sub { return 646464 };
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return undef };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 646464 };
     is( $runner->start_loop( { name => $name, command => 'sleep 1', cwd => $home, interval => 5 } ), 646464, 'start_loop discards a falsy recorded pid and starts a new loop' );
     $runner->_cleanup_loop_files($name);
 }
@@ -1493,7 +1485,7 @@ like( ( eval { $runner->_run_loop_child( job => {} ); 1 } ? '' : $@ ), qr/Missin
 }
 
 # ===========================================================================
-# _start_loop_worker (Windows spawn + fork failure) and _run_loop_worker
+# _start_loop_worker (GoRoutine spawn failure) and _run_loop_worker
 # (setsid guard and the error-branch loop-state write).
 # ===========================================================================
 {
@@ -1507,8 +1499,8 @@ like( ( eval { $runner->_run_loop_child( job => {} ); 1 } ? '' : $@ ), qr/Missin
 }
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_fork_process = sub { return undef };
-    like( ( eval { $runner->_start_loop_worker( { command => 'true' }, 'forkworker', 'title' ); 1 } ? '' : $@ ), qr/Unable to fork collector worker/, '_start_loop_worker dies when the worker fork fails' );
+    local *Developer::Dashboard::CollectorRunner::_spawn_windows_background_command = sub { die "Unable to launch detached collector process\n" };
+    like( ( eval { $runner->_start_loop_worker( { command => 'true' }, 'spawnfail.worker', 'title' ); 1 } ? '' : $@ ), qr/Unable to launch detached collector process/, '_start_loop_worker reports a GoRoutine worker launch failure' );
 }
 
 # _run_loop_worker error branch (run_once dies) with a supplied loop pid/title/schedule.

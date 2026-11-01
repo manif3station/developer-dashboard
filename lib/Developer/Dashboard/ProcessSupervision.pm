@@ -3,11 +3,12 @@ package Developer::Dashboard::ProcessSupervision;
 use strict;
 use warnings;
 
-our $VERSION = '6.18';
+our $VERSION = '6.19';
 
 use Exporter 'import';
 
 use Capture::Tiny qw(capture);
+use Cwd qw(getcwd);
 use File::Spec;
 use Time::HiRes qw(sleep);
 
@@ -19,6 +20,11 @@ use Time::HiRes qw(sleep);
 use POSIX ();
 
 use Developer::Dashboard::Platform qw(command_in_path is_windows);
+
+# Capture the directory in which Perl loaded its process helpers. Relative
+# @INC entries remain relative after chdir, but a fresh child would resolve
+# them against its new cwd rather than the location that loaded this runtime.
+our $PERL_LIBRARY_BASE = getcwd();
 
 # These are exported into the consuming package rather than called as functions,
 # so every existing call site stays `$self->_helper(...)` unchanged. Perl resolves
@@ -34,10 +40,10 @@ use Developer::Dashboard::Platform qw(command_in_path is_windows);
 # silently change the other module - against a test suite that would stay green,
 # because each version satisfies its own module's tests.
 our @EXPORT_OK = qw(
+    _perl_library_args
     _current_perl_command
     _dashboard_core_helper_path
     _descriptor_is_inherited_pipe
-    _fork_process
     _open_file_descriptors
     _overwrite_state_file_in_place
     _pid_is_running
@@ -85,14 +91,6 @@ sub _pid_is_running {
     return 0 if $self->_reap_child_process($pid);
     return 0 if ( $self->_read_process_state($pid) || '' ) eq 'Z';
     return $self->_process_exists($pid) ? 1 : 0;
-}
-
-# _fork_process()
-# Wraps Perl fork so tests can drive parent and child runtime paths directly.
-# Input: none.
-# Output: child pid in the parent, zero in the child, or undef on failure.
-sub _fork_process {
-    return fork();
 }
 
 # _replace_state_file($source, $target)
@@ -232,6 +230,24 @@ sub _current_perl_command {
     return command_in_path('perl')     if command_in_path('perl');
     return command_in_path('perl.exe') if command_in_path('perl.exe');
     return $^X;
+}
+
+# _perl_library_args()
+# Builds literal Perl -I arguments for string-valued entries in the current
+# interpreter's @INC, preserving its active module search path in native child
+# processes that cannot inherit in-memory use lib changes. Relative entries are
+# made absolute against the directory that loaded this helper.
+# Input: none; reads the current interpreter's @INC.
+# Output: list of -I<path> argument strings; reference hooks are omitted because
+#         they are not filesystem paths and cannot be passed to another Perl.
+sub _perl_library_args {
+    my ($self) = @_;
+    my $base = $PERL_LIBRARY_BASE || getcwd();
+    return map {
+        my $path = $_;
+        $path = File::Spec->rel2abs( $path, $base ) if !File::Spec->file_name_is_absolute($path);
+        "-I$path";
+    } grep { defined && !ref && length } @INC;
 }
 
 # _powershell_command()

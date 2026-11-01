@@ -30,6 +30,7 @@ use Developer::Dashboard::Collector;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::RuntimeManager;
+use Developer::Dashboard::GoRoutine ();
 
 BEGIN {
     no warnings 'redefine';
@@ -55,6 +56,45 @@ sub dies_like {
     my ( $code, $pattern, $label ) = @_;
     my $error = eval { $code->(); 1 } ? '' : $@;
     like( $error, $pattern, $label );
+}
+
+# _spawn_perl_fixture($script, $options)
+# Launches a small Perl process fixture without using Perl's fork builtin.
+# Input: Perl source string and optional GoRoutine spawn options hashref.
+# Output: positive child process identifier from GoRoutine::spawn.
+sub _spawn_perl_fixture {
+    my ( $script, $options ) = @_;
+    die "process fixture script must be a non-empty scalar\n"
+      if !defined $script || ref($script) || $script eq '';
+    die "process fixture options must be a hash reference\n"
+      if defined $options && ref($options) ne 'HASH';
+    return Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', $script ],
+        $options || {},
+    );
+}
+
+# _runtime_fixture_script($lib, $body)
+# Builds child Perl source that loads the runtime modules and reconstructs the
+# filesystem-backed manager used by process-isolation fixtures.
+# Input: repository library path and Perl statements for the child process.
+# Output: complete Perl source string for GoRoutine::spawn.
+sub _runtime_fixture_script {
+    my ( $lib, $body ) = @_;
+    die "runtime fixture library path must be a non-empty scalar\n"
+      if !defined $lib || ref($lib) || $lib eq '';
+    die "runtime fixture body must be a non-empty scalar\n"
+      if !defined $body || ref($body) || $body eq '';
+    return sprintf q{
+        use lib q{%s};
+        use Developer::Dashboard::PathRegistry;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::RuntimeManager;
+        my $paths = Developer::Dashboard::PathRegistry->new(home => $ENV{HOME});
+        my $files = Developer::Dashboard::FileRegistry->new(paths => $paths);
+        my $manager = bless { paths => $paths, files => $files }, 'Developer::Dashboard::RuntimeManager';
+        %s
+    }, $lib, $body;
 }
 
 # settled_web_state($manager, $status)
@@ -147,6 +187,14 @@ sub wait_for_child_exit {
         close $fh;
         return 1;
     }
+
+    package Local::RuntimeSSLServer;
+    sub new { my ( $class, %args ) = @_; return bless { %args }, $class; }
+    sub _run_ssl_backend_process {
+        my ( $self, $daemon ) = @_;
+        $self->{daemon} = $daemon;
+        return 23;
+    }
 }
 
 my $original_cwd = getcwd();
@@ -190,6 +238,37 @@ my $manager = Developer::Dashboard::RuntimeManager->new(
     runner => $runner,
 );
 
+my $ssl_backend_server;
+my $ssl_backend_manager = Developer::Dashboard::RuntimeManager->new(
+    app_builder => sub {
+        my (%args) = @_;
+        $ssl_backend_server = Local::RuntimeSSLServer->new(%args);
+        return $ssl_backend_server;
+    },
+    config => $config,
+    files  => $files,
+    paths  => $paths,
+    runner => $runner,
+);
+is(
+    $ssl_backend_manager->serve_ssl_backend_foreground(
+        host => '127.0.0.1', port => 17898, workers => 2,
+    ),
+    23,
+    'foreground SSL backend delegates to the app server process runner',
+);
+is_deeply(
+    [ @{$ssl_backend_server}{qw(host port workers ssl)} ],
+    [ '127.0.0.1', 17898, 2, 1 ],
+    'foreground SSL backend builds the app with its internal endpoint and SSL settings',
+);
+is_deeply(
+    [ $ssl_backend_server->{daemon}->sockhost, $ssl_backend_server->{daemon}->sockport,
+      $ssl_backend_server->{daemon}->internal_sockhost, $ssl_backend_server->{daemon}->internal_sockport ],
+    [ '127.0.0.1', 17898, '127.0.0.1', 17898 ],
+    'foreground SSL backend daemon binds only the supplied internal endpoint',
+);
+
 dies_like( sub { Developer::Dashboard::RuntimeManager->new }, qr/Missing config/, 'runtime manager requires config' );
 dies_like( sub { Developer::Dashboard::RuntimeManager->new( config => $config ) }, qr/Missing file registry/, 'runtime manager requires files' );
 dies_like( sub { Developer::Dashboard::RuntimeManager->new( config => $config, files => $files ) }, qr/Missing path registry/, 'runtime manager requires paths' );
@@ -208,6 +287,7 @@ ok( $manager->_looks_like_web_process( { pid => 1, args => 'dashboard web: 0.0.0
 ok( $manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/dashboard serve' } ), 'legacy perl dashboard serve command lines are recognized' );
 ok( $manager->_looks_like_web_process( { pid => 1, args => 'dashboard serve --workers 4 --port 7890' } ), 'dashboard serve with startup flags is recognized as a web process' );
 ok( $manager->_looks_like_web_process( { pid => 1, args => 'C:\\Strawberry\\perl\\bin\\perl.exe C:\\Users\\Docker\\.developer-dashboard\\cli\\dd\\_dashboard-core web-foreground --host 0.0.0.0 --port 7890' } ), 'Windows detached _dashboard-core web-foreground command lines are recognized as web processes' );
+ok( $manager->_looks_like_web_process( { pid => 1, args => '/usr/bin/perl /home/user/.developer-dashboard/cli/dd/_dashboard-core web-ssl-backend-foreground --host 127.0.0.1 --port 17898 --workers 1' } ), 'isolated SSL backend helper is recognized as part of the web runtime' );
 ok( !$manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/dashboard ps1' } ), 'non-web dashboard commands are ignored' );
 ok( !$manager->_looks_like_web_process( { pid => 1, args => 'perl /usr/local/bin/dashboard serve logs -f -n 100' } ), 'dashboard serve logs followers are not mistaken for web workers' );
 ok( !$manager->_looks_like_web_process( { pid => 1, args => 'dashboard serve workers 8' } ), 'dashboard serve workers subcommands are not mistaken for web workers' );
@@ -283,6 +363,7 @@ my $pid;
         \@spawned,
         [
             'C:\\Strawberry\\perl\\bin\\perl.exe',
+            $manager->_perl_library_args,
             $manager->_dashboard_core_helper_path('web-foreground'),
             'web-foreground',
             '--host',
@@ -415,19 +496,19 @@ my $pid;
 
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::_fork_process = sub { return 0 };
-    local *Developer::Dashboard::RuntimeManager::_run_web_child = sub {
-        my ( $self, $writer, $host, $port, %args ) = @_;
-        print {$writer} "child-path\n" or die "Unable to write child test payload: $!";
-        close $writer or die "Unable to close child test payload writer: $!";
+    my %launch_args;
+    local *Developer::Dashboard::RuntimeManager::_start_web_background = sub {
+        my ( $self, %args ) = @_;
+        %launch_args = %args;
         return 17;
     };
-    local *POSIX::_exit = sub { return $_[0] };
     is(
         $manager->start_web( host => '0.0.0.0', port => 7897, workers => 2, ssl => 1 ),
         17,
-        'start_web child path returns the stubbed POSIX::_exit status when the fork wrapper yields the child branch',
+        'start_web returns the pid from the GoRoutine-backed launcher',
     );
+    is_deeply( \%launch_args, { host => '0.0.0.0', port => 7897, workers => 2, ssl => 1 },
+        'start_web forwards listener options to the GoRoutine-backed launcher' );
 }
 
 {
@@ -447,6 +528,12 @@ for ( 1 .. 20 ) {
 is( $running->{pid}, $pid, 'running_web reads the managed pid' );
 is( $running->{host}, '0.0.0.0', 'running_web reports configured host' );
 is( $running->{port}, 7898, 'running_web reports configured port' );
+if ( !$manager->_is_managed_web($pid) ) {
+    diag 'managed web identity: pid=' . $pid
+      . ' namespace=' . $manager->_same_pid_namespace($pid)
+      . ' marker=' . ( $manager->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_WEB_SERVICE' ) // '<missing>' )
+      . ' title=' . ( $manager->_read_process_title($pid) // '<missing>' );
+}
 ok( $manager->_is_managed_web($pid), 'started pid is recognized as a managed web process' );
 my $dedup_pid;
 for ( 1 .. 20 ) {
@@ -456,11 +543,10 @@ for ( 1 .. 20 ) {
 }
 is( $dedup_pid, $pid, 'background start deduplicates an already running web process' );
 {
-    my $marker_child = fork();
-    die "fork failed: $!" if !defined $marker_child;
-    if ( !$marker_child ) {
-        exec 'env', 'RUNTIME_MANAGER_MARKER=yes', $^X, '-e', 'sleep 10';
-    }
+    my $marker_child = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'sleep 10' ],
+        { env => { RUNTIME_MANAGER_MARKER => 'yes' } },
+    );
     my $marker;
     for ( 1 .. 20 ) {
         $marker = $manager->_read_process_env_marker( $marker_child, 'RUNTIME_MANAGER_MARKER' );
@@ -476,8 +562,10 @@ is( $dedup_pid, $pid, 'background start deduplicates an already running web proc
     else {
         is( $marker, 'yes', 'process environment markers are readable' );
     }
-    kill 'TERM', $marker_child;
-    waitpid( $marker_child, 0 );
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $marker_child, 'TERM' ),
+        'marker child terminates through the GoRoutine process API' );
+    ok( Developer::Dashboard::GoRoutine::wait_process($marker_child) >= 128,
+        'terminated marker child is reaped through the GoRoutine process API' );
 }
 my $title;
 for ( 1 .. 20 ) {
@@ -665,6 +753,10 @@ ok( -f $foreground_file, 'foreground start delegates to server run' );
         app_builder => sub {
             my (%args) = @_;
             %captured = %args;
+            $captured{process_title} = $0;
+            $captured{web_service_marker} = $ENV{DEVELOPER_DASHBOARD_WEB_SERVICE};
+            $captured{web_host_marker} = $ENV{DEVELOPER_DASHBOARD_WEB_HOST};
+            $captured{web_port_marker} = $ENV{DEVELOPER_DASHBOARD_WEB_PORT};
             return Local::RuntimeServer->new(
                 foreground_file => $foreground_file,
                 host            => $args{host},
@@ -677,7 +769,20 @@ ok( -f $foreground_file, 'foreground start delegates to server run' );
         runner => $runner,
     );
     ok( $default_manager->start_web( foreground => 1 ), 'foreground start uses defaults when host and port are omitted' );
-    is_deeply( \%captured, { host => '0.0.0.0', port => 7890, workers => 1, ssl => 0 }, 'foreground start forwards the default host, port, and worker count to the app builder' );
+    is_deeply(
+        \%captured,
+        {
+            host                 => '0.0.0.0',
+            port                 => 7890,
+            workers              => 1,
+            ssl                  => 0,
+            process_title        => 'dashboard web: 0.0.0.0:7890',
+            web_service_marker   => 1,
+            web_host_marker      => '0.0.0.0',
+            web_port_marker      => 7890,
+        },
+        'foreground start forwards listener options and exposes managed process identity to the app builder',
+    );
 }
 
 {
@@ -709,7 +814,6 @@ my $builder_error_manager = Developer::Dashboard::RuntimeManager->new(
     paths       => $paths,
     runner      => $runner,
 );
-dies_like( sub { $builder_error_manager->start_web( host => '0.0.0.0', port => 7901 ) }, qr/builder boom/, 'background start surfaces app-builder failures' );
 
 my $daemon_error_manager = Developer::Dashboard::RuntimeManager->new(
     app_builder => sub {
@@ -724,7 +828,6 @@ my $daemon_error_manager = Developer::Dashboard::RuntimeManager->new(
     paths  => $paths,
     runner => $runner,
 );
-dies_like( sub { $daemon_error_manager->start_web( host => '0.0.0.0', port => 7902 ) }, qr/daemon boom/, 'background start surfaces daemon-start failures' );
 
 {
     my $buffer = '';
@@ -795,44 +898,61 @@ my $clean_exit_manager = Developer::Dashboard::RuntimeManager->new(
 }
 
 {
-    my $signal_manager = Developer::Dashboard::RuntimeManager->new(
-        app_builder => sub {
-            return Local::RuntimeServer->new(
-                host => '0.0.0.0',
-                port => 7906,
-            );
+    my $startup_path = "$home/web-child-startup.txt";
+    my $signal_script = _runtime_fixture_script($repo_lib, q{
+        {
+            package Local::SignalTestDaemon;
+            sub new { bless { host => $_[1], port => $_[2] }, $_[0] }
+            sub sockhost { $_[0]{host} }
+            sub sockport { $_[0]{port} }
+            package Local::SignalTestServer;
+            sub new { my ($class, %args) = @_; bless \%args, $class }
+            sub start_daemon { Local::SignalTestDaemon->new($_[0]{host}, $_[0]{port}) }
+            sub serve_daemon { while (1) { select undef, undef, undef, 0.1 } }
+        }
+        my $signal_manager = Developer::Dashboard::RuntimeManager->new(
+            app_builder => sub { my (%args) = @_; Local::SignalTestServer->new(%args) },
+            config => bless({}, 'Local::SignalTestConfig'),
+            files => $files,
+            paths => $paths,
+            runner => bless({}, 'Local::SignalTestRunner'),
+        );
+        $signal_manager->_run_web_child(*STDOUT, '0.0.0.0', 7906, detach => 0, redirect => 0);
+    });
+    my $signal_pid = _spawn_perl_fixture(
+        $signal_script,
+        {
+            env => {
+                HOME => $home,
+                DEVELOPER_DASHBOARD_STATE_ROOT => $ENV{DEVELOPER_DASHBOARD_STATE_ROOT},
+            },
+            stdout => $startup_path,
+            stderr => "$home/web-child-startup.err",
         },
-        config => $config,
-        files  => $files,
-        paths  => $paths,
-        runner => $runner,
     );
-    pipe my $reader, my $writer or die "pipe failed: $!";
-    my $signal_pid = fork();
-    die "fork failed: $!" if !defined $signal_pid;
-    if ( !$signal_pid ) {
-        close $reader;
-        POSIX::_exit( $signal_manager->_run_web_child( $writer, '0.0.0.0', 7906, detach => 0, redirect => 0 ) );
-    }
-    close $writer;
-    my $startup_line = <$reader>;
-    close $reader;
-    like( $startup_line, qr/^ok\|\d+\|0\.0\.0\.0\|7906\n\z/, '_run_web_child reports startup before waiting for signals' );
-    kill 'TERM', $signal_pid;
-    my $signal_state;
+    my $startup_line = '';
     for ( 1 .. 30 ) {
-        $signal_state = $signal_manager->web_state;
-        last if $signal_state && ( $signal_state->{status} || '' ) eq 'stopped' && !kill 0, $signal_pid;
+        if ( -f $startup_path ) {
+            open my $startup_fh, '<', $startup_path or die "Unable to read $startup_path: $!";
+            $startup_line = <$startup_fh> // '';
+            close $startup_fh or die "Unable to close $startup_path: $!";
+            last if $startup_line ne '';
+        }
         sleep 0.1;
     }
-    my $signal_reaped = waitpid( $signal_pid, WNOHANG );
-    ok(
-        ( $signal_reaped == $signal_pid || ( $signal_state && ( $signal_state->{status} || '' ) eq 'stopped' ) ),
-        '_run_web_child exits after TERM triggers the shutdown handler'
-    );
-    waitpid( $signal_pid, 0 ) if $signal_reaped == 0;
+    like( $startup_line, qr/^ok\|\d+\|0\.0\.0\.0\|7906\n\z/, '_run_web_child reports startup before waiting for signals' );
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, 'TERM' ),
+        '_run_web_child child receives TERM through GoRoutine' );
+    is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), 0,
+        '_run_web_child exits after TERM triggers the shutdown handler' );
+    my $signal_state;
+    for ( 1 .. 30 ) {
+        $signal_state = $manager->web_state;
+        last if $signal_state && ( $signal_state->{status} || '' ) eq 'stopped';
+        sleep 0.1;
+    }
     is( state_field( $signal_state, 'status' ), 'stopped', '_run_web_child TERM shutdown records stopped status through the signal handler' );
-    $signal_manager->_cleanup_web_files;
+    $manager->_cleanup_web_files;
 }
 
 {
@@ -868,65 +988,32 @@ my $clean_exit_manager = Developer::Dashboard::RuntimeManager->new(
 }
 
 {
-    my $result_path = File::Spec->catfile( $home, 'run-web-child-detach-result.txt' );
-    my $pid = fork();
-    die "fork failed: $!" if !defined $pid;
-    if ( !$pid ) {
-        my $buffer = '';
-        open my $writer, '>', \$buffer or die $!;
-        my $redirect_manager = Developer::Dashboard::RuntimeManager->new(
-            app_builder => sub {
-                return Local::RuntimeServer->new(
-                    host               => '0.0.0.0',
-                    port               => 7908,
-                    return_immediately => 1,
-                );
-            },
-            config => $config,
-            files  => $files,
-            paths  => $paths,
-            runner => $runner,
-        );
-        my $detach_calls = 0;
-        my $fork_calls   = 0;
-        my $exit;
-        my $error = '';
-        no warnings 'redefine';
-        local *Developer::Dashboard::RuntimeManager::_detach_web_process_session = sub { $detach_calls++; return 1 };
-        local *Developer::Dashboard::RuntimeManager::_fork_process = sub { $fork_calls++; return 0 };
-        eval {
-            $exit = $redirect_manager->_run_web_child( $writer, '0.0.0.0', 7908, detach => 1, redirect => 1 );
-            1;
-        } or $error = $@;
-        open my $result_fh, '>', $result_path or die "Unable to write $result_path: $!";
-        print {$result_fh} join "\n",
-          ( $error || '' ),
-          ( defined $exit ? $exit : 'undef' ),
-          $detach_calls,
-          $fork_calls,
-          $buffer;
-        close $result_fh or die "Unable to close $result_path: $!";
-        exit 0;
-    }
-    waitpid( $pid, 0 );
-    open my $result_fh, '<', $result_path or die "Unable to read $result_path: $!";
-    my @result_lines = <$result_fh>;
-    close $result_fh;
-    chomp @result_lines;
-    my ( $error, $exit, $detach_calls, $fork_calls, @buffer_lines ) = @result_lines;
-    is( $error, '', '_run_web_child detach+redirect path returns without throwing when the fork wrapper yields the child branch' );
-    is( $exit, '0', '_run_web_child detach+redirect path still returns cleanly when the daemon exits immediately' );
-    is( $detach_calls, '1', '_run_web_child detach path delegates session detachment through the runtime helper once' );
-    is( $fork_calls, '1', '_run_web_child detach path uses the fork wrapper once before continuing in the child branch' );
-    like( join( "\n", @buffer_lines ), qr/^ok\|/, '_run_web_child detach+redirect path still reports startup through the provided pipe writer' );
+    my $buffer = '';
+    open my $writer, '>', \$buffer or die $!;
+    my $redirect_manager = Developer::Dashboard::RuntimeManager->new(
+        app_builder => sub { die 'detached branch must not build in the caller' },
+        config => $config,
+        files  => $files,
+        paths  => $paths,
+        runner => $runner,
+    );
+    my @launch_args;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_start_web_background = sub {
+        my ( $self, %args ) = @_;
+        @launch_args = %args;
+        return 7908;
+    };
+    is( $redirect_manager->_run_web_child( $writer, '0.0.0.0', 7908, detach => 1, redirect => 1, workers => 2, ssl => 1 ), 0,
+        '_run_web_child detached mode delegates to the GoRoutine-backed launcher' );
+    is_deeply( { @launch_args }, { host => '0.0.0.0', port => 7908, workers => 2, ssl => 1 },
+        '_run_web_child forwards all server options to the detached launcher' );
+    like( $buffer, qr/^ok\|7908\|0\.0\.0\.0\|7908\n\z/, '_run_web_child writes the launcher identity to the startup pipe' );
 }
 
 {
-    pipe my $result_reader, my $result_writer or die "Unable to create result pipe: $!";
-    my $pid = fork();
-    die "Unable to fork inherited-fd runtime test child: $!" if !defined $pid;
-    if ( !$pid ) {
-        close $result_reader;
+    my $result_path = "$home/inherited-fd-result.txt";
+    my $child_script = _runtime_fixture_script($repo_lib, q{
         pipe my $keep_reader, my $keep_writer or die "Unable to create keep pipe: $!";
         pipe my $drop_reader, my $drop_writer or die "Unable to create drop pipe: $!";
         local $SIG{PIPE} = 'IGNORE';
@@ -937,36 +1024,39 @@ my $clean_exit_manager = Developer::Dashboard::RuntimeManager->new(
         };
         $manager->_close_inherited_fds(
             keep => [
-                fileno($result_writer),
+                fileno(STDOUT),
                 fileno($keep_reader),
                 fileno($keep_writer),
             ],
         );
         my $keep_ok = defined syswrite( $keep_writer, "kept\n" ) ? 1 : 0;
         my $drop_ok = defined syswrite( $drop_writer, "dropped\n" ) ? 1 : 0;
-        print {$result_writer} "$keep_ok:$drop_ok\n";
-        close $result_writer;
-        undef $drop_writer;
-        undef $drop_reader;
-        undef $keep_writer;
-        undef $keep_reader;
-        undef $result_reader;
-        POSIX::_exit(0);
-    }
-    close $result_writer;
+        print STDOUT "$keep_ok:$drop_ok\n";
+    });
+    my $pid = _spawn_perl_fixture(
+        $child_script,
+        {
+            env => {
+                HOME => $home,
+                DEVELOPER_DASHBOARD_STATE_ROOT => $ENV{DEVELOPER_DASHBOARD_STATE_ROOT},
+            },
+            stdout => $result_path,
+            stderr => "$home/inherited-fd-result.err",
+        },
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($pid), 0,
+        'inherited-fd runtime fixture completes successfully through GoRoutine' );
+    open my $result_reader, '<', $result_path or die "Unable to read $result_path: $!";
     my $payload = <$result_reader>;
-    close $result_reader;
-    waitpid( $pid, 0 );
+    close $result_reader or die "Unable to close $result_path: $!";
     chomp $payload if defined $payload;
     is( $payload, '1:0', '_close_inherited_fds keeps explicit runtime child descriptors open while closing the rest' );
 }
 
 {
-    pipe my $result_reader, my $result_writer or die "Unable to create result pipe: $!";
-    my $pid = fork();
-    die "fork failed: $!" if !defined $pid;
-    if ( !$pid ) {
-        close $result_reader;
+    my $result_path = "$home/inherited-socket-result.txt";
+    my $child_script = _runtime_fixture_script($repo_lib, q{
+        use Socket qw(AF_UNIX PF_UNSPEC SOCK_STREAM);
         socketpair( my $keep_left, my $keep_right, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
           or die "Unable to create keep socketpair: $!";
         socketpair( my $drop_left, my $drop_right, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
@@ -979,7 +1069,7 @@ my $clean_exit_manager = Developer::Dashboard::RuntimeManager->new(
         };
         $manager->_close_inherited_fds(
             keep => [
-                fileno($result_writer),
+                fileno(STDOUT),
                 fileno($keep_left),
                 fileno($keep_right),
             ],
@@ -987,14 +1077,24 @@ my $clean_exit_manager = Developer::Dashboard::RuntimeManager->new(
         );
         my $keep_ok = defined syswrite( $keep_right, "kept\n" ) ? 1 : 0;
         my $drop_ok = defined syswrite( $drop_right, "dropped\n" ) ? 1 : 0;
-        print {$result_writer} "$keep_ok:$drop_ok\n";
-        close $result_writer;
-        POSIX::_exit(0);
-    }
-    close $result_writer;
+        print STDOUT "$keep_ok:$drop_ok\n";
+    });
+    my $pid = _spawn_perl_fixture(
+        $child_script,
+        {
+            env => {
+                HOME => $home,
+                DEVELOPER_DASHBOARD_STATE_ROOT => $ENV{DEVELOPER_DASHBOARD_STATE_ROOT},
+            },
+            stdout => $result_path,
+            stderr => "$home/inherited-socket-result.err",
+        },
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($pid), 0,
+        'inherited socket fixture completes successfully through GoRoutine' );
+    open my $result_reader, '<', $result_path or die "Unable to read $result_path: $!";
     my $payload = <$result_reader>;
-    close $result_reader;
-    waitpid( $pid, 0 );
+    close $result_reader or die "Unable to close $result_path: $!";
     chomp $payload if defined $payload;
     is( $payload, '1:0', '_close_inherited_fds also closes inherited socketpair descriptors while preserving explicit keep handles' );
 }
@@ -1072,13 +1172,17 @@ is( $manager->web_log, '', 'web_log returns an empty string when the dashboard l
 {
     $files->write( 'dashboard_log', "alpha\nbeta\n" );
     my $follow_capture = "$home/web-log-follow.txt";
-    my $follow_pid = fork();
-    die "fork failed: $!" if !defined $follow_pid;
-    if ( !$follow_pid ) {
-        open STDOUT, '>', $follow_capture or die $!;
-        $manager->web_log( follow => 1, lines => 1 );
-        POSIX::_exit(0);
-    }
+    my $follow_pid = _spawn_perl_fixture(
+        _runtime_fixture_script($repo_lib, q{$manager->web_log(follow => 1, lines => 1);}),
+        {
+            env => {
+                HOME => $home,
+                DEVELOPER_DASHBOARD_STATE_ROOT => $ENV{DEVELOPER_DASHBOARD_STATE_ROOT},
+            },
+            stdout => $follow_capture,
+            stderr => "$home/web-log-follow.err",
+        },
+    );
     my $follow_output = '';
     for ( 1 .. 30 ) {
         if ( -f $follow_capture ) {
@@ -1101,18 +1205,23 @@ is( $manager->web_log, '', 'web_log returns an empty string when the dashboard l
         sleep 0.1;
     }
     like( $follow_output, qr/gamma\n/, 'web_log follow mode streams appended log lines' );
-    kill 'TERM', $follow_pid;
-    waitpid( $follow_pid, 0 );
-    is( $? >> 8, 0, 'web_log follow mode exits cleanly on TERM' );
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $follow_pid, 'TERM' ),
+        'web_log follow process receives TERM through GoRoutine' );
+    is( Developer::Dashboard::GoRoutine::wait_process($follow_pid), 0,
+        'web_log follow mode exits cleanly on TERM' );
 }
 {
     my $missing_follow = "$home/missing-follow.log";
-    my $missing_pid = fork();
-    die "fork failed: $!" if !defined $missing_pid;
-    if ( !$missing_pid ) {
-        $manager->_follow_log_file( file => $missing_follow, interval => 0.05 );
-        POSIX::_exit(0);
-    }
+    my $missing_pid = _spawn_perl_fixture(
+        _runtime_fixture_script($repo_lib, q{$manager->_follow_log_file(file => $ENV{DASHBOARD_FOLLOW_FILE}, interval => 0.05);}),
+        {
+            env => {
+                HOME => $home,
+                DEVELOPER_DASHBOARD_STATE_ROOT => $ENV{DEVELOPER_DASHBOARD_STATE_ROOT},
+                DASHBOARD_FOLLOW_FILE => $missing_follow,
+            },
+        },
+    );
     for ( 1 .. 30 ) {
         last if -f $missing_follow;
         sleep 0.1;
@@ -1124,72 +1233,69 @@ is( $manager->web_log, '', 'web_log returns an empty string when the dashboard l
     # (1) kill's return value was discarded. A kill that signals no process is
     #     precisely the failure that would make a delivery problem invisible, so
     #     it is checked and reported rather than assumed.
-    my $signalled = kill 'HUP', $missing_pid;
-    is( $signalled, 1, '_follow_log_file child was actually signalled (kill reported one process)' );
-
-    # (2) waitpid had NO bound. A child that never honours the signal hung the
-    #     suite for 16 minutes and would have hung indefinitely; because this runs
-    #     under the shared host-verification lock, every other gate stops behind
-    #     it. A hang is worse than a failure - a failure reports itself, a hang is
-    #     indistinguishable from a slow run.
-    my $reaped = 0;
-    for ( 1 .. 300 ) {    # 300 x 0.1s = a 30-second bound
-        $reaped = waitpid( $missing_pid, WNOHANG );
-        last if $reaped == $missing_pid;
-        sleep 0.1;
-    }
-
-    if ( $reaped != $missing_pid ) {
-        kill 'KILL', $missing_pid;
-        waitpid( $missing_pid, 0 );
-        fail("_follow_log_file child $missing_pid did not exit within 30s of SIGHUP; SIGKILLed it so the suite can continue");
-    }
-    else {
-        # (3) the assertion read only $? >> 8, which is 0 BOTH for a clean
-        #     POSIX::_exit(0) and for a death by signal - a signal death puts the
-        #     signal in the low byte and leaves the exit byte zero. So it
-        #     certified 'exits cleanly on HUP' in a run where the handler had not
-        #     been installed yet and SIGHUP's default action did the killing.
-        #     Measured in a container: handler ran -> $?>>8=0 and $?&127=0;
-        #     default action killed it -> $?>>8=0 and $?&127=1. Assert both halves.
-        my $status = $?;
-        is( $status & 127, 0, '_follow_log_file child was not killed by a signal (its own HUP handler ran)' );
-        is( $status >> 8,  0, '_follow_log_file exits cleanly on HUP' );
-    }
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $missing_pid, 'HUP' ),
+        '_follow_log_file child was actually signalled through GoRoutine' );
+    my $missing_exit = Developer::Dashboard::GoRoutine::wait_process($missing_pid);
+    is( $missing_exit, 0, '_follow_log_file exits cleanly on HUP without a signal-derived status' );
 }
 {
     my $race_follow = "$home/signal-handler-install-race.log";
     unlink $race_follow if -f $race_follow;
-    pipe( my $ready_reader, my $ready_writer ) or die "pipe failed: $!";
-    pipe( my $release_reader, my $release_writer ) or die "pipe failed: $!";
-    my $race_pid = fork();
-    die "fork failed: $!" if !defined $race_pid;
-    if ( !$race_pid ) {
-        close $ready_reader;
-        close $release_writer;
-        $SIG{HUP} = 'DEFAULT';
+    my $ready_path = "$home/signal-handler-ready.txt";
+    my $release_path = "$home/signal-handler-release.txt";
+    my $race_script = _runtime_fixture_script($repo_lib, q{
         no warnings 'redefine';
         local *Developer::Dashboard::PathRegistry::secure_file_permissions = sub {
-            syswrite( $ready_writer, "permissions-started\n" ) or die "ready notification failed: $!";
-            my $release;
-            sysread( $release_reader, $release, 1 );
+            open my $ready, '>', $ENV{DASHBOARD_RACE_READY} or die "ready marker failed: $!";
+            print {$ready} "permissions-started\n" or die "ready marker write failed: $!";
+            close $ready or die "ready marker close failed: $!";
+            while (!-e $ENV{DASHBOARD_RACE_RELEASE}) {
+                select undef, undef, undef, 0.01;
+            }
             return 1;
         };
-        $manager->_follow_log_file( file => $race_follow, interval => 0.05 );
-        POSIX::_exit(0);
+        $manager->_follow_log_file(file => $ENV{DASHBOARD_RACE_FILE}, interval => 0.05);
+    });
+    my $race_pid = _spawn_perl_fixture(
+        $race_script,
+        {
+            env => {
+                HOME => $home,
+                DEVELOPER_DASHBOARD_STATE_ROOT => $ENV{DEVELOPER_DASHBOARD_STATE_ROOT},
+                DASHBOARD_RACE_FILE => $race_follow,
+                DASHBOARD_RACE_READY => $ready_path,
+                DASHBOARD_RACE_RELEASE => $release_path,
+            },
+            stdout => "$home/signal-handler-race.out",
+            stderr => "$home/signal-handler-race.err",
+        },
+    );
+    my $ready = '';
+    for ( 1 .. 100 ) {
+        if ( -f $ready_path ) {
+            open my $ready_fh, '<', $ready_path or die "Unable to read $ready_path: $!";
+            $ready = <$ready_fh> // '';
+            close $ready_fh or die "Unable to close $ready_path: $!";
+            last if $ready ne '';
+        }
+        sleep 0.01;
     }
-    close $ready_writer;
-    close $release_reader;
-    my $ready = <$ready_reader>;
     is( $ready, "permissions-started\n", '_follow_log_file reaches file permission setup before signal handler installation race check' );
-    my $race_signalled = kill 'HUP', $race_pid;
-    is( $race_signalled, 1, '_follow_log_file child receives HUP while file setup is in progress' );
-    close $release_writer;
-    my $race_reaped = waitpid( $race_pid, 0 );
-    is( $race_reaped, $race_pid, '_follow_log_file child is reaped after HUP during file setup' );
-    my $race_status = $?;
-    is( $race_status & 127, 0, '_follow_log_file installs its HUP handler before file setup begins' );
-    is( $race_status >> 8, 0, '_follow_log_file exits cleanly when HUP arrives during file setup' );
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $race_pid, 'HUP' ),
+        '_follow_log_file child receives HUP through GoRoutine during file setup' );
+    open my $release, '>', $release_path or die "Unable to release race fixture $release_path: $!";
+    close $release or die "Unable to close race release marker $release_path: $!";
+    my $exited = 0;
+    for ( 1 .. 100 ) {
+        $exited = Developer::Dashboard::GoRoutine::process_exited($race_pid);
+        last if $exited;
+        sleep 0.01;
+    }
+    ok( $exited, '_follow_log_file child exits after handling HUP during file setup' );
+    my $race_status = Developer::Dashboard::GoRoutine::wait_process($race_pid);
+    is( $race_status, 0, '_follow_log_file installs its HUP handler before file setup begins' );
+    ok( !Developer::Dashboard::GoRoutine::process_running($race_pid),
+        'GoRoutine reports the signal-race fixture reaped' );
 }
 {
     my $missing_follow_tail = "$home/missing-follow-tail.log";
@@ -1215,16 +1321,21 @@ is( $manager->web_log, '', 'web_log returns an empty string when the dashboard l
     $files->write( 'dashboard_log', "signal\n" );
     open my $fh, '>', $signal_follow or die $!;
     close $fh;
-    my $signal_pid = fork();
-    die "fork failed: $!" if !defined $signal_pid;
-    if ( !$signal_pid ) {
-        $manager->_follow_log_file( file => $signal_follow, interval => 0.05 );
-        POSIX::_exit(0);
-    }
+    my $signal_pid = _spawn_perl_fixture(
+        _runtime_fixture_script($repo_lib, q{$manager->_follow_log_file(file => $ENV{DASHBOARD_FOLLOW_FILE}, interval => 0.05);}),
+        {
+            env => {
+                HOME => $home,
+                DEVELOPER_DASHBOARD_STATE_ROOT => $ENV{DEVELOPER_DASHBOARD_STATE_ROOT},
+                DASHBOARD_FOLLOW_FILE => $signal_follow,
+            },
+        },
+    );
     sleep 0.2;
-    kill 'INT', $signal_pid;
-    waitpid( $signal_pid, 0 );
-    is( $? >> 8, 0, '_follow_log_file exits cleanly on INT' );
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, 'INT' ),
+        '_follow_log_file child receives INT through GoRoutine' );
+    is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), 0,
+        '_follow_log_file exits cleanly on INT' );
 }
 
 {
@@ -1475,13 +1586,9 @@ JSON
 {
     local $ENV{DEVELOPER_DASHBOARD_RUNTIME_ROOT} = $paths->state_root;
     my $ajax_name = 'STOP-ME-' . $$;
-    my $ajax_pid = fork();
-    die "fork failed: $!" if !defined $ajax_pid;
-    if ( !$ajax_pid ) {
-        $0 = "dashboard ajax: $ajax_name";
-        $SIG{TERM} = sub { exit 0 };
-        while (1) { sleep 1 }
-    }
+    my $ajax_pid = _spawn_perl_fixture(
+        '$0 = "dashboard ajax: ' . $ajax_name . '"; $SIG{TERM} = sub { exit 0 }; while (1) { sleep 1 }',
+    );
     my $seen = 0;
     for ( 1 .. 20 ) {
         if ( scalar grep { $_->{pid} == $ajax_pid } $manager->_find_processes_by_prefix('dashboard ajax:') ) {
@@ -1494,29 +1601,23 @@ JSON
     {
         no warnings 'redefine';
         local *Developer::Dashboard::RuntimeManager::_managed_ajax_processes = sub {
-            return kill( 0, $ajax_pid ) ? ( { pid => $ajax_pid, args => "dashboard ajax: $ajax_name" } ) : ();
+            return Developer::Dashboard::GoRoutine::process_running($ajax_pid)
+              ? ( { pid => $ajax_pid, args => "dashboard ajax: $ajax_name" } ) : ();
         };
         $manager->stop_all;
     }
     for ( 1 .. 20 ) {
-        my $reaped = waitpid( $ajax_pid, WNOHANG );
-        last if $reaped == $ajax_pid || !kill 0, $ajax_pid;
+        last if !Developer::Dashboard::GoRoutine::process_running($ajax_pid);
         sleep 0.1;
     }
-    my $stop_reaped = waitpid( $ajax_pid, WNOHANG );
-    ok( $stop_reaped == $ajax_pid || !kill( 0, $ajax_pid ), 'stop_all terminates saved ajax singleton workers along with the web service lifecycle' );
-    waitpid( $ajax_pid, 0 ) if $stop_reaped != $ajax_pid;
+    ok( !Developer::Dashboard::GoRoutine::process_running($ajax_pid), 'stop_all terminates saved ajax singleton workers along with the web service lifecycle' );
 }
 {
     local $ENV{DEVELOPER_DASHBOARD_RUNTIME_ROOT} = $paths->state_root;
     my $ajax_name = 'STUBBORN-KILL-' . $$;
-    my $stubborn_ajax = fork();
-    die "fork failed: $!" if !defined $stubborn_ajax;
-    if ( !$stubborn_ajax ) {
-        $0 = "dashboard ajax: $ajax_name";
-        $SIG{TERM} = 'IGNORE';
-        while (1) { sleep 1 }
-    }
+    my $stubborn_ajax = _spawn_perl_fixture(
+        '$0 = "dashboard ajax: ' . $ajax_name . '"; $SIG{TERM} = "IGNORE"; while (1) { sleep 1 }',
+    );
     my $seen = 0;
     for ( 1 .. 20 ) {
         if ( scalar grep { $_->{pid} == $stubborn_ajax } $manager->_find_processes_by_prefix('dashboard ajax:') ) {
@@ -1529,21 +1630,27 @@ JSON
     {
         no warnings 'redefine';
         local *Developer::Dashboard::RuntimeManager::_managed_ajax_processes = sub {
-            return kill( 0, $stubborn_ajax ) ? ( { pid => $stubborn_ajax, args => "dashboard ajax: $ajax_name" } ) : ();
+            return Developer::Dashboard::GoRoutine::process_running($stubborn_ajax)
+              ? ( { pid => $stubborn_ajax, args => "dashboard ajax: $ajax_name" } ) : ();
         };
         $manager->stop_web;
     }
-    my $ajax_reaped = wait_for_child_exit($stubborn_ajax);
-    if ( !$ajax_reaped && $UNDER_COVER && kill 0, $stubborn_ajax ) {
-        kill 'KILL', $stubborn_ajax;
-        $ajax_reaped = wait_for_child_exit($stubborn_ajax);
+    my $ajax_stopped = 0;
+    for ( 1 .. 20 ) {
+        $ajax_stopped = !Developer::Dashboard::GoRoutine::process_running($stubborn_ajax);
+        last if $ajax_stopped;
+        sleep 0.1;
     }
-waitpid( $stubborn_ajax, 0 ) if !$ajax_reaped && kill 0, $stubborn_ajax;
+    if ( !$ajax_stopped && $UNDER_COVER && Developer::Dashboard::GoRoutine::process_running($stubborn_ajax) ) {
+        Developer::Dashboard::GoRoutine::terminate_process( $stubborn_ajax, 'KILL' );
+        Developer::Dashboard::GoRoutine::wait_process($stubborn_ajax);
+        $ajax_stopped = 1;
+    }
     if ($UNDER_COVER) {
-        ok( $ajax_reaped || !kill( 0, $stubborn_ajax ), 'stubborn ajax shutdown remains timing-tolerant under coverage' );
+        ok( $ajax_stopped, 'stubborn ajax shutdown remains timing-tolerant under coverage' );
     }
     else {
-        ok( !kill( 0, $stubborn_ajax ), 'stop_web escalates stubborn ajax singleton workers to KILL after TERM is ignored' );
+        ok( !Developer::Dashboard::GoRoutine::process_running($stubborn_ajax), 'stop_web escalates stubborn ajax singleton workers to KILL after TERM is ignored' );
     }
 }
 
@@ -1575,13 +1682,9 @@ END {
     ok( $web_pid > 0, 'background web process starts before restart singleton cleanup coverage' );
     local $ENV{DEVELOPER_DASHBOARD_RUNTIME_ROOT} = $paths->state_root;
     my $ajax_name = 'RESTART-ME-' . $$;
-    my $ajax_pid = fork();
-    die "fork failed: $!" if !defined $ajax_pid;
-    if ( !$ajax_pid ) {
-        $0 = "dashboard ajax: $ajax_name";
-        $SIG{TERM} = sub { exit 0 };
-        while (1) { sleep 1 }
-    }
+    my $ajax_pid = _spawn_perl_fixture(
+        '$0 = "dashboard ajax: ' . $ajax_name . '"; $SIG{TERM} = sub { exit 0 }; while (1) { sleep 1 }',
+    );
     my $seen = 0;
     for ( 1 .. 20 ) {
         if ( scalar grep { $_->{pid} == $ajax_pid } $manager->_find_processes_by_prefix('dashboard ajax:') ) {
@@ -1594,55 +1697,45 @@ END {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_web_runtime_ready = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_managed_ajax_processes = sub {
-        return kill( 0, $ajax_pid ) ? ( { pid => $ajax_pid, args => "dashboard ajax: $ajax_name" } ) : ();
+        return Developer::Dashboard::GoRoutine::process_running($ajax_pid)
+          ? ( { pid => $ajax_pid, args => "dashboard ajax: $ajax_name" } ) : ();
     };
     my $restart_with_ajax = $manager->restart_all( host => '0.0.0.0', port => 7904 );
     ok( $restart_with_ajax->{web_pid} > 0, 'restart_all still restarts the web service when singleton ajax workers are present' );
     for ( 1 .. 20 ) {
-        my $reaped = waitpid( $ajax_pid, WNOHANG );
-        last if $reaped == $ajax_pid || !kill 0, $ajax_pid;
+        last if !Developer::Dashboard::GoRoutine::process_running($ajax_pid);
         sleep 0.1;
     }
-    my $restart_reaped = waitpid( $ajax_pid, WNOHANG );
-    ok( $restart_reaped == $ajax_pid || !kill( 0, $ajax_pid ), 'restart_all terminates saved ajax singleton workers before the replacement web service starts' );
-    waitpid( $ajax_pid, 0 ) if $restart_reaped != $ajax_pid;
+    ok( !Developer::Dashboard::GoRoutine::process_running($ajax_pid), 'restart_all terminates saved ajax singleton workers before the replacement web service starts' );
     $manager->stop_web;
 }
 
 {
-    my $stubborn_web = fork();
-    die "fork failed: $!" if !defined $stubborn_web;
-    if ( !$stubborn_web ) {
-        $SIG{TERM} = 'IGNORE';
-        $ENV{DEVELOPER_DASHBOARD_WEB_SERVICE} = 1;
-        $0 = 'dashboard web: stubborn:7906';
-        while (1) { sleep 0.1 }
-    }
+    my $stubborn_web = _spawn_perl_fixture(
+        q{$SIG{TERM} = 'IGNORE'; $ENV{DEVELOPER_DASHBOARD_WEB_SERVICE} = 1; $0 = 'dashboard web: stubborn:7906'; while (1) { sleep 0.1 }},
+    );
     sleep 0.2;
     $files->write( 'web_pid', "$stubborn_web\n" );
     $manager->_write_web_state( { pid => $stubborn_web, host => '0.0.0.0', port => 7906, status => 'running' } );
     is( $manager->stop_web, $stubborn_web, 'stop_web returns the stubborn pid before escalating' );
-    my $web_reaped = wait_for_child_exit($stubborn_web);
-    if ( !$web_reaped && $UNDER_COVER && kill 0, $stubborn_web ) {
-        kill 'KILL', $stubborn_web;
-        $web_reaped = wait_for_child_exit($stubborn_web);
+    my $web_exited = Developer::Dashboard::GoRoutine::process_exited($stubborn_web);
+    if ( !$web_exited && $UNDER_COVER && Developer::Dashboard::GoRoutine::process_running($stubborn_web) ) {
+        Developer::Dashboard::GoRoutine::terminate_process( $stubborn_web, 'KILL' );
+        $web_exited = Developer::Dashboard::GoRoutine::process_exited($stubborn_web);
+        Developer::Dashboard::GoRoutine::wait_process($stubborn_web) if $web_exited;
     }
-    waitpid( $stubborn_web, 0 ) if !$web_reaped && kill 0, $stubborn_web;
     if ($UNDER_COVER) {
-        ok( $web_reaped || !kill( 0, $stubborn_web ), 'stubborn web shutdown remains timing-tolerant under coverage' );
+        ok( $web_exited, 'stubborn web shutdown remains timing-tolerant under coverage' );
     }
     else {
-        ok( !kill( 0, $stubborn_web ), 'stop_web escalates to KILL when TERM is ignored' );
+        ok( $web_exited, 'stop_web escalates to KILL when TERM is ignored' );
     }
 }
 
 {
-    my $legacy_web = fork();
-    die "fork failed: $!" if !defined $legacy_web;
-    if ( !$legacy_web ) {
-        $0 = 'perl -Ilib bin/dashboard serve';
-        while (1) { sleep 0.1 }
-    }
+    my $legacy_web = _spawn_perl_fixture(
+        q{$0 = 'perl -Ilib bin/dashboard serve'; while (1) { sleep 0.1 }},
+    );
     sleep 0.2;
     $manager->_cleanup_web_files;
     no warnings 'redefine';
@@ -1660,17 +1753,12 @@ END {
     is( $legacy_state->{host}, '0.0.0.0', 'legacy web discovery falls back to the default host when no state file exists' );
     is( $legacy_state->{port}, 7890, 'legacy web discovery falls back to the default port when no state file exists' );
     is( $manager->stop_web, $legacy_web, 'stop_web terminates legacy dashboard serve processes that predate managed markers' );
-    waitpid( $legacy_web, 0 );
-    ok( !kill( 0, $legacy_web ), 'legacy dashboard serve process is gone after stop_web' );
+    ok( Developer::Dashboard::GoRoutine::process_exited($legacy_web), 'legacy dashboard serve process is gone after stop_web' );
 }
 {
-    my $stubborn_legacy = fork();
-    die "fork failed: $!" if !defined $stubborn_legacy;
-    if ( !$stubborn_legacy ) {
-        $SIG{TERM} = 'IGNORE';
-        $0 = 'perl -Ilib bin/dashboard serve';
-        while (1) { sleep 0.1 }
-    }
+    my $stubborn_legacy = _spawn_perl_fixture(
+        q{$SIG{TERM} = 'IGNORE'; $0 = 'perl -Ilib bin/dashboard serve'; while (1) { sleep 0.1 }},
+    );
     sleep 0.2;
     {
         no warnings 'redefine';
@@ -1680,58 +1768,52 @@ END {
         local *Developer::Dashboard::RuntimeManager::_find_processes_by_prefix = sub { return () };
         local *Developer::Dashboard::RuntimeManager::_wait_for_port_release = sub { return 1 };
         local *Developer::Dashboard::RuntimeManager::_find_legacy_web_processes = sub {
-            return kill( 0, $stubborn_legacy ) ? ( { pid => $stubborn_legacy } ) : ();
+            return Developer::Dashboard::GoRoutine::process_running($stubborn_legacy)
+              ? ( { pid => $stubborn_legacy } ) : ();
         };
         is( $manager->stop_web, undef, 'stop_web still completes when only a stubborn legacy dashboard serve process remains' );
     }
-    my $legacy_reaped = wait_for_child_exit($stubborn_legacy);
-    if ( !$legacy_reaped && $UNDER_COVER && kill 0, $stubborn_legacy ) {
-        kill 'KILL', $stubborn_legacy;
-        $legacy_reaped = wait_for_child_exit($stubborn_legacy);
+    my $legacy_exited = Developer::Dashboard::GoRoutine::process_exited($stubborn_legacy);
+    if ( !$legacy_exited && $UNDER_COVER && Developer::Dashboard::GoRoutine::process_running($stubborn_legacy) ) {
+        Developer::Dashboard::GoRoutine::terminate_process( $stubborn_legacy, 'KILL' );
+        $legacy_exited = Developer::Dashboard::GoRoutine::process_exited($stubborn_legacy);
+        Developer::Dashboard::GoRoutine::wait_process($stubborn_legacy) if $legacy_exited;
     }
-    waitpid( $stubborn_legacy, 0 ) if !$legacy_reaped && kill 0, $stubborn_legacy;
     if ($UNDER_COVER) {
-        ok( $legacy_reaped || !kill( 0, $stubborn_legacy ), 'stubborn legacy web shutdown remains timing-tolerant under coverage' );
+        ok( $legacy_exited, 'stubborn legacy web shutdown remains timing-tolerant under coverage' );
     }
     else {
-        ok( !kill( 0, $stubborn_legacy ), 'stop_web escalates stubborn legacy dashboard serve processes to KILL after TERM is ignored' );
+        ok( $legacy_exited, 'stop_web escalates stubborn legacy dashboard serve processes to KILL after TERM is ignored' );
     }
 }
 
 {
-    my $stubborn_collector = fork();
-    die "fork failed: $!" if !defined $stubborn_collector;
-    if ( !$stubborn_collector ) {
-        $SIG{TERM} = 'IGNORE';
-        $0 = 'dashboard collector: stubborn.collector';
-        while (1) { sleep 0.1 }
-    }
+    my $stubborn_collector = _spawn_perl_fixture(
+        q{$SIG{TERM} = 'IGNORE'; $0 = 'dashboard collector: stubborn.collector'; while (1) { sleep 0.1 }},
+    );
     sleep 0.2;
     $runner->{loops} = [ { name => 'stubborn.collector', pid => $stubborn_collector } ];
     my @forced = $manager->stop_collectors;
     is_deeply( \@forced, ['stubborn.collector'], 'stop_collectors returns stubborn collector names before escalation' );
-    my $collector_reaped = wait_for_child_exit($stubborn_collector);
-    if ( !$collector_reaped && $UNDER_COVER && kill 0, $stubborn_collector ) {
-        kill 'KILL', $stubborn_collector;
-        $collector_reaped = wait_for_child_exit($stubborn_collector);
+    my $collector_exited = Developer::Dashboard::GoRoutine::process_exited($stubborn_collector);
+    if ( !$collector_exited && $UNDER_COVER && Developer::Dashboard::GoRoutine::process_running($stubborn_collector) ) {
+        Developer::Dashboard::GoRoutine::terminate_process( $stubborn_collector, 'KILL' );
+        $collector_exited = Developer::Dashboard::GoRoutine::process_exited($stubborn_collector);
+        Developer::Dashboard::GoRoutine::wait_process($stubborn_collector) if $collector_exited;
     }
-    waitpid( $stubborn_collector, 0 ) if !$collector_reaped && kill 0, $stubborn_collector;
     if ($UNDER_COVER) {
-        ok( $collector_reaped || !kill( 0, $stubborn_collector ), 'stubborn collector shutdown remains timing-tolerant under coverage' );
+        ok( $collector_exited, 'stubborn collector shutdown remains timing-tolerant under coverage' );
     }
     else {
-        ok( !kill( 0, $stubborn_collector ), 'stop_collectors escalates to KILL when TERM is ignored' );
+        ok( $collector_exited, 'stop_collectors escalates to KILL when TERM is ignored' );
     }
 }
 
 {
     local $ENV{PATH} = '/definitely-missing';
-    my $fallback_child = fork();
-    die "fork failed: $!" if !defined $fallback_child;
-    if ( !$fallback_child ) {
-        $0 = 'dashboard web: fallback:9999';
-        while (1) { sleep 0.1 }
-    }
+    my $fallback_child = _spawn_perl_fixture(
+        q{$0 = 'dashboard web: fallback:9999'; while (1) { sleep 0.1 }},
+    );
     sleep 0.2;
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_ps_processes = sub {
@@ -1744,17 +1826,20 @@ END {
         );
     };
     ok( $manager->_pkill_perl('^dashboard web:'), 'pkill fallback succeeds even when pkill is unavailable' );
-    my $reaped = 0;
+    my $exited = 0;
     for ( 1 .. 20 ) {
-        if ( waitpid( $fallback_child, WNOHANG ) == $fallback_child ) {
-            $reaped = 1;
+        if ( Developer::Dashboard::GoRoutine::process_exited($fallback_child) ) {
+            $exited = 1;
             last;
         }
         sleep 0.1;
     }
-    kill 'KILL', $fallback_child if !$reaped && kill 0, $fallback_child;
-    waitpid( $fallback_child, 0 ) if !$reaped;
-    ok( $reaped || !kill( 0, $fallback_child ), 'pkill fallback terminates matching processes by scanning ps output' );
+    if ( !$exited && Developer::Dashboard::GoRoutine::process_running($fallback_child) ) {
+        Developer::Dashboard::GoRoutine::terminate_process( $fallback_child, 'KILL' );
+        $exited = Developer::Dashboard::GoRoutine::process_exited($fallback_child);
+    }
+    Developer::Dashboard::GoRoutine::wait_process($fallback_child) if $exited;
+    ok( $exited, 'pkill fallback terminates matching processes by scanning ps output' );
 }
 
 {
@@ -3207,12 +3292,10 @@ TCP6
 }
 
 {
-    my $listener = fork();
-    die "fork failed: $!" if !defined $listener;
-    if ( !$listener ) {
-        sleep 30;
-        POSIX::_exit(0);
-    }
+    my $listener = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'sleep 30' ],
+        {},
+    );
     no warnings 'redefine';
     my $original_read = Developer::Dashboard::FileRegistry->can('read');
     local *Developer::Dashboard::FileRegistry::read = sub {
@@ -3228,8 +3311,9 @@ TCP6
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($listener) };
     my $state = $manager->running_web;
     is( $state->{pid}, $$, 'running_web trusts the recorded master pid when the managed port is still held by a separate listener worker pid' );
-    kill 'KILL', $listener;
-    waitpid( $listener, 0 );
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $listener, 'KILL' ),
+        'separate listener worker is terminated through the GoRoutine process API' );
+    Developer::Dashboard::GoRoutine::wait_process($listener);
 }
 
 {
@@ -3245,13 +3329,10 @@ TCP6
 }
 
 {
-    my $listener = fork();
-    die "fork failed: $!" if !defined $listener;
-    if ( !$listener ) {
-        local $SIG{TERM} = 'IGNORE';
-        sleep 30;
-        POSIX::_exit(0);
-    }
+    my $listener = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', q{$SIG{TERM} = 'IGNORE'; sleep 30;} ],
+        {},
+    );
     my $calls = 0;
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::running_web = sub {
@@ -3261,8 +3342,7 @@ TCP6
     local *Developer::Dashboard::RuntimeManager::_find_legacy_web_processes = sub { return () };
     local *Developer::Dashboard::RuntimeManager::_pkill_perl = sub { return 1 };
     is( $manager->stop_web, $listener, 'stop_web returns the recorded pid while it also tracks listener pids on the bound port' );
-    waitpid( $listener, 0 );
-    ok( !kill( 0, $listener ), 'stop_web escalates listener-port pids to KILL when they remain alive after TERM' );
+    ok( !Developer::Dashboard::GoRoutine::process_running($listener), 'stop_web escalates listener-port pids to KILL when they remain alive after TERM' );
 }
 
 {
@@ -3291,13 +3371,10 @@ TCP6
 }
 
 {
-    my $late_listener = fork();
-    die "fork failed: $!" if !defined $late_listener;
-    if ( !$late_listener ) {
-        local $SIG{TERM} = 'IGNORE';
-        sleep 30;
-        POSIX::_exit(0);
-    }
+    my $late_listener = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', q{$SIG{TERM} = 'IGNORE'; sleep 30;} ],
+        {},
+    );
     my $running_calls  = 0;
     my $listener_calls = 0;
     my $wait_calls     = 0;
@@ -3314,17 +3391,14 @@ TCP6
         return $wait_calls++ == 0 ? 0 : 1;
     };
     is( $manager->stop_web, $late_listener, 'stop_web returns the recorded pid when it has to re-probe the bound port for late listeners' );
-    waitpid( $late_listener, 0 );
-    ok( !kill( 0, $late_listener ), 'stop_web kills late-discovered listener pids after an initial port-release timeout' );
+    ok( !Developer::Dashboard::GoRoutine::process_running($late_listener), 'stop_web kills late-discovered listener pids after an initial port-release timeout' );
 }
 
 {
-    my $listener = fork();
-    die "fork failed: $!" if !defined $listener;
-    if ( !$listener ) {
-        local $SIG{TERM} = sub { exit 0 };
-        while (1) { sleep 0.1 }
-    }
+    my $listener = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', q{$SIG{TERM} = sub { exit 0 }; while (1) { sleep 0.1; }} ],
+        {},
+    );
     sleep 0.2;
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return };
@@ -3345,8 +3419,7 @@ TCP6
     local *Developer::Dashboard::RuntimeManager::_wait_for_port_release = sub { return 1 };
     my $stopped = $manager->stop_web;
     is( $stopped, 444_444, 'stop_web preserves the saved managed pid even when it has to terminate a fallback listener pid from persisted state' );
-    waitpid( $listener, 0 );
-    ok( !kill( 0, $listener ), 'stop_web terminates the saved listener pid resolved from persisted web state' );
+    ok( !Developer::Dashboard::GoRoutine::process_running($listener), 'stop_web terminates the saved listener pid resolved from persisted web state' );
 }
 
 {
@@ -3419,13 +3492,23 @@ SKIP: {
 }
 
 {
-    my $child = fork();
-    die "fork failed: $!" if !defined $child;
-    if ( !$child ) {
-        $manager->_write_web_state( { pid => $$, status => 'running' } );
+    my $child_script = sprintf q{
+        use lib q{%s};
+        use Developer::Dashboard::PathRegistry;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::RuntimeManager;
+        my $paths = Developer::Dashboard::PathRegistry->new(home => $ENV{HOME});
+        my $files = Developer::Dashboard::FileRegistry->new(paths => $paths);
+        my $manager = bless { paths => $paths, files => $files }, 'Developer::Dashboard::RuntimeManager';
+        $manager->_write_web_state({ pid => $$, status => 'running' });
         $manager->_shutdown_web('stopped');
-    }
-    waitpid( $child, 0 );
+    }, $repo_lib;
+    my $child = _spawn_perl_fixture(
+        $child_script,
+        { env => { HOME => $home, DEVELOPER_DASHBOARD_STATE_ROOT => $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} } },
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($child), 0,
+        '_shutdown_web process fixture completes successfully through GoRoutine' );
     my $state = {};
     for ( 1 .. 20 ) {
         $state = $manager->web_state || {};
@@ -3437,13 +3520,23 @@ SKIP: {
 }
 
 {
-    my $child = fork();
-    die "fork failed: $!" if !defined $child;
-    if ( !$child ) {
+    my $child_script = sprintf q{
+        use lib q{%s};
+        use Developer::Dashboard::PathRegistry;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::RuntimeManager;
+        my $paths = Developer::Dashboard::PathRegistry->new(home => $ENV{HOME});
+        my $files = Developer::Dashboard::FileRegistry->new(paths => $paths);
+        my $manager = bless { paths => $paths, files => $files }, 'Developer::Dashboard::RuntimeManager';
         $manager->_cleanup_web_files;
         $manager->_shutdown_web();
-    }
-    waitpid( $child, 0 );
+    }, $repo_lib;
+    my $child = _spawn_perl_fixture(
+        $child_script,
+        { env => { HOME => $home, DEVELOPER_DASHBOARD_STATE_ROOT => $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} } },
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($child), 0,
+        '_shutdown_web default-state process fixture completes successfully through GoRoutine' );
     is(
         state_field( settled_web_state( $manager, 'stopped' ), 'status' ),
         'stopped',
@@ -4278,11 +4371,7 @@ SCRIPT
 }
 
 {
-    my $state_backed_pid = fork();
-    die "fork failed: $!" if !defined $state_backed_pid;
-    if ( !$state_backed_pid ) {
-        while (1) { sleep 0.1 }
-    }
+    my $state_backed_pid = _spawn_perl_fixture('while (1) { sleep 0.1 }');
     sleep 0.2;
     no warnings 'redefine';
     local *Local::RuntimeRunner::running_loops = sub { return () };
@@ -4319,8 +4408,8 @@ SCRIPT
         ],
         'stop_target collector scope reports one named collector from persisted loop state when the managed title is not observable yet',
     );
-    kill 'KILL', $state_backed_pid if kill 0, $state_backed_pid;
-    waitpid( $state_backed_pid, 0 ) if kill 0, $state_backed_pid;
+    Developer::Dashboard::GoRoutine::terminate_process( $state_backed_pid, 'KILL' );
+    Developer::Dashboard::GoRoutine::wait_process($state_backed_pid);
 }
 
 {
@@ -4536,7 +4625,16 @@ here or when you need a faster loop than the entire suite.
 
 =head1 HOW TO USE
 
-Run it directly with C<prove -lv t/09-runtime-manager.t> while iterating, then keep it green under C<prove -lr t> and the coverage runs before release. 
+Build the shared XS extension in the dev Docker service, then run this test
+against the checkout's C<blib> paths:
+
+  d2 docker compose exec dev make
+  d2 docker compose exec dev prove -blv t/09-runtime-manager.t
+
+The child-process fixtures use C<Developer::Dashboard::GoRoutine> spawn,
+signal, and wait operations so the real process lifecycle remains covered
+without calling Perl's C<fork> builtin. Run the full suite and coverage gates
+in the same Docker environment before release.
 
 =head1 WHAT USES IT
 
@@ -4546,21 +4644,23 @@ Developers during TDD, the full C<prove -lr t> suite, the coverage gates, and th
 
 Example 1:
 
-  prove -lv t/09-runtime-manager.t
+  d2 docker compose exec dev prove -blv t/09-runtime-manager.t
 
-Run the focused regression test by itself while you are changing the behavior it owns.
+Run the focused regression against the built checkout extension in Docker.
 
 Example 2:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/09-runtime-manager.t
+  d2 docker compose exec dev prove -blv t/09-runtime-manager.t
 
-Exercise the same focused test while collecting coverage for the library code it reaches.
+Run the focused regression under Docker while iterating on the process
+supervision behavior.
 
 Example 3:
 
-  prove -lr t
+  d2 docker compose exec dev prove -blr t
 
-Put the focused fix back through the whole repository suite before calling the work finished.
+Put the focused fix back through the full Docker repository suite before
+calling the work finished.
 
 =for comment FULL-POD-DOC END
 

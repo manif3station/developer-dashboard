@@ -219,6 +219,35 @@ my $p5b = File::Spec->catdir( $home, 'p5b' );
     is_deeply( [ grep { $_ eq $root } @list ], [$root], 'perl5lib_list expands a real dashboard_lib root' );
 }
 {
+    my $checkout = File::Spec->catdir( $home, 'source-checkout' );
+    my $source_lib = File::Spec->catdir( $checkout, 'lib' );
+    my $build_arch = File::Spec->catdir( $checkout, 'blib', 'arch' );
+    mkdir $checkout or die $!;
+    mkdir $source_lib or die $!;
+    mkdir File::Spec->catdir( $checkout, 'blib' ) or die $!;
+    mkdir $build_arch or die $!;
+    mkdir File::Spec->catdir( $source_lib, 'Developer' ) or die $!;
+    open my $dashboard_module, '>', File::Spec->catfile( $source_lib, 'Developer', 'Dashboard.pm' ) or die $!;
+    print {$dashboard_module} "1;\n";
+    close $dashboard_module or die $!;
+
+    my @list = $M->perl5lib_list(
+        env          => {},
+        existing     => [$p5a],
+        dashboard_lib => $source_lib,
+        extra        => [],
+    );
+    my %position;
+    @position{@list} = ( 0 .. $#list );
+    ok( exists $position{$build_arch}, 'perl5lib_list includes the checkout blib architecture directory when present' );
+    my $first_core_path = ( $M->core_inc_paths )[0];
+    ok(
+        exists $position{$build_arch} && exists $position{$first_core_path}
+          && $position{$build_arch} < $position{$first_core_path},
+        'perl5lib_list places the checkout XS build before installed Perl library paths',
+    );
+}
+{
     # extra absent -> the || [] fallback arm.
     my @list = $M->perl5lib_list( env => {}, existing => [] );
     ok( ( !grep { $_ eq $p5a } @list ), 'perl5lib_list adds nothing extra when extra is omitted' );
@@ -318,7 +347,9 @@ This test drives every decision arm of C<Developer::Dashboard::PerlEnv> so that
 the module's PATH and PERL5LIB normalization stays fully exercised: the platform
 separator choice, interpreter and shell directory resolution, the core library
 enumeration and its skip arms, dashboard library root expansion, and the child
-environment and bootstrap builders.
+environment and bootstrap builders. A checkout fixture also verifies that an
+existing C<blib/arch> precedes installed libraries so child interpreters load
+the XS extension built beside the source modules.
 
 =head1 WHY IT EXISTS
 
@@ -329,12 +360,15 @@ directories, duplicate library roots, undefined or empty caller-supplied path
 entries - that ordinary happy-path tests never reach. This test exists to hold
 those guards under coverage so a future refactor cannot silently drop one of
 them and reintroduce interpreter drift or stale dual-life module shadowing.
+The source-build ordering check protects Dashboard XS symbols from being
+shadowed by an older binary installed in the active Perl's site library.
 
 =head1 WHEN TO USE
 
 Run this file when changing how C<PerlEnv> resolves the interpreter or shell
 directory, enumerates core library paths, expands dashboard library roots, or
-merges inherited PATH and PERL5LIB values. It is also the right regression to
+merges inherited PATH and PERL5LIB values, including the checkout's native
+build path. It is also the right regression to
 extend when adding a new environment guard clause.
 
 =head1 HOW TO USE

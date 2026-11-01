@@ -1,3 +1,47 @@
+6.19  2026-10-31
+
+  - Extend GoRoutine shared graph transport to preserve compiled regular
+    expressions and named format references across the parent and worker
+    interpreters, with focused Docker regression coverage.
+  - Use platform-aware worker interpreter clone flags, including the optional
+    Windows host-clone flag when provided by Perl, and add focused regression
+    coverage for the guarded Windows contract.
+  - Replace the Ubuntu system-menu helper's deprecated GTK tray API with
+    Ayatana AppIndicator3. Build the helper with deprecated-declaration
+    diagnostics as errors, add the development package to the reusable dev
+    image, and cover the backend/build contract in Docker tests.
+  - Integrate GoRoutine 0.04 shared-object graphs into the Dashboard XS
+    extension. `share` now supports nested hashes and arrays, scalar
+    references, aliases, cycles, and ordinary blessed Perl-data objects while
+    retaining normal dereferencing, Unicode semantics, and methods. Add
+    Docker regression coverage for concurrent nested updates and graph
+    relationships.
+  - Integrate the GoRoutine 0.06 REF diagnostic contract: rejected shared
+    values now report the actual reference type, with regression coverage for
+    CODE references.
+  - Fix the Windows x64 full-suite workflow failure caused by missing
+    TAP::Harness::Env in nested test runs. Declare Test::Harness 3.48 as a
+    test-only prerequisite in cpanfile, Makefile.PL, and dist.ini; install and
+    verify it in the Windows workflow's local test environment, keeping it out
+    of end-user runtime installation dependencies. Launch App::Prove through
+    the workflow-selected Perl on Windows so the test runner cannot resolve a
+    foreign prove wrapper from Strawberry Perl. Keep Unix full-suite execution
+    in Bash and run the Windows suite in native PowerShell to avoid MSYS path
+    conversion and Perl selection.
+  - Declare Devel::Cover as a test-only prerequisite so blank tarball installs
+    can run coverage-gate tests. Prefer the checkout's built blib/arch XS
+    extension in coverage child processes, avoiding stale installed binaries.
+  - Build the Dashboard XS extension before tests in the GitHub Release
+    workflow, and pass blib/arch and blib/lib to prove so release verification
+    exercises the extension built from that checkout.
+  - Expose checkout-local configure dependencies through PERL5LIB before
+    Makefile.PL in the Linux Test and cross-platform workflows. This allows
+    File::ShareDir::Install to load before blib is created on Unix and Windows.
+  - Prefer the source checkout's built blib/arch before installed Perl library
+    paths in dashboard child environments. This keeps newly added GoRoutine
+    XSUBs paired with the source GoRoutine module instead of selecting an older
+    Dashboard.so from Perl's site library.
+
 6.18  2026-10-31
 
   - Fix the Linux Test workflow to compile the Dashboard XS extension before

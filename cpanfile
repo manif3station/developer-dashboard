@@ -3,6 +3,7 @@ on 'configure' => sub {
 };
 
 requires 'perl', '5.038';
+requires 'Filter::Simple';
 requires 'JSON::XS', '4.04';
 requires 'YAML::XS', '0.903.0';
 requires 'TOML::Parser';
@@ -36,6 +37,12 @@ requires 'Template', '3.103';
 requires 'URI', '5.36';
 requires 'URI::Escape', '5.36';
 requires 'XML::Parser', '2.48';
+
+on 'test' => sub {
+    requires 'Devel::Cover';
+    requires 'Test::Harness', '3.48';
+    requires 'TAP::Harness::Env', '3.29';
+};
 
 on 'develop' => sub {
     recommends 'DBI';

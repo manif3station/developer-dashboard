@@ -21,11 +21,15 @@ my $home = File::Spec->catdir( $fixture, 'absolute-home' );
 my $local_perl5 = File::Spec->catdir( $home, 'perl5', 'lib', 'perl5' );
 my $active_arch = File::Spec->catdir( $local_perl5, $Config{archname} );
 my $active_version = File::Spec->catdir( $local_perl5, $Config{version} );
+my $inherited_lib = File::Spec->catdir( $fixture, 'inherited-perl5' );
 
 make_path(
     File::Spec->catdir( $fixture, 'lib', 'Developer' ),
     File::Spec->catdir( $fixture, 'lib', 'Developer', 'Dashboard' ),
     File::Spec->catdir( $fixture, 'share' ),
+    File::Spec->catdir( $fixture, 'blib', 'lib' ),
+    File::Spec->catdir( $fixture, 'blib', 'arch' ),
+    $inherited_lib,
     $active_arch,
     $active_version,
 );
@@ -40,7 +44,8 @@ _open_write(
     File::Spec->catfile( $fixture, 'lib', 'Developer', 'Dashboard.pm' ),
     "package Developer::Dashboard;\nour \$VERSION = '9.99';\n1;\n",
 );
-_open_write( File::Spec->catfile( $active_arch, 'DDPortableProbe.pm' ), "package DDPortableProbe;\n1;\n" );
+_open_write( File::Spec->catfile( $active_arch, 'DDPortableProbe.pm' ), "package DDPortableProbe; our \$SOURCE = 'local';\n1;\n" );
+_open_write( File::Spec->catfile( $inherited_lib, 'DDPortableProbe.pm' ), "package DDPortableProbe; our \$SOURCE = 'inherited';\n1;\n" );
 _open_write( File::Spec->catfile( $active_version, 'DDVersionProbe.pm' ), "package DDVersionProbe;\n1;\n" );
 
 # Feature: portable generated Perl launcher with local-lib support
@@ -97,17 +102,46 @@ like( $runner_source, qr/\Q$active_version\E/,
     'BDD: launcher includes the active Config version directory' );
 like( $runner_source, qr/\$Config\{path_sep\}/,
     'BDD: launcher joins paths with the active Config path separator' );
+like( $runner_source, qr/\$ENV\{PERL5LIB\}\s*=\s*join\s+\$Config\{path_sep\},\s*\@prefix,\s*\@inherited,\s*\@local_lib_paths/s,
+    'ATDD: launcher preserves the caller library precedence before local-lib fallback paths' );
 
 my ( $probe_stdout, $probe_stderr, $probe_exit );
 {
-    local $ENV{PERL5LIB} = '';
+    local $ENV{PERL5LIB} = $inherited_lib;
     ( $probe_stdout, $probe_stderr, $probe_exit ) = capture {
-        system( $^X, $runner, '-MDDPortableProbe', '-MDDVersionProbe', '-e', 'print "portable\\n"' );
+        system( $^X, $runner, '-MDDPortableProbe', '-MDDVersionProbe', '-e', 'print "$DDPortableProbe::SOURCE\\n"' );
     };
 }
-is( $probe_exit, 0, 'ATDD: launcher makes both local-lib probe modules available without inherited PERL5LIB' );
-is( $probe_stdout, "portable\n", 'BDD: launcher forwards arguments to Perl and preserves its output' );
+is( $probe_exit, 0, 'ATDD: launcher keeps inherited and local-lib probe modules available' );
+is( $probe_stdout, "inherited\n", 'BDD: inherited module path wins over a stale local-lib copy' );
 is( $probe_stderr, '', 'BDD: launcher emits no errors for local modules' );
+
+{
+    local $ENV{HOME} = $home;
+    local $ENV{PERL5LIB} = $inherited_lib;
+    my $original_cwd = getcwd();
+    my ( $configure_stdout, $configure_stderr, $configure_exit );
+    chdir $fixture or die "Unable to chdir to fixture: $!";
+    ( $configure_stdout, $configure_stderr, $configure_exit ) = capture { system( $^X, "-I$configure_lib", 'Makefile.PL' ) };
+    chdir $original_cwd or die "Unable to restore cwd: $!";
+    is( $configure_exit, 0, 'ATDD: explicit PERL5LIB still permits Makefile.PL configuration' );
+    my $refreshed_runner = _slurp($runner);
+    unlike( $refreshed_runner, qr/\Q$local_perl5\E/,
+        'BDD: explicit PERL5LIB prevents injection of potentially stale checkout-local XS paths' );
+
+    _open_write( File::Spec->catfile( $fixture, 'blib', 'lib', 'DDBuildProbe.pm' ), "package DDBuildProbe; our \$SOURCE = 'build';\n1;\n" );
+    my ( $build_stdout, $build_stderr, $build_exit );
+    {
+        local $ENV{PERL5LIB} = $inherited_lib;
+        ( $build_stdout, $build_stderr, $build_exit ) = capture {
+            system( $^X, $runner, '-MTest::Harness', '-MDDBuildProbe', '-e', 'print "$DDBuildProbe::SOURCE\\n"' );
+            return $? >> 8;
+        };
+    }
+    is( $build_exit, 0, 'ATDD: MakeMaker test invocations give child Perl processes the active blib paths' );
+    is( $build_stdout, "build\n", 'BDD: a child launched by the generated test runner loads its freshly built module' );
+    is( $build_stderr, '', 'BDD: the build-library child probe emits no warning or error' );
+}
 
 my $source = _slurp($source_makefile_pl);
 like( $source, qr/use Config\b/, 'ATDD: Makefile.PL derives platform values from Config' );

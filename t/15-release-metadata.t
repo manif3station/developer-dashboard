@@ -162,6 +162,36 @@ like( $collector_cron_doc, qr/\* \*\/1 \* \* \*.*every minute/is,
 like( $dist, qr/^\[Prereqs \/ ConfigureRequires\]$/m, 'dist.ini declares explicit configure prerequisites for packaged installs' );
 like(
     $dist,
+    qr/^\[Prereqs \/ TestRequires\]\n.*?^Test::Harness = 3\.48$/ms,
+    'dist.ini declares the TAP harness version required by nested Windows test runs',
+);
+like(
+    $dist,
+    qr/^\[Prereqs \/ TestRequires\]\n.*?^Devel::Cover = 0$/ms,
+    'dist.ini declares Devel::Cover for release-tarball coverage gate tests',
+);
+like(
+    $cpanfile,
+    qr/^on 'test' => sub \{\n.*?requires 'Test::Harness', '3\.48';/ms,
+    'cpanfile declares the TAP harness version required by nested Windows test runs',
+);
+like(
+    $cpanfile,
+    qr/^on 'test' => sub \{\n.*?requires 'Devel::Cover';.*?^\};/ms,
+    'cpanfile declares Devel::Cover for release-tarball coverage gate tests',
+);
+like(
+    $makefile,
+    qr/TEST_REQUIRES\s*=>\s*\{[^}]*'Test::Harness'\s*=>\s*'3\.48'/s,
+    'Makefile.PL exports the TAP harness test prerequisite for checkout-based CI installs',
+);
+like(
+    $makefile,
+    qr/TEST_REQUIRES\s*=>\s*\{[^}]*'Devel::Cover'\s*=>\s*'?0'?/s,
+    'Makefile.PL exports Devel::Cover as a test prerequisite for checkout-based CI installs',
+);
+like(
+    $dist,
     qr/^exclude_match = \^cover_db\(\?:\[-_\]\[\^\/\]\+\)\?\(\?:\/\|\$\)/m,
     'dist.ini excludes root coverage databases and their contents from the release tarball',
 );

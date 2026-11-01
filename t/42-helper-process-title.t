@@ -8,6 +8,7 @@ use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin qw($RealBin);
 use Test::More;
+use Developer::Dashboard::GoRoutine ();
 
 my $root = File::Spec->catdir( $RealBin, File::Spec->updir );
 my $helper = File::Spec->catfile( $root, 'share', 'private-cli', '_dashboard-core' );
@@ -31,19 +32,19 @@ exit 1
 SH
 );
 
-my $pid = fork();
-die "Unable to fork helper process test: $!" if !defined $pid;
-
-if ( $pid == 0 ) {
-    open STDOUT, '>', File::Spec->devnull() or die "Unable to redirect STDOUT: $!";
-    open STDERR, '>', $stderr_log or die "Unable to redirect STDERR: $!";
-    $ENV{HOME} = $home;
-    $ENV{PATH} = $fake_bin . ':' . ( $ENV{PATH} || '' );
-    $ENV{SHELL} = '/bin/sh';
-    $ENV{DEVELOPER_DASHBOARD_REPO_LIB} = File::Spec->catdir( $root, 'lib' );
-    exec $^X, $helper, 'skills', 'install', 'browser';
-    die "Unable to exec $helper: $!";
-}
+my $pid = Developer::Dashboard::GoRoutine::spawn(
+    [ $^X, $helper, 'skills', 'install', 'browser' ],
+    {
+        env => {
+            HOME                         => $home,
+            PATH                         => $fake_bin . ':' . ( $ENV{PATH} || '' ),
+            SHELL                        => '/bin/sh',
+            DEVELOPER_DASHBOARD_REPO_LIB => File::Spec->catdir( $root, 'lib' ),
+        },
+        stdout => File::Spec->devnull(),
+        stderr => $stderr_log,
+    },
+);
 
 my $ps_args = '';
 my $saw_public_title = 0;
@@ -59,9 +60,8 @@ for ( 1 .. 50 ) {
 ok( $saw_public_title, 'private helper process title uses the public developer-dashboard command form in ps output' )
   or diag "Last ps args: $ps_args";
 
-my $wait = waitpid( $pid, 0 );
-is( $wait, $pid, 'helper process exits after the fake git-backed install probe completes' );
-cmp_ok( $? >> 8, '!=', 0, 'helper process can fail after the fake git probe because this test only checks the process title contract' );
+my $exit = Developer::Dashboard::GoRoutine::wait_process($pid);
+cmp_ok( $exit, '!=', 0, 'helper process can fail after the fake git probe because this test only checks the process title contract' );
 
 ok( -f $git_log, 'helper reached the git-backed skills install path while the public process title was visible' );
 
@@ -100,7 +100,8 @@ output instead of the staged helper path under F<~/.developer-dashboard/cli/dd/>
 
 =head1 WHAT IT TESTS
 
-It launches the private C<_dashboard-core> helper against a fake git-backed
+It launches the private C<_dashboard-core> helper through the Dashboard
+GoRoutine process API against a fake git-backed
 skills install path, inspects the live process table while the helper is still
 running, and proves the visible command line uses the normalized
 C<developer-dashboard ...> title.

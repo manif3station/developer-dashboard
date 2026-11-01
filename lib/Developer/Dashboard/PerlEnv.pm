@@ -3,7 +3,7 @@ package Developer::Dashboard::PerlEnv;
 use strict;
 use warnings;
 
-our $VERSION = '6.18';
+our $VERSION = '6.19';
 
 use Config ();
 use Cwd qw(abs_path);
@@ -119,6 +119,17 @@ sub perl5lib_list {
       ? @{ $args{existing} }
       : grep { $_ ne '' } split /\Q$path_sep\E/, ( $env->{PERL5LIB} || '' );
 
+    # A source checkout's native build must win over an installed copy of the
+    # same XS extension. Installed distributions have no sibling blib tree, so
+    # this only changes source-tree execution after the extension was built.
+    my @build_arch;
+    if ( defined $args{dashboard_lib} && $args{dashboard_lib} ne ''
+        && -f File::Spec->catfile( $args{dashboard_lib}, 'Developer', 'Dashboard.pm' ) ) {
+        my $checkout_root = dirname( $args{dashboard_lib} );
+        my $build_arch = File::Spec->catdir( $checkout_root, 'blib', 'arch' );
+        push @build_arch, $build_arch if -d $build_arch;
+    }
+
     my @ordered;
     my %seen;
     my @prefixes = (
@@ -127,6 +138,7 @@ sub perl5lib_list {
               ? $class->dashboard_lib_roots( $args{dashboard_lib} )
               : ()
         ),
+        @build_arch,
         @{ $args{extra} || [] },
         $class->core_inc_paths,
         @existing,
@@ -288,8 +300,10 @@ active interpreter.
 =head2 perl5lib_list
 
 Builds the ordered list of C<PERL5LIB> paths using the dashboard lib path,
+the checkout's C<blib/arch> directory when its native extension has been built,
 runtime-specific extra paths, the active interpreter's core directories, and
-the inherited environment.
+the inherited environment. The built checkout extension precedes installed
+Perl libraries so its XS symbols remain paired with the source modules.
 
 =head2 perl5lib_env
 
