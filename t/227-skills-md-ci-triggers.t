@@ -94,6 +94,18 @@ like( $skills_md, qr/schedule|weekly/i,
 like( $skills_md, qr/every branch/i,
     "SKILLS.md's CI description states that codeql.yml's push trigger is NOT scoped to master" );
 
+my $fuzz_workflow = _slurp( File::Spec->catfile( $ROOT, '.github', 'workflows', 'fuzz-js.yml' ) );
+like( $fuzz_workflow, qr/name:\s+Build Dashboard XS extension/,
+    'the JS fuzz job builds the native extension required by dashboard subcommands' );
+like( $fuzz_workflow, qr/perl Makefile\.PL\s*\n\s*make/,
+    'the fuzz workflow runs Makefile.PL and make before exercising dashboard' );
+my $fuzz_build_offset = index( $fuzz_workflow, 'name: Build Dashboard XS extension' );
+my $fuzz_run_offset   = index( $fuzz_workflow, 'name: Run fast-check property tests' );
+ok( $fuzz_build_offset >= 0 && $fuzz_run_offset > $fuzz_build_offset,
+    'native build precedes fast-check execution' );
+like( $fuzz_workflow, qr{PERL5LIB:\s*\$\{\{\s*github\.workspace\s*\}\}/blib/arch:.*\$\{\{\s*github\.workspace\s*\}\}/blib/lib:.*\$\{\{\s*github\.workspace\s*\}\}/local/lib/perl5}s,
+    'fuzz job exposes the built XS and dependency trees to dashboard subprocesses' );
+
 # AC-2: no other workflow-trigger claim in SKILLS.md or README.md is left
 # inconsistent. Neither file may still assert the disproven "only master" claim.
 my $readme = _slurp( File::Spec->catfile( $ROOT, 'README.md' ) );
