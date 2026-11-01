@@ -18,6 +18,8 @@ is( 0 + $counter, 7, 'shared scalar compound addition is applied on store' );
 $counter = 9;
 is( 0 + $counter, 9, 'shared scalar accepts a plain scalar assignment' );
 my $counter_proxy = $counter;
+is( tied($counter)->_ptr, tied($counter)->{ptr},
+    'shared proxy base accessor returns the native handle' );
 is( 0 + $counter_proxy, 9, 'shared scalar proxy converts to a number' );
 is( "$counter_proxy", '9', 'shared scalar proxy converts to a string' );
 ok( !!$counter_proxy, 'non-zero shared scalar proxy is true' );
@@ -29,6 +31,7 @@ is( 0 + ( $counter_proxy * 3 ), 27, 'shared scalar supports multiplication' );
 is( 0 + ( $counter_proxy / 3 ), 3, 'shared scalar supports division' );
 is( 0 + ( 20 / $counter_proxy ), 20 / 9, 'shared scalar supports reverse division' );
 is( 0 + ( $counter_proxy % 4 ), 1, 'shared scalar supports modulo' );
+is( int($counter_proxy), 9, 'shared scalar proxy converts directly to an integer' );
 my $concatenated = $counter_proxy . '!';
 is( "$concatenated", '9!', 'shared operation can be evaluated as a concatenation' );
 ok( !!($counter_proxy + 1), 'non-zero shared operation is true in boolean context' );
@@ -150,6 +153,63 @@ my $regexp_proxy = Developer::Dashboard::GoRoutine::_value_for_ptr($regexp_ptr);
 is( ref($regexp_proxy), 'Regexp', 'native regexp node materializes as a Perl regexp' );
 ok( 'NATIVEEE' =~ $regexp_proxy, 'materialized regexp preserves matching behavior' );
 
+{
+    my ($native_fh) = tempfile();
+    my $native_fd = fileno($native_fh);
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::GoRoutine::_shared_handle_fd = sub { $native_fd };
+        local *Developer::Dashboard::GoRoutine::_shared_handle_mode = sub { '<&' };
+        local *Developer::Dashboard::GoRoutine::_shared_glob_slot_ptr = sub { undef };
+
+        my $shared_glob = Developer::Dashboard::GoRoutine::_glob_for_ptr(123, undef);
+        is( reftype($shared_glob), 'GLOB',
+            'native glob materializer opens a duplicated filehandle without a worker' );
+        ok( close($shared_glob), 'materialized native glob closes cleanly' );
+
+        my $shared_io = Developer::Dashboard::GoRoutine::_io_for_ptr(123, undef);
+        is( reftype($shared_io), 'IO',
+            'native IO materializer returns the duplicated filehandle IO slot' );
+        ok( close($shared_io), 'materialized native IO handle closes cleanly' );
+
+        my $opened_handle = Developer::Dashboard::GoRoutine::_open_shared_handle(123);
+        is( reftype($opened_handle), 'GLOB',
+            'shared handle opener duplicates a supplied descriptor' );
+        ok( close($opened_handle), 'duplicated shared filehandle closes cleanly' );
+    }
+    close($native_fh) or die "cannot close native filehandle fixture: $!";
+}
+
+my $format_ref;
+{
+    our $coverage_format_value = 'abc';
+    format GOROUTINE_COVERAGE_FORMAT =
+@<<<<
+$coverage_format_value
+.
+    $format_ref = *GOROUTINE_COVERAGE_FORMAT{FORMAT};
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::_shared_node_text = sub {
+        return 'main::GOROUTINE_COVERAGE_FORMAT';
+    };
+    is( Developer::Dashboard::GoRoutine::_format_for_ptr(123), $format_ref,
+        'format materializer looks up a format reference by its shared name' );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::_shared_node_kind = sub { 'code' };
+    local *Developer::Dashboard::GoRoutine::_shared_node_class = sub { undef };
+    local *Developer::Dashboard::GoRoutine::_shared_code_call = sub {
+        return join q{:}, @_;
+    };
+    my $shared_code = Developer::Dashboard::GoRoutine::_value_for_ptr(123);
+    is( $shared_code->('argument'), '123:argument',
+        'shared code proxy delegates calls to the native call adapter' );
+}
+
 my $field_ptr = Developer::Dashboard::GoRoutine::_shared_node_new();
 Developer::Dashboard::GoRoutine::_shared_node_set( $field_ptr, 4 );
 my $field_ref = Developer::Dashboard::GoRoutine::_field_ref_for_ptr($field_ptr);
@@ -201,6 +261,47 @@ like( $@, qr/unsupported shared filehandle operation/, 'unknown handle operation
 
 ok( Developer::Dashboard::GoRoutine::_handle_remote_dispatch($remote_fh, 'CLOSE'),
     'remote handle dispatcher closes the private handle' );
+
+{
+    my @dispatches;
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::_shared_handle_remote = sub {
+        my ( $ptr, $operation, @args ) = @_;
+        push @dispatches, [ $ptr, $operation, @args ];
+        return ( 3, 'abc' ) if $operation eq 'READ';
+        return ('one', 'two') if $operation eq 'READLINE_LIST';
+        return 'line' if $operation eq 'READLINE_SCALAR';
+        return 'character' if $operation eq 'GETC';
+        return 2 if $operation eq 'WRITE';
+        return 'position' if $operation eq 'TELL';
+        return $operation eq 'EOF' ? 1 : 1;
+    };
+
+    my $handle = Developer::Dashboard::GoRoutine::SharedHandle->TIEHANDLE(42);
+    is( $handle->PRINT('text'), 1, 'tied shared handle PRINT dispatches its arguments' );
+    is( $handle->PRINTF('%s', 'text'), 1, 'tied shared handle PRINTF dispatches its arguments' );
+    is( scalar $handle->READLINE, 'line',
+        'tied shared handle READLINE selects scalar context' );
+    is_deeply( [ $handle->READLINE ], ['one', 'two'],
+        'tied shared handle READLINE selects list context' );
+    is( $handle->GETC, 'character', 'tied shared handle GETC returns a character' );
+    my $buffer = '____';
+    is( $handle->READ($buffer, 3, 1), 3,
+        'tied shared handle READ returns the dispatcher byte count' );
+    is( $buffer, '_abc', 'tied shared handle READ updates the caller buffer at its offset' );
+    is( $handle->WRITE('text', 2, 1), 2,
+        'tied shared handle WRITE returns the dispatcher byte count' );
+    is( $handle->SEEK(2, 0), 1, 'tied shared handle SEEK dispatches its arguments' );
+    is( $handle->TELL, 'position', 'tied shared handle TELL returns the dispatcher result' );
+    is( $handle->EOF, 1, 'tied shared handle EOF returns the dispatcher state' );
+    is( $handle->FILENO, 1, 'tied shared handle FILENO returns the dispatcher descriptor' );
+    is( $handle->BINMODE, 1, 'tied shared handle BINMODE dispatches without a layer' );
+    is( $handle->BINMODE(':raw'), 1, 'tied shared handle BINMODE dispatches a layer' );
+    is( $handle->CLOSE, 1, 'tied shared handle CLOSE dispatches cleanly' );
+    is_deeply( [ map { $_->[1] } @dispatches ],
+        [qw(PRINT PRINTF READLINE_SCALAR READLINE_LIST GETC READ WRITE SEEK TELL EOF FILENO BINMODE BINMODE CLOSE)],
+        'tied shared handle wrappers preserve each operation name' );
+}
 
 my $routine_state = {
     ptr     => 1,
