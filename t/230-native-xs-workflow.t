@@ -18,17 +18,33 @@ ok( ref($jobs) eq 'HASH', 'the workflow declares its platform jobs' );
 
 my $full_suite = $jobs->{'perl-tests'};
 ok( ref($full_suite) eq 'HASH', 'the cross-platform full-suite job is defined' );
-my ($full_suite_step) = grep {
-    ( $_->{name} // q{} ) eq 'Run complete test suite'
+my ($unix_full_suite_step) = grep {
+    ( $_->{name} // q{} ) eq 'Run complete test suite (Unix)'
 } @{ $full_suite->{steps} || [] };
-ok( ref($full_suite_step) eq 'HASH', 'the platform job runs the complete test suite' );
+ok( ref($unix_full_suite_step) eq 'HASH', 'the platform job runs the Unix complete test suite' );
+is( $unix_full_suite_step->{shell}, 'bash', 'the Unix full-suite step uses bash' );
 like(
-    $full_suite_step->{run} // q{},
+    $unix_full_suite_step->{run} // q{},
     qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
-    'the complete suite loads the just-built XS extension from blib'
+    'the Unix complete suite loads the just-built XS extension from blib'
+);
+my ($windows_full_suite_step) = grep {
+    ( $_->{name} // q{} ) eq 'Run complete test suite (Windows)'
+} @{ $full_suite->{steps} || [] };
+ok( ref($windows_full_suite_step) eq 'HASH', 'the platform job has a distinct Windows full-suite step' );
+is( $windows_full_suite_step->{shell}, 'pwsh', 'the Windows full-suite step uses native PowerShell' );
+like(
+    $windows_full_suite_step->{run} // q{},
+    qr/perl\s+-MApp::Prove.*process_args.*-Iblib\/arch/s,
+    'Windows runs App::Prove through the setup-perl interpreter'
+);
+unlike(
+    $windows_full_suite_step->{run} // q{},
+    qr/\b(?:bash|prove)\b/,
+    'the Windows full-suite step does not route through Git Bash or a prove executable on PATH'
 );
 like(
-    $full_suite_step->{run} // q{},
+    $unix_full_suite_step->{run} // q{},
     qr/RUNNER_OS.*macOS.*prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lrv\s+t/s,
     'the macOS full-suite leg streams individual TAP assertions for hang diagnosis'
 );
@@ -81,6 +97,8 @@ ok( ref($unix_build) eq 'HASH', 'the full-suite job has a Unix XS build step' );
 is( $unix_build->{shell}, 'bash', 'the Unix XS build uses bash' );
 like( $unix_build->{run} // q{}, qr/perl Makefile\.PL.*\bmake\b/s,
     'the Unix XS build uses the configured Perl and make' );
+like( $unix_build->{run} // q{}, qr/PERL5LIB=.*local\/lib\/perl5.*perl Makefile\.PL/s,
+    'the Unix XS build can load configure prerequisites installed into the local library' );
 
 my ($windows_build) = grep {
     ( $_->{name} // q{} ) eq 'Build the Dashboard XS extension (Windows)'
@@ -89,6 +107,8 @@ ok( ref($windows_build) eq 'HASH', 'the Windows x64 job has its own XS build ste
 is( $windows_build->{shell}, 'pwsh', 'the Windows XS build uses PowerShell, not Git Bash Perl' );
 like( $windows_build->{run} // q{}, qr/perl Makefile\.PL.*\bgmake\b/s,
     'the Windows XS build uses the setup-perl runtime and GNU make' );
+like( $windows_build->{run} // q{}, qr/\$localLib\s*=\s*Join-Path.*local\/lib\/perl5.*\$env:PERL5LIB\s*=.*perl Makefile\.PL/s,
+    'the Windows XS build can load configure prerequisites installed into the local library' );
 unlike( $windows_build->{run} // q{}, qr/FFI::Platypus|FFI::CheckLib/,
     'the Windows XS build has no FFI prerequisite' );
 
@@ -104,6 +124,16 @@ ok( ref($windows_test_tools) eq 'HASH', 'the Windows test-tools step is explicit
 is( $windows_test_tools->{shell}, 'pwsh', 'the Windows test-tools step uses PowerShell' );
 like( $windows_test_tools->{run} // q{}, qr/\$env:GITHUB_ENV/,
     'the Windows test-tools step exports variables using Windows semantics' );
+like(
+    $windows_test_tools->{run} // q{},
+    qr/cpanm\s+--notest\s+-L\s+local\s+Test::Harness~3\.48/,
+    'the Windows test-tools step installs the minimum Test::Harness version needed by prove',
+);
+like(
+    $windows_test_tools->{run} // q{},
+    qr/\$env:PERL5LIB\s*=\s*\$perl5lib.*?perl\s+-MTAP::Harness::Env/s,
+    'the Windows test-tools step verifies TAP::Harness::Env through the assembled local module path',
+);
 unlike( $windows_test_tools->{run} // q{}, qr/cpanm .*Devel::Cover/,
     'the Windows platform suite does not require the unsupported coverage module' );
 like( $unix_test_tools->{run} // q{}, qr{blib/arch},
@@ -135,6 +165,8 @@ ok( defined $test_xs_build_index, 'the Linux test workflow builds the shared XS 
 my $test_xs_build = defined $test_xs_build_index ? $test_steps->[$test_xs_build_index] : {};
 like( $test_xs_build->{run} // q{}, qr/perl Makefile\.PL.*\bmake\b/s,
     'the Linux test workflow builds XS with its configured Perl and make' );
+like( $test_xs_build->{run} // q{}, qr/PERL5LIB=.*local\/lib\/perl5.*perl Makefile\.PL/s,
+    'the Linux test build can load configure prerequisites installed into the local library' );
 my ($test_run_index) = grep {
     ( $test_steps->[$_]{name} // q{} ) eq 'Run tests'
 } 0 .. $#{$test_steps};
@@ -166,6 +198,27 @@ like( $test_tools_run, qr{blib/lib},
 like( $test_tools_run, qr{local/lib/perl5},
     'the Linux workflow exports local dependencies to test children' );
 
+my $release_workflow_path = File::Spec->catfile( $root, '.github', 'workflows', 'release-github.yml' );
+my $release_workflow = LoadFile($release_workflow_path);
+my $release_job = $release_workflow->{jobs}{release};
+ok( ref($release_job) eq 'HASH', 'the release workflow declares its release job' );
+my $release_steps = $release_job->{steps} || [];
+my ($release_xs_build_index) = grep {
+    ( $release_steps->[$_]{name} // q{} ) eq 'Build the Dashboard XS extension'
+} 0 .. $#{$release_steps};
+ok( defined $release_xs_build_index, 'the release workflow builds the XS extension before testing' );
+my $release_xs_build = defined $release_xs_build_index ? $release_steps->[$release_xs_build_index] : {};
+like( $release_xs_build->{run} // q{}, qr/perl Makefile\.PL.*\bmake\b/s,
+    'the release workflow builds XS using its configured Perl and make' );
+my ($release_test_index) = grep {
+    ( $release_steps->[$_]{name} // q{} ) eq 'Run tests'
+} 0 .. $#{$release_steps};
+ok( defined $release_test_index, 'the release workflow runs its complete test suite' );
+cmp_ok( defined $release_xs_build_index ? $release_xs_build_index : -1, '<', $release_test_index,
+    'the release workflow builds XS before running tests' );
+like( $release_steps->[$release_test_index]{run} // q{}, qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
+    'the release test suite loads the freshly built XS extension from blib' );
+
 done_testing;
 
 __END__
@@ -180,10 +233,14 @@ __END__
 
 Checks that the platform compatibility workflow builds the shared Dashboard
 XS extension before running native tests, selects the configured Windows Perl
-through PowerShell for build and coverage-tool steps, and does not report an
-ARM64 watcher pass when the hosted runner lacks native ARM64 Perl.
+through PowerShell for build and coverage-tool steps, invokes C<App::Prove>
+through that selected interpreter for the Windows suite, and does not report
+an ARM64 watcher pass when the hosted runner lacks native ARM64 Perl.
 It also checks that the main Linux Test workflow builds XS and exports the
-resulting C<blib> paths to both the ordinary and coverage test runs.
+resulting C<blib> paths to both the ordinary and coverage test runs. Since
+checkout dependencies are installed into C<local/lib/perl5>, each XS build
+must expose that library to C<perl Makefile.PL> so configure prerequisites
+such as C<File::ShareDir::Install> load before C<blib> exists.
 
 =head1 WHY IT EXISTS
 
@@ -220,7 +277,7 @@ omit XS compilation or reintroduce FFI dependencies.
 =item *
 
 The full-suite job runs C<perl Makefile.PL> and selects C<gmake> on Windows or
-C<make> on Unix.
+C<make> on Unix, with the local dependency path available during configuration.
 
 =item *
 
@@ -238,6 +295,8 @@ Perl-dependent steps rather than claiming native watcher coverage.
 
 Windows x64 builds the extension and prepares coverage tools in PowerShell so
 it uses the workflow-installed Perl rather than Git Bash's MSYS Perl.
+The Windows full-suite step launches C<App::Prove> through that Perl as well;
+it does not depend on a C<prove> wrapper selected from C<PATH>.
 
 =back
 

@@ -119,6 +119,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
+          export PERL5LIB="$GITHUB_WORKSPACE/local/lib/perl5${PERL5LIB:+:$PERL5LIB}"
           perl Makefile.PL
           make
 
@@ -126,6 +127,14 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $localLib = Join-Path $env:GITHUB_WORKSPACE 'local/lib/perl5'
+          $pathSep = & perl -MConfig -e 'print $Config{path_sep}'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($env:PERL5LIB) {
+            $env:PERL5LIB = "$localLib$pathSep$env:PERL5LIB"
+          } else {
+            $env:PERL5LIB = $localLib
+          }
           perl Makefile.PL
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           gmake
@@ -153,6 +162,8 @@ jobs:
         shell: pwsh
         run: |
           Write-Host 'The Windows compatibility job runs the full suite without coverage instrumentation; all-metric coverage is enforced by the Linux Test workflow.'
+          cpanm --notest -L local Test::Harness~3.48
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $localLib = Join-Path $env:GITHUB_WORKSPACE 'local/lib/perl5'
           if (-not (Test-Path $localLib -PathType Container)) {
             throw "dependency tree missing at $localLib"
@@ -171,6 +182,9 @@ jobs:
             $perlPaths += $env:PERL5LIB -split [regex]::Escape($pathSep)
           }
           $perl5lib = $perlPaths -join $pathSep
+          $env:PERL5LIB = $perl5lib
+          & perl -MTAP::Harness::Env -e 'print "TAP::Harness::Env available`n"'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "PERL5LIB=$perl5lib" >> $env:GITHUB_ENV
           "$env:GITHUB_WORKSPACE/local/bin" >> $env:GITHUB_PATH
 
@@ -180,7 +194,8 @@ jobs:
       - name: Benchmark portable config snapshot path
         run: perl script/problem48-status-route-benchmark --indicators 50 --iterations 100 --runs 7 --portable-config-cache
 
-      - name: Run complete test suite
+      - name: Run complete test suite (Unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then
@@ -188,6 +203,11 @@ jobs:
           else
             prove -Iblib/arch -Iblib/lib -lr t
           fi
+
+      - name: Run complete test suite (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: perl -MApp::Prove -e '$app = App::Prove->new; $app->process_args(@ARGV); exit $app->run' -- -Iblib/arch -Iblib/lib -lr t
 
   windows-arm64-native-watcher:
     name: Windows ARM64 native watcher availability
@@ -233,6 +253,14 @@ jobs:
         if: steps.arm64-perl.outputs.native_perl == 'true'
         shell: pwsh
         run: |
+          $localLib = Join-Path $env:GITHUB_WORKSPACE 'local/lib/perl5'
+          $pathSep = & perl -MConfig -e 'print $Config{path_sep}'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($env:PERL5LIB) {
+            $env:PERL5LIB = "$localLib$pathSep$env:PERL5LIB"
+          } else {
+            $env:PERL5LIB = $localLib
+          }
           perl Makefile.PL
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           gmake
