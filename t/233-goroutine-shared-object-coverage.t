@@ -15,6 +15,8 @@ share my $counter = 4;
 is( 0 + $counter, 4, 'shared scalar reads through its proxy' );
 $counter += 3;
 is( 0 + $counter, 7, 'shared scalar compound addition is applied on store' );
+$counter = 20 - $counter;
+is( 0 + $counter, 13, 'shared scalar applies reverse arithmetic when assigned' );
 $counter = 9;
 is( 0 + $counter, 9, 'shared scalar accepts a plain scalar assignment' );
 my $counter_proxy = $counter;
@@ -108,6 +110,12 @@ ok( !exists $array->[8], 'shared array exists checks an absent index' );
 ok( exists $array->[-1], 'shared array exists resolves a negative index' );
 $array->[-1] = 'negative-store';
 is( $array->[-1], 'negative-store', 'shared array store resolves a negative index' );
+is( tied(@{$array})->FETCH(-1), 'negative-store',
+    'tied shared array FETCH normalizes a negative index passed directly' );
+ok( tied(@{$array})->EXISTS(-1),
+    'tied shared array EXISTS normalizes a negative index passed directly' );
+is( tied(@{$array})->DELETE(-1), 'negative-store',
+    'tied shared array DELETE normalizes a negative index passed directly' );
 $array->[0] = $counter_proxy + 1;
 is( 0 + $counter_proxy, 10, 'shared array store applies a shared scalar operation to its source' );
 is( $array->[0], 'zero', 'shared scalar operation is not stored as an array item' );
@@ -192,6 +200,30 @@ is( ref($regexp_proxy), 'Regexp', 'native regexp node materializes as a Perl reg
 ok( 'NATIVEEE' =~ $regexp_proxy, 'materialized regexp preserves matching behavior' );
 
 {
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::_shared_node_kind = sub { 'object' };
+    local *Developer::Dashboard::GoRoutine::_shared_node_class = sub { 'Local::SharedObject' };
+    local *Developer::Dashboard::GoRoutine::_shared_object_proxy = sub {
+        return bless { native_ptr => $_[0] }, 'Local::SharedObject';
+    };
+    my $object_proxy = Developer::Dashboard::GoRoutine::_value_for_ptr(456);
+    is( ref($object_proxy), 'Local::SharedObject',
+        'native object nodes materialize through the object proxy adapter' );
+    is( $object_proxy->{native_ptr}, 456,
+        'native object proxy receives its shared node handle' );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::_shared_node_kind = sub { 'unknown-test-kind' };
+    local *Developer::Dashboard::GoRoutine::_shared_node_class = sub { undef };
+    my $known = eval { Developer::Dashboard::GoRoutine::_value_for_ptr(457); 1 };
+    ok( !$known, 'unknown shared-node kinds are rejected' );
+    like( $@, qr/unknown shared value kind 'unknown-test-kind'/,
+        'unknown shared-node diagnostic includes the unsupported kind' );
+}
+
+{
     my ($native_fh) = tempfile();
     my $native_fd = fileno($native_fh);
     {
@@ -226,6 +258,13 @@ my $format_ref;
 $coverage_format_value
 .
     $format_ref = *GOROUTINE_COVERAGE_FORMAT{FORMAT};
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::_shared_node_text = sub { return undef };
+    ok( !defined Developer::Dashboard::GoRoutine::_format_for_ptr(124),
+        'format materializer returns undef when the shared name is absent' );
 }
 {
     no warnings 'redefine';
