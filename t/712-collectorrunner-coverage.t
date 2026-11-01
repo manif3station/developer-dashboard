@@ -74,19 +74,15 @@ sub write_file {
     return $file;
 }
 
-# Run a block in a forked child and return its exit status; the child exits 0
-# only when the block dies with the expected message.
+# Evaluate a block and return the child-fixture status; status is zero only when
+# the block dies with the expected message. The cases exercise exceptions and
+# do not require process isolation, so containment with eval preserves their
+# behavior without creating an operating-system child.
 sub child_dies_with {
     my ( $re, $code ) = @_;
-    my $pid = fork();
-    die "fork: $!" if !defined $pid;
-    if ( !$pid ) {
-        my $ok  = eval { $code->(); 1 };
-        my $err = $@;
-        exit( !$ok && $err =~ $re ? 0 : 1 );
-    }
-    waitpid( $pid, 0 );
-    return $? >> 8;
+    my $ok  = eval { $code->(); 1 };
+    my $err = $@;
+    return !$ok && $err =~ $re ? 0 : 1;
 }
 
 # --- schedule mode resolution ------------------------------------------------
