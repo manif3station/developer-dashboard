@@ -224,6 +224,39 @@ ok( 'NATIVEEE' =~ $regexp_proxy, 'materialized regexp preserves matching behavio
 }
 
 {
+    my @materialized;
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::_shared_node_kind = sub { $_[0] };
+    local *Developer::Dashboard::GoRoutine::_shared_node_class = sub { 'Local::SharedType' };
+    local *Developer::Dashboard::GoRoutine::_glob_for_ptr = sub {
+        push @materialized, [ glob => @_ ];
+        return 'glob-proxy';
+    };
+    local *Developer::Dashboard::GoRoutine::_io_for_ptr = sub {
+        push @materialized, [ io => @_ ];
+        return 'io-proxy';
+    };
+    local *Developer::Dashboard::GoRoutine::_format_for_ptr = sub {
+        push @materialized, [ format => @_ ];
+        return 'format-proxy';
+    };
+
+    is( Developer::Dashboard::GoRoutine::_value_for_ptr('glob'), 'glob-proxy',
+        'glob shared-node values delegate to the glob materializer' );
+    is( Developer::Dashboard::GoRoutine::_value_for_ptr('io'), 'io-proxy',
+        'IO shared-node values delegate to the IO materializer' );
+    is( Developer::Dashboard::GoRoutine::_value_for_ptr('format'), 'format-proxy',
+        'format shared-node values delegate to the format materializer' );
+    is_deeply( \@materialized,
+        [
+            [ glob   => 'glob',   'Local::SharedType' ],
+            [ io     => 'io',     'Local::SharedType' ],
+            [ format => 'format' ],
+        ],
+        'materializers receive the shared node and applicable class' );
+}
+
+{
     my ($native_fh) = tempfile();
     my $native_fd = fileno($native_fh);
     {
@@ -248,6 +281,41 @@ ok( 'NATIVEEE' =~ $regexp_proxy, 'materialized regexp preserves matching behavio
         ok( close($opened_handle), 'duplicated shared filehandle closes cleanly' );
     }
     close($native_fh) or die "cannot close native filehandle fixture: $!";
+}
+
+{
+    my %slot_ptr = ( scalar => 11, array => 12, hash => 13, code => 14 );
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::_shared_handle_fd = sub { -1 };
+    local *Developer::Dashboard::GoRoutine::_shared_handle_mode = sub { '<&' };
+    local *Developer::Dashboard::GoRoutine::_shared_glob_slot_ptr = sub {
+        return $slot_ptr{ $_[1] };
+    };
+    local *Developer::Dashboard::GoRoutine::_field_ref_for_ptr = sub {
+        my $value = "scalar-$_[0]";
+        return \$value;
+    };
+    local *Developer::Dashboard::GoRoutine::_value_for_ptr = sub {
+        return [ "array-$_[0]" ] if $_[0] == $slot_ptr{array};
+        return { value => "hash-$_[0]" } if $_[0] == $slot_ptr{hash};
+        if ( $_[0] == $slot_ptr{code} ) {
+            my $ptr = $_[0];
+            return sub { "code-$ptr" };
+        }
+        return;
+    };
+
+    my $shared_glob = Developer::Dashboard::GoRoutine::_glob_for_ptr(10, undef);
+    is( ${ *{$shared_glob}{SCALAR} }, 'scalar-11',
+        'descriptorless shared glob materializes its scalar slot' );
+    is_deeply( *{$shared_glob}{ARRAY}, ['array-12'],
+        'descriptorless shared glob materializes its array slot' );
+    is_deeply( *{$shared_glob}{HASH}, { value => 'hash-13' },
+        'descriptorless shared glob materializes its hash slot' );
+    is( *{$shared_glob}{CODE}->(), 'code-14',
+        'descriptorless shared glob materializes its code slot' );
+    ok( tied( *{$shared_glob} ), 'descriptorless shared glob retains its tied handle' );
+    untie *{$shared_glob};
 }
 
 my $format_ref;
@@ -472,9 +540,10 @@ t/233-goroutine-shared-object-coverage.t - exercise GoRoutine Perl proxies witho
 =head1 PURPOSE
 
 This test exercises the Perl proxy, tied-hash, tied-array, scalar-reference,
-overload, and routine-handle wrapper code in C<Developer::Dashboard::GoRoutine>
-without starting worker threads. The separate integration tests exercise real
-worker and shared-object concurrency outside Devel::Cover instrumentation.
+overload, shared-node type dispatch, and routine-handle wrapper code in
+C<Developer::Dashboard::GoRoutine> without starting worker threads. The
+separate integration tests exercise real worker and shared-object concurrency
+outside Devel::Cover instrumentation.
 
 =head1 WHY IT EXISTS
 
@@ -497,8 +566,10 @@ The test requires the checkout's built XS object and loads it through the
 existing C<Developer::Dashboard::HtmlEscape> distribution module. It uses
 ordinary Perl operations against shared values but replaces only the native
 routine-handle XSUB calls with local in-process stubs, so it never creates a
-worker thread. Run it with the normal test library paths and the coverage gate
-will include its Perl-module execution in the lib-only report.
+worker thread. Its dispatch checks prove that glob, IO, and format node kinds
+reach their respective materializers with the correct shared handle and class
+metadata. Run it with the normal test library paths and the coverage gate will
+include its Perl-module execution in the lib-only report.
 
 =head1 EXAMPLES
 
