@@ -141,24 +141,26 @@ my $forged_page = Developer::Dashboard::PageDocument->new(
     ok( -e $marker, 'trusted saved-route command action produced its side effect' );
 }
 
-# Finding 2: the background-action detach path must skip POSIX setsid on Windows
-# (matching the collector and runtime detach paths) instead of calling an
-# unimplemented POSIX primitive.
+# Finding 2: background actions use the platform-neutral GoRoutine process API
+# and request an isolated process group for timeout and signal supervision.
 {
+    require Developer::Dashboard::GoRoutine;
     no warnings 'redefine';
-    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
-    local *Developer::Dashboard::ActionRunner::setsid = sub { die "setsid must not run on Windows\n" };
-    my $ret;
-    my $ok = eval { $ret = $runner->_detach_background_session; 1 };
-    ok( $ok, 'background detach skips POSIX setsid on Windows' );
-    ok( $ret, 'background detach reports success on Windows without setsid' );
-}
-{
-    no warnings 'redefine';
-    local $Developer::Dashboard::Platform::OS_NAME = 'linux';
-    local *Developer::Dashboard::ActionRunner::setsid = sub { return 4242 };
-    my $ret = $runner->_detach_background_session;
-    is( $ret, 4242, 'background detach performs POSIX setsid on non-Windows platforms' );
+    my ( $argv, $options );
+    local *Developer::Dashboard::GoRoutine::spawn = sub {
+        ( $argv, $options ) = @_;
+        return 4242;
+    };
+    my $result = $runner->_spawn_background_action(
+        command    => 'true',
+        cwd        => $home,
+        env        => {},
+        timeout_ms => 5000,
+    );
+    is( $result->{pid}, 4242, 'background action returns the GoRoutine process identifier' );
+    is( $options->{process_group}, 1, 'background action asks GoRoutine to isolate the supervised process group' );
+    is( $options->{cwd}, $home, 'background action passes its validated working directory to GoRoutine' );
+    is( $options->{stdin}, File::Spec->devnull(), 'background action closes child stdin through GoRoutine options' );
 }
 
 # Finding 3: a synchronous command killed by a signal must report a signal-aware

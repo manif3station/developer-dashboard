@@ -88,6 +88,7 @@ use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::RuntimeManager;
+use Developer::Dashboard::GoRoutine ();
 
 {
     package Local::FailRunner;
@@ -146,32 +147,6 @@ sub in_child {
 {
     no warnings 'redefine';
 
-    # Startup pipe creation failure.
-    local *Developer::Dashboard::RuntimeManager::is_windows = sub { 0 };
-    local *Developer::Dashboard::RuntimeManager::running_web = sub { return undef };
-    local $PIPE_FAIL = 1;
-    eval { $manager->start_web( host => '127.0.0.1', port => 47991 ) };
-    like( $@, qr/Unable to create startup pipe/, 'start_web dies when the startup pipe cannot be created' );
-}
-
-{
-    no warnings 'redefine';
-
-    # A startup child that exits without writing any status line.
-    local *Developer::Dashboard::RuntimeManager::is_windows = sub { 0 };
-    local *Developer::Dashboard::RuntimeManager::running_web = sub { return undef };
-    local *Developer::Dashboard::RuntimeManager::_fork_process = sub {
-        my $pid = fork();
-        POSIX::_exit(0) if defined $pid && !$pid;
-        return $pid;
-    };
-    eval { $manager->start_web( host => '127.0.0.1', port => 47992 ) };
-    like( $@, qr/Unable to start dashboard web service/, 'start_web dies when the startup child exits without a status line' );
-}
-
-{
-    no warnings 'redefine';
-
     # Windows background start where the listener pid is not truthy, so the
     # spawned pid is used as the fallback in the persisted state.
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { 1 };
@@ -186,7 +161,7 @@ sub in_child {
     is( $pid, 4242, 'the Windows background start falls back to the spawned pid when the listener pid is not truthy' );
 }
 
-# Collector supervisor start failures.
+# GoRoutine collector-supervisor start failures.
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
@@ -194,27 +169,15 @@ sub in_child {
     my $pidfile = $manager->_collector_supervisor_pidfile;
 
     {
-        local *Developer::Dashboard::RuntimeManager::is_windows = sub { 1 };
-        local *Developer::Dashboard::RuntimeManager::_windows_background_collector_supervisor_command = sub { return ('noop') };
-        local *Developer::Dashboard::RuntimeManager::_spawn_windows_background_command = sub { return 5151 };
-        local $OPEN_FAIL{"> $pidfile"} = ['fail'];
+        local *Developer::Dashboard::GoRoutine::spawn = sub { die "native spawn failure\n" };
         eval { $manager->_start_collector_supervisor };
-        like( $@, qr/Unable to write \Q$pidfile\E/, 'the Windows supervisor start dies when its pidfile cannot be written' );
-    }
-
-    local *Developer::Dashboard::RuntimeManager::is_windows = sub { 0 };
-    {
-        local $FORK_FAIL = 1;
-        eval { $manager->_start_collector_supervisor };
-        like( $@, qr/Unable to fork collector supervisor/, 'the Unix supervisor start dies when fork fails' );
+        like( $@, qr/native spawn failure/, 'the collector supervisor reports native GoRoutine spawn failures' );
     }
     {
-        local *Developer::Dashboard::RuntimeManager::_run_collector_supervisor_child = sub { exit 0 };
+        local *Developer::Dashboard::GoRoutine::spawn = sub { return 5151 };
         local $OPEN_FAIL{"> $pidfile"} = ['fail'];
         eval { $manager->_start_collector_supervisor };
-        like( $@, qr/Unable to write \Q$pidfile\E/, 'the Unix supervisor start dies in the parent when its pidfile cannot be written' );
-        1 while waitpid( -1, POSIX::WNOHANG() ) > 0;
-        wait();
+        like( $@, qr/Unable to write \Q$pidfile\E/, 'the supervisor start dies when its pidfile cannot be written' );
     }
 }
 

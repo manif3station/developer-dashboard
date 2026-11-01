@@ -580,20 +580,17 @@ PAGE
 }
 
 {
-    my $fork_pid = $runner->_fork_process();
-    die "fork helper failed: $!" if !defined $fork_pid;
-    if ( !$fork_pid ) {
-        exit 0;
-    }
-    waitpid( $fork_pid, 0 );
-    is( $? >> 8, 0, '_fork_process returns a real child pid and allows the child to exit cleanly' );
+    require Developer::Dashboard::GoRoutine;
+    my $spawned_pid = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'exit 0' ], {} );
+    is( Developer::Dashboard::GoRoutine::wait_process($spawned_pid), 0,
+        'GoRoutine process API launches and collects a clean helper child' );
 }
 
 {
-    my $loop_name = 'coverage.start.parent';
-    my $dispatch_name = 'coverage.start.child';
+    my $loop_name = 'coverage.start.parent.' . $$;
+    my $dispatch_name = 'coverage.start.child.' . $$;
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_fork_process = sub { return 424242 };
+    local *Developer::Dashboard::CollectorRunner::_spawn_windows_background_command = sub { return 424242 };
     my $pid = $runner->start_loop(
         {
             name     => $loop_name,
@@ -602,13 +599,13 @@ PAGE
             interval => 5,
         }
     );
-    is( $pid, 424242, 'start_loop uses the fork wrapper and returns the parent pid' );
+    is( $pid, 424242, 'start_loop returns the pid from the GoRoutine process launcher' );
     my $state = $runner->loop_state($loop_name);
-    is( $state->{status}, 'starting', 'start_loop parent path writes starting metadata without forking a real child' );
-    is( $state->{pid}, 424242, 'start_loop parent path records the wrapped fork pid' );
+    is( $state->{status}, 'starting', 'start_loop writes starting metadata for the spawned helper' );
+    is( $state->{pid}, 424242, 'start_loop records the GoRoutine child pid in state' );
     is( $files->read( File::Spec->catfile( $paths->collectors_root, "$loop_name.pid" ) ), '424242', 'start_loop parent path writes the pidfile from the wrapped fork result' );
 
-    my $stale_name = 'coverage.start.stale';
+    my $stale_name = 'coverage.start.stale.' . $$;
     open my $stale_pid, '>', $runner->_pidfile($stale_name) or die $!;
     print {$stale_pid} "999999\n";
     close $stale_pid;
@@ -620,7 +617,7 @@ PAGE
             status => 'running',
         }
     );
-    local *Developer::Dashboard::CollectorRunner::_fork_process = sub { return 565656 };
+    local *Developer::Dashboard::CollectorRunner::_spawn_windows_background_command = sub { return 565656 };
     my $stale_started = $runner->start_loop(
         {
             name     => $stale_name,
@@ -632,40 +629,26 @@ PAGE
     is( $stale_started, 565656, 'start_loop replaces stale loop files before writing new parent state' );
     is( $runner->loop_state($stale_name)->{pid}, 565656, 'start_loop stale cleanup path overwrites the old loop state' );
 
-    my @dispatch;
-    local *Developer::Dashboard::CollectorRunner::_fork_process = sub { return 0 };
-    local *Developer::Dashboard::CollectorRunner::_run_loop_child = sub {
-        my ( $self, %args ) = @_;
-        @dispatch = %args;
-        return 1;
+    my @spawned_command;
+    local *Developer::Dashboard::CollectorRunner::_spawn_windows_background_command = sub {
+        my ( $self, @command ) = @_;
+        @spawned_command = @command;
+        return 676767;
     };
-    ok(
-        $runner->start_loop(
-            {
-                name     => $dispatch_name,
-                command  => q{printf child},
-                cwd      => 'home',
-                interval => 7,
-                schedule => 'interval',
-            }
-        ) == 1,
-        'start_loop child dispatch returns the wrapped child runner result when the child path is stubbed',
-    );
-    my %dispatch = @dispatch;
-    is( $dispatch{interval}, 7, 'start_loop child path dispatches the configured interval' );
-    is( $dispatch{name}, $dispatch_name, 'start_loop child path dispatches the collector name' );
-    is( $dispatch{schedule_mode}, 'interval', 'start_loop child path dispatches the schedule mode' );
-    is( $dispatch{title}, $runner->_process_title($dispatch_name), 'start_loop child path dispatches the managed process title' );
-    is_deeply(
-        $dispatch{job},
+    my $dispatch_pid = $runner->start_loop(
         {
             name     => $dispatch_name,
             command  => q{printf child},
             cwd      => 'home',
             interval => 7,
             schedule => 'interval',
-        },
-        'start_loop child path dispatches the expected collector job hash',
+        }
+    );
+    is( $dispatch_pid, 676767, 'start_loop returns the spawned loop process pid' );
+    is_deeply(
+        \@spawned_command,
+        [ $runner->_windows_background_loop_command($dispatch_name) ],
+        'start_loop passes the prepared helper argv to the GoRoutine launcher',
     );
 }
 
@@ -692,70 +675,51 @@ PAGE
 
 {
     my $loop_name = 'coverage.loop.scrub';
-    my $seen_file = File::Spec->catfile( $paths->state_root, 'coverage-loop-scrub.json' );
-    my $child_pid = fork();
-    die "fork failed: $!" if !defined $child_pid;
-    if ( !$child_pid ) {
-        no warnings 'redefine';
-        local $ENV{PERL5OPT} = '-MDevel::Cover';
-        local $ENV{HARNESS_PERL_SWITCHES} = '-MDevel::Cover';
-        local *Developer::Dashboard::CollectorRunner::_job_is_due = sub { return 1 };
-        local *Developer::Dashboard::CollectorRunner::run_once = sub {
-            my ($self, $job) = @_;
-            open my $fh, '>', $seen_file or die "Unable to write $seen_file: $!";
-            print {$fh} json_encode(
-                {
-                    perl5opt               => ( defined $ENV{PERL5OPT} ? $ENV{PERL5OPT} : '' ),
-                    harness_perl_switches  => ( defined $ENV{HARNESS_PERL_SWITCHES} ? $ENV{HARNESS_PERL_SWITCHES} : '' ),
-                }
-            );
-            close $fh;
-            return { ok => 1 };
-        };
-        my $ok = $runner->_run_loop_child(
-            daemonize     => 0,
-            interval      => 0,
-            job           => { command => 'printf scrub', cwd => $home },
-            name          => $loop_name,
-            schedule_mode => 'interval',
-            single_tick   => 1,
-            title         => $runner->_process_title($loop_name),
-        );
-        exit( $ok ? 0 : 1 );
-    }
-    waitpid( $child_pid, 0 );
-    is( $? >> 8, 0, '_run_loop_child keeps a coverage-instrumented child alive long enough to execute one scrubbed tick' );
-    open my $seen_fh, '<', $seen_file or die "Unable to read $seen_file: $!";
-    my $seen = json_decode( do { local $/; <$seen_fh> } );
-    close $seen_fh;
-    is( $seen->{perl5opt}, '', '_run_loop_child clears PERL5OPT inside managed collector children when coverage instrumentation is active' );
-    is( $seen->{harness_perl_switches}, '', '_run_loop_child clears HARNESS_PERL_SWITCHES inside managed collector children when coverage instrumentation is active' );
+    my %seen;
+    no warnings 'redefine';
+    local $ENV{PERL5OPT} = '-MDevel::Cover';
+    local $ENV{HARNESS_PERL_SWITCHES} = '-MDevel::Cover';
+    local *Developer::Dashboard::CollectorRunner::_job_is_due = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_start_loop_worker = sub {
+        $seen{perl5opt} = defined $ENV{PERL5OPT} ? $ENV{PERL5OPT} : '';
+        $seen{harness_perl_switches} = defined $ENV{HARNESS_PERL_SWITCHES} ? $ENV{HARNESS_PERL_SWITCHES} : '';
+        return 51515;
+    };
+    local *Developer::Dashboard::CollectorRunner::_sleep_until_next_tick = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_settle_single_tick_workers = sub { return 1 };
+    my $ok = $runner->_run_loop_child(
+        daemonize     => 0,
+        interval      => 0,
+        job           => { command => 'printf scrub', cwd => $home },
+        name          => $loop_name,
+        schedule_mode => 'interval',
+        single_tick   => 1,
+        title         => $runner->_process_title($loop_name),
+    );
+    ok( $ok, '_run_loop_child completes one scrubbed coverage tick without a forked test child' );
+    is( $seen{perl5opt}, '', '_run_loop_child clears PERL5OPT before starting a managed collector worker' );
+    is( $seen{harness_perl_switches}, '', '_run_loop_child clears HARNESS_PERL_SWITCHES before starting a managed collector worker' );
 }
 
 {
-    my $loop_name = 'coverage.loop.error';
-    my $child_pid = fork();
-    die "fork failed: $!" if !defined $child_pid;
-    if ( !$child_pid ) {
-        no warnings 'redefine';
-        local *Developer::Dashboard::CollectorRunner::_job_is_due = sub { return 1 };
-        local *Developer::Dashboard::CollectorRunner::run_once     = sub { die "forced child failure\n" };
-        my $ok = $runner->_run_loop_child(
-            daemonize     => 1,
-            interval      => 0,
-            job           => { command => 'printf child', cwd => $home },
-            name          => $loop_name,
-            schedule_mode => 'interval',
-            single_tick   => 1,
-            title         => $runner->_process_title($loop_name),
-        );
-        exit( $ok ? 0 : 1 );
-    }
-    waitpid( $child_pid, 0 );
-    is( $? >> 8, 0, '_run_loop_child returns cleanly after one daemonized error tick' );
+    my $loop_name = 'coverage.loop.error.' . $$;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_job_is_due = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_start_loop_worker = sub { die "forced child failure\n" };
+    local *Developer::Dashboard::CollectorRunner::_sleep_until_next_tick = sub { return 1 };
+    my $ok = $runner->_run_loop_child(
+        daemonize     => 0,
+        interval      => 0,
+        job           => { command => 'printf child', cwd => $home },
+        name          => $loop_name,
+        schedule_mode => 'interval',
+        single_tick   => 1,
+        title         => $runner->_process_title($loop_name),
+    );
+    ok( $ok, '_run_loop_child survives and records a worker-launch failure during a single tick' );
     my $state = $runner->loop_state($loop_name);
-    is( $state->{status}, 'error', '_run_loop_child writes error state when a collector tick dies' );
-    like( $state->{error}, qr/forced child failure/, '_run_loop_child persists the collector error message' );
+    is( $state->{status}, 'error', '_run_loop_child writes error state when worker launch fails' );
+    like( $state->{error}, qr/forced child failure/, '_run_loop_child persists the worker-launch error message' );
 }
 
 {
@@ -787,9 +751,11 @@ PAGE
 
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_fork_process = sub { return undef };
+    local *Developer::Dashboard::CollectorRunner::_spawn_windows_background_command = sub {
+        die "unable to spawn GoRoutine child process: No such file or directory\n";
+    };
     my $error = eval { $runner->_start_loop_worker( { command => 'true' }, 'fork.fail', 'title' ); 1 } ? '' : $@;
-    like( $error, qr/Unable to fork collector worker 'fork\.fail'/, '_start_loop_worker reports fork failures explicitly' );
+    like( $error, qr/unable to spawn GoRoutine child process/, '_start_loop_worker propagates GoRoutine spawn failures explicitly' );
 }
 
 {

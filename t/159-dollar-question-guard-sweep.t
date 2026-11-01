@@ -45,7 +45,6 @@ my %BASELINE = map { $_ => 1 } ();
 # now guarded directly in lib/ rather than re-added here - see
 # CommandRunner.pm::terminate_command_process, fixed by this ticket.
 my %SETTER_BASELINE = map { $_ => 1 } (
-    'Developer/Dashboard/ActionRunner.pm::run_command_action',
     'Developer/Dashboard/CLI/Ask.pm::_ask_claude',
     'Developer/Dashboard/CLI/Ask.pm::_missing_backend_message',
     'Developer/Dashboard/CLI/Ask.pm::_run_cli',

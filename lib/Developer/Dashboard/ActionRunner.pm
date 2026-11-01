@@ -3,17 +3,16 @@ package Developer::Dashboard::ActionRunner;
 use strict;
 use warnings;
 
-our $VERSION = '6.18';
+our $VERSION = '6.19';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::PathIdentity qw(current_working_directory);
 use Digest::SHA qw(sha256_hex);
 use File::Spec;
-use POSIX qw(WNOHANG setsid);
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 use Developer::Dashboard::JSON qw(json_encode);
-use Developer::Dashboard::Platform qw(is_windows shell_command_argv);
+use Developer::Dashboard::Platform qw(shell_command_argv);
 use Developer::Dashboard::TimeUtils qw(_now_iso8601);
 
 # new(%args)
@@ -169,71 +168,12 @@ sub run_command_action {
     my $background = $args{background} ? 1 : 0;
 
     if ($background) {
-        pipe my $reader, my $writer or die "Unable to create background action pipe: $!";
-        my $pid = $self->_fork_process;
-        die "Unable to fork background action: $!" if !defined $pid;
-        if ($pid) {
-            close $writer;
-            my $line = <$reader>;
-            close $reader;
-            die "Unable to start background action\n" if !defined $line;
-            chomp $line;
-            die "$line\n" if $line =~ /^err:/;
-            my ( undef, $started_pid ) = split /\|/, $line, 2;
-            return {
-                background => 1,
-                pid        => $started_pid + 0,
-                started_at => _now_iso8601( tz => "utc" ),
-            };
-        }
-        local $SIG{CHLD} = 'DEFAULT';
-        close $reader;
-        eval {
-            $self->_detach_background_session() or die "Unable to detach background action session: $!";
-            open STDIN, '<', File::Spec->devnull() or die "Unable to redirect background action stdin: $!";
-            open STDOUT, '>>', $self->{files}->dashboard_log or die "Unable to redirect background action stdout: $!";
-            open STDERR, '>>', $self->{files}->dashboard_log or die "Unable to redirect background action stderr: $!";
-            my $command_pid = $self->_fork_process;
-            die "Unable to fork detached background action command: $!" if !defined $command_pid;
-            if ( !$command_pid ) {
-                chdir $cwd or die "Unable to chdir to background action cwd '$cwd': $!";
-                local %ENV = ( %ENV, %{$env} );
-                my @argv = shell_command_argv($cmd);
-                $self->_exec_command(@argv);
-                die "Unable to exec background action command: $!";
-            }
-            local $SIG{TERM} = sub {
-                kill 'TERM', $command_pid;
-                waitpid( $command_pid, 0 );
-                exit 0;
-            };
-            local $SIG{INT} = sub {
-                kill 'TERM', $command_pid;
-                waitpid( $command_pid, 0 );
-                exit 0;
-            };
-            print {$writer} join( '|', 'ok', $$ ), "\n";
-            close $writer;
-            my $deadline = $timeout_ms > 0 ? time() + ( $timeout_ms / 1000 ) : undef;
-            while (1) {
-                my $status = $self->_background_child_exit_status($command_pid);
-                exit $status if defined $status;
-                if ( defined $deadline && time() >= $deadline ) {
-                    kill 'TERM', $command_pid;
-                    select undef, undef, undef, 0.2;
-                    kill 'KILL', $command_pid if waitpid( $command_pid, WNOHANG ) == 0;
-                    waitpid( $command_pid, 0 );
-                    exit 124;
-                }
-                select undef, undef, undef, 0.05;
-            }
-        };
-        # The eval body above only ever leaves through exit or die, so reaching
-        # this point always means the boot failed and $@ holds the reason.
-        my $error = $@;
-        print {$writer} 'err: ' . $error;
-        close $writer;
-        exit 1;
+        return $self->_spawn_background_action(
+            command    => $cmd,
+            cwd        => $cwd,
+            env        => $env,
+            timeout_ms => $timeout_ms,
+        );
     }
 
     return $self->_run_command(
@@ -244,36 +184,115 @@ sub run_command_action {
     );
 }
 
-# _fork_process()
-# Wraps Perl fork so tests can drive the background-child spawn path
-# deterministically.
-# Input: none.
-# Output: child pid in parent, zero in child, or undef on failure.
-sub _fork_process {
-    return fork();
+# _spawn_background_action(%args)
+# Launches a detached native supervisor for a background command action.
+# Input: command string, validated cwd, environment hash, and timeout in milliseconds.
+# Output: the public background result hash with the native supervisor pid.
+sub _spawn_background_action {
+    my ( $self, %args ) = @_;
+    require Developer::Dashboard::GoRoutine;
+    my $log = $self->{files}->dashboard_log;
+    my $payload = json_encode(
+        {
+            command    => $args{command},
+            cwd        => $args{cwd},
+            timeout_ms => $args{timeout_ms},
+            log        => $log,
+        }
+    );
+    my @argv = (
+        $^X,
+        '-MDeveloper::Dashboard::ActionRunner',
+        '-e',
+        'exit Developer::Dashboard::ActionRunner->run_background_supervisor($ARGV[0]);',
+        $payload,
+    );
+    my $pid = eval {
+        Developer::Dashboard::GoRoutine::spawn(
+            \@argv,
+            {
+                cwd           => $args{cwd},
+                env           => $args{env},
+                process_group => 1,
+                stdin         => File::Spec->devnull(),
+                stdout        => $log,
+                stderr        => $log,
+            },
+        );
+    };
+    my $spawn_error = $@;
+    die "Unable to launch background action supervisor: $spawn_error"
+      if $spawn_error ne '' || !$pid;
+    return {
+        background => 1,
+        pid        => $pid + 0,
+        started_at => _now_iso8601( tz => 'utc' ),
+    };
 }
 
-# _exec_command(@argv)
-# Replaces the current process with the given command. Kept as its own single
-# statement sub so the failure path (exec returning) is a plain statement in the
-# caller that Devel::Cover can record, rather than code trailing an exec.
-# Input: command argv list.
-# Output: false when the exec failed; never returns on success.
-sub _exec_command {
-    my ( $self, @argv ) = @_;
-    return exec { $argv[0] } @argv;
+# run_background_supervisor($payload_json)
+# Runs the detached command child, enforcing its timeout and forwarding stop signals.
+# Input: JSON scalar containing the trusted command, cwd, timeout, and log path; environment is inherited.
+# Output: child exit status, 124 on timeout, or 128+signal after a stop request.
+sub run_background_supervisor {
+    my ( $class, $payload_json ) = @_;
+    my $payload = Developer::Dashboard::JSON::json_decode($payload_json);
+    die 'Background action supervisor payload must be a hash' if ref($payload) ne 'HASH';
+    for my $required (qw(command cwd timeout_ms log)) {
+        die "Background action supervisor is missing $required"
+          if !exists $payload->{$required};
+    }
+    require Developer::Dashboard::GoRoutine;
+    my @argv = shell_command_argv( $payload->{command} );
+    my $child_pid = Developer::Dashboard::GoRoutine::spawn(
+        \@argv,
+        {
+            cwd    => $payload->{cwd},
+            stdout => $payload->{log},
+            stderr => $payload->{log},
+        },
+    );
+    my $timeout_ms = $payload->{timeout_ms};
+    my $deadline = $timeout_ms > 0 ? time() + ( $timeout_ms / 1000 ) : undef;
+    my $stop_signal;
+    local $SIG{TERM} = sub { $stop_signal = 'TERM' };
+    local $SIG{INT}  = sub { $stop_signal = 'INT' };
+    while (1) {
+        if ($stop_signal) {
+            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'TERM' );
+            _wait_background_child_exit($child_pid, 0.2);
+            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'KILL' )
+              if !Developer::Dashboard::GoRoutine::process_exited($child_pid);
+            Developer::Dashboard::GoRoutine::wait_process($child_pid);
+            return 0;
+        }
+        if (Developer::Dashboard::GoRoutine::process_exited($child_pid)) {
+            return Developer::Dashboard::GoRoutine::wait_process($child_pid);
+        }
+        if ( defined $deadline && time() >= $deadline ) {
+            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'TERM' );
+            _wait_background_child_exit($child_pid, 0.2);
+            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'KILL' )
+              if !Developer::Dashboard::GoRoutine::process_exited($child_pid);
+            Developer::Dashboard::GoRoutine::wait_process($child_pid);
+            return 124;
+        }
+        select undef, undef, undef, 0.02;
+    }
 }
 
-# _detach_background_session()
-# Starts a detached session for a background action child before stdio is
-# redirected into the dashboard log, skipping the POSIX setsid call on Windows
-# where process sessions are not available (matching the collector and runtime
-# detach paths).
-# Input: none.
-# Output: truthy on success, false on failure.
-sub _detach_background_session {
-    return 1 if is_windows();
-    return setsid();
+# _wait_background_child_exit($pid, $seconds)
+# Polls the native process API until the command exits or a bounded grace period expires.
+# Input: child process id and maximum wait duration in seconds.
+# Output: true if the child exited during the grace period, otherwise false.
+sub _wait_background_child_exit {
+    my ( $pid, $seconds ) = @_;
+    my $deadline = time() + $seconds;
+    while ( time() < $deadline ) {
+        return 1 if Developer::Dashboard::GoRoutine::process_exited($pid);
+        select undef, undef, undef, 0.01;
+    }
+    return Developer::Dashboard::GoRoutine::process_exited($pid) ? 1 : 0;
 }
 
 # _wait_status_exit_code($raw_status)
@@ -288,39 +307,18 @@ sub _wait_status_exit_code {
     return $status;
 }
 
-# _background_child_exit_status($command_pid)
-# Polls one detached background command child and returns the supervisor exit
-# code when that child has already exited.
-# Input: direct child process id integer.
-# Output: normalized exit status integer when reaped, otherwise undef.
-sub _background_child_exit_status {
-    my ( $self, $command_pid ) = @_;
-
-    # DD-597: waitpid below reads $? into this sub's own return value, but
-    # without this guard the raw $? from that reap stays set in the caller's
-    # process after this sub returns. `local` restores the caller's $? on
-    # return regardless of what runs inside.
-    local $?;
-    my $reaped = waitpid( $command_pid, WNOHANG );
-    return if $reaped != $command_pid;
-    return $self->_wait_status_exit_code($?);
-}
-
 # _reap_child_process($pid)
-# Reaps one direct background action child when it has already exited so
-# callers do not observe wrapper zombies during lifecycle checks.
+# Observes and collects the exit result for one native background process.
 # Input: process id integer.
-# Output: boolean true when waitpid reaped the child.
+# Output: boolean true when the process has exited.
 sub _reap_child_process {
     my ( $self, $pid ) = @_;
-    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-585/589-593/597,
-    # DD-670). waitpid below reads the reaped child's status into $?, and
-    # without this guard that value leaks into whatever _pid_is_running's own
-    # caller reads next.
-    local $?;
     return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
-    my $waited = waitpid( $pid, WNOHANG );
-    return $waited == $pid ? 1 : 0;
+    require Developer::Dashboard::GoRoutine;
+    return 0 if !Developer::Dashboard::GoRoutine::process_running($pid);
+    return 0 if !Developer::Dashboard::GoRoutine::process_exited($pid);
+    Developer::Dashboard::GoRoutine::wait_process($pid);
+    return 1;
 }
 
 # _read_process_state($pid)
@@ -362,8 +360,8 @@ sub _pid_is_running {
     my ( $self, $pid ) = @_;
     return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
     return 0 if $self->_reap_child_process($pid);
-    return 0 if ( $self->_read_process_state($pid) || '' ) eq 'Z';
-    return kill( 0, $pid ) ? 1 : 0;
+    require Developer::Dashboard::GoRoutine;
+    return Developer::Dashboard::GoRoutine::process_running($pid) ? 1 : 0;
 }
 
 # _run_builtin_action(%args)
