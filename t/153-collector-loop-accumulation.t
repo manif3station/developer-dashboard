@@ -61,9 +61,10 @@ my $runner     = Developer::Dashboard::CollectorRunner->new(
 sub supervisor_liveness {
     my ( $pid, $name ) = @_;
 
-    # This test is the supervisor's own parent (start_loop is a plain fork();
-    # setsid does not reparent), so a WNOHANG waitpid on it yields the kernel's
-    # own termination status rather than a guess from the process table.
+    # This test is the supervisor's own parent: start_loop launches a native
+    # child process through GoRoutine's process API, and setsid does not reparent
+    # it. WNOHANG waitpid therefore yields the kernel's termination status rather
+    # than a guess from the process table.
     my $reaped = waitpid( $pid, WNOHANG );
     if ( $reaped == $pid ) {
         my $signal = $? & 127;
@@ -115,7 +116,7 @@ sub live_supervisors {
     while ( my $entry = readdir $dh ) {
         next if $entry !~ /\A[0-9]+\z/;
         # Title identity, for the same reason the finder uses it: the loop-name
-        # environment marker is inherited by every forked child, so counting on it
+        # environment marker is inherited by every spawned child process, so counting on it
         # counts a collector's own worker as a second supervisor.
         my $running = $runner->_read_process_title($entry);
         push @found, $entry if defined $running && $running eq $runner->_process_title($collector);
@@ -183,7 +184,7 @@ my $pidfile = $runner->_pidfile($name);
 ok( -f $pidfile, 'the first start left a pidfile' );
 unlink $pidfile or die "Unable to remove $pidfile: $!";
 
-# The process-title scan is the fallback for a lost pidfile, but a just-forked
+# The process-title scan is the fallback for a lost pidfile, but a just-launched
 # supervisor can still be in the short interval before it adopts that title.
 # The parent has already written authoritative starting-state metadata before
 # returning from start_loop, so that state must also prevent a duplicate start.
@@ -284,14 +285,14 @@ SKIP: {
 # same batch-only disappearance that card owns. Asserting it here would keep this
 # file red for a fault it does not own, and a file that is always red stops being
 # read. What this card fixed is above: a lost record no longer causes a second
-# supervisor to be forked, and the running one is adopted instead.
+# supervisor process to be launched, and the running one is adopted instead.
 
 # The two assertions that used to sit here - that running_loops reports the
 # adopted supervisor, and that stop ends it - were moved to DD-543. They were
 # measuring a different fault: under batch load the supervisor EXITS and is left
 # unreaped, so running_loops correctly reports nothing and correctly cleans up the
 # stale pidfile. This card's defect is that a lost record caused a SECOND
-# supervisor to be forked, and that is what the assertions above prove.
+# supervisor process to be launched, and that is what the assertions above prove.
 #
 # Keeping them here would have made this file red for a reason it does not own,
 # which is how a test file stops being read.
@@ -342,7 +343,12 @@ SKIP: {
     my $forced_liveness;
     for ( 1 .. 50 ) {
         $forced_liveness = supervisor_liveness( $forced_pid, $forced_name );
-        last if !$forced_liveness->{alive};
+        # A just-killed process can briefly disappear from the title reader
+        # before waitpid observes its signal status. Keep polling that
+        # transitional observation; AC-3 needs the wait status to prove this
+        # was the forced-signal case, not merely an unreadable process title.
+        last if !$forced_liveness->{alive}
+          && ( $forced_liveness->{reason} // '' ) =~ /\A(?:DD-543:|pid .* exited on its own)/;
         Time::HiRes::sleep(0.1);
     }
     ok( !$forced_liveness->{alive}, 'AC-1: a supervisor killed in the check-to-use window is detected as not alive' );
