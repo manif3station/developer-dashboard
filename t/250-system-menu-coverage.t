@@ -18,19 +18,27 @@ is( Developer::Dashboard::System::Menu::menu(), $menu,
 
 for my $case (
     [ sub { Developer::Dashboard::System::Menu::_id( {} ) }, qr/invalid System::Menu object/ ],
+    [ sub { Developer::Dashboard::System::Menu::_id('not-an-object') }, qr/invalid System::Menu object/ ],
+    [ sub { Developer::Dashboard::System::Menu::_id( bless { id => '' }, 'Developer::Dashboard::System::Menu' ) }, qr/invalid System::Menu object/ ],
     [ sub { $menu->run( {} ) }, qr/requires an arrayref/ ],
     [ sub { Developer::Dashboard::System::Menu::_text( undef, 'value' ) }, qr/plain scalar/ ],
     [ sub { Developer::Dashboard::System::Menu::_text( [] , 'value' ) }, qr/plain scalar/ ],
     [ sub { Developer::Dashboard::System::Menu::_click_stay( 'yes', 'setting' ) }, qr/0 or 1/ ],
     [ sub { Developer::Dashboard::System::Menu::_click_stay( undef, 'setting' ) }, qr/0 or 1/ ],
+    [ sub { Developer::Dashboard::System::Menu::_click_stay( [], 'setting' ) }, qr/0 or 1/ ],
     [ sub { Developer::Dashboard::System::Menu::_menu_spec( {}, 'menu' ) }, qr/requires items/ ],
     [ sub { Developer::Dashboard::System::Menu::_menu_spec( { items => [], wrong => 1 }, 'menu' ) }, qr/unknown option/ ],
+    [ sub { Developer::Dashboard::System::Menu::_menu_spec( { items => {} }, 'menu' ) }, qr/requires items/ ],
     [ sub { Developer::Dashboard::System::Menu::_menu_spec( 'items', 'menu' ) }, qr/arrayref or hashref/ ],
 ) {
     my $ok = eval { $case->[0]->(); 1 };
     ok( !$ok, 'invalid input throws' );
     like( $@, $case->[1], 'invalid input identifies the contract' );
 }
+is( Developer::Dashboard::System::Menu::_id( bless { id => 'named-menu' }, 'Developer::Dashboard::System::Menu' ),
+    'named-menu', 'menu identity accepts a non-empty identifier' );
+is( Developer::Dashboard::System::Menu::_text( 'plain ASCII', 'value' ), 'plain ASCII',
+    'plain scalar text without UTF-8 bytes is preserved' );
 is( Developer::Dashboard::System::Menu::_click_stay(0, 'setting'), 0,
     'click_stay preserves the valid false setting' );
 my ( $default_click_stay, $empty_menu_items ) =
@@ -179,6 +187,25 @@ my $state = { running => 0, events => [] };
     local *Developer::Dashboard::System::Menu::_command_json = sub { push @commands, $_[0] };
     is( $idle_run->run([]), $idle_run,
         'run returns normally when the native helper exits before entering its event loop' );
+}
+
+{
+    no warnings 'redefine';
+    my $post_loop_menu = bless { id => 'post-loop-dispatch' }, 'Developer::Dashboard::System::Menu';
+    my @running = (1, 0, 1);
+    my @events = (
+        '',
+        JSON::XS->new->canonical->encode({ event => 'click', name => 'late-click' }) . "\n",
+    );
+    my $late_click_count = 0;
+    local *Developer::Dashboard::System::Menu::_start = sub {};
+    local *Developer::Dashboard::System::Menu::_running = sub { shift @running // 0 };
+    local *Developer::Dashboard::System::Menu::_command_json = sub {};
+    local *Developer::Dashboard::System::Menu::_read_events = sub { shift @events };
+    is( $post_loop_menu->run([
+        { name => 'late-click', icon => 'x', click => sub { ++$late_click_count } },
+    ]), $post_loop_menu, 'run performs a final event drain after the native loop exits' );
+    is( $late_click_count, 1, 'the final event drain dispatches its pending callback once' );
 }
 
 {
@@ -387,5 +414,7 @@ does not claim native visual verification; that remains a hosted platform test.
 The fixture replaces the native helper XSUBs while calling the real Perl
 adapter. A serialized click event is dispatched to a callback, while malformed
 JSON and unknown events are handled by the production event reader.
+Other assertions cover invalid object identities, scalar text validation,
+menu defaults, and a final event drain after the native run loop exits.
 
 =cut
