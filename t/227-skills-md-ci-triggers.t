@@ -106,6 +106,17 @@ ok( $fuzz_build_offset >= 0 && $fuzz_run_offset > $fuzz_build_offset,
 like( $fuzz_workflow, qr{PERL5LIB:\s*\$\{\{\s*github\.workspace\s*\}\}/blib/arch:.*\$\{\{\s*github\.workspace\s*\}\}/blib/lib:.*\$\{\{\s*github\.workspace\s*\}\}/local/lib/perl5}s,
     'fuzz job exposes the built XS and dependency trees to dashboard subprocesses' );
 
+for my $workflow_file (qw(test.yml fuzz-js.yml platform-compatibility.yml)) {
+    my $workflow_doc = YAML::XS::LoadFile(
+        File::Spec->catfile( $ROOT, '.github', 'workflows', $workflow_file ) );
+    my @setup_perl_steps = map { @{ $_->{steps} || [] } }
+      grep { ref $_ eq 'HASH' } values %{ $workflow_doc->{jobs} || {} };
+    @setup_perl_steps = grep { ($_->{uses} // '') =~ /actions-setup-perl\@/ } @setup_perl_steps;
+    my $all_threaded = @setup_perl_steps && !scalar grep { !$_->{with}{'multi-thread'} } @setup_perl_steps;
+    ok( $all_threaded,
+        "$workflow_file enables Perl ithreads for the GoRoutine XS build" );
+}
+
 # AC-2: no other workflow-trigger claim in SKILLS.md or README.md is left
 # inconsistent. Neither file may still assert the disproven "only master" claim.
 my $readme = _slurp( File::Spec->catfile( $ROOT, 'README.md' ) );
