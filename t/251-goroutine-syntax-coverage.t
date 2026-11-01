@@ -38,12 +38,51 @@ like( $existing[1], qr/_share_many\(\\\$one, \\\@two\)/,
     'existing-variable share rewrite registers each reference' );
 my $bad_group = eval { Developer::Dashboard::GoRoutine::_rewrite_share_at('share my ($one + 1);', 0); 1 };
 ok( !$bad_group, 'grouped share rejects expressions instead of variable declarations' );
+my $unterminated_group = eval {
+    Developer::Dashboard::GoRoutine::_rewrite_share_at('share my ($one)', 0);
+    1;
+};
+ok( !$unterminated_group, 'grouped share rejects a declaration without its terminator' );
+like( $@, qr/share declaration must end with a semicolon/,
+    'unterminated grouped share has a specific statement error' );
+my $unsupported_group_tail = eval {
+    Developer::Dashboard::GoRoutine::_rewrite_share_at('share my ($one) trailing;', 0);
+    1;
+};
+ok( !$unsupported_group_tail, 'grouped share rejects text after its declaration' );
+like( $@, qr/unsupported text after share my/,
+    'grouped share tail error names the unsupported syntax' );
+my $invalid_aggregate = eval {
+    Developer::Dashboard::GoRoutine::_rewrite_share_at('share my @;', 0);
+    1;
+};
+ok( !$invalid_aggregate, 'aggregate share rejects a missing variable name' );
+like( $@, qr/invalid shared aggregate declaration/,
+    'invalid aggregate declaration has an explicit diagnostic' );
+my $unsupported_aggregate_tail = eval {
+    Developer::Dashboard::GoRoutine::_rewrite_share_at('share my @items trailing;', 0);
+    1;
+};
+ok( !$unsupported_aggregate_tail, 'aggregate share rejects unrelated text after its variable' );
+like( $@, qr/unsupported text after shared aggregate/,
+    'aggregate tail error names the unsupported syntax' );
+ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_share_at('share my ;', 0),
+    'share my without a declaration leaves the source unchanged' );
+ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_share_at('share $one', 0),
+    'existing-variable share without a semicolon is not rewritten' );
+ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_share_at('share unrelated;', 0),
+    'non-variable share body is not rewritten' );
 
 my @named = Developer::Dashboard::GoRoutine::_rewrite_go_at('go do_work(1, nested(2));', 0);
 like( $named[1], qr/_go_call\(\\&do_work, 1, nested\(2\)\)/,
     'named go-call syntax preserves nested argument expressions' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_go_at('go sub { 1 };', 0),
     'anonymous go block remains on the native go call path' );
+ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_go_at('go do_work', 0),
+    'named go call without parentheses remains unchanged' );
+my @empty_named = Developer::Dashboard::GoRoutine::_rewrite_go_at('go do_work();', 0);
+is( $empty_named[1], 'Developer::Dashboard::GoRoutine::_go_call(\\&do_work)',
+    'named go call with empty arguments emits no argument separator' );
 my $bad_call = eval { Developer::Dashboard::GoRoutine::_rewrite_go_at('go do_work(1', 0); 1 };
 ok( !$bad_call, 'named go-call rejects an unterminated argument list' );
 like( $@, qr/unterminated go/, 'unterminated go-call has a clear error' );
@@ -53,6 +92,17 @@ like( $open_share[1], qr/open \$fh, '<', \$path;.*_share_many/s,
     'open-share rewrite retains open arguments and registers the handle' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at('open my $fh, q{<}, $path;', 0),
     'ordinary open does not enter the shared-handle rewrite' );
+ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at('open share my @fh, $path;', 0),
+    'open share requires a scalar filehandle declaration' );
+ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at('open share my $fh;', 0),
+    'open share without arguments remains unchanged' );
+my $unterminated_open_share = eval {
+    Developer::Dashboard::GoRoutine::_rewrite_open_share_at('open share my $fh, $path', 0);
+    1;
+};
+ok( !$unterminated_open_share, 'open share rejects an unterminated statement' );
+like( $@, qr/open share declaration must end with a semicolon/,
+    'unterminated open share has a specific statement error' );
 my $rewritten = Developer::Dashboard::GoRoutine::_rewrite_user_syntax('go do_work(1); share $one, @two;');
 like( $rewritten, qr/_go_call/, 'user syntax rewrite transforms named go calls' );
 like( $rewritten, qr/_share_many/, 'user syntax rewrite transforms aggregate shares' );
@@ -110,7 +160,18 @@ the Perl source transformer independently from native-thread integration tests.
 =head1 EXAMPLES
 
 The test verifies nested delimiter matching, declarations such as
-C<share my ($a, @b) = ...>, and named calls such as C<go work(1, 2)> while
-checking malformed arguments fail with explicit diagnostics.
+C<share my ($a, @b) = ...>, and named calls such as C<go work(1, 2)>. It also
+checks that malformed grouped and aggregate declarations, unsupported trailing
+text, missing terminators, and incomplete named calls produce the documented
+result instead of being partially rewritten. Open-share cases distinguish a
+supported scalar filehandle declaration from ordinary C<open>, aggregate
+filehandles, missing arguments, and unterminated statements.
+
+Additional examples covered by this test include:
+
+    share my ($one)          # rejected: missing semicolon
+    share my @items trailing; # rejected: unsupported declaration tail
+    go do_work();             # rewritten with no empty-argument separator
+    open share my $fh;        # left unchanged: no open arguments
 
 =cut
