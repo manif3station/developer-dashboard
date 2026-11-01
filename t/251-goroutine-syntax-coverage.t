@@ -12,12 +12,15 @@ is( Developer::Dashboard::GoRoutine::_skip_ws('x', 0), 0, 'whitespace skipper le
 is( Developer::Dashboard::GoRoutine::_matching_delim('({[x]})', 0), 6, 'delimiter matcher handles nested delimiters' );
 ok( !defined Developer::Dashboard::GoRoutine::_matching_delim('plain', 0), 'delimiter matcher rejects a non-opening character' );
 ok( !defined Developer::Dashboard::GoRoutine::_matching_delim('(missing', 0), 'delimiter matcher reports unterminated input' );
+ok( !defined Developer::Dashboard::GoRoutine::_matching_delim('([)]', 0), 'delimiter matcher rejects mismatched nesting' );
 is( Developer::Dashboard::GoRoutine::_statement_end('x = f(1; 2); tail', 0), 11,
     'statement finder ignores semicolons nested in delimiters' );
 ok( !defined Developer::Dashboard::GoRoutine::_statement_end('x = 1', 0), 'statement finder reports a missing semicolon' );
 
 is_deeply( [ Developer::Dashboard::GoRoutine::_variable_refs(' $one, @two, %three::four ') ],
     [ '$one', '@two', '%three::four' ], 'variable parser accepts supported scalar, array, and hash refs' );
+is_deeply( [ Developer::Dashboard::GoRoutine::_variable_refs('   ') ], [],
+    'variable parser accepts an empty reference list' );
 for my $bad ( '1', '$one + 1', '$one $two' ) {
     my $ok = eval { Developer::Dashboard::GoRoutine::_variable_refs($bad); 1 };
     ok( !$ok, 'variable parser rejects malformed input' );
@@ -72,6 +75,13 @@ ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_share_at('share $o
     'existing-variable share without a semicolon is not rewritten' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_share_at('share unrelated;', 0),
     'non-variable share body is not rewritten' );
+my $unterminated_aggregate = eval {
+    Developer::Dashboard::GoRoutine::_rewrite_share_at('share my @items', 0);
+    1;
+};
+ok( !$unterminated_aggregate, 'aggregate declaration without a semicolon is rejected' );
+like( $@, qr/share declaration must end with a semicolon/,
+    'unterminated aggregate declaration has a specific error' );
 
 my @named = Developer::Dashboard::GoRoutine::_rewrite_go_at('go do_work(1, nested(2));', 0);
 like( $named[1], qr/_go_call\(\\&do_work, 1, nested\(2\)\)/,
@@ -80,6 +90,8 @@ ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_go_at('go sub { 1 
     'anonymous go block remains on the native go call path' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_go_at('go do_work', 0),
     'named go call without parentheses remains unchanged' );
+ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_go_at('go 9work();', 0),
+    'named go syntax rejects a non-identifier target without rewriting it' );
 my @empty_named = Developer::Dashboard::GoRoutine::_rewrite_go_at('go do_work();', 0);
 is( $empty_named[1], 'Developer::Dashboard::GoRoutine::_go_call(\\&do_work)',
     'named go call with empty arguments emits no argument separator' );
@@ -92,6 +104,8 @@ like( $open_share[1], qr/open \$fh, '<', \$path;.*_share_many/s,
     'open-share rewrite retains open arguments and registers the handle' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at('open my $fh, q{<}, $path;', 0),
     'ordinary open does not enter the shared-handle rewrite' );
+ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at("open share \$fh, '<', \$path;", 0),
+    'open share requires the supported my filehandle declaration' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at('open share my @fh, $path;', 0),
     'open share requires a scalar filehandle declaration' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at('open share my $fh;', 0),
@@ -173,5 +187,7 @@ Additional examples covered by this test include:
     share my @items trailing; # rejected: unsupported declaration tail
     go do_work();             # rewritten with no empty-argument separator
     open share my $fh;        # left unchanged: no open arguments
+    open share $fh, '<', $p;   # left unchanged: no my declaration
+    go 9work();                # left unchanged: target is not an identifier
 
 =cut
