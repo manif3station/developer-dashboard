@@ -41,6 +41,8 @@ BEGIN {
 
 use File::Spec;
 use File::Temp qw(tempdir);
+use Cwd qw(abs_path);
+use Config;
 use POSIX ();
 use Test::More;
 
@@ -51,6 +53,12 @@ use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::GoRoutine ();
+
+my @worker_inc = map { abs_path($_) }
+  grep { !ref($_) && defined($_) && -d $_ }
+  @INC;
+my $worker_perl5lib = join $Config{path_sep}, grep { defined && -d $_ } @worker_inc;
 
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
@@ -150,14 +158,38 @@ is( $runner->_schedule_mode( {} ), 'manual', 'nothing selects manual' );
 }
 {
     my $job = { name => 's8-worker', command => 'true', cwd => File::Spec->catdir( $home, 'missing-cwd' ) };
-    my $pid = fork();
-    die "fork: $!" if !defined $pid;
-    if ( !$pid ) {
-        $runner->_run_loop_worker( $job, 's8-worker', undef, undef );
-        exit 0;
-    }
-    waitpid( $pid, 0 );
-    is( $? >> 8, 255, 'a failing worker exits 255' );
+    my $worker = File::Spec->catfile( $home, 'failing-loop-worker.pl' );
+    write_file( $worker, <<'WORKER' );
+use strict;
+use warnings;
+use File::Spec;
+use Developer::Dashboard::Collector;
+use Developer::Dashboard::CollectorRunner;
+use Developer::Dashboard::FileRegistry;
+use Developer::Dashboard::IndicatorStore;
+use Developer::Dashboard::PathRegistry;
+my ($home) = @ARGV;
+local $ENV{HOME} = $home;
+my $paths = Developer::Dashboard::PathRegistry->new(
+    home => $home,
+    workspace_roots => [ File::Spec->catdir($home, 'workspace') ],
+);
+my $runner = Developer::Dashboard::CollectorRunner->new(
+    collectors => Developer::Dashboard::Collector->new(paths => $paths),
+    files => Developer::Dashboard::FileRegistry->new(paths => $paths),
+    indicators => Developer::Dashboard::IndicatorStore->new(paths => $paths),
+    paths => $paths,
+);
+my $job = { name => 's8-worker', command => 'true', cwd => File::Spec->catdir($home, 'missing-cwd') };
+$runner->_run_loop_worker($job, 's8-worker', undef, undef);
+WORKER
+    my @include_args = map { '-I' . $_ } @worker_inc;
+    my $pid = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, @include_args, $worker, $home ],
+        { cwd => $home, env => { HOME => $home, PERL5LIB => $worker_perl5lib } },
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($pid), 255,
+        'a failing worker exits 255' );
     my $state = $runner->loop_state('s8-worker');
     is( $state->{pid}, $pid, 'the worker error state falls back to the worker pid' );
     is( $state->{process_name}, 'dashboard collector: s8-worker', 'the worker error state falls back to the derived title' );
