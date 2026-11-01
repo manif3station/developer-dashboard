@@ -103,7 +103,7 @@ static DDSystemMenuController *DDSystemMenuControllerInstance = nil;
     [super drawRect:dirtyRect];
 
     if (self.highlighted) {
-        [[NSColor selectedMenuItemColor] setFill];
+        [[NSColor selectedContentBackgroundColor] setFill];
         NSRectFill(self.bounds);
     }
 

@@ -117,6 +117,37 @@ for my $workflow_file (qw(test.yml fuzz-js.yml platform-compatibility.yml)) {
         "$workflow_file enables Perl ithreads for the GoRoutine XS build" );
 }
 
+# The native Linux system-menu helper is part of the distribution build, so
+# every Linux CI build must install its GTK/Ayatana development headers first.
+for my $workflow_file (qw(test.yml fuzz-js.yml platform-compatibility.yml)) {
+    my $workflow = _slurp( File::Spec->catfile( $ROOT, '.github', 'workflows', $workflow_file ) );
+    like( $workflow, qr/libayatana-appindicator3-dev/, "$workflow_file installs Ayatana development headers for the Linux helper" );
+    like( $workflow, qr/libgtk-3-dev/, "$workflow_file installs GTK development headers for the Linux helper" );
+}
+
+my $dockerfile = _slurp( File::Spec->catfile( $ROOT, '.github', 'docker', 'Dockerfile' ) );
+like( $dockerfile, qr/libayatana-appindicator3-dev/, 'runtime image build installs Ayatana headers for the native helper' );
+like( $dockerfile, qr/libgtk-3-dev/, 'runtime image build installs GTK headers for the native helper' );
+
+# Devel::Cover is not supported by the Windows toolchain used by the matrix;
+# that job installs Test::Harness and runs the suite without instrumentation.
+my $cpanfile = _slurp( File::Spec->catfile( $ROOT, 'cpanfile' ) );
+like( $cpanfile, qr/requires\s+['"]Devel::Cover['"]\s+if\s+\$\^O\s+ne\s+['"]MSWin32['"]/, 'coverage instrumentation is omitted from Windows test prerequisites' );
+my $platform_workflow = _slurp( File::Spec->catfile( $ROOT, '.github', 'workflows', 'platform-compatibility.yml' ) );
+like( $platform_workflow, qr/cpanm\s+--notest\s+-L\s+local\s+Test::Harness~3\.48/, 'Windows platform workflow installs the supported Test::Harness version explicitly' );
+
+# The macOS Objective-C helper uses ARC and treats deprecated AppKit APIs as
+# errors, so its hosted build remains warning-clean.
+my $makefile_pl = _slurp( File::Spec->catfile( $ROOT, 'Makefile.PL' ) );
+like( $makefile_pl,
+    qr/my\s+%test_requires\s*=\s*\(\s*'Test::Harness'\s*=>\s*'3\.48'\s*,?\s*\)\s*;\s*\$test_requires\{'Devel::Cover'\}\s*=\s*0\s*if\s*\$\^O\s+ne\s+'MSWin32';/s,
+    'MakeMaker omits Devel::Cover from Windows test prerequisites while retaining Test::Harness' );
+like( $makefile_pl, qr/TEST_REQUIRES\s*=>\s*\\%test_requires/,
+    'MakeMaker receives the platform-specific test prerequisite set' );
+like( $makefile_pl, qr/helper_compile\s*=\s*q\{[^\n]*-fobjc-arc[^\n]*-Werror=deprecated-declarations[^\n]*system_menu_helper_mac\.m/, 'macOS helper build enables ARC and rejects deprecated APIs' );
+my $mac_helper = _slurp( File::Spec->catfile( $ROOT, 'native', 'system_menu_helper_mac.m' ) );
+unlike( $mac_helper, qr/selectedMenuItemColor/, 'macOS helper avoids deprecated selected-menu color API' );
+
 # AC-2: no other workflow-trigger claim in SKILLS.md or README.md is left
 # inconsistent. Neither file may still assert the disproven "only master" claim.
 my $readme = _slurp( File::Spec->catfile( $ROOT, 'README.md' ) );

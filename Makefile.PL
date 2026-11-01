@@ -34,6 +34,14 @@ for my $candidate (@local_lib_candidates) {
 }
 $local_lib_root ||= '.perl5';
 
+# TEST_REQUIRES
+# Keeps Test::Harness available on every platform while avoiding Devel::Cover
+# on Windows, where the hosted toolchain cannot install that optional module.
+# Input: the current Perl operating system name in $^O.
+# Output: a hashref of platform-supported test prerequisites for MakeMaker.
+my %test_requires = ( 'Test::Harness' => '3.48' );
+$test_requires{'Devel::Cover'} = 0 if $^O ne 'MSWin32';
+
 WriteMakefile(
     NAME         => 'Developer::Dashboard',
     MIN_PERL_VERSION => '5.038',
@@ -103,10 +111,7 @@ WriteMakefile(
         'ExtUtils::MakeMaker'    => 0,
         'File::ShareDir::Install' => 0,
     },
-    TEST_REQUIRES => {
-        'Devel::Cover' => 0,
-        'Test::Harness' => '3.48',
-    },
+    TEST_REQUIRES => \%test_requires,
     META_MERGE   => {
         resources => {
             homepage   => 'https://github.mf/manif3station/developer-dashboard',
@@ -214,7 +219,7 @@ sub postamble {
     }
     elsif ( $^O eq 'darwin' ) {
         $helper_source = 'native/system_menu_helper_mac.m';
-        $helper_compile = q{$(CC) $(CCFLAGS) -fobjc-arc -o "$@" native/system_menu_helper_mac.m -framework AppKit -framework Foundation};
+        $helper_compile = q{$(CC) $(CCFLAGS) -fobjc-arc -Werror=deprecated-declarations -o "$@" native/system_menu_helper_mac.m -framework AppKit -framework Foundation};
     }
     elsif ( $^O eq 'MSWin32' ) {
         $helper_source = 'native/system_menu_helper_win.c';
