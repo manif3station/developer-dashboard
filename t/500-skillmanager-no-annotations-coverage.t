@@ -78,6 +78,7 @@ use lib 'lib';
 
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SkillManager;
+use Developer::Dashboard::GoRoutine ();
 
 my $SM = 'Developer::Dashboard::SkillManager';
 
@@ -283,21 +284,24 @@ my $manager = $SM->new( paths => $paths );
     }
 
     # A TERM-slow child forces the bounded wait loop to sleep and retry.
-    pipe( my $r, my $w ) or die $!;
-    my $pid = fork();
-    die "fork failed: $!" if !defined $pid;
-    if ( !$pid ) {
-        close $r;
+    my $ready = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'term-handler-ready' );
+    my $script = q{
+        my ($ready_file) = @ARGV;
         $SIG{TERM} = sub { select( undef, undef, undef, 0.15 ); exit 0 };
-        syswrite( $w, 'x' );
-        close $w;
+        open my $ready_fh, '>', $ready_file or die "Unable to write readiness file: $!";
+        print {$ready_fh} "ready\n" or die "Unable to write readiness marker: $!";
+        close $ready_fh or die "Unable to close readiness file: $!";
         sleep 10;
         exit 0;
+    };
+    my $pid = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', $script, $ready ], {} );
+    for ( 1 .. 100 ) {
+        last if -f $ready;
+        select( undef, undef, undef, 0.01 );
     }
-    close $w;
-    sysread( $r, my $buf, 1 );
+    die "Timed out waiting for the fixture signal handler readiness file $ready" if !-f $ready;
     ok( $manager->_terminate_streaming_command($pid), 'a slow-to-terminate child is waited for' );
-    is( waitpid( $pid, 1 ), -1, 'the slow child was reaped' );
+    is( Developer::Dashboard::GoRoutine::process_running($pid), 0, 'the slow GoRoutine child was terminated and reaped' );
 }
 
 # Host detection helpers.
@@ -379,7 +383,7 @@ Use this file when you change file handling, host detection or the streaming com
 
 =head1 HOW TO USE
 
-Run it directly with C<prove -lv t/500-skillmanager-no-annotations-coverage.t> while iterating, then keep it green under C<prove -lr t> and the Devel::Cover run before release.
+Run C<d2 docker compose exec dev prove -blv t/500-skillmanager-no-annotations-coverage.t> while iterating, then keep it green under the Docker full suite and Devel::Cover run before release.
 
 =head1 WHAT USES IT
 
@@ -389,13 +393,13 @@ It is used by developers during TDD, by the full C<prove -lr t> suite, by the De
 
 Example 1:
 
-  prove -lv t/500-skillmanager-no-annotations-coverage.t
+  d2 docker compose exec dev prove -blv t/500-skillmanager-no-annotations-coverage.t
 
 Run this coverage-gap test by itself while editing SkillManager.
 
 Example 2:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/500-skillmanager-no-annotations-coverage.t
+  d2 docker compose exec dev env HARNESS_PERL_SWITCHES=-MDevel::Cover prove -blv t/500-skillmanager-no-annotations-coverage.t
 
 Confirm the formerly annotated branches are reported as covered.
 
