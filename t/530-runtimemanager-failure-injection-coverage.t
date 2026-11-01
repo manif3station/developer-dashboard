@@ -7,7 +7,7 @@ use warnings;
 # test is compiled. They only misbehave for exact, explicitly registered
 # operations, so the failure paths run identically for root and non-root users
 # (chmod-based failures are not reliable when the suite runs as root).
-our ( %OPEN_FAIL, %OPEN_REDIRECT, $FORK_FAIL, $PIPE_FAIL, $SEEK_FAIL, $SYSREAD_UNDEF );
+our ( %OPEN_FAIL, %OPEN_REDIRECT, $PIPE_FAIL, $SEEK_FAIL, $SYSREAD_UNDEF );
 
 BEGIN {
     require Symbol;
@@ -39,13 +39,6 @@ BEGIN {
         return CORE::open( $handle, $_[1] ) if @_ == 2;
         return CORE::open( $handle, $_[1], @_[ 2 .. $#_ ] ) if @_ >= 3;
         return CORE::open( $_[0] );
-    };
-    *CORE::GLOBAL::fork = sub () {
-        if ($FORK_FAIL) {
-            $! = 11;
-            return undef;
-        }
-        return CORE::fork();
     };
     *CORE::GLOBAL::pipe = sub (**) {
         if ($PIPE_FAIL) {
@@ -79,7 +72,7 @@ use Cwd qw(getcwd);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
-use POSIX ();
+use Capture::Tiny qw(capture);
 use Test::More;
 
 use lib 'lib';
@@ -120,28 +113,16 @@ my $stub_collectors = bless {}, 'Local::StubCollectors';
 is( Developer::Dashboard::RuntimeManager->new( %new_args, collectors => $stub_collectors )->{collectors}, $stub_collectors, 'an injected collectors object is kept' );
 isa_ok( $manager->{collectors}, 'Developer::Dashboard::Collector', 'a default collectors object is built when none is injected' );
 
-# Runs a code block in a forked child and returns the text of the error it
-# died with (empty string when it survived). Needed where the block redirects
-# the process stdio, which must never happen in the TAP-producing process.
-sub in_child {
+# Runs one failure-injection block while capturing its output, then returns the
+# exception text (empty string when it survives). Capture::Tiny restores the
+# caller's standard handles before TAP output resumes.
+sub capture_failure {
     my ($code) = @_;
-    my $result = File::Spec->catfile( $work, 'child-result.' . ( $$ + int rand 100000 ) );
-    my $pid = fork();
-    die "fork failed: $!" if !defined $pid;
-    if ( !$pid ) {
-        my $err = eval { $code->(); 1 } ? '' : "$@";
-        CORE::open( my $out, '>', $result ) or POSIX::_exit(2);
-        print {$out} $err;
-        close $out;
-        exit 0;
-    }
-    waitpid( $pid, 0 );
-    CORE::open( my $in, '<', $result ) or return "no child result: $!";
-    local $/;
-    my $err = <$in>;
-    close $in;
-    unlink $result;
-    return defined $err ? $err : '';
+    my $error = '';
+    my ( $stdout, $stderr, $exit ) = capture {
+        eval { $code->(); 1 } or $error = $@ || 'unknown failure';
+    };
+    return $error;
 }
 
 {
@@ -200,8 +181,8 @@ sub in_child {
     {
         my ( $label, $code, $key, $queue ) = @{$case};
         local $OPEN_FAIL{$key} = [ @{$queue} ];
-        my $err = in_child($code);
-        like( $err, qr/\S/, "$label redirect failure dies in the child" );
+        my $err = capture_failure($code);
+        like( $err, qr/\S/, "$label redirect failure is reported" );
     }
 }
 
@@ -306,7 +287,7 @@ t/530-runtimemanager-failure-injection-coverage.t - failure-injection coverage f
 
 =head1 PURPOSE
 
-Test file in the Developer Dashboard codebase. It drives the pipe, fork, open, seek, sysread and syswrite failure paths of RuntimeManager through BEGIN-time CORE::GLOBAL overrides that fail only for exactly registered operations.
+Test file in the Developer Dashboard codebase. It drives the pipe, open, seek, sysread and syswrite failure paths of RuntimeManager through BEGIN-time CORE::GLOBAL overrides that fail only for exactly registered operations. Synchronous output capture keeps TAP isolated while failure exceptions are inspected.
 
 =head1 WHY IT EXISTS
 
@@ -318,23 +299,23 @@ Use this file when you change start_web, the collector supervisor start, the chi
 
 =head1 HOW TO USE
 
-Run it directly with C<prove -lv t/530-runtimemanager-failure-injection-coverage.t>. The overrides are keyed by "mode path" and consume a queue of pass/fail verdicts, so a test can let the first open succeed and fail the second.
+Run it in the dev Docker container with C<d2 docker compose exec -T dev prove -lv t/530-runtimemanager-failure-injection-coverage.t>. The overrides are keyed by "mode path" and consume a queue of pass/fail verdicts, so a test can let the first open succeed and fail the second.
 
 =head1 WHAT USES IT
 
-It is used by developers during TDD, by the full C<prove -lr t> suite, by the Devel::Cover coverage gate, and by release verification.
+It is used by developers during TDD, by the full C<d2 docker compose exec -T dev prove -lr t> suite, by the Devel::Cover coverage gate, and by release verification.
 
 =head1 EXAMPLES
 
 Example 1:
 
-  prove -lv t/530-runtimemanager-failure-injection-coverage.t
+  d2 docker compose exec -T dev prove -lv t/530-runtimemanager-failure-injection-coverage.t
 
 Run the failure-injection tests by themselves.
 
 Example 2:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/530-runtimemanager-failure-injection-coverage.t
+  d2 docker compose exec -T -e HARNESS_PERL_SWITCHES=-MDevel::Cover dev prove -lv t/530-runtimemanager-failure-injection-coverage.t
 
 Confirm the injected failure branches are reported as covered.
 
