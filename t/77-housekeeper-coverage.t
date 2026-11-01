@@ -15,6 +15,7 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Config;
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::Housekeeper;
+use Developer::Dashboard::GoRoutine ();
 
 # Hermetic runtime rooted entirely under a throwaway HOME with a dedicated
 # temp-state root, and the CWD moved inside it so config-layer discovery only
@@ -372,10 +373,11 @@ my $is_root = ( $> == 0 );
             '_state_root_has_live_collectors derives the collector name from the pidfile basename and checks identity via CollectorRunner' );
     }
 
-    my $dead_pid = fork();
-    die "fork failed: $!" if !defined $dead_pid;
-    if ( !$dead_pid ) { exit 0 }
-    waitpid( $dead_pid, 0 );
+    my $dead_pid = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'exit 0' ],
+        {},
+    );
+    Developer::Dashboard::GoRoutine::wait_process($dead_pid);
 
     my $mixed_root = File::Spec->catdir( $home, 'mixed-root' );
     my $mixed_collectors = File::Spec->catdir( $mixed_root, 'collectors' );
