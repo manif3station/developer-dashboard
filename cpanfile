@@ -42,9 +42,7 @@ on 'test' => sub {
     # The Windows compatibility matrix deliberately runs without coverage.
     # Devel::Cover 1.52 cannot configure on the hosted Strawberry Perl build,
     # so do not make an optional coverage tool block the Windows dependency tree.
-    if ( $^O ne 'MSWin32' ) {
-        requires 'Devel::Cover';
-    }
+    requires 'Devel::Cover' if $^O ne 'MSWin32';
     requires 'Test::Harness', '3.48';
     requires 'TAP::Harness::Env', '3.29';
     requires 'CPAN::Audit';

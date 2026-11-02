@@ -287,7 +287,7 @@ sub _serve_ssl_frontend {
 # Output: true when the backend listener accepts a connection; dies on failure.
 sub _wait_for_ssl_backend_ready {
     my ( $self, $daemon, $pid ) = @_;
-    my $deadline = time() + 10;
+    my $deadline = time() + 45;
     while ( time() < $deadline ) {
         if ( !Developer::Dashboard::GoRoutine::process_running($pid) ) {
             my $status = Developer::Dashboard::GoRoutine::wait_process($pid);

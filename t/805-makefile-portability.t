@@ -11,6 +11,8 @@ use FindBin;
 use Test::More;
 
 my $source_root = abs_path( File::Spec->catdir( $FindBin::Bin, File::Spec->updir ) );
+my @configure_inc_args = map { "-I$_" }
+  grep { !ref($_) && File::Spec->file_name_is_absolute($_) && -d $_ } @INC;
 my $fixture = tempdir( CLEANUP => 1 );
 my $fixture_lib = File::Spec->catdir( $fixture, 'lib', 'Developer', 'Dashboard' );
 my $fixture_share = File::Spec->catdir( $fixture, 'share' );
@@ -96,12 +98,14 @@ my ( $profile_stdout, $profile_stderr, $profile_exit ) = do {
     local $ENV{PERL5LIB};
     delete $ENV{HOME};
     # Exercise USERPROFILE fallback itself, not the test runner's inherited
-    # module path, which intentionally suppresses local-lib discovery.
+    # module path, which intentionally suppresses local-lib discovery. Keep the
+    # already-installed configure prerequisites reachable through explicit -I
+    # arguments because Makefile.PL legitimately loads them at configure time.
     delete $ENV{PERL5LIB};
     my $original_dir = getcwd();
     chdir $fixture or die "Unable to enter Makefile fixture for USERPROFILE check: $!";
     my @captured = capture {
-        system( $^X, 'Makefile.PL' );
+        system( $^X, @configure_inc_args, 'Makefile.PL' );
     };
     chdir $original_dir or die "Unable to restore working directory after USERPROFILE check: $!";
     @captured;

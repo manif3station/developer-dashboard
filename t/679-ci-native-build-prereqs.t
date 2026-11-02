@@ -111,7 +111,7 @@ like(
 my $cpanfile = _slurp($cpanfile_path);
 like(
     $cpanfile,
-    qr/if\s*\(\s*\$\^O\s+ne\s+'MSWin32'\s*\)\s*\{\s*requires\s+'Devel::Cover';\s*\}/s,
+    qr/requires\s+'Devel::Cover'\s+if\s+\$\^O\s+ne\s+'MSWin32';/,
     'Windows dependency bootstrap skips the unsupported Devel::Cover tool',
 );
 
@@ -131,5 +131,42 @@ XS bundle, that macOS compiles its Objective-C helper with ARC, and that the
 Windows dependency bootstrap does not require the optional Devel::Cover tool.
 It also protects the Test workflow's CPAN::Audit setup from being skipped after
 an earlier verification failure.
+
+=head1 PURPOSE
+
+Protect the platform-specific CI prerequisites required by the Dashboard native
+build and its release-gate audit setup.
+
+=head1 WHY IT EXISTS
+
+The native helper build depends on operating-system packages and compiler flags
+that are not represented by Perl prerequisites alone. A missing CI prerequisite
+otherwise surfaces later as an unrelated XS or audit failure.
+
+=head1 WHEN TO USE
+
+Run this test whenever changing the Test or platform compatibility workflows,
+C<Makefile.PL> native helper flags, or Windows test prerequisites.
+
+=head1 HOW TO USE
+
+Run the focused regression with:
+
+  prove -lv t/679-ci-native-build-prereqs.t
+
+=head1 WHAT USES IT
+
+The GitHub Actions Test and Platform compatibility workflows rely on the
+contracts guarded here before they build and test the native extension.
+
+=head1 EXAMPLES
+
+Check this contract directly:
+
+  prove -lv t/679-ci-native-build-prereqs.t
+
+Run it with the complete repository suite:
+
+  prove -lr t
 
 =cut

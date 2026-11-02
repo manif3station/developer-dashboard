@@ -65,7 +65,7 @@ __END__
 
 =head1 NAME
 
-t/680-install-native-menu-prereqs.t - protect Linux installer prerequisites for the native System Menu helper
+t/683-install-native-menu-prereqs.t - protect Linux installer prerequisites for the native System Menu helper
 
 =head1 DESCRIPTION
 
@@ -74,5 +74,42 @@ package that provides the GTK3/Ayatana headers and pkg-config metadata consumed
 by C<Makefile.PL>, and that C<install.sh> carries the same packages in its
 embedded fallback manifests for streamed installs where the repo manifest files
 are not available yet.
+
+=head1 PURPOSE
+
+Keep source-checkout and streamed Linux installs aligned with the native System
+Menu helper's compile-time requirements.
+
+=head1 WHY IT EXISTS
+
+The Perl dependency graph cannot install GTK or Ayatana development headers.
+Without explicit system packages, C<cpanm .> reaches the native helper build and
+fails even though all CPAN prerequisites were installed successfully.
+
+=head1 WHEN TO USE
+
+Run this test whenever changing Linux installer manifests, C<install.sh>
+embedded package fallbacks, or native System Menu build dependencies.
+
+=head1 HOW TO USE
+
+Run the focused regression with:
+
+  prove -lv t/683-install-native-menu-prereqs.t
+
+=head1 WHAT USES IT
+
+Debian/Ubuntu, Alpine, and Fedora bootstrap installs rely on these manifests
+before C<cpanm> compiles the Dashboard native extension and menu helper.
+
+=head1 EXAMPLES
+
+Check the installer prerequisites directly:
+
+  prove -lv t/683-install-native-menu-prereqs.t
+
+Run them as part of the complete suite:
+
+  prove -lr t
 
 =cut
