@@ -33,6 +33,12 @@ my @group = Developer::Dashboard::GoRoutine::_rewrite_share_at('share my ($one, 
 is( $group[0], length('share my ($one, @two) = values;'), 'grouped share rewrite consumes the complete declaration' );
 like( $group[1], qr/_share_many\(\\\$one, \\\@two\)/,
     'grouped share rewrite emits native share-many registration' );
+my $unterminated_group_delim = eval {
+    Developer::Dashboard::GoRoutine::_rewrite_share_at('share my ($one;', 0);
+    1;
+};
+ok( !$unterminated_group_delim, 'grouped share rejects an unterminated variable list' );
+like( $@, qr/unterminated share my/, 'unterminated grouped share reports its delimiter failure' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_share_at('share my $one;', 0),
     'scalar declaration remains on the lvalue share path' );
 my @existing = Developer::Dashboard::GoRoutine::_rewrite_share_at('share $one, @two;', 0);
@@ -95,6 +101,9 @@ ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_go_at('go 9work();
 my @empty_named = Developer::Dashboard::GoRoutine::_rewrite_go_at('go do_work();', 0);
 is( $empty_named[1], 'Developer::Dashboard::GoRoutine::_go_call(\\&do_work)',
     'named go call with empty arguments emits no argument separator' );
+my @subroutine_named = Developer::Dashboard::GoRoutine::_rewrite_go_at('go subroutine(1);', 0);
+like( $subroutine_named[1], qr/_go_call\(\\&subroutine, 1\)/,
+    'named worker beginning with sub is not mistaken for an anonymous sub block' );
 my $bad_call = eval { Developer::Dashboard::GoRoutine::_rewrite_go_at('go do_work(1', 0); 1 };
 ok( !$bad_call, 'named go-call rejects an unterminated argument list' );
 like( $@, qr/unterminated go/, 'unterminated go-call has a clear error' );
@@ -104,8 +113,12 @@ like( $open_share[1], qr/open \$fh, '<', \$path;.*_share_many/s,
     'open-share rewrite retains open arguments and registers the handle' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at('open my $fh, q{<}, $path;', 0),
     'ordinary open does not enter the shared-handle rewrite' );
+ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at("open shareable my \$fh, '<', \$path;", 0),
+    'open share keyword boundary rejects a longer identifier' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at("open share \$fh, '<', \$path;", 0),
     'open share requires the supported my filehandle declaration' );
+ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at("open share myself \$fh, '<', \$path;", 0),
+    'open share my keyword boundary rejects a longer identifier' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at('open share my @fh, $path;', 0),
     'open share requires a scalar filehandle declaration' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_open_share_at('open share my $fh;', 0),
@@ -179,14 +192,18 @@ checks that malformed grouped and aggregate declarations, unsupported trailing
 text, missing terminators, and incomplete named calls produce the documented
 result instead of being partially rewritten. Open-share cases distinguish a
 supported scalar filehandle declaration from ordinary C<open>, aggregate
-filehandles, missing arguments, and unterminated statements.
+filehandles, keyword-prefix identifiers, missing arguments, and unterminated
+statements.
 
 Additional examples covered by this test include:
 
     share my ($one)          # rejected: missing semicolon
+    share my ($one;          # rejected: unterminated grouped declaration
     share my @items trailing; # rejected: unsupported declaration tail
     go do_work();             # rewritten with no empty-argument separator
+    go subroutine(1);         # named worker, not an anonymous C<sub> block
     open share my $fh;        # left unchanged: no open arguments
+    open shareable my $fh;    # left unchanged: C<share> is an identifier prefix
     open share $fh, '<', $p;   # left unchanged: no my declaration
     go 9work();                # left unchanged: target is not an identifier
 
