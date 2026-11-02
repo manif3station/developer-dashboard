@@ -260,7 +260,7 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then
-            prove -Iblib/arch -Iblib/lib -lrv t
+            prove -j2 -Iblib/arch -Iblib/lib -lrv t
           else
             prove -Iblib/arch -Iblib/lib -lr t
           fi
@@ -268,7 +268,7 @@ jobs:
       - name: Run complete test suite (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: perl -MApp::Prove -e '$app = App::Prove->new; $app->process_args(@ARGV); exit $app->run' -- -Iblib/arch -Iblib/lib -lr t
+        run: perl -MApp::Prove -e '$app = App::Prove->new; $app->process_args(@ARGV); exit $app->run' -- -j2 -Iblib/arch -Iblib/lib -lr t
 
       - name: Audit action pin provenance
         if: matrix.label == 'Linux x64'
