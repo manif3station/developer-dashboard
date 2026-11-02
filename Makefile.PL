@@ -214,7 +214,7 @@ sub postamble {
     }
     elsif ( $^O eq 'darwin' ) {
         $helper_source = 'native/system_menu_helper_mac.m';
-        $helper_compile = q{$(CC) $(CCFLAGS) -o "$@" native/system_menu_helper_mac.m -framework AppKit -framework Foundation};
+        $helper_compile = q{$(CC) $(CCFLAGS) -fobjc-arc -o "$@" native/system_menu_helper_mac.m -framework AppKit -framework Foundation};
     }
     elsif ( $^O eq 'MSWin32' ) {
         $helper_source = 'native/system_menu_helper_win.c';
