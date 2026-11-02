@@ -23,7 +23,7 @@ my $dir = tempdir( CLEANUP => 1 );
 my $stdout = File::Spec->catfile( $dir, 'stdout.txt' );
 my $stderr = File::Spec->catfile( $dir, 'stderr.txt' );
 my $child = Developer::Dashboard::GoRoutine::spawn(
-    [ $^X, '-e', 'print "child-output\n"; exit 7;' ],
+    [ $^X, '-e', 'select undef, undef, undef, 0.2; print "child-output\n"; exit 7;' ],
     { cwd => $dir, stdout => $stdout, stderr => $stderr },
 );
 ok defined($child) && $child > 0, 'spawn returns a positive process identifier';
@@ -36,6 +36,23 @@ is( Developer::Dashboard::GoRoutine::process_running($child), 0,
 open my $out, '<', $stdout or die "Unable to read child stdout '$stdout': $!";
 is( scalar(<$out>), "child-output\n", 'child stdout is redirected to the requested file' );
 close $out or die "Unable to close child stdout file '$stdout': $!";
+
+my $completed_child = Developer::Dashboard::GoRoutine::spawn(
+    [ $^X, '-e', 'exit 9;' ],
+    { cwd => $dir, stdout => $stdout, stderr => $stderr },
+);
+my $completed_deadline = time() + 2;
+while ( !Developer::Dashboard::GoRoutine::process_exited($completed_child)
+    && time() < $completed_deadline )
+{
+    select undef, undef, undef, 0.01;
+}
+ok( Developer::Dashboard::GoRoutine::process_exited($completed_child),
+  'process_exited observes a completed child without reaping it' );
+is( Developer::Dashboard::GoRoutine::process_running($completed_child), 0,
+  'completed unreaped child is reported as not running' );
+is( Developer::Dashboard::GoRoutine::wait_process($completed_child), 9,
+  'completed child remains available for wait_process after liveness inspection' );
 
 my $env_output = File::Spec->catfile( $dir, 'environment.txt' );
 {
