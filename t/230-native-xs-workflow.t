@@ -133,14 +133,16 @@ for my $name (
     'Install the audit tool outside the scanned root',
     'Audit isolated dependency root (RELEASE GATE)',
     'Audit declared dependency chain (RELEASE GATE)',
-    'Install JS test dependencies',
-    'Run fast-check property tests',
 ) {
     ok( ref($consolidated{$name}) eq 'HASH',
         "Platform compatibility contains the consolidated '$name' gate" );
     is( $consolidated{$name}{if}, "matrix.label == 'Linux x64'",
         "'$name' runs only once on the Linux x64 matrix leg" );
 }
+ok( !exists $consolidated{'Install JS test dependencies'},
+    'Platform compatibility does not duplicate npm dependency setup after the full suite' );
+ok( !exists $consolidated{'Run fast-check property tests'},
+    'Platform compatibility does not duplicate fast-check after the full suite' );
 ok( !exists $consolidated{'Verify all-metric lib coverage'},
     'Platform compatibility leaves code coverage to the dedicated Coverage workflow' );
 like( $consolidated{'Audit action pin provenance'}{run} // q{},
@@ -152,12 +154,15 @@ like( $consolidated{'Audit isolated dependency root (RELEASE GATE)'}{run} // q{}
 like( $consolidated{'Audit declared dependency chain (RELEASE GATE)'}{run} // q{},
     qr/script\/cpan-audit-declared-chain\s+local\/lib\/perl5/,
     'the consolidated workflow audits the declared transitive dependency chain' );
-like( $consolidated{'Install JS test dependencies'}{run} // q{},
-    qr/npm\s+ci\s+--ignore-scripts/,
-    'the consolidated workflow installs JavaScript test dependencies reproducibly' );
-like( $consolidated{'Run fast-check property tests'}{run} // q{},
-    qr/npm\s+run\s+fuzz:scorecard/,
-    'the consolidated workflow retains the fast-check property tests' );
+my $fast_check_path = File::Spec->catfile( $root, 't', '35-js-fast-check.t' );
+open my $fast_check_fh, '<:raw', $fast_check_path
+  or die "Unable to read $fast_check_path: $!";
+my $fast_check_text = do { local $/; <$fast_check_fh> };
+close $fast_check_fh or die "Unable to close $fast_check_path: $!";
+like( $fast_check_text, qr/npm\s+ci\s+--ignore-scripts/,
+    'the full-suite fast-check test installs JavaScript dependencies reproducibly when needed' );
+like( $fast_check_text, qr/npm\s+run\s+fuzz:scorecard/,
+    'the full-suite fast-check test retains the JavaScript property gate' );
 
 my ($node_setup) = grep {
     ( $_->{name} // q{} ) eq 'Set up Node for property tests'

@@ -76,8 +76,11 @@ my $platform_text = _slurp(
     File::Spec->catfile( $WORKFLOWS, 'platform-compatibility.yml' ) );
 like( $platform_text, qr/script\/audit-action-pins/,
     'Platform compatibility audits the provenance of every retained action pin' );
-like( $platform_text, qr/npm\s+run\s+fuzz:scorecard/,
-    'Platform compatibility retains the property-based JavaScript scorecard tests' );
+unlike( $platform_text, qr/name:\s*(?:Install JS test dependencies|Run fast-check property tests)/,
+    'Platform compatibility does not rerun the JavaScript property suite after the full suite' );
+my $fast_check_test = _slurp( File::Spec->catfile( $ROOT, 't', '35-js-fast-check.t' ) );
+like( $fast_check_test, qr/npm\s+run\s+fuzz:scorecard/,
+    'the full platform suite retains the property-based JavaScript scorecard tests through t/35' );
 like( $platform_text, qr/label:\s*Windows arm64.*?runner:\s*windows-11-arm/s,
     'Platform compatibility includes Windows ARM64 in the full test matrix' );
 unlike( $platform_text, qr/name:\s*Verify all-metric lib coverage/,
