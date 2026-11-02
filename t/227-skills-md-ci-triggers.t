@@ -113,8 +113,11 @@ like( $platform_text, qr/\$ENV\{RUNNER_ARCH\}/,
     'Platform compatibility distinguishes host architecture from emulated Perl architecture' );
 unlike( $platform_text, qr/native_perl=false|native_perl == 'true'/,
     'Windows ARM64 no longer skips work behind a native-Perl availability flag' );
-like( $platform_text, qr/name:\s*Run fast-check property tests/,
-    'Platform compatibility owns the property-test gate formerly provided by JS Fuzz' );
+unlike( $platform_text, qr/name:\s*Run fast-check property tests/,
+    'Platform compatibility does not repeat the property test after the full suite' );
+my $property_test = _slurp( File::Spec->catfile( $ROOT, 't', '35-js-fast-check.t' ) );
+like( $property_test, qr/'fuzz:scorecard'/,
+    'the full suite still owns the fast-check property-test gate' );
 like( $platform_text, qr/name:\s*Audit declared dependency chain \(RELEASE GATE\)/,
     'Platform compatibility owns the declared dependency audit release gate' );
 unlike( $platform_text, qr/name:\s*Verify all-metric lib coverage/,
@@ -131,7 +134,8 @@ like( $coverage_text, qr/name:\s*Markdown coverage 100%/,
 
 my $skills = _slurp( File::Spec->catfile( $ROOT, 'SKILLS.md' ) );
 for my $name ( 'Platform compatibility', 'Coverage', 'GitHub Release', 'Publish Docker Hub Image' ) {
-    like( $skills, qr/\Q$name\E/i, "SKILLS.md names the retained $name workflow" );
+    my $name_pattern = join '\\s+', map { quotemeta($_) } split /\s+/, $name;
+    like( $skills, qr/$name_pattern/i, "SKILLS.md names the retained $name workflow" );
 }
 unlike( $skills, qr/\b(?:CodeQL|Package GHCR|JS Fuzz)\b/,
     'SKILLS.md no longer advertises removed workflows as current CI' );
