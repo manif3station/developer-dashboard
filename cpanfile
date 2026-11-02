@@ -39,7 +39,12 @@ requires 'URI::Escape', '5.36';
 requires 'XML::Parser', '2.48';
 
 on 'test' => sub {
-    requires 'Devel::Cover';
+    # The Windows compatibility matrix deliberately runs without coverage.
+    # Devel::Cover 1.52 cannot configure on the hosted Strawberry Perl build,
+    # so do not make an optional coverage tool block the Windows dependency tree.
+    if ( $^O ne 'MSWin32' ) {
+        requires 'Devel::Cover';
+    }
     requires 'Test::Harness', '3.48';
     requires 'TAP::Harness::Env', '3.29';
 };
