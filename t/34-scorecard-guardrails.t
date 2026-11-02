@@ -21,10 +21,13 @@ sub _slurp {
     return $text // '';
 }
 
-for my $required (qw(LICENSE SECURITY.md SECURITY_CHECKS.md .github/dependabot.yml)) {
+for my $required (qw(LICENSE SECURITY.md SECURITY_CHECKS.md)) {
     ok( -f File::Spec->catfile( $ROOT, split m{/}, $required ),
         "$required is present in the source tree" );
 }
+
+ok( !-e File::Spec->catfile( $ROOT, '.github', 'dependabot.yml' ),
+    'Dependabot automation remains disabled by keeping dependabot.yml absent' );
 
 my $license = _slurp( File::Spec->catfile( $ROOT, 'LICENSE' ) );
 like( $license, qr/\AMIT License\n\nCopyright \(c\) \d{4} Developer Dashboard Contributors\n/s,
@@ -37,12 +40,6 @@ like( $security, qr/Reporting A Vulnerability/i,
     'SECURITY.md documents vulnerability reporting' );
 like( $security, qr/security@/i,
     'SECURITY.md includes a private reporting contact' );
-
-my $dependabot = _slurp( File::Spec->catfile( $ROOT, '.github', 'dependabot.yml' ) );
-like( $dependabot, qr/package-ecosystem:\s*["']github-actions["']/,
-    'Dependabot manages GitHub Actions updates' );
-like( $dependabot, qr/package-ecosystem:\s*["']npm["']/,
-    'Dependabot manages npm dependencies used by the consolidated property tests' );
 
 my @workflow_files = qw(
   platform-compatibility.yml
@@ -143,9 +140,9 @@ publishing, consolidated platform verification, and isolated release provenance.
 
 =head1 PURPOSE
 
-Keep the reduced workflow set secure without reintroducing CodeQL, GHCR, a
-standalone Test workflow, or a standalone JavaScript fuzz workflow merely to
-satisfy historical Scorecard assumptions.
+Keep the reduced workflow set secure without reintroducing CodeQL, GHCR,
+Dependabot automation, a standalone Test workflow, or a standalone JavaScript
+fuzz workflow merely to satisfy historical Scorecard assumptions.
 
 =head1 WHY IT EXISTS
 
@@ -155,8 +152,9 @@ identity. Their least-privilege and provenance properties must remain explicit.
 
 =head1 WHEN TO USE
 
-Run this test whenever changing F<.github/workflows/>, Dependabot, release
-provenance, Docker Hub publishing, workflow permissions, or action pins.
+Run this test whenever changing F<.github/workflows/>, release provenance,
+Docker Hub publishing, workflow permissions, action pins, or the decision to
+keep Dependabot automation disabled.
 
 =head1 HOW TO USE
 
