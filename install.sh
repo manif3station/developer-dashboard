@@ -16,8 +16,10 @@ ca-certificates
 cpanminus
 curl
 git
+libayatana-appindicator3-dev
 libcrypt-dev
 libexpat1-dev
+libgtk-3-dev
 libssl-dev
 npm
 nodejs
@@ -46,6 +48,7 @@ ca-certificates
 curl
 expat-dev
 git
+libayatana-appindicator-dev
 nodejs
 npm
 openssl-dev
@@ -64,6 +67,7 @@ expat-devel
 gcc
 gcc-c++
 git
+libayatana-appindicator-gtk3-devel
 make
 nodejs
 openssl-devel
@@ -347,7 +351,6 @@ manifest_packages() {
             "$manifest_path"
         return 0
     fi
-
     case "$(basename "$manifest_path")" in
         aptfile)
             printf '%s\n' "$APTFILE_DEFAULT_CONTENT" | sed \
@@ -697,7 +700,6 @@ install_debian_node_packages() {
     prefix=$1
     node_packages=$2
     [ -n "$node_packages" ] || return 0
-
     if node_toolchain_ready; then
         say "Debian-family Node toolchain already available; skipping apt install for: $(printf '%s\n' "$node_packages" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
         return 0
