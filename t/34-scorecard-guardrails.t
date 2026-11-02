@@ -21,10 +21,13 @@ sub _slurp {
     return $text // '';
 }
 
-for my $required (qw(LICENSE SECURITY.md SECURITY_CHECKS.md .github/dependabot.yml)) {
+for my $required (qw(LICENSE SECURITY.md SECURITY_CHECKS.md)) {
     ok( -f File::Spec->catfile( $ROOT, split m{/}, $required ),
         "$required is present in the source tree" );
 }
+
+ok( !-e File::Spec->catfile( $ROOT, '.github', 'dependabot.yml' ),
+    'Dependabot automation remains disabled so only the owner-approved Actions surface is active' );
 
 my $license = _slurp( File::Spec->catfile( $ROOT, 'LICENSE' ) );
 like( $license, qr/\AMIT License\n\nCopyright \(c\) \d{4} Developer Dashboard Contributors\n/s,
@@ -37,12 +40,6 @@ like( $security, qr/Reporting A Vulnerability/i,
     'SECURITY.md documents vulnerability reporting' );
 like( $security, qr/security@/i,
     'SECURITY.md includes a private reporting contact' );
-
-my $dependabot = _slurp( File::Spec->catfile( $ROOT, '.github', 'dependabot.yml' ) );
-like( $dependabot, qr/package-ecosystem:\s*["']github-actions["']/,
-    'Dependabot manages GitHub Actions updates' );
-like( $dependabot, qr/package-ecosystem:\s*["']npm["']/,
-    'Dependabot manages npm dependencies used by the consolidated property tests' );
 
 my @workflow_files = qw(
   platform-compatibility.yml
@@ -140,23 +137,24 @@ __END__
 Checks the security-policy files and the three owner-approved GitHub Actions
 workflows for pinned actions, explicit permissions, timeouts, Docker Hub-only
 publishing, consolidated platform verification, and isolated release provenance.
+It also asserts that Dependabot automation remains disabled.
 
 =head1 PURPOSE
 
-Keep the reduced workflow set secure without reintroducing CodeQL, GHCR, a
-standalone Test workflow, or a standalone JavaScript fuzz workflow merely to
-satisfy historical Scorecard assumptions.
+Keep the reduced workflow set secure without reintroducing CodeQL, GHCR,
+Dependabot, a standalone Test workflow, or a standalone JavaScript fuzz workflow
+merely to satisfy historical automation assumptions.
 
 =head1 WHY IT EXISTS
 
-Removing workflows changes which automated Scorecard signals exist, but the
+Removing workflows changes which automated security signals exist, but the
 remaining release and publishing paths still handle credentials and repository
 identity. Their least-privilege and provenance properties must remain explicit.
 
 =head1 WHEN TO USE
 
-Run this test whenever changing F<.github/workflows/>, Dependabot, release
-provenance, Docker Hub publishing, workflow permissions, or action pins.
+Run this test whenever changing F<.github/workflows/>, release provenance,
+Docker Hub publishing, workflow permissions, action pins, or automation policy.
 
 =head1 HOW TO USE
 
