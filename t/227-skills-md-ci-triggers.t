@@ -92,8 +92,10 @@ my @setup_perl_steps = map { @{ $_->{steps} || [] } }
   grep { ref $_ eq 'HASH' } values %{ $platform->{jobs} || {} };
 @setup_perl_steps = grep { ($_->{uses} // '') =~ /actions-setup-perl\@/ } @setup_perl_steps;
 ok( @setup_perl_steps, 'Platform compatibility configures Perl explicitly' );
-ok( !scalar grep { !$_->{with}{'multi-thread'} } @setup_perl_steps,
-    'every Platform compatibility setup-perl step enables ithreads for GoRoutine XS' );
+ok(
+    !( scalar grep { !$_->{with}{'multi-thread'} } @setup_perl_steps ),
+    'every Platform compatibility setup-perl step enables ithreads for GoRoutine XS',
+);
 
 my $platform_text = _slurp(
     File::Spec->catfile( $WORKFLOWS, 'platform-compatibility.yml' ) );
@@ -172,8 +174,8 @@ Actions surface.
 
 =head1 WHEN TO USE
 
-Run this test whenever adding, deleting, renaming, or changing triggers in
-F<.github/workflows/>, or when changing the CI description in C<SKILLS.md> or
+Run this test whenever adding, deleting, renaming, or changing triggers in the
+GitHub Actions workflow directory, or when changing the public CI description or
 the workflow trigger reference.
 
 =head1 HOW TO USE
