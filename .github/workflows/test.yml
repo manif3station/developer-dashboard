@@ -34,6 +34,17 @@ jobs:
       - name: Install project dependencies
         run: cpanm --installdeps --notest -L local .
 
+      # The normal `make` target builds the Linux System Menu helper alongside
+      # Dashboard.so. GitHub's Ubuntu image does not include the GTK/Ayatana
+      # development metadata or headers required by that native helper.
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev
+
       - name: Build the Dashboard XS extension
         run: |
           export PERL5LIB="$GITHUB_WORKSPACE/local/lib/perl5${PERL5LIB:+:$PERL5LIB}"
@@ -53,6 +64,7 @@ jobs:
         run: script/audit-action-pins
 
       - name: Install the audit tool outside the scanned root
+        if: always()
         run: |
           cpanm --notest -L audit-local CPAN::Audit
           echo "$GITHUB_WORKSPACE/audit-local/bin" >> "$GITHUB_PATH"
