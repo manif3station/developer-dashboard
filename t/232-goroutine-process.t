@@ -49,8 +49,8 @@ while ( !Developer::Dashboard::GoRoutine::process_exited($completed_child)
 }
 ok( Developer::Dashboard::GoRoutine::process_exited($completed_child),
   'process_exited observes a completed child without reaping it' );
-is( Developer::Dashboard::GoRoutine::process_running($completed_child), 0,
-  'completed unreaped child is reported as not running' );
+is( Developer::Dashboard::GoRoutine::process_running($completed_child), 1,
+  'completed unreaped child retains process existence until wait_process' );
 is( Developer::Dashboard::GoRoutine::wait_process($completed_child), 9,
   'completed child remains available for wait_process after liveness inspection' );
 
