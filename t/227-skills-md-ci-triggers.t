@@ -107,7 +107,7 @@ like( $platform_text, qr/strawberry-perl-5\.42\.3\.1-64bit-portable\.zip/,
     'Windows ARM64 receives supported portable Strawberry Perl' );
 like( $platform_text, qr/6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690/,
     'Windows ARM64 verifies the portable Strawberry Perl SHA256' );
-like( $platform_text, qr/DD_RUNNER_ARCH:\s*\$\{\{ runner\.arch \}\}/,
+like( $platform_text, qr/\$ENV\{RUNNER_ARCH\}/,
     'Platform compatibility distinguishes host architecture from emulated Perl architecture' );
 unlike( $platform_text, qr/native_perl=false|native_perl == 'true'/,
     'Windows ARM64 no longer skips work behind a native-Perl availability flag' );

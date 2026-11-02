@@ -52,13 +52,11 @@ like( $arm_perl->{run} // q{}, qr/\$\]\s*<\s*5\.038/,
 unlike( $arm_perl->{run} // q{}, qr/choco install strawberryperl|native_perl=false/,
     'Windows ARM64 no longer relies on the failing MSI or a skip-only state' );
 
-is( $full_suite->{env}{DD_RUNNER_ARCH}, '${{ runner.arch }}',
-    'the matrix records the host runner architecture independently of Perl' );
 my ($arch_check) = grep {
     ( $_->{name} // q{} ) eq 'Assert runner operating system and architecture'
 } @{$steps};
-like( $arch_check->{run} // q{}, qr/DD_RUNNER_ARCH/,
-    'architecture validation checks the GitHub host architecture' );
+like( $arch_check->{run} // q{}, qr/\$ENV\{RUNNER_ARCH\}/,
+    'architecture validation checks GitHub RUNNER_ARCH rather than Perl process architecture' );
 like( $arch_check->{run} // q{}, qr/Perl \$Config\{archname\}/,
     'architecture diagnostics still report the emulated Perl architecture' );
 
