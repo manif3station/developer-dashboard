@@ -47,6 +47,11 @@ jobs:
             expected-os: MSWin32
             expected-arch: x64
             setup-perl: true
+          - label: Windows arm64
+            runner: windows-11-arm
+            expected-os: MSWin32
+            expected-arch: arm64
+            setup-perl: false
     env:
       DD_EXPECTED_OS: ${{ matrix.expected-os }}
       DD_EXPECTED_ARCH: ${{ matrix.expected-arch }}
@@ -57,6 +62,29 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install supported Perl on Windows ARM64
+        if: matrix.label == 'Windows arm64'
+        shell: pwsh
+        run: |
+          choco install strawberryperl --version=5.42.3.1 -y --force --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $perlBin = 'C:\Strawberry\perl\bin'
+          $compilerBin = 'C:\Strawberry\c\bin'
+          if (-not (Test-Path (Join-Path $perlBin 'perl.exe'))) {
+            throw "Strawberry Perl was not installed at $perlBin"
+          }
+          $env:PATH = "$perlBin;$compilerBin;$env:PATH"
+          "$perlBin" >> $env:GITHUB_PATH
+          "$compilerBin" >> $env:GITHUB_PATH
+          perl -e 'die "Perl 5.38 or newer is required\n" if $] < 5.038; print "Perl $^V ready on Windows ARM64 host\n"'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Get-Command cpanm -ErrorAction SilentlyContinue)) {
+            cpan App::cpanminus
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          $perlArch = & perl -MConfig -e 'print $Config{archname}'
+          Write-Host "Windows ARM64 host uses $perlArch under Windows-on-ARM emulation."
 
       - name: Install native Linux system-menu build dependencies
         if: startsWith(matrix.label, 'Linux')
@@ -175,7 +203,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host 'The Windows compatibility job runs the full suite without coverage instrumentation; all-metric coverage is enforced by the Linux x64 platform leg.'
+          Write-Host 'Windows compatibility jobs run the full suite without coverage instrumentation; coverage is enforced by the dedicated Coverage workflow.'
           cpanm --notest -L local Test::Harness~3.48
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $localLib = Join-Path $env:GITHUB_WORKSPACE 'local/lib/perl5'
@@ -249,11 +277,6 @@ jobs:
           PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5:${{ github.workspace }}/local/lib/perl5
         run: script/cpan-audit-declared-chain local/lib/perl5
 
-      - name: Verify all-metric lib coverage
-        if: matrix.label == 'Linux x64'
-        shell: bash
-        run: perl script/coverage-gate
-
       - name: Install JS test dependencies
         if: matrix.label == 'Linux x64'
         run: npm ci --ignore-scripts
@@ -261,66 +284,3 @@ jobs:
       - name: Run fast-check property tests
         if: matrix.label == 'Linux x64'
         run: npm run fuzz:scorecard
-
-  windows-arm64-native-watcher:
-    name: Windows ARM64 native watcher availability
-    runs-on: windows-11-arm
-    timeout-minutes: 45
-    env:
-      PERL_MM_USE_DEFAULT: 1
-      NONINTERACTIVE_TESTING: 1
-      DD_REQUIRE_NATIVE_WATCHER: 1
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-
-      - name: Verify Windows ARM64 runner and report its Perl runtime
-        id: arm64-perl
-        shell: pwsh
-        run: |
-          perl -V
-          if ($env:PROCESSOR_ARCHITECTURE -ne 'ARM64') {
-            throw "Expected Windows ARM64 runner, got $env:PROCESSOR_ARCHITECTURE"
-          }
-          $arch = & perl -MConfig -e 'print $Config{archname}'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($arch -notmatch 'arm64') {
-            Write-Host "::warning title=Native ARM64 Perl unavailable::The hosted runner is ARM64, but its Perl runtime is $arch; native XS watcher steps are skipped."
-            "native_perl=false" >> $env:GITHUB_OUTPUT
-          } else {
-            Write-Host "Verified native ARM64 Perl: $arch"
-            "native_perl=true" >> $env:GITHUB_OUTPUT
-          }
-
-      - name: Install cpanminus
-        if: steps.arm64-perl.outputs.native_perl == 'true'
-        shell: pwsh
-        run: cpan App::cpanminus
-
-      - name: Install project dependencies
-        if: steps.arm64-perl.outputs.native_perl == 'true'
-        shell: pwsh
-        run: cpanm --installdeps --notest -L local .
-
-      - name: Build the Dashboard XS extension (Windows)
-        if: steps.arm64-perl.outputs.native_perl == 'true'
-        shell: pwsh
-        run: |
-          $localLib = Join-Path $env:GITHUB_WORKSPACE 'local/lib/perl5'
-          $pathSep = & perl -MConfig -e 'print $Config{path_sep}'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($env:PERL5LIB) {
-            $env:PERL5LIB = "$localLib$pathSep$env:PERL5LIB"
-          } else {
-            $env:PERL5LIB = $localLib
-          }
-          perl Makefile.PL
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          gmake
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Run Windows ARM64 native filesystem watcher test
-        if: steps.arm64-perl.outputs.native_perl == 'true'
-        env:
-          PERL5LIB: ${{ github.workspace }}/local/lib/perl5
-        run: prove -Iblib/arch -Iblib/lib -Ilib -lv t/669-problem48-inotify-watch.t

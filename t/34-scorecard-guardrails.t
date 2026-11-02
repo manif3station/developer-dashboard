@@ -42,6 +42,7 @@ like( $security, qr/security@/i,
     'SECURITY.md includes a private reporting contact' );
 
 my @workflow_files = qw(
+  coverage.yml
   platform-compatibility.yml
   release-github.yml
   dockerhub-image.yml
@@ -75,12 +76,23 @@ my $platform_text = _slurp(
     File::Spec->catfile( $WORKFLOWS, 'platform-compatibility.yml' ) );
 like( $platform_text, qr/script\/audit-action-pins/,
     'Platform compatibility audits the provenance of every retained action pin' );
-like( $platform_text, qr/perl\s+script\/coverage-gate/,
-    'Platform compatibility runs the canonical all-metric coverage gate' );
 like( $platform_text, qr/npm\s+run\s+fuzz:scorecard/,
     'Platform compatibility retains the property-based JavaScript scorecard tests' );
+like( $platform_text, qr/label:\s*Windows arm64.*?runner:\s*windows-11-arm/s,
+    'Platform compatibility includes Windows ARM64 in the full test matrix' );
+unlike( $platform_text, qr/name:\s*Verify all-metric lib coverage/,
+    'Platform compatibility does not duplicate the dedicated Coverage workflow' );
 unlike( $platform_text, qr/^\s*permissions:\s*\n(?:\s+.*:\s*write\s*\n)+/m,
     'Platform compatibility has no workflow-level write permission' );
+
+my $coverage_text = _slurp(
+    File::Spec->catfile( $WORKFLOWS, 'coverage.yml' ) );
+like( $coverage_text, qr/perl\s+script\/coverage-gate/,
+    'Coverage workflow runs the canonical all-metric test coverage gate' );
+like( $coverage_text, qr/perl\s+script\/pod-coverage-gate/,
+    'Coverage workflow requires repository-wide POD coverage' );
+like( $coverage_text, qr/perl\s+script\/markdown-coverage-gate/,
+    'Coverage workflow requires repository-wide Markdown coverage' );
 
 my $docker_text = _slurp(
     File::Spec->catfile( $WORKFLOWS, 'dockerhub-image.yml' ) );
@@ -134,9 +146,10 @@ __END__
 
 =head1 DESCRIPTION
 
-Checks the security-policy files and the three owner-approved GitHub Actions
-workflows for pinned actions, explicit permissions, timeouts, Docker Hub-only
-publishing, consolidated platform verification, and isolated release provenance.
+Checks the security-policy files and the four owner-approved GitHub Actions
+workflows for pinned actions, explicit permissions, timeouts, dedicated
+100-percent coverage gates, Docker Hub-only publishing, consolidated platform
+verification, and isolated release provenance.
 
 =head1 PURPOSE
 
@@ -147,14 +160,15 @@ fuzz workflow merely to satisfy historical Scorecard assumptions.
 =head1 WHY IT EXISTS
 
 Removing workflows changes which automated Scorecard signals exist, but the
-remaining release and publishing paths still handle credentials and repository
-identity. Their least-privilege and provenance properties must remain explicit.
+remaining verification, release, and publishing paths still handle project
+quality, credentials, and repository identity. Their least-privilege and
+coverage properties must remain explicit.
 
 =head1 WHEN TO USE
 
 Run this test whenever changing F<.github/workflows/>, release provenance,
-Docker Hub publishing, workflow permissions, action pins, or the decision to
-keep Dependabot automation disabled.
+Docker Hub publishing, workflow permissions, action pins, coverage gates, or
+the decision to keep Dependabot automation disabled.
 
 =head1 HOW TO USE
 

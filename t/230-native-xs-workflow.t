@@ -24,9 +24,29 @@ my $matrix = $full_suite->{strategy}{matrix}{include} || [];
 my @runners = sort map { $_->{runner} // '' } @{$matrix};
 is_deeply(
     \@runners,
-    [ sort qw(macos-26 macos-26-intel ubuntu-24.04-arm ubuntu-latest windows-latest) ],
-    'the full-suite matrix covers Linux, macOS, and Windows x64 plus Linux and macOS arm64',
+    [ sort qw(macos-26 macos-26-intel ubuntu-24.04-arm ubuntu-latest windows-11-arm windows-latest) ],
+    'the full-suite matrix covers Linux, macOS, and Windows on x64 and arm64 hosts',
 );
+
+my ($windows_arm) = grep { ( $_->{label} // q{} ) eq 'Windows arm64' } @{$matrix};
+ok( ref($windows_arm) eq 'HASH', 'Windows ARM64 is a full-suite matrix entry' );
+is( $windows_arm->{runner}, 'windows-11-arm',
+    'Windows ARM64 uses the hosted Windows ARM64 runner' );
+ok( !$windows_arm->{'setup-perl'},
+    'Windows ARM64 uses its explicit Strawberry Perl bootstrap instead of unsupported setup-perl' );
+
+my ($arm_perl) = grep {
+    ( $_->{name} // q{} ) eq 'Install supported Perl on Windows ARM64'
+} @{$steps};
+ok( ref($arm_perl) eq 'HASH', 'Windows ARM64 has an explicit supported Perl bootstrap' );
+is( $arm_perl->{if}, "matrix.label == 'Windows arm64'",
+    'the Windows ARM64 Perl bootstrap runs only on that matrix leg' );
+like( $arm_perl->{run} // q{}, qr/strawberryperl\s+--version=5\.42\.3\.1/,
+    'Windows ARM64 installs the pinned supported Strawberry Perl release' );
+like( $arm_perl->{run} // q{}, qr/\$\]\s*<\s*5\.038/,
+    'Windows ARM64 refuses a Perl older than the project floor' );
+unlike( $arm_perl->{run} // q{}, qr/native_perl=false/,
+    'Windows ARM64 no longer records a skip-only native Perl state' );
 
 my ($linux_native_deps) = grep {
     ( $_->{name} // q{} ) eq 'Install native Linux system-menu build dependencies'
@@ -50,10 +70,10 @@ like( $unix_build->{run} // q{}, qr/PERL5LIB=.*local\/lib\/perl5.*perl Makefile\
 my ($windows_build) = grep {
     ( $_->{name} // q{} ) eq 'Build the Dashboard XS extension (Windows)'
 } @{$steps};
-ok( ref($windows_build) eq 'HASH', 'the Windows x64 job has its own XS build step' );
+ok( ref($windows_build) eq 'HASH', 'the Windows jobs have their own XS build step' );
 is( $windows_build->{shell}, 'pwsh', 'the Windows XS build uses PowerShell' );
 like( $windows_build->{run} // q{}, qr/perl Makefile\.PL.*\bgmake\b/s,
-    'the Windows XS build uses the setup-perl runtime and GNU make' );
+    'the Windows XS build uses the selected Perl runtime and GNU make' );
 unlike( $windows_build->{run} // q{}, qr/FFI::Platypus|FFI::CheckLib/,
     'the Windows XS build has no FFI prerequisite' );
 
@@ -62,7 +82,7 @@ my ($unix_tools) = grep {
 } @{$steps};
 ok( ref($unix_tools) eq 'HASH', 'the Unix test-tools step is explicit' );
 like( $unix_tools->{run} // q{}, qr/cpanm\s+--notest\s+-L\s+local\s+Devel::Cover/,
-    'Unix installs Devel::Cover for the consolidated Linux x64 coverage gate' );
+    'Unix installs Devel::Cover for coverage-aware repository tests' );
 like( $unix_tools->{run} // q{}, qr{blib/arch.*blib/lib}s,
     'Unix exports both built XS library paths' );
 
@@ -75,8 +95,8 @@ like( $windows_tools->{run} // q{}, qr/Test::Harness~3\.48/,
     'Windows installs the supported Test::Harness version explicitly' );
 unlike( $windows_tools->{run} // q{}, qr/cpanm .*Devel::Cover/,
     'Windows does not require unsupported coverage instrumentation' );
-like( $windows_tools->{run} // q{}, qr/Linux x64 platform leg/,
-    'Windows documentation points to the Linux x64 platform leg for coverage' );
+like( $windows_tools->{run} // q{}, qr/dedicated Coverage workflow/,
+    'Windows documentation points to the dedicated Coverage workflow' );
 
 my ($unix_suite) = grep {
     ( $_->{name} // q{} ) eq 'Run complete test suite (Unix)'
@@ -93,17 +113,14 @@ my ($windows_suite) = grep {
 ok( ref($windows_suite) eq 'HASH', 'the platform job has a distinct Windows full-suite step' );
 is( $windows_suite->{shell}, 'pwsh', 'the Windows full-suite step uses native PowerShell' );
 like( $windows_suite->{run} // q{}, qr/perl\s+-MApp::Prove.*process_args.*-Iblib\/arch/s,
-    'Windows runs App::Prove through the setup-perl interpreter' );
+    'Windows runs App::Prove through the selected Perl interpreter' );
 
-my %consolidated = map {
-    ( $_->{name} // q{} ) => $_
-} @{$steps};
+my %consolidated = map { ( $_->{name} // q{} ) => $_ } @{$steps};
 for my $name (
     'Audit action pin provenance',
     'Install the audit tool outside the scanned root',
     'Audit isolated dependency root (RELEASE GATE)',
     'Audit declared dependency chain (RELEASE GATE)',
-    'Verify all-metric lib coverage',
     'Install JS test dependencies',
     'Run fast-check property tests',
 ) {
@@ -112,6 +129,8 @@ for my $name (
     is( $consolidated{$name}{if}, "matrix.label == 'Linux x64'",
         "'$name' runs only once on the Linux x64 matrix leg" );
 }
+ok( !exists $consolidated{'Verify all-metric lib coverage'},
+    'Platform compatibility leaves code coverage to the dedicated Coverage workflow' );
 like( $consolidated{'Audit action pin provenance'}{run} // q{},
     qr/script\/audit-action-pins/,
     'the consolidated workflow audits SHA pin provenance' );
@@ -121,9 +140,6 @@ like( $consolidated{'Audit isolated dependency root (RELEASE GATE)'}{run} // q{}
 like( $consolidated{'Audit declared dependency chain (RELEASE GATE)'}{run} // q{},
     qr/script\/cpan-audit-declared-chain\s+local\/lib\/perl5/,
     'the consolidated workflow audits the declared transitive dependency chain' );
-like( $consolidated{'Verify all-metric lib coverage'}{run} // q{},
-    qr/perl\s+script\/coverage-gate/,
-    'the consolidated workflow runs the canonical coverage gate' );
 like( $consolidated{'Install JS test dependencies'}{run} // q{},
     qr/npm\s+ci\s+--ignore-scripts/,
     'the consolidated workflow installs JavaScript test dependencies reproducibly' );
@@ -140,22 +156,8 @@ is( $node_setup->{if}, "matrix.label == 'Linux x64'",
 like( $node_setup->{uses} // q{}, qr/actions\/setup-node\@[0-9a-f]{40}\z/,
     'Node setup stays pinned by full commit SHA' );
 
-my $arm_job = $jobs->{'windows-arm64-native-watcher'};
-ok( ref($arm_job) eq 'HASH', 'the Windows ARM64 native watcher job is defined' );
-is( $arm_job->{'runs-on'}, 'windows-11-arm',
-    'the native watcher job uses a Windows ARM64 runner' );
-my ($architecture_check) = grep {
-    ( $_->{name} // q{} ) eq 'Verify Windows ARM64 runner and report its Perl runtime'
-} @{ $arm_job->{steps} || [] };
-ok( ref($architecture_check) eq 'HASH', 'the ARM64 job verifies runner and Perl architecture' );
-like( $architecture_check->{run} // q{}, qr/native_perl=false/,
-    'the ARM64 preflight records when native Perl is unavailable' );
-my ($watch_test) = grep {
-    ( $_->{name} // q{} ) eq 'Run Windows ARM64 native filesystem watcher test'
-} @{ $arm_job->{steps} || [] };
-ok( ref($watch_test) eq 'HASH', 'the Windows ARM64 job runs its native watcher test when possible' );
-is( $watch_test->{if}, "steps.arm64-perl.outputs.native_perl == 'true'",
-    'the watcher test is visibly skipped unless native Perl is available' );
+ok( !exists $jobs->{'windows-arm64-native-watcher'},
+    'the obsolete skip-only Windows ARM64 watcher job is removed' );
 
 my $makefile_path = File::Spec->catfile( $root, 'Makefile.PL' );
 open my $makefile_fh, '<:raw', $makefile_path or die "Unable to read $makefile_path: $!";
@@ -199,33 +201,33 @@ __END__
 
 =head1 NAME
 
-230-native-xs-workflow.t - verify consolidated platform testing and XS setup
+230-native-xs-workflow.t - verify platform testing and native XS setup
 
 =head1 DESCRIPTION
 
-Validates the cross-platform matrix, native XS build paths, Windows ARM64
-watcher handling, and the Linux x64 gates consolidated from the former Test and
-JS Fuzz workflows. It also checks that GitHub Release still builds XS before
-running its release suite.
+Validates the six-host platform matrix, native XS build paths, the Windows ARM64
+Perl bootstrap, and the Linux x64 audit/property gates. It also checks that code
+coverage moved to the dedicated Coverage workflow and that GitHub Release still
+builds XS before running its release suite.
 
 =head1 PURPOSE
 
-Ensure Platform compatibility is the single source of routine CI test truth
-across Linux, macOS, and Windows while retaining coverage, dependency audits,
-action-pin provenance, and JavaScript property tests without separate workflows.
+Ensure Platform compatibility is the routine cross-platform test source across
+Linux, macOS, and Windows while Windows ARM64 actually executes the suite instead
+of reporting success after skipping its work.
 
 =head1 WHY IT EXISTS
 
 The Dashboard native extension and System Menu helper behave differently across
-operating systems. A Linux-only Test workflow duplicated work while providing
-less platform evidence, so the repository now keeps those verification gates in
-the platform matrix instead.
+operating systems. The Windows ARM64 runner originally shipped an x64 Perl and
+the workflow treated that as a reason to skip every useful step, yielding a
+green job with no compatibility evidence.
 
 =head1 WHEN TO USE
 
 Run this test when changing the platform matrix, native helper prerequisites,
-coverage or audit wiring, JavaScript property tests, Windows shell selection, or
-GitHub Release build/test ordering.
+Windows ARM64 Perl setup, audit wiring, JavaScript property tests, Windows shell
+selection, coverage ownership, or GitHub Release build/test ordering.
 
 =head1 HOW TO USE
 
@@ -234,7 +236,7 @@ GitHub Release build/test ordering.
 =head1 WHAT USES IT
 
 The repository test suite and Platform compatibility workflow use this test as a
-source-level guard for the consolidated CI design.
+source-level guard for the platform CI design.
 
 =head1 EXAMPLES
 

@@ -16,14 +16,15 @@ anyone building or contributing to the distribution itself.
   pages/ajax), `CollectorRunner` (scheduled checks), `Housekeeper` (cleanup),
   `PathRegistry`/`Config` (the layered `.developer-dashboard/` directory stack).
 - `t/*.t` covers `lib/`; each carries POD naming what it covers.
-- `.github/workflows/` contains exactly three workflows. **Platform
-  compatibility** is the single routine test workflow: it runs on pushes to
-  `master` and pull requests, executes the full Perl suite across Linux, macOS,
-  and Windows, and runs the Linux x64 coverage, dependency-audit, action-pin,
-  and JavaScript property-test gates. **GitHub Release** builds signed,
-  provenance-attested releases from `v*` tags and supports manual recovery
-  dispatch. **Publish Docker Hub Image** publishes the multi-architecture
-  Docker Hub image on `master` pushes and manual dispatch.
+- `.github/workflows/` contains exactly four workflows. **Platform
+  compatibility** runs the full Perl suite across Linux x64/arm64, macOS
+  Intel/arm64, Windows x64, and Windows arm64; Linux x64 also owns the
+  dependency-audit, action-pin, and JavaScript property-test gates. **Coverage**
+  runs three independent 100% gates: all four Devel::Cover metrics across
+  `lib/`, POD file coverage, and Markdown file coverage. **GitHub Release**
+  builds signed, provenance-attested releases from `v*` tags and supports manual
+  recovery dispatch. **Publish Docker Hub Image** publishes the
+  multi-architecture Docker Hub image on `master` pushes and manual dispatch.
 
 ## Running the tests
 
@@ -41,17 +42,19 @@ tree, and it is not exported by non-interactive shells.
 condition, subroutine):
 
 ```
-export PERL5LIB="$HOME/perl5/lib/perl5"
-cover -delete
-HARNESS_PERL_SWITCHES='-MDevel::Cover=-blib,0' prove -lr t
-cover -report text -select_re '^lib/' -coverage statement -coverage branch \
-      -coverage condition -coverage subroutine
+perl script/coverage-gate
 ```
 
-Export `PERL5LIB` once and keep it for every command in the chain - two
-`Devel::Cover` installs exist on a typical dev host and they use different
-on-disk formats, so a run that mixes them produces an unreadable database
-rather than a wrong number.
+Every tracked Perl module/test/script in the POD coverage surface must also
+contain valid POD, and every tracked Markdown file must pass the structural
+Markdown coverage checks:
+
+```
+perl script/pod-coverage-gate
+perl script/markdown-coverage-gate
+```
+
+All three gates must report `100.0%`; any lower result exits non-zero.
 
 A branch or condition that is genuinely unreachable on the test host must
 carry its own `# uncoverable branch ...` / `# uncoverable condition ...`
