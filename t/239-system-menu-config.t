@@ -1,6 +1,9 @@
 use strict;
 use warnings;
 use Test::More;
+use File::Basename qw(dirname);
+use File::Path qw(make_path);
+use File::Temp qw(tempdir);
 
 use lib 'lib';
 
@@ -58,6 +61,36 @@ is_deeply(
     ],
     'indicator platform settings merge by name and preserve inherited platform values',
 );
+
+{
+    my $home = tempdir( CLEANUP => 1 );
+    my $layered_paths = Developer::Dashboard::PathRegistry->new( home => $home );
+    my $layered_config = Developer::Dashboard::Config->for_paths($layered_paths);
+    my $global_file = $layered_config->_global_config_file;
+    make_path( dirname($global_file) );
+    open my $fh, '>:raw', $global_file or die "Unable to write $global_file: $!";
+    print {$fh} JSON::XS->new->canonical->encode( { version => 1 } )
+      or die "Unable to write config payload to $global_file: $!";
+    close $fh or die "Unable to close $global_file: $!";
+    my $loaded = $layered_config->load_global( skill_config_entries => [] );
+    is_deeply( $loaded, { version => 1 },
+        'global config without indicator entries remains unchanged when the optional system-menu section is absent' );
+
+    open $fh, '>:raw', $global_file or die "Unable to write $global_file: $!";
+    print {$fh} JSON::XS->new->canonical->encode( {
+        indicators => [
+            { name => 'build', indicator => { macos => 1 } },
+            { name => 'build', indicator => { ubuntu => 1 } },
+        ],
+    } ) or die "Unable to write config payload to $global_file: $!";
+    close $fh or die "Unable to close $global_file: $!";
+    $loaded = $layered_config->load_global( skill_config_entries => [] );
+    is_deeply(
+        $loaded->{indicators},
+        [ { name => 'build', indicator => { macos => 1, ubuntu => 1 } } ],
+        'global indicator entries are normalized and merged by name when no skill config overlays them',
+    );
+}
 
 my $module_loaded = eval { require Developer::Dashboard::SystemMenu; 1 };
 ok( $module_loaded, 'SystemMenu adapter module loads without AppKit at compile time' )
@@ -346,7 +379,9 @@ visible and safe.
 Configuration overlays must add or change a platform selector without
 discarding inherited settings for the same named indicator. The adapter must
 then project only explicitly enabled macOS items, and malformed declarations
-must fail visibly instead of producing a misleading partial menu.
+must fail visibly instead of producing a misleading partial menu. A valid
+global configuration without the optional system-menu section remains
+unchanged, while configured global indicator entries are normalized by name.
 
 =head1 WHEN TO USE
 
