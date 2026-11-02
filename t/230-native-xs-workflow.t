@@ -133,14 +133,16 @@ for my $name (
     'Install the audit tool outside the scanned root',
     'Audit isolated dependency root (RELEASE GATE)',
     'Audit declared dependency chain (RELEASE GATE)',
-    'Install JS test dependencies',
-    'Run fast-check property tests',
 ) {
     ok( ref($consolidated{$name}) eq 'HASH',
         "Platform compatibility contains the consolidated '$name' gate" );
     is( $consolidated{$name}{if}, "matrix.label == 'Linux x64'",
         "'$name' runs only once on the Linux x64 matrix leg" );
 }
+ok( !exists $consolidated{'Install JS test dependencies'},
+    'Platform compatibility does not repeat npm installation after the full suite' );
+ok( !exists $consolidated{'Run fast-check property tests'},
+    'Platform compatibility does not repeat fast-check after the full suite' );
 ok( !exists $consolidated{'Verify all-metric lib coverage'},
     'Platform compatibility leaves code coverage to the dedicated Coverage workflow' );
 like( $consolidated{'Audit action pin provenance'}{run} // q{},
@@ -152,12 +154,6 @@ like( $consolidated{'Audit isolated dependency root (RELEASE GATE)'}{run} // q{}
 like( $consolidated{'Audit declared dependency chain (RELEASE GATE)'}{run} // q{},
     qr/script\/cpan-audit-declared-chain\s+local\/lib\/perl5/,
     'the consolidated workflow audits the declared transitive dependency chain' );
-like( $consolidated{'Install JS test dependencies'}{run} // q{},
-    qr/npm\s+ci\s+--ignore-scripts/,
-    'the consolidated workflow installs JavaScript test dependencies reproducibly' );
-like( $consolidated{'Run fast-check property tests'}{run} // q{},
-    qr/npm\s+run\s+fuzz:scorecard/,
-    'the consolidated workflow retains the fast-check property tests' );
 
 my ($node_setup) = grep {
     ( $_->{name} // q{} ) eq 'Set up Node for property tests'
@@ -167,6 +163,14 @@ is( $node_setup->{if}, "matrix.label == 'Linux x64'",
     'Node setup is not duplicated across non-JavaScript matrix legs' );
 like( $node_setup->{uses} // q{}, qr/actions\/setup-node\@[0-9a-f]{40}\z/,
     'Node setup stays pinned by full commit SHA' );
+
+my $property_test_path = File::Spec->catfile( $root, 't', '35-js-fast-check.t' );
+open my $property_test_fh, '<:raw', $property_test_path
+  or die "Unable to read $property_test_path: $!";
+my $property_test_text = do { local $/; <$property_test_fh> };
+close $property_test_fh or die "Unable to close $property_test_path: $!";
+like( $property_test_text, qr/'fuzz:scorecard'/,
+    'the complete test suite retains the fast-check property test command' );
 
 ok( !exists $jobs->{'windows-arm64-native-watcher'},
     'the obsolete skip-only Windows ARM64 watcher job is removed' );
