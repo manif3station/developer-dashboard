@@ -245,6 +245,24 @@ my $manager = Developer::Dashboard::RuntimeManager->new(
     is( $spawn_options{env}{DEVELOPER_DASHBOARD_WEB_WORKERS}, 1, '_start_web_background defaults the worker count' );
 }
 
+# A discovered socket is not sufficient readiness evidence until it accepts a
+# connection; exercise the second operand's false path and child cleanup.
+{
+    no warnings 'redefine';
+    require Developer::Dashboard::GoRoutine;
+    local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_background_web_command = sub { return ('perl', 'web-readiness') };
+    local *Developer::Dashboard::RuntimeManager::_runtime_stability_polls = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return (7405) };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 0 };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 7406 };
+    local *Developer::Dashboard::GoRoutine::terminate_process = sub { return 1 };
+    local *Developer::Dashboard::GoRoutine::wait_process = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
+    my $err = eval { $manager->_start_web_background( host => '127.0.0.1', port => 7895 ); 1 } ? '' : $@;
+    like( $err, qr/Unable to start dashboard web service/, 'a discovered listener that rejects connections is not accepted as ready' );
+}
+
 # ---------------------------------------------------------------------------
 # _start_web_background: a failed native process launch is surfaced and a
 # listener that is not ready is not persisted as a running service.
@@ -299,6 +317,49 @@ my $manager = Developer::Dashboard::RuntimeManager->new(
     like( $err, qr/__STOP_DEFAULT_SUPERVISOR__/, '_run_collector_supervisor_child uses default daemonize/redirect settings and enters its loop' );
 }
 
+# The installed TERM handler delegates to the supervisor shutdown path. Stub
+# process exit so the signal closure is observable in-process.
+{
+    no warnings 'redefine';
+    local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR};
+    local *Developer::Dashboard::RuntimeManager::_detach_web_process_session = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_collector_supervisor_state = sub { return { watched_names => ['a'] } };
+    local *Developer::Dashboard::RuntimeManager::_supervise_collectors_once = sub { $SIG{TERM}->(); return {} };
+    local *Developer::Dashboard::RuntimeManager::_reap_any_child_processes = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_write_collector_supervisor_state = sub { return $_[1] };
+    my @shutdown_status;
+    local *Developer::Dashboard::RuntimeManager::_shutdown_collector_supervisor = sub {
+        push @shutdown_status, $_[1];
+        die "__SIGNAL_SUPERVISOR_SHUTDOWN__\n";
+    };
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { die "__STOP_SIGNAL_SUPERVISOR__\n" };
+    my $child_manager = Developer::Dashboard::RuntimeManager->new(
+        app_builder => sub { return Local::Server->new(@_) },
+        config      => $config,
+        files       => $files,
+        paths       => $paths,
+        runner      => Local::Runner->new,
+    );
+    my $err = eval { $child_manager->_run_collector_supervisor_child( daemonize => 0, redirect => 0 ); 1 } ? '' : $@;
+    like( $err, qr/__STOP_SIGNAL_SUPERVISOR__/, 'the collector supervisor resumes its loop after the shutdown hook is intercepted' );
+    is_deeply( \@shutdown_status, ['stopped'], 'the supervisor TERM handler requests the stopped state' );
+}
+
+# ---------------------------------------------------------------------------
+# _start_collector_supervisor: a false GoRoutine spawn result is a startup
+# failure, distinct from an exception thrown by the native launch layer.
+# ---------------------------------------------------------------------------
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
+    local *Developer::Dashboard::RuntimeManager::_background_collector_supervisor_command = sub { return ('perl', 'collector-supervisor') };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return undef };
+    $manager->_write_collector_supervisor_state( { watched_names => ['alpha'] } );
+    my $err = eval { $manager->_start_collector_supervisor; 1 } ? '' : $@;
+    like( $err, qr/Unable to launch detached collector supervisor process/, '_start_collector_supervisor reports a false GoRoutine spawn result' );
+    $manager->_cleanup_collector_supervisor_files;
+}
+
 # ---------------------------------------------------------------------------
 # _run_web_child: omitted options choose detached mode; with detachment disabled,
 # omitted redirect still configures redirected in-process server I/O.
@@ -329,6 +390,28 @@ my $manager = Developer::Dashboard::RuntimeManager->new(
     open STDOUT, '>&', $save_out or die "Unable to restore STDOUT: $!";
     open STDERR, '>&', $save_err or die "Unable to restore STDERR: $!";
     is( $exit, 0, '_run_web_child redirects in-process I/O when redirect is omitted and detach is disabled' );
+}
+{
+    no warnings 'redefine';
+    local $ENV{DEVELOPER_DASHBOARD_WEB_SERVICE};
+    local $ENV{DEVELOPER_DASHBOARD_WEB_HOST};
+    local $ENV{DEVELOPER_DASHBOARD_WEB_PORT};
+    local $ENV{DEVELOPER_DASHBOARD_WEB_WORKERS};
+    local $ENV{DEVELOPER_DASHBOARD_WEB_SSL};
+    local *Developer::Dashboard::RuntimeManager::_close_inherited_fds = sub { die 'inherited descriptors must remain open' };
+    my $child_manager = Developer::Dashboard::RuntimeManager->new(
+        app_builder => sub { return Local::Server->new(@_) },
+        config      => $config,
+        files       => $files,
+        paths       => $paths,
+        runner      => Local::Runner->new,
+    );
+    open my $wr, '>', \my $buf or die "Unable to open startup buffer: $!";
+    is(
+        $child_manager->_run_web_child( $wr, '127.0.0.1', 7896, detach => 0, redirect => 0 ),
+        0,
+        '_run_web_child keeps inherited descriptors open when neither detach nor redirect is requested'
+    );
 }
 
 # ---------------------------------------------------------------------------
@@ -377,9 +460,10 @@ t/119-runtimemanager-coverage-3.t - runtime manager startup-pipe and Windows bac
 This test closes runtime lifecycle decision points: the startup-pipe writer
 success path; both sides of the Windows background-start pid choice; SSL backend
 argument validation and worker defaults; web startup defaults, native launch
-failure, readiness failure and listener-pid selection; default collector
-supervisor daemonize/redirect behavior; web-child default options; and persisted
-state validation for opaque Starman titles.
+failure, socket-present-but-not-accepting readiness and listener-pid selection;
+default collector supervisor daemonize/redirect behavior and TERM shutdown;
+web-child default options and inherited-descriptor policy; and persisted-state
+validation for opaque Starman titles.
 
 =head1 WHY IT EXISTS
 
@@ -389,9 +473,14 @@ value on this host, so the success arm was never executed and a future edit
 could have turned it into an unconditional die without any test noticing. The
 Windows background start similarly only ever ran with a usable listener pid in
 the rest of the suite, leaving its documented fallback to the spawned pid
-unproven. SSL helper argument guards, the ready-listener fallback, and the
-persisted-state validation protect distinct startup and process-ownership paths.
-This file keeps these choices executable and measurable by the coverage gate.
+unproven. A discovered socket that is not accepting connections must also fail
+readiness rather than persist false-running state. The collector supervisor's
+signal callback and the web child's no-detach/no-redirect descriptor policy are
+separate lifecycle decisions; this file exercises them without starting or
+terminating real services. SSL helper argument guards, the ready-listener
+fallback, and persisted-state validation protect distinct startup and
+process-ownership paths. This file keeps these choices executable and measurable
+by the coverage gate.
 
 =head1 WHEN TO USE
 
@@ -399,7 +488,9 @@ Use this file when changing how the background web child reports startup back
 to its parent, how the startup pipe writer is closed and its errno classified,
 how the Windows background start resolves and persists the web service process
 id, worker count, and ssl flag; how the isolated TLS backend validates its
-arguments; or how runtime state is used to identify a managed Starman process.
+arguments; how the supervisor handles TERM; how web children preserve inherited
+descriptors when neither detach nor redirect is requested; or how runtime state
+is used to identify a managed Starman process.
 
 =head1 HOW TO USE
 
