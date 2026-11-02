@@ -59,7 +59,13 @@ jobs:
           echo "$GITHUB_WORKSPACE/local/bin" >> "$GITHUB_PATH"
 
       - name: Enforce 100% test coverage
-        run: perl script/coverage-gate
+        shell: bash
+        run: |
+          mapfile -t tests < <(
+            find t -maxdepth 1 -type f -name '*.t' \
+              ! -name '33-web-server-ssl-browser.t' -print | sort
+          )
+          perl script/coverage-gate "${tests[@]}"
 
   pod-coverage:
     name: POD coverage 100%

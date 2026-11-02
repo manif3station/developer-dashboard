@@ -37,6 +37,7 @@ if ( !-d $node_modules ) {
     my ( $install_out, $install_err, $install_exit ) = capture {
         local %ENV = %ENV;
         _configure_npm_test_env();
+        # Shell equivalent: npm ci --ignore-scripts
         system( $npm_bin, 'ci', '--ignore-scripts' );
     };
     diag($install_out), diag($install_err) if $install_exit != 0;
