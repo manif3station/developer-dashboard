@@ -260,7 +260,9 @@ my $cpanfile_text = do {
     local $/;
     <$fh>;
 };
-like( $cpanfile_text, qr/requires\s+'Devel::Cover'.*\$\^O\s+ne\s+'MSWin32'/s,
+like(
+    $cpanfile_text,
+    qr/if\s*\(\s*\$\^O\s+ne\s+'MSWin32'\s*\)\s*\{\s*requires\s+'Devel::Cover';\s*\}/s,
     'the cpanfile does not install unsupported Devel::Cover on Windows' );
 
 my $release_workflow_path = File::Spec->catfile( $root, '.github', 'workflows', 'release-github.yml' );
