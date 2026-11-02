@@ -16,12 +16,14 @@ anyone building or contributing to the distribution itself.
   pages/ajax), `CollectorRunner` (scheduled checks), `Housekeeper` (cleanup),
   `PathRegistry`/`Config` (the layered `.developer-dashboard/` directory stack).
 - `t/*.t` covers `lib/`; each carries POD naming what it covers.
-- `.github/workflows/` runs four workflows, each with its own trigger set:
-  Test and JS Fuzz run on every push to `master` and every pull request; JS
-  Fuzz also takes manual dispatch. Package GHCR runs on every push to
-  `master`, on version tags (`v*`), and manual dispatch. CodeQL is the widest
-  - push to every branch, every pull request, and a weekly schedule - not
-  scoped to `master` at all.
+- `.github/workflows/` contains exactly three workflows. **Platform
+  compatibility** is the single routine test workflow: it runs on pushes to
+  `master` and pull requests, executes the full Perl suite across Linux, macOS,
+  and Windows, and runs the Linux x64 coverage, dependency-audit, action-pin,
+  and JavaScript property-test gates. **GitHub Release** builds signed,
+  provenance-attested releases from `v*` tags and supports manual recovery
+  dispatch. **Publish Docker Hub Image** publishes the multi-architecture
+  Docker Hub image on `master` pushes and manual dispatch.
 
 ## Running the tests
 

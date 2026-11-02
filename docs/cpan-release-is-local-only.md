@@ -1,7 +1,6 @@
 # CPAN/PAUSE release has no GitHub-triggered path (DD-1026)
 
-This page describes the current behavior of the system, not any one
-ticket.
+This page describes the current behavior of the system, not any one ticket.
 
 ## The decision
 
@@ -17,11 +16,18 @@ locally here."*
 
 ## What still runs on GitHub
 
-- `test.yml` - the full test/coverage suite, on every push and PR.
-- `release-github.yml` - creates the signed GitHub Release (source
-  tarball + checksum/signature/provenance) on a `vX.XX` tag push.
+Exactly three workflows remain:
 
-None of these touch PAUSE or CPAN in any way.
+- `platform-compatibility.yml` - the full Linux/macOS/Windows compatibility
+  matrix, including the Linux x64 coverage, dependency-audit, action-pin, and
+  JavaScript property-test gates.
+- `release-github.yml` - creates the signed GitHub Release (source tarball plus
+  checksum, signature, and provenance) from a `vX.XX` tag, with manual recovery
+  dispatch for an existing tag.
+- `dockerhub-image.yml` - publishes the multi-architecture Docker Hub image from
+  `master`, with manual dispatch available when needed.
+
+None of these uploads a distribution to PAUSE or performs a CPAN release.
 
 ## Why
 
@@ -36,4 +42,5 @@ exist at all - CPAN uploads happen only from a human directly running
 - `dashboard pause-release` (an operator-local layered command, not
   shipped in this repo - see CLAUDE.md's Architecture section) is the
   only sanctioned CPAN release trigger.
-- `.github/workflows/` no longer contains any CPAN-related workflow.
+- `.github/workflows/` contains only Platform compatibility, GitHub Release,
+  and Publish Docker Hub Image; there is no CPAN-related workflow.

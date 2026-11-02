@@ -17,7 +17,7 @@ jobs:
   perl-tests:
     name: Perl tests (${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -71,6 +71,13 @@ jobs:
           perl-version: '5.44'
           multi-thread: true
 
+      - name: Set up Node for property tests
+        if: matrix.label == 'Linux x64'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
       - name: Report Perl and operating-system architecture
         run: perl -V
 
@@ -114,16 +121,6 @@ jobs:
 
       - name: Install project dependencies
         run: cpanm --installdeps --notest -L local .
-
-      - name: Install Linux native build dependencies
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev
 
       - name: Install optional macOS filesystem watcher backend
         shell: bash
@@ -178,7 +175,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Write-Host 'The Windows compatibility job runs the full suite without coverage instrumentation; all-metric coverage is enforced by the Linux Test workflow.'
+          Write-Host 'The Windows compatibility job runs the full suite without coverage instrumentation; all-metric coverage is enforced by the Linux x64 platform leg.'
           cpanm --notest -L local Test::Harness~3.48
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $localLib = Join-Path $env:GITHUB_WORKSPACE 'local/lib/perl5'
@@ -225,6 +222,45 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: perl -MApp::Prove -e '$app = App::Prove->new; $app->process_args(@ARGV); exit $app->run' -- -Iblib/arch -Iblib/lib -lr t
+
+      - name: Audit action pin provenance
+        if: matrix.label == 'Linux x64'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PERL5LIB: ${{ github.workspace }}/local/lib/perl5
+        run: script/audit-action-pins
+
+      - name: Install the audit tool outside the scanned root
+        if: matrix.label == 'Linux x64'
+        shell: bash
+        run: |
+          cpanm --notest -L audit-local CPAN::Audit
+          echo "$GITHUB_WORKSPACE/audit-local/bin" >> "$GITHUB_PATH"
+
+      - name: Audit isolated dependency root (RELEASE GATE)
+        if: matrix.label == 'Linux x64'
+        env:
+          PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5
+        run: script/cpan-audit-project local/lib/perl5
+
+      - name: Audit declared dependency chain (RELEASE GATE)
+        if: matrix.label == 'Linux x64'
+        env:
+          PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5:${{ github.workspace }}/local/lib/perl5
+        run: script/cpan-audit-declared-chain local/lib/perl5
+
+      - name: Verify all-metric lib coverage
+        if: matrix.label == 'Linux x64'
+        shell: bash
+        run: perl script/coverage-gate
+
+      - name: Install JS test dependencies
+        if: matrix.label == 'Linux x64'
+        run: npm ci --ignore-scripts
+
+      - name: Run fast-check property tests
+        if: matrix.label == 'Linux x64'
+        run: npm run fuzz:scorecard
 
   windows-arm64-native-watcher:
     name: Windows ARM64 native watcher availability

@@ -8,312 +8,171 @@ use Test::More;
 use YAML::XS ();
 
 my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
+my $WORKFLOWS = File::Spec->catdir( $ROOT, '.github', 'workflows' );
 
 plan skip_all => 'workflow YAML files are excluded from the built distribution'
-  if !-d File::Spec->catdir( $ROOT, '.github', 'workflows' );
+  if !-d $WORKFLOWS;
 
-# _slurp($path)
-# Purpose: read a whole text file into one string.
-# Input: a filesystem path.
-# Output: the file's full content, or dies on open failure.
-# Matches t/15-release-metadata.t's own _slurp helper, rather than adding a
-# new slurp dependency this project's other tests do not already use.
 sub _slurp {
     my ($path) = @_;
-    open my $fh, '<', $path or die $!;
+    open my $fh, '<', $path or die "Unable to read $path: $!";
     my $content = do { local $/; <$fh> };
-    close $fh;
-    return $content;
+    close $fh or die "Unable to close $path: $!";
+    return $content // '';
 }
 
-# trigger_block($workflow_file)
-# Purpose: resolve a GitHub Actions workflow's `on:` trigger block by value,
-#   never by assuming a key name - YAML 1.1 reads a bare `on` as the boolean
-#   true, and this file is parsed by whichever YAML::XS the host happens to
-#   carry (t/34's own documented gotcha).
-# Input: a workflow filename under .github/workflows/ (e.g. 'test.yml').
-# Output: a hashref of that workflow's trigger block, or {} if none is found.
 sub trigger_block {
     my ($workflow_file) = @_;
-    my $doc = YAML::XS::LoadFile( File::Spec->catfile( $ROOT, '.github', 'workflows', $workflow_file ) );
+    my $doc = YAML::XS::LoadFile( File::Spec->catfile( $WORKFLOWS, $workflow_file ) );
     my ($block) = grep { ref $_ eq 'HASH' }
       map { $doc->{$_} } grep { m/\A(?:on|true|1)\z/ } keys %$doc;
     return $block // {};
 }
 
-my %triggers = map { $_ => trigger_block($_) }
-  qw(test.yml codeql.yml package-ghcr.yml fuzz-js.yml);
+opendir my $workflow_dir, $WORKFLOWS
+  or die "Unable to read workflow directory $WORKFLOWS: $!";
+my @workflow_files = sort grep { /\.ya?ml\z/ && -f File::Spec->catfile( $WORKFLOWS, $_ ) }
+  readdir $workflow_dir;
+closedir $workflow_dir or die "Unable to close workflow directory $WORKFLOWS: $!";
 
-for my $file ( sort keys %triggers ) {
-    ok( ref $triggers{$file} eq 'HASH' && keys %{ $triggers{$file} },
-        "the on: trigger block for $file was located, so the assertions below have a subject" );
+is_deeply(
+    \@workflow_files,
+    [ qw(dockerhub-image.yml platform-compatibility.yml release-github.yml) ],
+    'the repository exposes exactly the three owner-approved GitHub Actions workflows',
+);
+
+for my $removed (qw(test.yml codeql.yml package-ghcr.yml fuzz-js.yml)) {
+    ok( !-e File::Spec->catfile( $WORKFLOWS, $removed ),
+        "$removed is removed from the active workflow directory" );
 }
 
-# AC-1: SKILLS.md's CI description must match the current on: blocks exactly.
-# Each workflow's REAL trigger set, read live rather than trusted from memory -
-# this is the same fact this ticket's own card was filed to correct, and it had
-# already drifted again by the time of the fix (test.yml/fuzz-js.yml gained
-# pull_request, package-ghcr.yml gained tags/workflow_dispatch since the card
-# was written), which is exactly why this is a standing regression test and not
-# a one-off doc edit.
-ok( exists $triggers{'test.yml'}{push}, 'test.yml runs on push' );
-is_deeply( $triggers{'test.yml'}{push}{branches}, ['master'], 'test.yml pushes are scoped to master' );
-ok( exists $triggers{'test.yml'}{pull_request}, 'test.yml also runs on pull_request' );
-ok( !exists $triggers{'test.yml'}{schedule}, 'test.yml has no schedule trigger' );
-ok( !exists $triggers{'test.yml'}{workflow_dispatch}, 'test.yml has no manual-dispatch trigger' );
+my %triggers = map { $_ => trigger_block($_) } @workflow_files;
 
-ok( exists $triggers{'codeql.yml'}{push}, 'codeql.yml runs on push' );
-is_deeply( $triggers{'codeql.yml'}{push}{branches}, ['**'], 'codeql.yml pushes are NOT scoped to master - every branch' );
-ok( exists $triggers{'codeql.yml'}{pull_request}, 'codeql.yml also runs on pull_request' );
-ok( exists $triggers{'codeql.yml'}{schedule}, 'codeql.yml also runs on a schedule' );
+ok( exists $triggers{'platform-compatibility.yml'}{push},
+    'Platform compatibility runs on push' );
+is_deeply(
+    $triggers{'platform-compatibility.yml'}{push}{branches},
+    ['master'],
+    'Platform compatibility push runs are scoped to master',
+);
+ok( exists $triggers{'platform-compatibility.yml'}{pull_request},
+    'Platform compatibility also runs on pull requests' );
+ok( !exists $triggers{'platform-compatibility.yml'}{workflow_dispatch},
+    'Platform compatibility has no separate manual duplicate test path' );
 
-ok( exists $triggers{'package-ghcr.yml'}{push}, 'package-ghcr.yml runs on push' );
-is_deeply( $triggers{'package-ghcr.yml'}{push}{branches}, ['master'], 'package-ghcr.yml branch pushes are scoped to master' );
-ok( exists $triggers{'package-ghcr.yml'}{push}{tags}, 'package-ghcr.yml ALSO runs on version tags, not only branch pushes' );
-ok( exists $triggers{'package-ghcr.yml'}{workflow_dispatch}, 'package-ghcr.yml also runs via manual dispatch' );
-ok( !exists $triggers{'package-ghcr.yml'}{pull_request}, 'package-ghcr.yml has no pull_request trigger' );
+ok( exists $triggers{'release-github.yml'}{push},
+    'GitHub Release runs on tag pushes' );
+is_deeply(
+    $triggers{'release-github.yml'}{push}{tags},
+    ['v*'],
+    'GitHub Release is scoped to version tags',
+);
+ok( exists $triggers{'release-github.yml'}{workflow_dispatch},
+    'GitHub Release keeps its recovery dispatch path' );
+ok( !exists $triggers{'release-github.yml'}{pull_request},
+    'GitHub Release does not run on pull requests' );
 
-ok( exists $triggers{'fuzz-js.yml'}{push}, 'fuzz-js.yml runs on push' );
-is_deeply( $triggers{'fuzz-js.yml'}{push}{branches}, ['master'], 'fuzz-js.yml pushes are scoped to master' );
-ok( exists $triggers{'fuzz-js.yml'}{pull_request}, 'fuzz-js.yml also runs on pull_request' );
-ok( exists $triggers{'fuzz-js.yml'}{workflow_dispatch}, 'fuzz-js.yml also runs via manual dispatch' );
+ok( exists $triggers{'dockerhub-image.yml'}{push},
+    'Docker Hub publishing runs on push' );
+is_deeply(
+    $triggers{'dockerhub-image.yml'}{push}{branches},
+    ['master'],
+    'Docker Hub publishing is scoped to master pushes',
+);
+ok( exists $triggers{'dockerhub-image.yml'}{workflow_dispatch},
+    'Docker Hub publishing keeps manual dispatch' );
+ok( !exists $triggers{'dockerhub-image.yml'}{pull_request},
+    'Docker Hub publishing does not run on pull requests' );
 
-# The actual regression guard: SKILLS.md's prose must acknowledge that none of
-# the four workflows runs ONLY on push to master. The old wording ("runs Test,
-# CodeQL, Package GHCR, and JS Fuzz on every push to master") was wrong for all
-# four, not only CodeQL as originally filed.
-my $skills_md = _slurp( File::Spec->catfile( $ROOT, 'SKILLS.md' ) );
-unlike( $skills_md, qr/runs\s+Test,\s*CodeQL,\s*Package\s*GHCR,\s*and\s*JS\s*Fuzz\s+on\s+every\s*\n?\s*push\s+to\s+`master`/s,
-    'SKILLS.md no longer makes the single blanket push-to-master claim for all four workflows' );
-like( $skills_md, qr/pull request/i,
-    "SKILLS.md's CI description mentions pull requests, which test.yml, codeql.yml and fuzz-js.yml all trigger on" );
-like( $skills_md, qr/tag/i,
-    "SKILLS.md's CI description mentions tags, which package-ghcr.yml also triggers on" );
-like( $skills_md, qr/schedule|weekly/i,
-    "SKILLS.md's CI description mentions the schedule, which only codeql.yml has" );
-like( $skills_md, qr/every branch/i,
-    "SKILLS.md's CI description states that codeql.yml's push trigger is NOT scoped to master" );
+my $platform = YAML::XS::LoadFile(
+    File::Spec->catfile( $WORKFLOWS, 'platform-compatibility.yml' ) );
+my @setup_perl_steps = map { @{ $_->{steps} || [] } }
+  grep { ref $_ eq 'HASH' } values %{ $platform->{jobs} || {} };
+@setup_perl_steps = grep { ($_->{uses} // '') =~ /actions-setup-perl\@/ } @setup_perl_steps;
+ok( @setup_perl_steps, 'Platform compatibility configures Perl explicitly' );
+ok( !scalar grep { !$_->{with}{'multi-thread'} } @setup_perl_steps,
+    'every Platform compatibility setup-perl step enables ithreads for GoRoutine XS' );
 
-my $fuzz_workflow = _slurp( File::Spec->catfile( $ROOT, '.github', 'workflows', 'fuzz-js.yml' ) );
-like( $fuzz_workflow, qr/name:\s+Build Dashboard XS extension/,
-    'the JS fuzz job builds the native extension required by dashboard subcommands' );
-like( $fuzz_workflow, qr/perl Makefile\.PL\s*\n\s*make/,
-    'the fuzz workflow runs Makefile.PL and make before exercising dashboard' );
-my $fuzz_build_offset = index( $fuzz_workflow, 'name: Build Dashboard XS extension' );
-my $fuzz_run_offset   = index( $fuzz_workflow, 'name: Run fast-check property tests' );
-ok( $fuzz_build_offset >= 0 && $fuzz_run_offset > $fuzz_build_offset,
-    'native build precedes fast-check execution' );
-like( $fuzz_workflow, qr{PERL5LIB:\s*\$\{\{\s*github\.workspace\s*\}\}/blib/arch:.*\$\{\{\s*github\.workspace\s*\}\}/blib/lib:.*\$\{\{\s*github\.workspace\s*\}\}/local/lib/perl5}s,
-    'fuzz job exposes the built XS and dependency trees to dashboard subprocesses' );
+my $platform_text = _slurp(
+    File::Spec->catfile( $WORKFLOWS, 'platform-compatibility.yml' ) );
+like( $platform_text, qr/libayatana-appindicator3-dev/,
+    'Platform compatibility installs Ayatana development headers on Linux' );
+like( $platform_text, qr/libgtk-3-dev/,
+    'Platform compatibility installs GTK development headers on Linux' );
+like( $platform_text, qr/name:\s*Verify all-metric lib coverage/,
+    'Platform compatibility owns the coverage gate formerly provided by Test' );
+like( $platform_text, qr/name:\s*Run fast-check property tests/,
+    'Platform compatibility owns the property-test gate formerly provided by JS Fuzz' );
+like( $platform_text, qr/name:\s*Audit declared dependency chain \(RELEASE GATE\)/,
+    'Platform compatibility owns the declared dependency audit release gate' );
 
-for my $workflow_file (qw(test.yml fuzz-js.yml platform-compatibility.yml)) {
-    my $workflow_doc = YAML::XS::LoadFile(
-        File::Spec->catfile( $ROOT, '.github', 'workflows', $workflow_file ) );
-    my @setup_perl_steps = map { @{ $_->{steps} || [] } }
-      grep { ref $_ eq 'HASH' } values %{ $workflow_doc->{jobs} || {} };
-    @setup_perl_steps = grep { ($_->{uses} // '') =~ /actions-setup-perl\@/ } @setup_perl_steps;
-    my $all_threaded = @setup_perl_steps && !scalar grep { !$_->{with}{'multi-thread'} } @setup_perl_steps;
-    ok( $all_threaded,
-        "$workflow_file enables Perl ithreads for the GoRoutine XS build" );
+my $skills = _slurp( File::Spec->catfile( $ROOT, 'SKILLS.md' ) );
+for my $name ( 'Platform compatibility', 'GitHub Release', 'Publish Docker Hub Image' ) {
+    like( $skills, qr/\Q$name\E/i, "SKILLS.md names the retained $name workflow" );
 }
+unlike( $skills, qr/\b(?:CodeQL|Package GHCR|JS Fuzz)\b/,
+    'SKILLS.md no longer advertises removed workflows as current CI' );
 
-# The native Linux system-menu helper is part of the distribution build, so
-# every Linux CI build must install its GTK/Ayatana development headers first.
-for my $workflow_file (qw(test.yml fuzz-js.yml platform-compatibility.yml)) {
-    my $workflow = _slurp( File::Spec->catfile( $ROOT, '.github', 'workflows', $workflow_file ) );
-    like( $workflow, qr/libayatana-appindicator3-dev/, "$workflow_file installs Ayatana development headers for the Linux helper" );
-    like( $workflow, qr/libgtk-3-dev/, "$workflow_file installs GTK development headers for the Linux helper" );
+my $trigger_doc = _slurp( File::Spec->catfile( $ROOT, 'docs', 'ci-workflow-triggers.md' ) );
+for my $file (qw(platform-compatibility.yml release-github.yml dockerhub-image.yml)) {
+    like( $trigger_doc, qr/\Q$file\E/, "workflow trigger documentation includes $file" );
 }
-
-my $dockerfile = _slurp( File::Spec->catfile( $ROOT, '.github', 'docker', 'Dockerfile' ) );
-like( $dockerfile, qr/libayatana-appindicator3-dev/, 'runtime image build installs Ayatana headers for the native helper' );
-like( $dockerfile, qr/libgtk-3-dev/, 'runtime image build installs GTK headers for the native helper' );
-
-# Devel::Cover is not supported by the Windows toolchain used by the matrix;
-# that job installs Test::Harness and runs the suite without instrumentation.
-my $cpanfile = _slurp( File::Spec->catfile( $ROOT, 'cpanfile' ) );
-like( $cpanfile, qr/requires\s+['"]Devel::Cover['"]\s+if\s+\$\^O\s+ne\s+['"]MSWin32['"]/, 'coverage instrumentation is omitted from Windows test prerequisites' );
-my $platform_workflow = _slurp( File::Spec->catfile( $ROOT, '.github', 'workflows', 'platform-compatibility.yml' ) );
-like( $platform_workflow, qr/cpanm\s+--notest\s+-L\s+local\s+Test::Harness~3\.48/, 'Windows platform workflow installs the supported Test::Harness version explicitly' );
-
-# The macOS Objective-C helper uses ARC and treats deprecated AppKit APIs as
-# errors, so its hosted build remains warning-clean.
-my $makefile_pl = _slurp( File::Spec->catfile( $ROOT, 'Makefile.PL' ) );
-like( $makefile_pl,
-    qr/my\s+%test_requires\s*=\s*\(\s*'Test::Harness'\s*=>\s*'3\.48'\s*,?\s*\)\s*;\s*\$test_requires\{'Devel::Cover'\}\s*=\s*0\s*if\s*\$\^O\s+ne\s+'MSWin32';/s,
-    'MakeMaker omits Devel::Cover from Windows test prerequisites while retaining Test::Harness' );
-like( $makefile_pl, qr/TEST_REQUIRES\s*=>\s*\\%test_requires/,
-    'MakeMaker receives the platform-specific test prerequisite set' );
-like( $makefile_pl, qr/helper_compile\s*=\s*q\{[^\n]*-fobjc-arc[^\n]*-Werror=deprecated-declarations[^\n]*system_menu_helper_mac\.m/, 'macOS helper build enables ARC and rejects deprecated APIs' );
-my $mac_helper = _slurp( File::Spec->catfile( $ROOT, 'native', 'system_menu_helper_mac.m' ) );
-unlike( $mac_helper, qr/selectedMenuItemColor/, 'macOS helper avoids deprecated selected-menu color API' );
-
-# AC-2: no other workflow-trigger claim in SKILLS.md or README.md is left
-# inconsistent. Neither file may still assert the disproven "only master" claim.
-my $readme = _slurp( File::Spec->catfile( $ROOT, 'README.md' ) );
-unlike( $readme, qr/runs\s+Test,\s*CodeQL,\s*Package\s*GHCR,\s*and\s*JS\s*Fuzz\s+on\s+every\s*\n?\s*push\s+to\s+`master`/s,
-    'README.md does not repeat the disproven blanket push-to-master claim either' );
-
-# AC-3: platform portability is exercised by real GitHub-hosted macOS and
-# Windows runners, not inferred from the Linux-only main test workflow.
-{
-    my $workflow_path = File::Spec->catfile( $ROOT, '.github', 'workflows', 'platform-compatibility.yml' );
-    ok( -f $workflow_path, 'a dedicated cross-platform compatibility workflow exists' );
-    if ( -f $workflow_path ) {
-        my $workflow = YAML::XS::LoadFile($workflow_path);
-        my $jobs = $workflow->{jobs} || {};
-        my $job = $jobs->{'perl-tests'};
-        ok( ref($job) eq 'HASH', 'the platform compatibility workflow defines a full-suite Perl job' );
-        if ( ref($job) eq 'HASH' ) {
-            my $matrix = $job->{strategy}{matrix}{include} || [];
-            my @runners = sort map { $_->{runner} // '' } @{$matrix};
-            is_deeply(
-                \@runners,
-                [ sort qw(macos-26 macos-26-intel ubuntu-24.04-arm ubuntu-latest windows-latest) ],
-                'the full-suite matrix covers Linux, macOS, and Windows on x64, plus Linux and macOS arm64',
-            );
-            my ($unix_test_step) = grep { ($_->{name} // '') eq 'Run complete test suite (Unix)' } @{ $job->{steps} };
-            like( $unix_test_step->{run} || '', qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
-                'the Unix platform job runs the complete suite with the built XS library paths' );
-            my ($windows_test_step) = grep { ($_->{name} // '') eq 'Run complete test suite (Windows)' } @{ $job->{steps} };
-            is( $windows_test_step->{shell}, 'pwsh',
-                'the Windows complete suite runs in PowerShell rather than Git Bash' );
-            like( $windows_test_step->{run} || '', qr/perl\s+-MApp::Prove.*process_args.*-Iblib\/arch/s,
-                'the Windows complete suite uses App::Prove from the setup-perl runtime' );
-            my @steps = @{ $job->{steps} };
-            my %test_tools_index;
-            for my $platform (qw(Unix Windows)) {
-                my ($index) = grep {
-                    ($steps[$_]{name} // '') eq "Install test tools and export project environment ($platform)"
-                } 0 .. $#steps;
-                $test_tools_index{$platform} = $index if defined $index;
-                ok( defined $index,
-                    "the $platform platform job prepares its test environment" );
-                next if !defined $index;
-                my $test_tools_run = $steps[$index]{run} // '';
-                if ( $platform eq 'Unix' ) {
-                    like( $test_tools_run, qr/cpanm\s+--notest\s+-L\s+local\s+Devel::Cover/,
-                        'Unix installs Devel::Cover for coverage-gate regression tests' );
-                    like( $test_tools_run, qr/-MDevel::Cover::DB::IO/,
-                        'Unix verifies the coverage serializer in the local library' );
-                }
-                else {
-                    unlike( $test_tools_run, qr/cpanm .*Devel::Cover/,
-                        'Windows full-suite verification does not require coverage instrumentation' );
-                    unlike( $test_tools_run, qr/Devel::Cover::DB::IO/,
-                        'Windows dependency setup is independent of Devel::Cover configuration support' );
-                }
-                like( $test_tools_run, qr/PERL5LIB=.*GITHUB_ENV/s,
-                    "$platform exports local dependencies for child Perl processes" );
-                like( $test_tools_run, qr/Config\{archname\}/,
-                    "$platform adds its architecture-specific local module directory" );
-                like( $test_tools_run, qr/Config\{path_sep\}/,
-                    "$platform joins module paths with its Perl path separator" );
-            }
-            my %full_suite_index;
-            for my $platform (qw(Unix Windows)) {
-                my ($index) = grep {
-                    ($steps[$_]{name} // '') eq "Run complete test suite ($platform)"
-                } 0 .. $#steps;
-                $full_suite_index{$platform} = $index if defined $index;
-                ok( defined $index, "$platform full-suite step exists after test-tools preparation" );
-            }
-            for my $platform (qw(Unix Windows)) {
-                ok( defined $test_tools_index{$platform} && defined $full_suite_index{$platform}
-                      && $test_tools_index{$platform} < $full_suite_index{$platform},
-                    "$platform test tools are prepared before the full suite" );
-            }
-            my $benchmark_steps = join "\n", map { $_->{run} // '' } @{ $job->{steps} };
-            like( $benchmark_steps,
-                qr/problem48-status-route-benchmark.*--indicators\s+50.*--portable-config-cache/s,
-                'the platform job measures the portable config snapshot route on every runner' );
-            like( $benchmark_steps,
-                qr/problem48-status-route-benchmark.*--indicators\s+50.*--iterations/s,
-                'the platform job measures the automatic native-or-portable route for comparison' );
-        }
-        my $windows_arm = $jobs->{'windows-arm64-native-watcher'};
-        ok( ref($windows_arm) eq 'HASH', 'Windows ARM64 has a dedicated native-runtime job' );
-        if ( ref($windows_arm) eq 'HASH' ) {
-            is( $windows_arm->{ 'runs-on' }, 'windows-11-arm',
-                'the dedicated job runs on a Windows ARM64 hosted runner' );
-            my $steps = join "\n", map {
-                ($_->{if} // '') . "\n" . ($_->{run} // '') . "\n" . ($_->{name} // '')
-            } @{ $windows_arm->{steps} || [] };
-            like( $steps, qr/native_perl=false/,
-                'the Windows ARM job records when native ARM64 Perl is unavailable' );
-            like( $steps, qr/::warning title=Native ARM64 Perl unavailable/,
-                'the Windows ARM job visibly warns when native ARM64 Perl is unavailable' );
-            like( $steps, qr/steps\.arm64-perl\.outputs\.native_perl == 'true'/,
-                'Perl-dependent ARM64 watcher steps require native ARM64 Perl' );
-            my ($native_test_step) = grep { ($_->{name} // '') eq 'Run Windows ARM64 native filesystem watcher test' } @{ $windows_arm->{steps} || [] };
-            like( $native_test_step->{run} || '', qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-Ilib\s+-lv\s+t\/669-problem48-inotify-watch\.t/,
-                'the Windows ARM job executes the native filesystem watcher regression test' );
-        }
-    }
+like( $trigger_doc, qr/^## Removed workflows\s*$/m,
+    'workflow trigger documentation explicitly separates retired workflow names from the active set' );
+for my $file (qw(test.yml codeql.yml package-ghcr.yml fuzz-js.yml)) {
+    like( $trigger_doc, qr/^- `\Q$file\E`\s*$/m,
+        "workflow trigger documentation records $file as deliberately removed" );
 }
 
 done_testing();
 
 __END__
 
-=for comment FULL-POD-DOC START
-
 =head1 NAME
 
-t/227-skills-md-ci-triggers.t - verify GitHub Actions triggers and cross-platform runner coverage
+227-skills-md-ci-triggers.t - protect the three-workflow GitHub Actions contract
+
+=head1 DESCRIPTION
+
+Checks the active workflow directory, trigger sets, consolidated platform test
+gates, and public CI documentation after the repository's GitHub Actions surface
+was reduced to Platform compatibility, GitHub Release, and Docker Hub publishing.
 
 =head1 PURPOSE
 
-This test verifies GitHub Actions trigger configuration, the platform matrix, and the cross-platform status-route benchmark steps used alongside the full Perl test suite. It runs in a source checkout and skips in a built distribution, which intentionally excludes workflow files. Read it when CI configuration changes or a workflow-related regression points here.
+Keep the repository from silently reintroducing duplicate Test, CodeQL, GHCR, or
+standalone JavaScript fuzz workflows after the owner selected one platform test
+workflow and two publishing workflows as the complete Actions surface.
 
 =head1 WHY IT EXISTS
 
-DD-1001 found that the skills guide's single sentence ("runs Test, CodeQL, Package GHCR, and JS Fuzz on every push to C<master>") was wrong for CodeQL, which also runs on every branch push, every pull request, and a weekly schedule. Re-verifying live while fixing it found the claim had ALSO drifted for the other three workflows in the few days since the card was filed - test.yml and fuzz-js.yml gained C<pull_request>, and package-ghcr.yml gained C<tags> and C<workflow_dispatch>. A one-off prose edit would drift again the same way; this test re-reads the real YAML every run so the next drift fails loudly instead of sitting unnoticed.
-
-The platform-matrix assertions additionally ensure that automatic and
-forced-portable status-route timings and the full Perl suite are scheduled on
-Linux x64/arm64, macOS Intel/arm64, and Windows x64. A separate Windows ARM64
-job checks the native watcher with the runner-provided Perl. This is important
-because Linux-only checks cannot establish the behavior of portable fallbacks,
-native modules, or comparable latency on other operating systems. Windows
-ARM64 is a focused watcher smoke test, not a full-suite leg: the hosted image
-currently provides Perl 5.32.1, below this project's Perl 5.38 minimum, and
-the Perl setup action does not support that runner target.
-The Windows x64 full-suite leg does not install Devel::Cover because that
-module's configure step fails on the hosted toolchain. All-metric coverage is
-instead enforced by the dedicated Linux Test workflow.
-
-The platform workflow keeps distinct Unix and Windows complete-suite steps.
-Unix uses C<prove> in Bash; Windows invokes C<App::Prove> with the setup-perl
-interpreter from PowerShell so Git Bash cannot select MSYS Perl or rewrite
-Windows library paths.
+Workflow files are executable configuration. Removing a YAML file from the UI is
+not enough if tests or documentation still require it, and adding an old file
+back later would recreate the duplicate workflow automatically.
 
 =head1 WHEN TO USE
 
-Use this file in a repository checkout whenever a C<.github/workflows/*.yml> trigger block or platform matrix changes, or when a focused CI failure points here. In a packaged installation the workflow directory is absent, so the test reports a documented skip.
+Run this test whenever adding, deleting, renaming, or changing triggers in
+F<.github/workflows/>, or when changing the CI description in C<SKILLS.md> or
+the workflow trigger reference.
 
 =head1 HOW TO USE
 
-Run it directly with C<prove -lv t/227-skills-md-ci-triggers.t> while iterating, then keep it green under C<prove -lr t> and the coverage runs before release. It verifies full-suite jobs on Linux, macOS, and Windows x64, additional Linux/macOS arm64 full-suite jobs, a Windows ARM64 native watcher job that explicitly reports unavailable native Perl, and both config freshness measurements on each full-suite runner.
+  prove -lv t/227-skills-md-ci-triggers.t
 
 =head1 WHAT USES IT
 
-Developers during TDD, the full C<prove -lr t> suite, and the release verification loop rely on this file to prevent silent drift in CI trigger and runner coverage.
+The repository test suite and the Platform compatibility workflow use this test
+to enforce the owner-approved three-workflow layout.
 
 =head1 EXAMPLES
 
-Example 1:
+Check just the workflow contract:
 
   prove -lv t/227-skills-md-ci-triggers.t
 
-Run the focused regression test by itself while changing a workflow's C<on:> block or the skills guide's CI prose.
-
-Example 2:
+Check it as part of the full platform suite:
 
   prove -lr t
-
-Put the focused fix back through the whole repository suite before calling the work finished.
-
-=for comment FULL-POD-DOC END
 
 =cut
