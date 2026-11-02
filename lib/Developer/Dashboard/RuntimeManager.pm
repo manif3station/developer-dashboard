@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '6.19';
+our $VERSION = '6.20';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -1675,7 +1675,11 @@ sub _start_collector_supervisor {
 
     my $pidfile = $self->_collector_supervisor_pidfile;
     open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
-    print {$fh} $pid or die "Unable to write collector supervisor pid to $pidfile: $!";
+    if ( !print {$fh} $pid ) {
+        my $error = $!;
+        CORE::close($fh);
+        die "Unable to write collector supervisor pid to $pidfile: $error";
+    }
     CORE::close($fh) or die "Unable to close collector supervisor pidfile $pidfile: $!";
     $self->{paths}->secure_file_permissions($pidfile);
     $self->_write_collector_supervisor_state(

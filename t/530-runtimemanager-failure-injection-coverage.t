@@ -7,7 +7,7 @@ use warnings;
 # test is compiled. They only misbehave for exact, explicitly registered
 # operations, so the failure paths run identically for root and non-root users
 # (chmod-based failures are not reliable when the suite runs as root).
-our ( %OPEN_FAIL, %OPEN_REDIRECT, $PIPE_FAIL, $SEEK_FAIL, $SYSREAD_UNDEF );
+our ( %OPEN_FAIL, %OPEN_REDIRECT, %OPEN_AUTOFLUSH, $TIED_OPENED, $PIPE_FAIL, $SEEK_FAIL, $SYSREAD_UNDEF );
 
 BEGIN {
     require Symbol;
@@ -22,7 +22,19 @@ BEGIN {
                 }
             }
             if ( my $redirect = $OPEN_REDIRECT{ $_[2] } ) {
-                return CORE::open( $_[0], $redirect->[0], @{$redirect}[ 1 .. $#{$redirect} ] );
+                if ( $redirect->[0] eq 'TIED_CLOSE_FAIL' ) {
+                    $TIED_OPENED++;
+                    $_[0] = Symbol::gensym() if !defined $_[0];
+                    tie *{ $_[0] }, 'Local::PidfileCloseFailure';
+                    return 1;
+                }
+                my $opened = CORE::open( $_[0], $redirect->[0], @{$redirect}[ 1 .. $#{$redirect} ] );
+                if ( $opened && $OPEN_AUTOFLUSH{ $_[2] } ) {
+                    my $selected = select( $_[0] );
+                    $| = 1;
+                    select($selected);
+                }
+                return $opened;
             }
         }
         my $handle;
@@ -66,6 +78,13 @@ BEGIN {
         return CORE::sysread( $_[0], ${ $_[1] }, $_[2], $_[3] ) if @_ > 3;
         return CORE::sysread( $_[0], ${ $_[1] }, $_[2] );
     };
+}
+
+{
+    package Local::PidfileCloseFailure;
+    sub TIEHANDLE { return bless {}, shift }
+    sub PRINT      { return 1 }
+    sub CLOSE      { $! = 5; return 0 }
 }
 
 use Cwd qw(getcwd);
@@ -159,6 +178,31 @@ sub capture_failure {
         local $OPEN_FAIL{"> $pidfile"} = ['fail'];
         eval { $manager->_start_collector_supervisor };
         like( $@, qr/Unable to write \Q$pidfile\E/, 'the supervisor start dies when its pidfile cannot be written' );
+    }
+    SKIP: {
+        my $full = File::Spec->catfile( $work, 'collector-supervisor-full-device' );
+        skip '/dev/full is unavailable for deterministic pidfile write failures', 2 if !-e '/dev/full';
+        local *Developer::Dashboard::RuntimeManager::_collector_supervisor_pidfile = sub { return $full };
+        local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
+        local *Developer::Dashboard::GoRoutine::spawn = sub { return 5152 };
+        local $OPEN_REDIRECT{$full} = [ '>', '/dev/full' ];
+        local $OPEN_AUTOFLUSH{$full} = 1;
+        my ( $write_error, $write_stderr );
+        ( undef, $write_stderr ) = capture {
+            eval { $manager->_start_collector_supervisor };
+            $write_error = $@;
+        };
+        like( $write_error, qr/Unable to write collector supervisor pid to/, 'the supervisor start surfaces an immediate pidfile print failure' );
+        is( $write_stderr, '', 'the supervisor closes a failed pidfile write without leaking a close warning' );
+        $manager->_cleanup_collector_supervisor_files;
+
+        $manager->_write_collector_supervisor_state( { watched_names => ['alpha'] } );
+        $OPEN_REDIRECT{$full} = ['TIED_CLOSE_FAIL'];
+        local $TIED_OPENED = 0;
+        eval { $manager->_start_collector_supervisor };
+        like( $@, qr/Unable to close collector supervisor pidfile/, 'the supervisor start surfaces a buffered pidfile close failure' );
+        is( $TIED_OPENED, 1, 'the close-failure filehandle was opened through the deterministic tie' );
+        $manager->_cleanup_collector_supervisor_files;
     }
 }
 
@@ -296,6 +340,9 @@ It exists because the lib/ coverage gate requires every branch to be genuinely e
 =head1 WHEN TO USE
 
 Use this file when you change start_web, the collector supervisor start, the child stdio redirection, the state-file writers, the log follower, or the procfs readers in RuntimeManager.
+
+On Unix test hosts exposing C</dev/full>, the registered open redirect also
+checks immediate and buffered supervisor pidfile write failures.
 
 =head1 HOW TO USE
 
