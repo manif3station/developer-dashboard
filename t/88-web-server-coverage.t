@@ -269,6 +269,44 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     internal_port => 17903,
 );
 
+# Backend readiness is validated without opening a socket or starting a child.
+{
+    no warnings qw(redefine once);
+    local %Developer::Dashboard::Web::Server::SSL_BACKEND_REAPED;
+    local *Developer::Dashboard::GoRoutine::process_running = sub { return 0 };
+    local *Developer::Dashboard::GoRoutine::wait_process = sub { return 23 };
+    my $ok = eval { $ssl_server->_wait_for_ssl_backend_ready( $ssl_daemon, 93001 ); 1 };
+    ok( !$ok, 'SSL readiness fails when the managed backend exits before listening' );
+    like( $@, qr/exited before becoming ready \(status 23\)/, 'early backend exit reports its process status' );
+    ok( $Developer::Dashboard::Web::Server::SSL_BACKEND_REAPED{93001}, 'early backend exit is recorded as reaped' );
+
+    local *Developer::Dashboard::GoRoutine::process_running = sub { return 1 };
+    local *IO::Socket::SSL::new = sub {
+        open my $backend, '<', File::Spec->devnull
+          or die "Unable to create the SSL readiness socket fixture: $!";
+        return $backend;
+    };
+    is( $ssl_server->_wait_for_ssl_backend_ready( $ssl_daemon, 93002 ), 1,
+        'SSL readiness succeeds after a loopback TLS handshake' );
+}
+
+# The helper-command contract rejects an absent staged helper and malformed
+# command-builder results rather than silently falling back to another path.
+{
+    local $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER};
+    delete $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER};
+    my $ok = eval { $ssl_server->_ssl_backend_command($ssl_daemon); 1 };
+    ok( !$ok, 'SSL backend command refuses to run without the staged helper' );
+    like( $@, qr/Missing private Dashboard helper/, 'missing SSL helper has an explicit diagnostic' );
+
+    for my $bad_command ( 'not an argv array', [] ) {
+        local $ssl_server->{ssl_backend_command_builder} = sub { return $bad_command };
+        $ok = eval { $ssl_server->_ssl_backend_command($ssl_daemon); 1 };
+        ok( !$ok, 'SSL backend command rejects a malformed builder result' );
+        like( $@, qr/command builder must return an argv array reference/, 'invalid builder result has an explicit diagnostic' );
+    }
+}
+
 # is_running()
 # Reports that the synchronously completed test routine is no longer active.
 # Input: routine fixture object.
@@ -1452,6 +1490,9 @@ sub Local::CompletedRoutine::kill { return 1 }
     local *Developer::Dashboard::Web::Server::_waitpid = sub { return 0 };
     is( Developer::Dashboard::Web::Server::_wait_for_managed_child(4423), 1, 'managed wait returns cleanly when waitpid reports no child yet' );
 
+    cmp_ok( Developer::Dashboard::Web::Server::_waitpid( 2_147_483_647, 1 ), '<=', 0,
+        '_waitpid reports no waitable status for an unrelated nonexistent child' );
+
     my %reaped;
     my @wait_results = ( 501, 502, 0 );
     local *Developer::Dashboard::Web::Server::_waitpid = sub { return shift @wait_results };
@@ -1523,7 +1564,7 @@ t/88-web-server-coverage.t - branch and condition coverage for the PSGI web serv
 This test is the executable contract for the failure and fallback arms of
 C<Developer::Dashboard::Web::Server>: worker-count validation, listen-socket
 reservation and close failures, the SSL frontend managed-process and GoRoutine
-accept loop, the raw
+startup-readiness and helper-command contracts, its GoRoutine accept loop, the raw
 HTTP-to-HTTPS redirect helpers, SAN normalization, self-signed certificate
 generation, the certificate directory's home resolution order, and certificate
 profile verification. It drives every branch and condition those paths own,
@@ -1549,7 +1590,7 @@ annotations.
 =head1 WHEN TO USE
 
 Use this file when changing listen-address reservation, the SSL frontend
-proxy loop, signal-driven backend shutdown, HTTP-to-HTTPS redirect
+startup probe, helper command construction, proxy loop, signal-driven backend shutdown, HTTP-to-HTTPS redirect
 construction, subject alternative name handling, or self-signed certificate
 generation and validation.
 
