@@ -41,12 +41,26 @@ my ($arm_perl) = grep {
 ok( ref($arm_perl) eq 'HASH', 'Windows ARM64 has an explicit supported Perl bootstrap' );
 is( $arm_perl->{if}, "matrix.label == 'Windows arm64'",
     'the Windows ARM64 Perl bootstrap runs only on that matrix leg' );
-like( $arm_perl->{run} // q{}, qr/strawberryperl\s+--version=5\.42\.3\.1/,
-    'Windows ARM64 installs the pinned supported Strawberry Perl release' );
+like( $arm_perl->{run} // q{}, qr/strawberry-perl-\$version-64bit-portable\.zip/,
+    'Windows ARM64 downloads the pinned portable Strawberry Perl release' );
+like( $arm_perl->{run} // q{}, qr/6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690/,
+    'Windows ARM64 verifies the portable Strawberry Perl archive SHA256' );
+like( $arm_perl->{run} // q{}, qr/Expand-Archive/,
+    'Windows ARM64 extracts Strawberry Perl without relying on an MSI installer' );
 like( $arm_perl->{run} // q{}, qr/\$\]\s*<\s*5\.038/,
     'Windows ARM64 refuses a Perl older than the project floor' );
-unlike( $arm_perl->{run} // q{}, qr/native_perl=false/,
-    'Windows ARM64 no longer records a skip-only native Perl state' );
+unlike( $arm_perl->{run} // q{}, qr/choco install strawberryperl|native_perl=false/,
+    'Windows ARM64 no longer relies on the failing MSI or a skip-only state' );
+
+is( $full_suite->{env}{DD_RUNNER_ARCH}, '${{ runner.arch }}',
+    'the matrix records the host runner architecture independently of Perl' );
+my ($arch_check) = grep {
+    ( $_->{name} // q{} ) eq 'Assert runner operating system and architecture'
+} @{$steps};
+like( $arch_check->{run} // q{}, qr/DD_RUNNER_ARCH/,
+    'architecture validation checks the GitHub host architecture' );
+like( $arch_check->{run} // q{}, qr/Perl \$Config\{archname\}/,
+    'architecture diagnostics still report the emulated Perl architecture' );
 
 my ($linux_native_deps) = grep {
     ( $_->{name} // q{} ) eq 'Install native Linux system-menu build dependencies'
@@ -221,7 +235,8 @@ of reporting success after skipping its work.
 The Dashboard native extension and System Menu helper behave differently across
 operating systems. The Windows ARM64 runner originally shipped an x64 Perl and
 the workflow treated that as a reason to skip every useful step, yielding a
-green job with no compatibility evidence.
+green job with no compatibility evidence. The MSI replacement then failed with
+Windows Installer error 1603, so the runner now uses Strawberry's portable ZIP.
 
 =head1 WHEN TO USE
 
