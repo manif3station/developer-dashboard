@@ -69,11 +69,12 @@ WriteMakefile(
         'File::Spec'            => 0,
         'File::Temp'            => 0,
         'File::Find'            => 0,
-        'Cpanel::JSON::XS'      => '4.41',
+        'Cpanel::JSON::XS'      => '4.80',
         'Getopt::Long'          => 0,
         'HTML::Parser'          => '3.84',
         'Filter::Simple'        => 0,
         'HTTP::Date'            => '6.08',
+        'HTTP::Parser::XS'      => '0.18',
         'HTTP::Tiny'            => '0.096',
         'HTTP::Request'         => 0,
         'JSON::XS'              => '4.04',
@@ -94,10 +95,10 @@ WriteMakefile(
         'IO::Compress::Gzip'    => '2.220',
         'IO::Uncompress::Gunzip'=> '2.220',
         'Dancer2'               => '2.2.0',
-        'Plack'                 => '1.0054',
+        'Plack'                 => '1.0056',
         'Pod::Text'             => '6.1.1',
         'Socket'                => '2.041',
-        'Starman'               => '0.4018',
+        'Starman'               => '0.4019',
         'Storable'              => '3.41',
         'Template'              => '3.103',
         'URI'                   => '5.36',
@@ -203,7 +204,7 @@ sub _write_local_lib_runner {
 # dist share assets, then adds the home-runtime helper bootstrap hook used by
 # checkout and local installs. A Perl launcher provides local module paths to
 # MakeMaker commands and their children without make-specific export syntax.
-# Input: ExtUtils::MakeMaker MY package object.
+# Input: list of absolute local::lib directories.
 # Output: full make postamble text string.
 sub postamble {
     my $self = shift;
