@@ -25,6 +25,7 @@ BEGIN {
 }
 
 use Test::More;
+use Capture::Tiny qw(capture);
 use File::Spec;
 use File::Temp qw(tempdir);
 
@@ -58,6 +59,45 @@ my $self = bless {}, 'Developer::Dashboard::ProcessSupervision';
     ok( !scalar( grep { $_ !~ /^\d+$/ } @fds ), 'descriptor listing is numeric only' );
 }
 
+# Child-library path filtering uses the current working directory when the
+# captured base is empty and rejects non-path @INC hooks and empty entries.
+{
+    local $Developer::Dashboard::ProcessSupervision::PERL_LIBRARY_BASE = '';
+    local @INC = ( undef, [], '', 'relative-lib' );
+    is_deeply(
+        [ $self->_perl_library_args ],
+        [ '-I' . File::Spec->rel2abs('relative-lib') ],
+        '_perl_library_args resolves relative paths from cwd and omits non-path @INC entries',
+    );
+}
+
+{
+    no warnings 'redefine';
+    local $Developer::Dashboard::ProcessSupervision::PERL_LIBRARY_BASE = '';
+    local @INC = ('relative-lib');
+    local *Developer::Dashboard::ProcessSupervision::getcwd = sub { return undef };
+    is_deeply(
+        [ $self->_perl_library_args ],
+        [ '-I' . File::Spec->rel2abs('relative-lib') ],
+        '_perl_library_args remains usable when getcwd cannot provide a fallback base',
+    );
+}
+
+# Descriptor cleanup must leave non-pipe descriptors alone and close selected
+# inherited-pipe descriptors. The close call is stubbed so this unit test never
+# changes the test process' own descriptor table.
+{
+    no warnings 'redefine';
+    my @closed;
+    local *Developer::Dashboard::ProcessSupervision::_open_file_descriptors = sub { return ( 42, 43 ) };
+    local *Developer::Dashboard::ProcessSupervision::_descriptor_is_inherited_pipe = sub {
+        return $_[1] == 43;
+    };
+    local *POSIX::close = sub { push @closed, $_[0]; return 1 };
+    is( $self->_close_inherited_fds, 1, '_close_inherited_fds completes after checking inherited descriptors' );
+    is_deeply( \@closed, [43], 'cleanup skips non-pipes and closes only inherited pipe descriptors' );
+}
+
 # Inherited-pipe detection for an unknown descriptor.
 is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not an inherited pipe' );
 
@@ -89,8 +129,13 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
     }
     {
         local $OPEN_REDIRECT{$real_proc} = [ '<', $dir ];
-        local $SIG{__WARN__} = sub { };
-        is( $self->_read_process_env_marker( $real, 'DD_MARK' ), undef, 'an unreadable environ slurp reads as undef' );
+        my $marker;
+        my ( $stdout, $stderr, $exit ) = capture {
+            $marker = $self->_read_process_env_marker( $real, 'DD_MARK' );
+        };
+        is( $marker, undef, 'an unreadable environ slurp reads as undef' );
+        is( $stdout, '', 'an unreadable environ slurp emits no standard output' );
+        is( $stderr, '', 'an unreadable environ slurp emits no warning' );
     }
 }
 
@@ -116,7 +161,12 @@ t/531-processsupervision-failure-injection-coverage.t - failure-injection covera
 
 =head1 PURPOSE
 
-Test file in the Developer Dashboard codebase. It drives the in-place overwrite cleanup, descriptor listing, environ reads and helper close-failure branches of ProcessSupervision with a BEGIN-time CORE::GLOBAL::open override that fails or redirects only registered paths.
+This regression test covers ProcessSupervision's in-place overwrite cleanup,
+descriptor enumeration and filtering, child Perl library-path construction,
+process-environment reads, and helper-file close failures. A BEGIN-time
+C<CORE::GLOBAL::open> override fails or redirects only exact registered paths,
+so failure branches are testable without depending on filesystem permissions
+that behave differently under root.
 
 =head1 WHY IT EXISTS
 
