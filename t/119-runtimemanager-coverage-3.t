@@ -28,6 +28,10 @@ $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS} = 1;
     package Local::Server;
     sub new { my ( $class, %args ) = @_; return bless { %args }, $class }
     sub run { return 'foreground-ran' }
+    sub _run_ssl_backend_process {
+        my ( $self, $daemon ) = @_;
+        return $self->{run_ssl_backend}->($daemon);
+    }
 }
 
 my $original_cwd = getcwd();
@@ -149,6 +153,89 @@ my $manager = Developer::Dashboard::RuntimeManager->new(
     }
 }
 
+# ---------------------------------------------------------------------------
+# serve_ssl_backend_foreground: validate the isolated backend inputs and default
+# its worker count before building the backend server.
+# ---------------------------------------------------------------------------
+{
+    my $err = eval { $manager->serve_ssl_backend_foreground( port => 7890 ); 1 } ? '' : $@;
+    like( $err, qr/Missing SSL backend host/, 'serve_ssl_backend_foreground requires an internal host' );
+
+    $err = eval { $manager->serve_ssl_backend_foreground( host => '127.0.0.1' ); 1 } ? '' : $@;
+    like( $err, qr/Missing SSL backend port/, 'serve_ssl_backend_foreground requires an internal port' );
+
+    $err = eval { $manager->serve_ssl_backend_foreground( host => '127.0.0.1', port => 0 ); 1 } ? '' : $@;
+    like( $err, qr/SSL backend port must be a positive integer/, 'serve_ssl_backend_foreground rejects a zero internal port' );
+
+    $err = eval { $manager->serve_ssl_backend_foreground( host => '127.0.0.1', port => 7890, workers => 0 ); 1 } ? '' : $@;
+    like( $err, qr/Worker count must be a positive integer/, 'serve_ssl_backend_foreground rejects a zero worker count' );
+
+    no warnings 'redefine';
+    no strict 'refs';
+    require Developer::Dashboard::Web::Server::Daemon;
+    my %built;
+    my $server = bless {
+        run_ssl_backend => sub { return 23 },
+    }, 'Local::Server';
+    local *{'Developer::Dashboard::Web::Server::Daemon::new'} = sub {
+        my ( $class, %args ) = @_;
+        $built{daemon} = \%args;
+        return bless \%args, 'Local::SSLServer::Daemon';
+    };
+    local $manager->{app_builder} = sub {
+        my %args = @_;
+        $built{server} = \%args;
+        return $server;
+    };
+
+    is(
+        $manager->serve_ssl_backend_foreground( host => '127.0.0.1', port => 7890 ),
+        23,
+        'serve_ssl_backend_foreground returns the backend runner status',
+    );
+    is( $built{server}{workers}, 1, 'serve_ssl_backend_foreground defaults the worker count' );
+    is( $built{server}{ssl}, 1, 'serve_ssl_backend_foreground always builds the isolated server with SSL enabled' );
+    is( $built{daemon}{internal_port}, 7890, 'serve_ssl_backend_foreground passes the internal listener port to its daemon' );
+}
+
+# ---------------------------------------------------------------------------
+# _start_web_background: use the spawned child pid when listener discovery
+# returns a false pid even though the port has become ready.
+# ---------------------------------------------------------------------------
+{
+    no warnings 'redefine';
+    require Developer::Dashboard::GoRoutine;
+    local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_background_web_command = sub { return ('perl', 'web-foreground') };
+    local *Developer::Dashboard::RuntimeManager::_runtime_stability_polls = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return (0) };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 1 };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 7400 };
+
+    is(
+        $manager->_start_web_background( host => '127.0.0.1', port => 7891 ),
+        7400,
+        '_start_web_background falls back to the spawned pid when the ready listener pid is false',
+    );
+    is( $manager->web_state->{pid}, 7400, '_start_web_background persists the spawned fallback pid' );
+}
+
+# ---------------------------------------------------------------------------
+# _is_managed_web: a stale/non-running state must not validate an opaque server
+# title as a managed Starman listener.
+# ---------------------------------------------------------------------------
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return undef };
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'starman master' };
+    local *Developer::Dashboard::RuntimeManager::_read_settled_web_state = sub {
+        return ( { pid => $$, port => 7890, status => '' }, 0 );
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($$) };
+    ok( !$manager->_is_managed_web($$), '_is_managed_web rejects a saved state without running status' );
+}
+
 chdir $original_cwd or die "Unable to chdir to $original_cwd: $!";
 
 done_testing;
@@ -163,28 +250,31 @@ t/119-runtimemanager-coverage-3.t - runtime manager startup-pipe and Windows bac
 
 =head1 PURPOSE
 
-This test closes the last two untested decision points in the runtime lifecycle
-manager: the arm of the startup-pipe writer guard that is taken when the pipe
-handle closes cleanly, and both live sides of the process-id choice that the
-Windows background web start persists into runtime state.
+This test closes runtime lifecycle decision points: the arm of the startup-pipe
+writer guard taken when the pipe handle closes cleanly; both sides of the
+Windows background-start process-id choice; SSL backend argument validation and
+worker defaults; the spawned-pid fallback for a ready web listener; and rejection
+of stale state when validating an opaque Starman title.
 
 =head1 WHY IT EXISTS
 
-Both decisions are invisible to the rest of the suite. The startup-pipe close
+These decisions are invisible to the rest of the suite. The startup-pipe close
 wrapper always reports a failure that the caller classifies through the errno
 value on this host, so the success arm was never executed and a future edit
 could have turned it into an unconditional die without any test noticing. The
 Windows background start similarly only ever ran with a usable listener pid in
 the rest of the suite, leaving its documented fallback to the spawned pid
-unproven. This file exists so both decisions stay executable and keep the
-lifecycle manager at full branch and condition coverage.
+unproven. SSL helper argument guards, the ready-listener fallback, and the
+persisted-state validation protect distinct startup and process-ownership paths.
+This file keeps these choices executable and measurable by the coverage gate.
 
 =head1 WHEN TO USE
 
 Use this file when changing how the background web child reports startup back
 to its parent, how the startup pipe writer is closed and its errno classified,
-or how the Windows background start resolves and persists the web service
-process id, worker count, and ssl flag.
+how the Windows background start resolves and persists the web service process
+id, worker count, and ssl flag; how the isolated TLS backend validates its
+arguments; or how runtime state is used to identify a managed Starman process.
 
 =head1 HOW TO USE
 
@@ -203,7 +293,8 @@ Example 1:
 
   prove -lv t/119-runtimemanager-coverage-3.t
 
-Run the runtime-manager startup-pipe and Windows background-start checks alone.
+Run the runtime-manager startup-pipe, SSL-backend, listener-fallback, and
+Windows background-start checks alone.
 
 Example 2:
 
