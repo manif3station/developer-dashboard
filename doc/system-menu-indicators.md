@@ -60,4 +60,3 @@ native helper. The macOS helper is compiled with Objective-C ARC and deprecated
 AppKit API diagnostics treated as errors. Windows runs its full test suite with
 Test::Harness but omits Devel::Cover because that instrumentation distribution
 does not configure on the supported Windows runner.
-```

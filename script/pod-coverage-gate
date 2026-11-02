@@ -36,8 +36,6 @@ sub main {
         my @reasons;
         push @reasons, 'missing POD heading'
           if $source !~ /^=(?:pod|head1)\b/m;
-        push @reasons, 'missing =cut terminator'
-          if $source !~ /^=cut\b/m;
 
         if ( !@reasons ) {
             my $diagnostic = q{};
@@ -151,6 +149,7 @@ A complete run prints a line such as:
 
     POD coverage: 312/312 (100.0%)
 
-Any missing or invalid POD makes the process exit non-zero.
+Any missing or invalid POD makes the process exit non-zero. POD ending at EOF is
+accepted when Pod::Checker accepts it; an explicit =cut is not required.
 
 =cut

@@ -40,8 +40,10 @@ sub main {
 
         if ( defined $text ) {
             push @reasons, 'empty document' if $text !~ /\S/;
+            my $has_atx = $text =~ /^\s{0,3}#{1,6}[ \t]+\S/m;
+            my $has_setext = $text =~ /^\S.*\n\s{0,3}(?:=+|-+)[ \t]*$/m;
             push @reasons, 'missing Markdown heading'
-              if $text !~ /^\s{0,3}#{1,6}[ \t]+\S/m;
+              if !$has_atx && !$has_setext;
 
             my $fence_error = _fence_error($text);
             push @reasons, $fence_error if defined $fence_error;
@@ -157,6 +159,7 @@ A complete run prints a line such as:
 
     Markdown coverage: 42/42 (100.0%)
 
-Any structurally invalid Markdown file makes the process exit non-zero.
+Both ATX headings (C<# Heading>) and Setext headings are accepted. Any
+structurally invalid Markdown file makes the process exit non-zero.
 
 =cut
