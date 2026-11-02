@@ -29,10 +29,23 @@ process_running(pid)
         }
     }
 #else
-    if (pid == 0 || pid > (UV)INT_MAX) RETVAL = 0;
-    else if (kill((pid_t)pid, 0) == 0 || errno == EPERM) RETVAL = 1;
-    else if (errno == ESRCH) RETVAL = 0;
-    else croak("unable to inspect GoRoutine child process: %s", strerror(errno));
+    {
+        siginfo_t info;
+        int result;
+        if (pid == 0 || pid > (UV)INT_MAX) RETVAL = 0;
+        else {
+            memset(&info, 0, sizeof(info));
+            do { result = waitid(P_PID, (id_t)pid, &info, WEXITED | WNOHANG | WNOWAIT); }
+            while (result < 0 && errno == EINTR);
+            if (result == 0) RETVAL = info.si_pid == 0 ? 1 : 0;
+            else if (errno == ECHILD) {
+                if (kill((pid_t)pid, 0) == 0 || errno == EPERM) RETVAL = 1;
+                else if (errno == ESRCH) RETVAL = 0;
+                else croak("unable to inspect GoRoutine process: %s", strerror(errno));
+            }
+            else croak("unable to inspect GoRoutine child process: %s", strerror(errno));
+        }
+    }
 #endif
   OUTPUT:
     RETVAL
