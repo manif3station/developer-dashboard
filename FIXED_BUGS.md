@@ -1,5 +1,15 @@
 # Fixed Bugs
 
+## Unreleased
+
+- Actions 41539084136: The SSL backend launched the `serve` wrapper with an
+  internal command, causing it to dispatch `serve` again and time out during
+  readiness checks. Launch the sibling `_dashboard-core` dispatcher directly
+  and pass the active Perl library paths to the child.
+- Actions 41539084136: The collector error test stopped its child after one
+  second, before a slow child could log its failure. Poll for the error within
+  a bounded deadline and exercise the fixture with delayed startup.
+
 ## 6.20
 
 - DKT-017: Connect the opt-in System Menu runner to the staged

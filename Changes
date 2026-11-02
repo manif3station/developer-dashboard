@@ -1,3 +1,10 @@
+Unreleased
+
+  - Launch the SSL backend through the private core dispatcher, preserving
+    Perl library paths when serving through the staged wrapper.
+  - Wait for the collector error log before stopping the failing test child;
+    cover delayed startup and SSL helper paths containing spaces.
+
 6.20  2026-11-01
 
   - Export the complete GoRoutine API, including process_exited, beside d2

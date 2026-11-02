@@ -11,6 +11,7 @@ use lib 'lib';
 
 use Developer::Dashboard::RuntimeManager;
 use Developer::Dashboard::CollectorRunner;
+use Developer::Dashboard::Web::Server;
 
 my $inc_base = getcwd();
 my @expected_inc_args = map { '-I' . File::Spec->rel2abs($_, $inc_base) } grep { defined && !ref && length } @INC;
@@ -56,6 +57,26 @@ my @expected_inc_args = map { '-I' . File::Spec->rel2abs($_, $inc_base) } grep {
         'collector worker command preserves the active Perl module search path',
     );
 }
+
+{
+    my $server = bless { workers => 2 }, 'Developer::Dashboard::Web::Server';
+    my $daemon = bless {}, 'Local::SSLBackendDaemon';
+    for my $entry (qw(serve _dashboard-core)) {
+        local $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER} =
+          File::Spec->catfile($inc_base, 'cli', 'dd', $entry);
+        is_deeply(
+            $server->_ssl_backend_command($daemon),
+            [ $^X, @expected_inc_args,
+                File::Spec->catfile($inc_base, 'cli', 'dd', '_dashboard-core'),
+                'web-ssl-backend-foreground', '--host', '127.0.0.1',
+                '--port', 23456, '--workers', 2 ],
+            "SSL backend dispatches directly to the core from $entry",
+        );
+    }
+}
+
+sub Local::SSLBackendDaemon::internal_sockhost { return '127.0.0.1' }
+sub Local::SSLBackendDaemon::internal_sockport { return 23456 }
 
 done_testing;
 

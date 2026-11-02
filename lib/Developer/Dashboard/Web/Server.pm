@@ -7,6 +7,7 @@ our $VERSION = '6.20';
 
 use Capture::Tiny qw(capture);
 use Errno qw(EINTR);
+use File::Basename qw(dirname);
 use File::Spec;
 use File::Temp qw(tempfile);
 use IO::Select;
@@ -18,6 +19,7 @@ use Time::HiRes qw(sleep time);
 
 use Developer::Dashboard::GoRoutine;
 use Developer::Dashboard::Platform qw(is_windows);
+use Developer::Dashboard::ProcessSupervision qw(_perl_library_args);
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::DancerApp;
 use Developer::Dashboard::Web::Server::Daemon;
@@ -330,8 +332,11 @@ sub _ssl_backend_command {
     }
     my $helper = $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER};
     die 'Missing private Dashboard helper for SSL backend process' if !defined $helper || $helper eq '';
+    # The running helper may be the serve wrapper, which prepends its own
+    # command. Internal commands must go straight to the sibling dispatcher.
+    my $core = File::Spec->catfile( dirname($helper), '_dashboard-core' );
     return [
-        $^X, $helper, 'web-ssl-backend-foreground',
+        $^X, $self->_perl_library_args, $core, 'web-ssl-backend-foreground',
         '--host',    $daemon->internal_sockhost,
         '--port',    $daemon->internal_sockport,
         '--workers', $self->{workers},
@@ -1123,6 +1128,10 @@ argument vector, not a shell command. The helper reconstructs the ordinary
 application and serves only on the reserved internal endpoint. Startup is not
 considered ready until a TLS handshake succeeds; premature helper exit and
 readiness timeout are reported as errors.
+
+Internal backend commands use the C<_dashboard-core> dispatcher beside the
+running helper, since command wrappers such as C<serve> prepend their own
+command name. The child receives the active Perl library paths as arguments.
 
 Each accepted client socket is handed to a GoRoutine worker with shared socket,
 daemon descriptor, and minimal host/SAN state. Workers use bounded readiness

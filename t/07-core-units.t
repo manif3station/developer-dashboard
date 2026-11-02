@@ -4067,7 +4067,12 @@ close $stale_pid;
         my $pid;
         {
             no warnings 'redefine';
-            local *Developer::Dashboard::CollectorRunner::sleep = sub { die "stop loop\n" };
+            my $loop_command = \&Developer::Dashboard::CollectorRunner::_windows_background_loop_command;
+            local *Developer::Dashboard::CollectorRunner::_windows_background_loop_command = sub {
+                # Reproduce a child that starts after the old one-second wait.
+                return ($^X, '-e', 'sleep 2; exec @ARGV or die $!', '--',
+                    $loop_command->(@_));
+            };
             $pid = $runner->start_loop(
                 {
                     name     => 'broken-loop',
@@ -4078,7 +4083,11 @@ close $stale_pid;
             );
         }
         ok( $pid, 'start_loop also returns a pid for failing jobs' );
-        sleep 1;
+        my $deadline = Time::HiRes::time() + 30;
+        while ( $files->read('collector_log') !~ /broken-loop/
+            && Time::HiRes::time() < $deadline ) {
+            sleep 0.05;
+        }
         like( $runner->loop_state('broken-loop')->{status}, qr/error|running|starting/, 'failing loops keep state metadata for management' );
         my $stopped_pid = $runner->stop_loop('broken-loop');
         is( waitpid( $stopped_pid, 1 ), -1, 'stop_loop reaps failing managed loop children instead of leaving zombies behind' ) if $stopped_pid;
