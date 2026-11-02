@@ -152,12 +152,31 @@ my $workflow_text = do {
 };
 unlike( $workflow_text, qr/FFI::Platypus|FFI::CheckLib/,
     'the platform workflow contains no FFI dependency install or reference' );
+my ($platform_linux_native_deps) = grep {
+    ( $_->{name} // q{} ) eq 'Install native Linux system-menu build dependencies'
+} @{ $full_suite->{steps} || [] };
+ok( ref($platform_linux_native_deps) eq 'HASH',
+    'Linux platform jobs install native System Menu build dependencies' );
+like( $platform_linux_native_deps->{run} // q{},
+    qr/libayatana-appindicator3-dev.*libgtk-3-dev.*pkg-config/s,
+    'Linux platform jobs install both pkg-config libraries required by the native menu helper' );
+like( $workflow_text,
+    qr/if:\s*startsWith\(matrix\.label,\s*'Linux'\)/,
+    'native menu dependencies are installed only on Linux matrix jobs' );
 
 my $test_workflow_path = File::Spec->catfile( $root, '.github', 'workflows', 'test.yml' );
 my $test_workflow = LoadFile($test_workflow_path);
 my $test_job = $test_workflow->{jobs}{test};
 ok( ref($test_job) eq 'HASH', 'the Linux test workflow declares its test job' );
 my $test_steps = $test_job->{steps} || [];
+my ($test_native_deps) = grep {
+    ( $_->{name} // q{} ) eq 'Install native Linux system-menu build dependencies'
+} @{$test_steps};
+ok( ref($test_native_deps) eq 'HASH',
+    'the Linux Test workflow installs native System Menu build dependencies' );
+like( $test_native_deps->{run} // q{},
+    qr/libayatana-appindicator3-dev.*libgtk-3-dev.*pkg-config/s,
+    'the Linux Test workflow installs both pkg-config libraries required by the native menu helper' );
 my ($test_xs_build_index) = grep {
     ( $test_steps->[$_]{name} // q{} ) eq 'Build the Dashboard XS extension'
 } 0 .. $#{$test_steps};
@@ -197,6 +216,36 @@ like( $test_tools_run, qr{blib/lib},
     'the Linux workflow exports the built XS library path to test children' );
 like( $test_tools_run, qr{local/lib/perl5},
     'the Linux workflow exports local dependencies to test children' );
+
+my $fuzz_workflow_path = File::Spec->catfile( $root, '.github', 'workflows', 'fuzz-js.yml' );
+my $fuzz_workflow_text = do {
+    open my $fh, '<:raw', $fuzz_workflow_path or die "Unable to read '$fuzz_workflow_path': $!";
+    local $/;
+    <$fh>;
+};
+like( $fuzz_workflow_text,
+    qr/libayatana-appindicator3-dev.*libgtk-3-dev.*pkg-config/s,
+    'the JavaScript fuzz workflow installs native menu dependencies before the XS build' );
+
+my $makefile_path = File::Spec->catfile( $root, 'Makefile.PL' );
+my $makefile_text = do {
+    open my $fh, '<:raw', $makefile_path or die "Unable to read '$makefile_path': $!";
+    local $/;
+    <$fh>;
+};
+like( $makefile_text, qr/-fobjc-arc/,
+    'the macOS System Menu helper compiles with ARC for its weak Objective-C references' );
+like( $makefile_text, qr/test_requires\{'Devel::Cover'\}\s*=\s*0\s*if\s*\$\^O\s+ne\s+'MSWin32'/,
+    'MakeMaker does not require unsupported Devel::Cover on Windows' );
+
+my $cpanfile_path = File::Spec->catfile( $root, 'cpanfile' );
+my $cpanfile_text = do {
+    open my $fh, '<:raw', $cpanfile_path or die "Unable to read '$cpanfile_path': $!";
+    local $/;
+    <$fh>;
+};
+like( $cpanfile_text, qr/requires\s+'Devel::Cover'.*\$\^O\s+ne\s+'MSWin32'/s,
+    'the cpanfile does not install unsupported Devel::Cover on Windows' );
 
 my $release_workflow_path = File::Spec->catfile( $root, '.github', 'workflows', 'release-github.yml' );
 my $release_workflow = LoadFile($release_workflow_path);
@@ -240,7 +289,11 @@ It also checks that the main Linux Test workflow builds XS and exports the
 resulting C<blib> paths to both the ordinary and coverage test runs. Since
 checkout dependencies are installed into C<local/lib/perl5>, each XS build
 must expose that library to C<perl Makefile.PL> so configure prerequisites
-such as C<File::ShareDir::Install> load before C<blib> exists.
+such as C<File::ShareDir::Install> load before C<blib> exists. Linux jobs must
+install the GTK and Ayatana AppIndicator development packages needed by the
+native menu helper, macOS must enable ARC for its weak Objective-C references,
+and Windows must not request Devel::Cover, which is unsupported by its current
+toolchain.
 
 =head1 WHY IT EXISTS
 
@@ -249,12 +302,17 @@ extension rather than optional FFI distributions. A workflow that only runs
 Perl tests without compiling the extension would silently skip the native
 implementation, so the build and test paths must stay explicit.
 The main Linux Test workflow has its own build and coverage path; it must not
-run the source suite without the just-built XS API available.
+run the source suite without the just-built XS API available. The platform
+matrix and JavaScript fuzz workflow also compile the native Linux helper, so
+each needs its own Linux-only system package setup. MacOS helper compilation
+uses ARC, and Devel::Cover remains a non-Windows test dependency because the
+Windows compatibility job runs the full suite without instrumentation.
 
 =head1 WHEN TO USE
 
 Run this source-checkout test when changing the cross-platform XS build,
-Windows ARM64 native watcher job, Windows shell selection, or optional native
+Windows ARM64 native watcher job, Windows shell selection, Linux native menu
+packages, macOS Objective-C compiler flags, platform-specific test
 dependencies, or the main Linux Test workflow. The test skips only when
 workflow files are absent from a packaged distribution.
 

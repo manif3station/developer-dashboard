@@ -6,7 +6,7 @@ use Exporter 'import';
 use Scalar::Util qw(blessed reftype);
 use Filter::Simple;
 
-our $VERSION = '6.19';
+our $VERSION = '6.20';
 
 our @EXPORT = qw(
     go
@@ -15,6 +15,7 @@ our @EXPORT = qw(
     channel
     spawn
     process_running
+    process_exited
     wait_process
     terminate_process
 );
@@ -63,7 +64,7 @@ sub _matching_delim {
             push @stack, $close{$ch};
             next;
         }
-        if (@stack && $ch eq $stack[-1]) {
+        if ($ch eq $stack[-1]) {
             pop @stack;
             return $i unless @stack;
         }
@@ -99,7 +100,7 @@ sub _variable_refs {
 
     while (1) {
         $text =~ /\G\s*/gc;
-        last if (pos($text) // 0) >= length($text);
+        last if pos($text) >= length($text);
 
         $text =~ /\G([\$\@\%]\s*(?:[A-Za-z_]\w*(?:::\w+)*))/gc
             or die "share() expects simple scalar, array, or hash variables";
@@ -109,7 +110,7 @@ sub _variable_refs {
         push @vars, $v;
 
         $text =~ /\G\s*/gc;
-        last if (pos($text) // 0) >= length($text);
+        last if pos($text) >= length($text);
         $text =~ /\G,/gc
             or die "share() expects a comma-separated variable list";
     }
@@ -205,7 +206,6 @@ sub _rewrite_share_at {
 
     if ($body =~ /^\s*[\$\@\%]/) {
         my @vars = _variable_refs($body);
-        return unless @vars;
         my $replacement = 'Developer::Dashboard::GoRoutine::_share_many('
             . _refs_expr(@vars) . ');';
         return ($semi + 1, $replacement);

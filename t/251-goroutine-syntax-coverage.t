@@ -41,6 +41,8 @@ ok( !$unterminated_group_delim, 'grouped share rejects an unterminated variable 
 like( $@, qr/unterminated share my/, 'unterminated grouped share reports its delimiter failure' );
 ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_share_at('share my $one;', 0),
     'scalar declaration remains on the lvalue share path' );
+ok( !defined scalar Developer::Dashboard::GoRoutine::_rewrite_share_at('share myvalue;', 0),
+    'share keyword followed by a longer identifier is not treated as a declaration' );
 my @existing = Developer::Dashboard::GoRoutine::_rewrite_share_at('share $one, @two;', 0);
 is( $existing[0], length('share $one, @two;'), 'existing-variable share rewrite consumes its statement' );
 like( $existing[1], qr/_share_many\(\\\$one, \\\@two\)/,
@@ -205,6 +207,7 @@ Additional examples covered by this test include:
     open share my $fh;        # left unchanged: no open arguments
     open shareable my $fh;    # left unchanged: C<share> is an identifier prefix
     open share $fh, '<', $p;   # left unchanged: no my declaration
+    share myvalue;             # left unchanged: C<my> is an identifier prefix
     go 9work();                # left unchanged: target is not an identifier
 
 =cut

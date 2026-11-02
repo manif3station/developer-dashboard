@@ -45,6 +45,7 @@ isa_ok($normal, 'Developer::Dashboard::GoRoutine::Routine',
 
     ok(!$normal->is_running, 'completed routine is not running');
     is($normal->status, 'done', 'normal completion status is done');
+    ok(!$normal->is_killed, 'normal completion is not reported as killed');
     cmp_ok($normal->age, '>=', 0.10, 'completed routine age includes runtime');
     my $finished_age = $normal->age;
     sleep 0.03;
@@ -93,6 +94,7 @@ isa_ok($normal, 'Developer::Dashboard::GoRoutine::Routine',
     };
     wait_all();
     is($exited->status, 'exited', 'exit ends only the routine');
+    ok(!$exited->is_killed, 'routine-local exit is not reported as a kill');
     pass('main interpreter continues after routine-local exit');
 
     my $invalid = go sub {
@@ -154,10 +156,11 @@ against regressions.
 =head1 WHAT IT COVERS
 
     The test checks normal completion, running state, elapsed age, frozen
-completion age, kill requests, cancellation latency, status values, timeout
-creation and replacement, timeout disabling, routine-local C<exit>, and clear
-validation errors for invalid timeout values. It uses the shared C<wait_all>
-barrier so every worker has finished before the assertions complete.
+completion age, kill requests, cancellation latency, status values, positive
+and negative C<is_killed> outcomes, timeout creation and replacement, timeout
+disabling, routine-local C<exit>, and clear validation errors for invalid
+timeout values. It uses the shared C<wait_all> barrier so every worker has
+finished before the assertions complete.
 
 On Windows, cancellation uses a Perl opcode loop because a native blocking
 sleep is not safely force-interruptible there. POSIX runs also verify that a

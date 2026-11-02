@@ -193,6 +193,16 @@ my $invalid_routine_ok = eval { $invalid_routine->is_running; 1 };
 ok( !$invalid_routine_ok, 'routine wrapper rejects a missing native handle' );
 like( $@, qr/invalid go routine handle/, 'invalid routine diagnostic names the handle' );
 
+{
+    no warnings 'redefine';
+    my $exited_routine = bless { ptr => 1 }, 'Developer::Dashboard::GoRoutine::Routine';
+    for my $status (qw(killed timed_out exited)) {
+        local *Developer::Dashboard::GoRoutine::_routine_status = sub { $status };
+        is( $exited_routine->is_killed, $status eq 'exited' ? 0 : 1,
+            "routine wrapper classifies $status correctly" );
+    }
+}
+
 my $regexp_ptr = Developer::Dashboard::GoRoutine::_shared_node_new();
 Developer::Dashboard::GoRoutine::_shared_node_set( $regexp_ptr, qr/^native+$/i );
 my $regexp_proxy = Developer::Dashboard::GoRoutine::_value_for_ptr($regexp_ptr);
@@ -275,12 +285,36 @@ ok( 'NATIVEEE' =~ $regexp_proxy, 'materialized regexp preserves matching behavio
             'native IO materializer returns the duplicated filehandle IO slot' );
         ok( close($shared_io), 'materialized native IO handle closes cleanly' );
 
+        my $blessed_io = Developer::Dashboard::GoRoutine::_io_for_ptr(123, 'Local::SharedIO');
+        is( ref($blessed_io), 'Local::SharedIO',
+            'native IO materializer preserves the requested handle class' );
+        ok( close($blessed_io), 'blessed materialized IO handle closes cleanly' );
+
         my $opened_handle = Developer::Dashboard::GoRoutine::_open_shared_handle(123);
         is( reftype($opened_handle), 'GLOB',
             'shared handle opener duplicates a supplied descriptor' );
         ok( close($opened_handle), 'duplicated shared filehandle closes cleanly' );
     }
     close($native_fh) or die "cannot close native filehandle fixture: $!";
+}
+
+{
+    require Symbol;
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::_open_shared_handle = sub { Symbol::gensym() };
+    my $io_ok = eval { Developer::Dashboard::GoRoutine::_io_for_ptr(123, undef); 1 };
+    ok( !$io_ok, 'IO materializer rejects a handle without an IO slot' );
+    like( $@, qr/shared IO value has no materializable filehandle/,
+        'missing IO slot reports the materialization failure explicitly' );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::_shared_node_text = sub { 'example' };
+    my $regexp = Developer::Dashboard::GoRoutine::_regexp_for_ptr(124, 'Local::SharedRegexp');
+    is( ref($regexp), 'Local::SharedRegexp',
+        'regexp materializer preserves a non-default blessing' );
+    ok( 'an example' =~ $regexp, 'blessed materialized regexp still matches' );
 }
 
 {
@@ -543,7 +577,9 @@ This test exercises the Perl proxy, tied-hash, tied-array, scalar-reference,
 overload, shared-node type dispatch, and routine-handle wrapper code in
 C<Developer::Dashboard::GoRoutine> without starting worker threads. The
 separate integration tests exercise real worker and shared-object concurrency
-outside Devel::Cover instrumentation.
+outside Devel::Cover instrumentation. It also verifies handle-class and
+regexp-blessing preservation, explicit failure when an IO handle cannot be
+materialized, and each public C<is_killed> status classification.
 
 =head1 WHY IT EXISTS
 
@@ -568,7 +604,10 @@ ordinary Perl operations against shared values but replaces only the native
 routine-handle XSUB calls with local in-process stubs, so it never creates a
 worker thread. Its dispatch checks prove that glob, IO, and format node kinds
 reach their respective materializers with the correct shared handle and class
-metadata. Run it with the normal test library paths and the coverage gate will
+metadata. Materializer edge checks cover blessed IO and regexp values as well
+as the explicit missing-IO-slot error. Mocked routine statuses cover killed,
+timed-out, and normally exited handles without loading Devel::Cover into an
+ithread. Run it with the normal test library paths and the coverage gate will
 include its Perl-module execution in the lib-only report.
 
 =head1 EXAMPLES
