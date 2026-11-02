@@ -248,6 +248,29 @@ my $p5b = File::Spec->catdir( $home, 'p5b' );
     );
 }
 {
+    my $checkout = File::Spec->catdir( $home, 'source-without-build-arch' );
+    my $source_lib = File::Spec->catdir( $checkout, 'lib' );
+    my $build_arch = File::Spec->catdir( $checkout, 'blib', 'arch' );
+    mkdir $checkout or die $!;
+    mkdir $source_lib or die $!;
+    mkdir File::Spec->catdir( $source_lib, 'Developer' ) or die $!;
+    open my $dashboard_module, '>', File::Spec->catfile( $source_lib, 'Developer', 'Dashboard.pm' ) or die $!;
+    print {$dashboard_module} "1;\n";
+    close $dashboard_module or die $!;
+
+    my @list = $M->perl5lib_list(
+        env           => {},
+        existing      => [$p5a],
+        dashboard_lib => $source_lib,
+        extra         => [],
+    );
+    ok( !-d $build_arch, 'source checkout fixture has no native build architecture directory' );
+    ok(
+        !( grep { $_ eq $build_arch } @list ),
+        'perl5lib_list omits the checkout architecture path when it has not been built',
+    );
+}
+{
     # extra absent -> the || [] fallback arm.
     my @list = $M->perl5lib_list( env => {}, existing => [] );
     ok( ( !grep { $_ eq $p5a } @list ), 'perl5lib_list adds nothing extra when extra is omitted' );
@@ -347,9 +370,9 @@ This test drives every decision arm of C<Developer::Dashboard::PerlEnv> so that
 the module's PATH and PERL5LIB normalization stays fully exercised: the platform
 separator choice, interpreter and shell directory resolution, the core library
 enumeration and its skip arms, dashboard library root expansion, and the child
-environment and bootstrap builders. A checkout fixture also verifies that an
-existing C<blib/arch> precedes installed libraries so child interpreters load
-the XS extension built beside the source modules.
+environment and bootstrap builders. Checkout fixtures verify that an existing
+C<blib/arch> precedes installed libraries and that an unbuilt checkout does
+not add a nonexistent architecture path.
 
 =head1 WHY IT EXISTS
 
@@ -361,7 +384,9 @@ entries - that ordinary happy-path tests never reach. This test exists to hold
 those guards under coverage so a future refactor cannot silently drop one of
 them and reintroduce interpreter drift or stale dual-life module shadowing.
 The source-build ordering check protects Dashboard XS symbols from being
-shadowed by an older binary installed in the active Perl's site library.
+shadowed by an older binary installed in the active Perl's site library. The
+paired checkout fixtures cover both the built and not-yet-built cases for that
+path.
 
 =head1 WHEN TO USE
 

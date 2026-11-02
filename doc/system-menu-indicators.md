@@ -1,7 +1,10 @@
 # System menu indicator configuration
 
 `Developer::Dashboard::SystemMenu->items_for_platform` is a deterministic
-configuration projection. It does not start a native menu or a helper process.
+configuration projection. The private `web-foreground` runtime passes its
+merged configuration and shared indicator store to
+`Developer::Dashboard::SystemMenu::Runner`; the runner starts the menu only
+when at least one current indicator is enabled for the host platform.
 
 The method accepts the merged dashboard configuration, an array of current
 indicator records, and a platform key. For each configured indicator it reads
@@ -30,8 +33,13 @@ Example configuration:
 ```
 
 The projection is independent of AppKit, Windows notification-area APIs, and
-GTK. The native System::Menu adapter starts the platform helper in a controlled
-GoRoutine worker and forwards configured items and state changes. On Ubuntu,
+GTK. It does not launch the native UI by itself. `dashboard serve` launches its
+foreground web-service process, which owns the menu worker for the service's
+lifetime and stops and joins that worker on normal server exit or error. A
+disabled or unsupported host selection does not load the native adapter, and
+the existing `dashboard ps1` output is unchanged. The native System::Menu
+adapter starts the platform helper in a controlled GoRoutine worker and
+forwards the projected entries while owning helper shutdown. On Ubuntu,
 the helper uses Ayatana AppIndicator3 and a GTK menu; rendered status icons are
 kept in a private temporary icon-theme directory and removed when the helper
 shuts down. Building from source requires the Ayatana AppIndicator3 and GTK3
@@ -44,7 +52,12 @@ The focused test runs inside the project development container:
 
 ```sh
   d2 docker compose exec --workdir /work dev prove -lv t/239-system-menu-config.t t/241-system-menu-runner.t t/242-system-menu-bundle.t t/243-system-menu-linux-indicator-api.t
+```
 
-The development image installs `libayatana-appindicator3-dev` and builds the
-Linux helper with deprecated-API declarations treated as errors.
+The development image, Linux GitHub workflows, and the published Docker image
+install `libayatana-appindicator3-dev` and `libgtk-3-dev` before building the
+native helper. The macOS helper is compiled with Objective-C ARC and deprecated
+AppKit API diagnostics treated as errors. Windows runs its full test suite with
+Test::Harness but omits Devel::Cover because that instrumentation distribution
+does not configure on the supported Windows runner.
 ```

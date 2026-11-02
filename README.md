@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.19
+6.20
 
 # INTRODUCTION
 
@@ -182,7 +182,10 @@ does not add `Test::Harness` to end-user runtime installation. The workflow
 uses separate full-suite steps: Unix-like runners retain `prove` in Bash,
 while Windows uses PowerShell and invokes `App::Prove` through the
 workflow-selected Perl. This avoids Git Bash selecting or rewriting paths for
-a different Perl installation.
+a different Perl installation. `Makefile.PL` always declares
+`Test::Harness` for test runs and declares `Devel::Cover` only outside
+Windows, where its supported test toolchain can install it; Windows runs the
+suite without coverage instrumentation.
 
 Or install from a checkout with:
 
@@ -2520,15 +2523,29 @@ configured indicator names and their current icons for the `macos`,
 `windows`, or `ubuntu` selector. Each platform selector is opt-in; a missing
 or false value disables that item. Invalid values for any supported selector
 are rejected even when the current host is another platform. The projection
-preserves configuration order and does not start a native menu. The native
-System::Menu adapter starts the platform helper in a controlled GoRoutine
-worker and forwards configured items and state changes. On Ubuntu, the helper
-uses Ayatana AppIndicator3 and a GTK menu; rendered status icons are kept in a
-private temporary icon-theme directory and removed when the helper shuts down.
-Building from source requires the Ayatana AppIndicator3 and GTK3 development
-packages; runtime requires a desktop session with AppIndicator support. The
-helper reports a clear error when no desktop session is available. Source and
-compile tests do not prove that a desktop shell visibly displayed the menu.
+preserves configuration order and does not start a native menu by itself. The
+private `web-foreground` runtime supplies merged configuration and the shared
+indicator store to `Developer::Dashboard::SystemMenu::Runner`. The runner
+starts the menu only when an indicator is enabled for the current host and
+keeps the helper active for the foreground web-service lifetime. It stops and
+joins the GoRoutine worker when the service returns or fails; disabled or
+unsupported platform settings do not load the native adapter. The existing
+`dashboard ps1` output remains unchanged.
+
+The native System::Menu adapter starts the platform helper in a controlled
+GoRoutine worker. On Ubuntu, the helper uses Ayatana AppIndicator3 and a GTK
+menu; rendered status icons are kept in a private temporary icon-theme
+directory and removed when the helper shuts down. Building from source
+requires the Ayatana AppIndicator3 and GTK3 development packages; runtime
+requires a desktop session with AppIndicator support. The helper reports a
+clear error when no desktop session is available. Source and compile tests do
+not prove that a desktop shell visibly displayed the menu; hosted platform
+verification is required for each supported operating system. Linux CI and
+the published Docker image install those native development packages before
+building the helper. The macOS helper uses ARC and treats deprecated AppKit APIs
+as errors. The Windows full-suite job installs Test::Harness without
+Devel::Cover, which does not configure on its supported Windows runner; the
+four-metric coverage gate remains on Linux.
 
 If optional watcher setup fails and watcher shutdown also fails, the dispatcher
 reports the close failure even when that watcher has no `last_error` method.
@@ -3366,6 +3383,13 @@ native worker callbacks, shared Perl data, and explicit child-process
 supervision. It is part of the Developer Dashboard Perl namespace; callers do
 not need to install or load a separate GoRoutine distribution.
 
+For a single-import interface, `use Developer::Dashboard` exports `d2` and
+the GoRoutine functions `go`, `wait_all`, `share`, `channel`, `spawn`,
+`process_running`, `process_exited`, `wait_process`, and
+`terminate_process`. The GoRoutine source syntax for `go sub { ... }` and
+`share my $value = ...` is installed by that import as well. The original
+`use Developer::Dashboard::GoRoutine` import remains available.
+
 Use `go` to run a Perl callback on a native worker and `wait_all` when the
 parent needs a completion barrier. Workers execute in cloned Perl interpreters.
 On Windows, cloning also requests the host-clone flag when the active Perl
@@ -3401,7 +3425,7 @@ shared data.
 
 For example:
 
-    use Developer::Dashboard::GoRoutine;
+    use Developer::Dashboard;
 
     share my $state = { completed => 0, results => [] };
     go sub {
@@ -3410,12 +3434,12 @@ For example:
     } for 1 .. 4;
     wait_all();
 
-`spawn`, `process_running`, `wait_process`, and `terminate_process` are a
-separate API for OS child processes. `spawn` takes an executable argument
-vector and optional working-directory and standard-stream paths; it does not
-invoke a shell. Use it where a distinct process ID, process isolation, or
-child-process lifecycle is required. Worker threads are not substitutes for
-those process semantics.
+`spawn`, `process_running`, `process_exited`, `wait_process`, and
+`terminate_process` are a separate API for OS child processes. `spawn` takes
+an executable argument vector and optional working-directory and standard-
+stream paths; it does not invoke a shell. Use it where a distinct process ID,
+process isolation, or child-process lifecycle is required. Worker threads are
+not substitutes for those process semantics.
 
 # MAINTAINER GUIDE
 
@@ -3501,6 +3525,12 @@ paths together with the local dependency library through `PERL5LIB`. This is
 necessary because tests and the coverage gate launch child Perl processes;
 those processes must load the extension built by the current checkout rather
 than an older or absent installed copy.
+
+The Linux Test workflow installs `CPAN::Audit` outside the project's scanned
+dependency tree. Its installer runs with `always()` so the declared-chain
+audit can report its own result even when an earlier build gate fails, rather
+than failing only because `CPAN::Audit::DB` was never installed. A workflow
+regression test verifies this ordering and condition.
 
 The GitHub Release workflow follows the same rule: it builds the extension
 before running the complete test suite and invokes `prove` with `blib/arch`

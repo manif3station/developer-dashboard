@@ -6,10 +6,11 @@ use Cwd qw(abs_path getcwd);
 use File::Spec;
 use File::Temp qw(tempdir);
 use IO::Socket::INET;
-use POSIX qw(:sys_wait_h);
 use Test::More;
 
 use lib 't/lib';
+use lib 'lib';
+use Developer::Dashboard::GoRoutine ();
 use Local::BrowserProbe qw(browser_can_fetch_loopback);
 use Time::HiRes qw(sleep);
 
@@ -264,33 +265,35 @@ sub _run_command {
 }
 
 # _start_dashboard_server(%args)
-# Purpose: fork one foreground dashboard browser-chrome test server for the smoke fixture.
+# Purpose: spawn one foreground dashboard browser-chrome test server for the smoke fixture.
 # Input: hash with cwd, home, repo_lib, dashboard_bin, port, log_file, and optional serve_args arrayref.
 # Output: child pid integer.
 sub _start_dashboard_server {
     my (%args) = @_;
-    my $pid = fork();
-    die "Unable to fork dashboard no-editor browser smoke: $!" if !defined $pid;
-
-    if ( !$pid ) {
-        open STDOUT, '>', $args{log_file} or die "Unable to redirect stdout to $args{log_file}: $!";
-        open STDERR, '>&', \*STDOUT or die "Unable to redirect stderr to $args{log_file}: $!";
-        chdir $args{cwd} or die "Unable to chdir to $args{cwd}: $!";
-        local %ENV = ( %ENV, HOME => $args{home} );
-        delete @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)} if _coverage_requested();
-        exec(
-            $^X, "-I$args{repo_lib}", $args{dashboard_bin},
-            'serve', '--foreground', '--host', '127.0.0.1', '--port', $args{port}, @{ $args{serve_args} || [] }
-        ) or die "Unable to exec dashboard browser smoke server: $!";
-    }
-
-    return $pid;
+    my $drop_harness = _coverage_requested() ? 1 : 0;
+    my $launcher = q{
+        my ($repo_lib, $dashboard_bin, $drop_harness, @arguments) = @ARGV;
+        delete @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)} if $drop_harness;
+        exec $^X, "-I$repo_lib", $dashboard_bin, @arguments
+          or die "Unable to exec dashboard no-editor browser smoke server: $!\n";
+    };
+    return Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', $launcher, '--', $args{repo_lib}, $args{dashboard_bin}, $drop_harness,
+            'serve', '--foreground', '--host', '127.0.0.1', '--port', $args{port}, @{ $args{serve_args} || [] } ],
+        {
+            cwd           => $args{cwd},
+            env           => { HOME => $args{home} },
+            stdout        => $args{log_file},
+            stderr        => $args{log_file},
+            process_group => 1,
+        },
+    );
 }
 
 # _stop_dashboard_server(%args)
 # Purpose: stop one dashboard server started by this browser smoke and wait for its child pid.
 # Input: hash with cwd, home, repo_lib, dashboard_bin, and pid keys.
-# Output: true after the stop command and waitpid complete.
+# Output: true after the stop command and GoRoutine process wait complete.
 sub _stop_dashboard_server {
     my (%args) = @_;
     eval {
@@ -303,18 +306,22 @@ sub _stop_dashboard_server {
         1;
     };
     for ( 1 .. 40 ) {
-        my $waited = waitpid( $args{pid}, WNOHANG );
-        return 1 if $waited == $args{pid};
+        if ( Developer::Dashboard::GoRoutine::process_exited( $args{pid} ) ) {
+            Developer::Dashboard::GoRoutine::wait_process( $args{pid} );
+            return 1;
+        }
         sleep 0.25;
     }
-    kill 'TERM', $args{pid};
+    Developer::Dashboard::GoRoutine::terminate_process( $args{pid}, 'TERM' );
     for ( 1 .. 20 ) {
-        my $waited = waitpid( $args{pid}, WNOHANG );
-        return 1 if $waited == $args{pid};
+        if ( Developer::Dashboard::GoRoutine::process_exited( $args{pid} ) ) {
+            Developer::Dashboard::GoRoutine::wait_process( $args{pid} );
+            return 1;
+        }
         sleep 0.25;
     }
-    kill 'KILL', $args{pid};
-    waitpid( $args{pid}, 0 );
+    Developer::Dashboard::GoRoutine::terminate_process( $args{pid}, 'KILL' );
+    Developer::Dashboard::GoRoutine::wait_process( $args{pid} );
     return 1;
 }
 

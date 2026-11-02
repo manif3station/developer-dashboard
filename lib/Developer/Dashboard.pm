@@ -3,14 +3,28 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-use Exporter 'import';
+use Exporter ();
 use Developer::Dashboard::PathIdentity qw(current_working_directory);
+use Developer::Dashboard::GoRoutine;
 use Developer::Dashboard::Handle;
 use Developer::Dashboard::Version ();
 
 our $VERSION = $Developer::Dashboard::Version::VERSION;
+our @ISA = qw(Exporter);
 
-our @EXPORT = ('d2');
+our @EXPORT = ( 'd2', @Developer::Dashboard::GoRoutine::EXPORT );
+our @EXPORT_OK = @EXPORT;
+
+# import()
+# Exports d2 and GoRoutine's public API into the requesting package, while
+# installing GoRoutine's syntax filter in the importing source file.
+# Input: optional list of exported symbol names.
+# Output: none; symbols and the GoRoutine source filter are installed.
+sub import {
+    my ( $class, @symbols ) = @_;
+    Developer::Dashboard::GoRoutine->import();
+    return $class->export_to_level( 1, $class, @symbols );
+}
 
 my %HANDLE_BY_CWD;
 
@@ -68,7 +82,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.19
+6.20
 
 =head1 INTRODUCTION
 
@@ -280,7 +294,10 @@ does not add C<Test::Harness> to end-user runtime installation. The workflow
 uses separate full-suite steps: Unix-like runners retain C<prove> in Bash,
 while Windows uses PowerShell and invokes C<App::Prove> through the
 workflow-selected Perl. This avoids Git Bash selecting or rewriting paths for
-a different Perl installation.
+a different Perl installation. C<Makefile.PL> always declares
+C<Test::Harness> for test runs and declares C<Devel::Cover> only outside
+Windows, where its supported test toolchain can install it; Windows runs the
+suite without coverage instrumentation.
 
 Or install from a checkout with:
 
@@ -3120,15 +3137,29 @@ configured indicator names and their current icons for the C<macos>,
 C<windows>, or C<ubuntu> selector. Each platform selector is opt-in; a missing
 or false value disables that item. Invalid values for any supported selector
 are rejected even when the current host is another platform. The projection
-preserves configuration order and does not start a native menu. The native
-System::Menu adapter starts the platform helper in a controlled GoRoutine
-worker and forwards configured items and state changes. On Ubuntu, the helper
-uses Ayatana AppIndicator3 and a GTK menu; rendered status icons are kept in a
-private temporary icon-theme directory and removed when the helper shuts down.
-Building from source requires the Ayatana AppIndicator3 and GTK3 development
-packages; runtime requires a desktop session with AppIndicator support. The
-helper reports a clear error when no desktop session is available. Source and
-compile tests do not prove that a desktop shell visibly displayed the menu.
+preserves configuration order and does not start a native menu by itself. The
+private C<web-foreground> runtime supplies merged configuration and the shared
+indicator store to C<Developer::Dashboard::SystemMenu::Runner>. The runner
+starts the menu only when an indicator is enabled for the current host and
+keeps the helper active for the foreground web-service lifetime. It stops and
+joins the GoRoutine worker when the service returns or fails; disabled or
+unsupported platform settings do not load the native adapter. The existing
+C<dashboard ps1> output remains unchanged.
+
+The native System::Menu adapter starts the platform helper in a controlled
+GoRoutine worker. On Ubuntu, the helper uses Ayatana AppIndicator3 and a GTK
+menu; rendered status icons are kept in a private temporary icon-theme
+directory and removed when the helper shuts down. Building from source
+requires the Ayatana AppIndicator3 and GTK3 development packages; runtime
+requires a desktop session with AppIndicator support. The helper reports a
+clear error when no desktop session is available. Source and compile tests do
+not prove that a desktop shell visibly displayed the menu; hosted platform
+verification is required for each supported operating system. Linux CI and
+the published Docker image install those native development packages before
+building the helper. The macOS helper uses ARC and treats deprecated AppKit APIs
+as errors. The Windows full-suite job installs Test::Harness without
+Devel::Cover, which does not configure on its supported Windows runner; the
+four-metric coverage gate remains on Linux.
 
 
 
@@ -4146,6 +4177,13 @@ native worker callbacks, shared Perl data, and explicit child-process
 supervision. It is part of the Developer Dashboard Perl namespace; callers do
 not need to install or load a separate GoRoutine distribution.
 
+For a single-import interface, C<use Developer::Dashboard> exports C<d2> and
+the GoRoutine functions C<go>, C<wait_all>, C<share>, C<channel>, C<spawn>,
+C<process_running>, C<process_exited>, C<wait_process>, and
+C<terminate_process>. The GoRoutine source syntax for C<go sub { ... }> and
+C<share my $value = ...> is installed by that import as well. The original
+C<use Developer::Dashboard::GoRoutine> import remains available.
+
 Use C<go> to run a Perl callback on a native worker and C<wait_all> when the
 parent needs a completion barrier. Workers execute in cloned Perl interpreters.
 On Windows, cloning also requests the host-clone flag when the active Perl
@@ -4181,7 +4219,7 @@ shared data.
 
 For example:
 
-    use Developer::Dashboard::GoRoutine;
+    use Developer::Dashboard;
 
     share my $state = { completed => 0, results => [] };
     go sub {
@@ -4190,12 +4228,12 @@ For example:
     } for 1 .. 4;
     wait_all();
 
-C<spawn>, C<process_running>, C<wait_process>, and C<terminate_process> are a
-separate API for OS child processes. C<spawn> takes an executable argument
-vector and optional working-directory and standard-stream paths; it does not
-invoke a shell. Use it where a distinct process ID, process isolation, or
-child-process lifecycle is required. Worker threads are not substitutes for
-those process semantics.
+C<spawn>, C<process_running>, C<process_exited>, C<wait_process>, and
+C<terminate_process> are a separate API for OS child processes. C<spawn> takes
+an executable argument vector and optional working-directory and standard-
+stream paths; it does not invoke a shell. Use it where a distinct process ID,
+process isolation, or child-process lifecycle is required. Worker threads are
+not substitutes for those process semantics.
 
 =head1 MAINTAINER GUIDE
 
@@ -4281,6 +4319,12 @@ paths together with the local dependency library through C<PERL5LIB>. This is
 necessary because tests and the coverage gate launch child Perl processes;
 those processes must load the extension built by the current checkout rather
 than an older or absent installed copy.
+
+The Linux Test workflow installs C<CPAN::Audit> outside the project's scanned
+dependency tree. Its installer runs with C<always()> so the declared-chain
+audit can report its own result even when an earlier build gate fails, rather
+than failing only because C<CPAN::Audit::DB> was never installed. A workflow
+regression test verifies this ordering and condition.
 
 The GitHub Release workflow follows the same rule: it builds the extension
 before running the complete test suite and invokes C<prove> with C<blib/arch>

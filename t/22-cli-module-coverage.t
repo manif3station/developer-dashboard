@@ -21,6 +21,23 @@ use Developer::Dashboard::CLI::TableHelpers ();
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::JSON qw(json_decode json_encode);
+use Developer::Dashboard qw(spawn wait_process);
+
+my $repo_root = cwd();
+
+# _run_perl_child($source, @arguments)
+# Runs a short Perl program in an independently spawned process for assertions
+# that exercise exec() or exit() without directly forking the test interpreter.
+# Input: Perl source text followed by literal @ARGV values for that source.
+# Output: the child's shell-style exit status after it has been reaped.
+sub _run_perl_child {
+    my ( $source, @arguments ) = @_;
+    my @include = map { "-I$_" } map { File::Spec->catdir( $repo_root, $_ ) }
+      qw(lib blib/lib blib/arch);
+    my $pid = spawn( [ $^X, @include, '-e', $source, @arguments ], { cwd => cwd() } );
+    die "Unable to spawn Perl test child: $!" if !defined $pid;
+    return wait_process($pid);
+}
 
 local $ENV{HOME} = tempdir(CLEANUP => 1);
 for my $dir (qw(projects src work)) {
@@ -756,13 +773,14 @@ is_deeply(
 }
 
 {
-    my $pid = fork();
-    die "fork failed: $!" if !defined $pid;
-    if (!$pid) {
-        Developer::Dashboard::CLI::Which::_command_exec($home_command);
-    }
-    waitpid( $pid, 0 );
-    is( $? >> 8, 0, 'which exec helper delegates to process exec' );
+    is(
+        _run_perl_child(
+            'use Developer::Dashboard::CLI::Which (); Developer::Dashboard::CLI::Which::_command_exec($ARGV[0]);',
+            $home_command,
+        ),
+        0,
+        'which exec helper delegates to process exec',
+    );
 }
 chdir $which_original_cwd or die "Unable to restore cwd to $which_original_cwd: $!";
 
@@ -1222,23 +1240,25 @@ like( $query_error, qr/^EXIT:0\b/, 'run_query_command exits through the test hoo
 is( $query_stdout, "7\n", 'run_query_command prints extracted scalar values' );
 
 {
-    my $pid = fork();
-    die "fork failed: $!" if !defined $pid;
-    if (!$pid) {
-        Developer::Dashboard::CLI::Query::_command_exit(7);
-    }
-    waitpid( $pid, 0 );
-    is( $? >> 8, 7, 'query command exit helper delegates to process exit' );
+    is(
+        _run_perl_child(
+            'use Developer::Dashboard::CLI::Query (); Developer::Dashboard::CLI::Query::_command_exit($ARGV[0]);',
+            7,
+        ),
+        7,
+        'query command exit helper delegates to process exit',
+    );
 }
 
 {
-    my $pid = fork();
-    die "fork failed: $!" if !defined $pid;
-    if (!$pid) {
-        Developer::Dashboard::CLI::OpenFile::_command_exit(9);
-    }
-    waitpid( $pid, 0 );
-    is( $? >> 8, 9, 'open-file exit helper delegates to process exit' );
+    is(
+        _run_perl_child(
+            'use Developer::Dashboard::CLI::OpenFile (); Developer::Dashboard::CLI::OpenFile::_command_exit($ARGV[0]);',
+            9,
+        ),
+        9,
+        'open-file exit helper delegates to process exit',
+    );
 }
 
 my $exec_script = File::Spec->catfile( $project_root, 'fake-editor.sh' );
@@ -1248,13 +1268,16 @@ close $exec_fh;
 chmod 0755, $exec_script or die "Unable to chmod $exec_script: $!";
 
 {
-    my $pid = fork();
-    die "fork failed: $!" if !defined $pid;
-    if (!$pid) {
-        Developer::Dashboard::CLI::OpenFile::_command_exec( $exec_script, '--wait', $notes_file );
-    }
-    waitpid( $pid, 0 );
-    is( $? >> 8, 0, 'open-file exec helper delegates to process exec' );
+    is(
+        _run_perl_child(
+            'use Developer::Dashboard::CLI::OpenFile (); Developer::Dashboard::CLI::OpenFile::_command_exec(@ARGV);',
+            $exec_script,
+            '--wait',
+            $notes_file,
+        ),
+        0,
+        'open-file exec helper delegates to process exec',
+    );
 }
 
 {

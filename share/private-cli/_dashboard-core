@@ -1101,13 +1101,25 @@ elsif ( $cmd eq 'web-foreground' ) {
         'ssl!'      => \$ssl,
     );
     die "Usage: dashboard web-foreground [--host HOST] [--port PORT] [--workers N] [--ssl|--no-ssl]\n" if @ARGV;
-    $runtime->start_web(
-        foreground => 1,
-        host       => $host,
-        port       => $port,
-        workers    => $workers,
-        ssl        => $ssl,
+    require Developer::Dashboard::SystemMenu::Runner;
+    my $menu_platform = $^O eq 'darwin' ? 'macos'
+      : $^O eq 'MSWin32' ? 'windows'
+      : $^O eq 'linux' ? 'ubuntu'
+      : 'unsupported';
+    my $menu_runner = Developer::Dashboard::SystemMenu::Runner->new(
+        config   => $config->merged,
+        store    => $indicators,
+        platform => $menu_platform,
     );
+    $menu_runner->run_with( sub {
+        return $runtime->start_web(
+            foreground => 1,
+            host       => $host,
+            port       => $port,
+            workers    => $workers,
+            ssl        => $ssl,
+        );
+    } );
     exit 0;
 }
 elsif ( $cmd eq 'web-ssl-backend-foreground' ) {

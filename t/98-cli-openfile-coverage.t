@@ -15,14 +15,60 @@ use HTTP::Response;
 use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 
 use lib 'lib';
+use lib 't/lib';
 
 use Developer::Dashboard::CLI::OpenFile qw(build_path_registry run_open_file_command);
 use Developer::Dashboard::CLI::OpenFileGrep qw(grep_matching_files);
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
+use Developer::Dashboard::GoRoutine ();
 use Developer::Dashboard::PathRegistry;
+use Local::DevelCoverSwitch qw(devel_cover_switches);
 
 my $PKG = 'Developer::Dashboard::CLI::OpenFile';
+
+is_deeply(
+    [ devel_cover_switches(
+        '-MDevel::Cover=-db,/work/cover_db,-blib,0,+ignore,^/tmp/,\\.developer-dashboard/,/t/'
+    ) ],
+    ['-MDevel::Cover=-db,/work/cover_db,-blib,0,+ignore,^/tmp/,\\.developer-dashboard/,/t/'],
+    'coverage child switch preserves the parent database and ignore options',
+);
+
+is_deeply(
+    [ devel_cover_switches('-Mstrict -MDevel::Cover -w') ],
+    ['-MDevel::Cover'],
+    'coverage child switch accepts the bare module form among other Perl switches',
+);
+
+is_deeply(
+    [ devel_cover_switches('-Mstrict -w') ],
+    [],
+    'no coverage switch is forwarded when the parent harness does not enable coverage',
+);
+
+{
+    my @coverage_switch = devel_cover_switches($ENV{HARNESS_PERL_SWITCHES});
+    my $exit_child = Developer::Dashboard::GoRoutine::spawn(
+        [
+            $^X,
+            '-Iblib/lib',
+            '-Iblib/arch',
+            '-Ilib',
+            @coverage_switch,
+            '-MDeveloper::Dashboard::CLI::OpenFile',
+            '-e',
+            'Developer::Dashboard::CLI::OpenFile::_command_exit(23)',
+        ],
+        { cwd => getcwd() },
+    );
+    ok( $exit_child, '_command_exit subprocess starts through GoRoutine' );
+    is(
+        Developer::Dashboard::GoRoutine::wait_process($exit_child),
+        23,
+        '_command_exit preserves the requested child exit status'
+    );
+}
 
 # oc($function_name, @args)
 # Calls one private OpenFile helper by name, preserving list/scalar context.
@@ -1180,8 +1226,9 @@ Devel::Cover coverage and cannot silently regress a defensive path.
 
 Use this file when changing how open-file resolves targets, ranks matches,
 selects an editor, reads Java source jars, queries Maven Central, or decides
-between printing and launching an editor. Re-run it whenever any of those
-branches move.
+between printing and launching an editor. It also invokes the real exit helper
+in a GoRoutine-managed child so the production exit boundary is covered without
+terminating the test process. Re-run it whenever any of those branches move.
 
 =head1 HOW TO USE
 
@@ -1196,7 +1243,11 @@ helpers.
 
 The repository test suite and the coverage gate run this file to keep the
 open-file helper at full statement, subroutine, branch, and condition coverage.
-Developers use it during test-driven changes to the open-file resolution logic.
+Developers use it during test-driven changes to the open-file resolution logic
+and its subprocess exit behavior. When the parent harness explicitly enables
+C<Devel::Cover>, the GoRoutine-managed child receives the complete configured
+module switch, including the shared database path, so coverage of the
+production exit boundary is included in the same report.
 
 =head1 EXAMPLES
 

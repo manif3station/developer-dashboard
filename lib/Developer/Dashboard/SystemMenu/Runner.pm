@@ -3,7 +3,7 @@ package Developer::Dashboard::SystemMenu::Runner;
 use strict;
 use warnings;
 
-our $VERSION = '6.19';
+our $VERSION = '6.20';
 
 use Developer::Dashboard::GoRoutine qw(go);
 use Developer::Dashboard::SystemMenu;
@@ -42,8 +42,7 @@ sub start {
     my ($self) = @_;
     die "system menu runner is already active\n" if $self->{routine};
 
-    my $states = $self->{store}->list_indicators;
-    die "indicator store must return an array reference\n" if ref($states) ne 'ARRAY';
+    my $states = [ $self->{store}->list_indicators ];
     my $items = Developer::Dashboard::SystemMenu->items_for_platform(
         config     => $self->{config},
         indicators => $states,
@@ -77,6 +76,35 @@ sub stop {
       if $status ne 'done' && $status ne 'exited';
     $self->{routine} = undef;
     return 1;
+}
+
+# run_with($callback)
+# Runs one foreground service while the configured native menu worker is active,
+# then stops and joins that worker on normal return or exception.
+# Input: runner object and a code reference for the foreground service.
+# Output: the service callback's scalar return value; propagates service or
+#        shutdown errors without leaving an active menu worker.
+sub run_with {
+    my ( $self, $callback ) = @_;
+    die "foreground callback must be a code reference\n" if ref($callback) ne 'CODE';
+
+    my ( $result, $run_ok, $run_error );
+    $run_ok = eval {
+        $self->start;
+        $result = $callback->();
+        1;
+    };
+    $run_error = $@;
+
+    my ( $stop_ok, $stop_error );
+    $stop_ok = eval { $self->stop; 1 };
+    $stop_error = $@;
+
+    die "$run_error\nSystem menu shutdown also failed: $stop_error"
+      if !$run_ok && !$stop_ok;
+    die $run_error if !$run_ok;
+    die $stop_error if !$stop_ok;
+    return $result;
 }
 
 # _native_menu()
@@ -113,10 +141,10 @@ menus.
 
 =head1 WHEN TO USE
 
-Use this runner from runtime startup after configuration layers and current
-indicator state have been loaded. Do not instantiate it from lightweight CLI
-commands. Native desktop visibility and shutdown still require hosted checks on
-each supported operating system.
+Use this runner from the private C<web-foreground> runtime after configuration
+layers and current indicator state have been loaded. Do not instantiate it
+from lightweight CLI commands. Native desktop visibility and shutdown still
+require hosted checks on each supported operating system.
 
 =head1 HOW TO USE
 
@@ -135,6 +163,13 @@ configuration order and passes them to the adapter's C<run> method in a
 GoRoutine. C<stop> asks the native adapter to exit, waits for the worker, and
 raises an error unless the worker ended normally.
 
+C<run_with($callback)> owns the common foreground-service lifecycle. It starts
+the menu, invokes the callback, then requests and waits for menu shutdown after
+either a normal callback return or an exception. The callback must be a code
+reference. Its scalar result is returned unchanged; service errors are
+re-thrown, and shutdown errors remain visible (including alongside a service
+error).
+
 =head1 EXAMPLES
 
 An opt-in macOS configuration can select the build indicator:
@@ -149,6 +184,10 @@ The same runner accepts C<windows> or C<ubuntu> as its platform key. Tests may
 pass a menu adapter object implementing C<run> and C<stop>; production callers
 omit it to lazily load the bundled native adapter. A disabled configuration
 returns no worker and does not load the native adapter.
+
+The foreground web service uses the wrapper form:
+
+    my $status = $runner->run_with(sub { $server->run });
 
 =head1 WHAT USES IT
 

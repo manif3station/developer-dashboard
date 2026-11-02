@@ -18,9 +18,12 @@ use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Platform ();
+use Developer::Dashboard::GoRoutine ();
 
-plan skip_all => 'the Windows command-timeout simulation needs POSIX signals and fork'
+plan skip_all => 'the Windows command-timeout simulation needs POSIX process-group signals'
   if Developer::Dashboard::Platform::is_windows();
+
+my @test_lib_paths = map { File::Spec->rel2abs($_) } qw(lib blib/lib blib/arch);
 
 # Hermetic runtime rooted at a throwaway home. The runtime root resolves from the
 # deepest .developer-dashboard layer discovered from the current working
@@ -59,33 +62,31 @@ SH
 }
 
 # spawn_marked_command_tree($marker_file, $seconds)
-# Forks a session-leading stand-in for a Windows command shell that records
+# Spawns a process-group-leading stand-in for a Windows command shell that records
 # itself and one descendant before blocking, so the timeout assertions can prove
 # the whole subtree is gone rather than only the direct child.
 # Input: path the pids are recorded to and how long the tree blocks.
 # Output: the session-leading child pid.
 sub spawn_marked_command_tree {
     my ( $marker_file, $seconds ) = @_;
-    my $child = fork();
-    die "Unable to fork the stand-in Windows command: $!" if !defined $child;
-    if ( !$child ) {
-        POSIX::setsid();
+    my $script = q{
+        use strict;
+        use warnings;
+        use Developer::Dashboard::GoRoutine qw(spawn);
+        my ($marker_file, $seconds) = @ARGV;
         $| = 1;
-        my $descendant = fork();
-        POSIX::_exit(1) if !defined $descendant;
-        if ( !$descendant ) {
-            sleep $seconds;
-            POSIX::_exit(0);
-        }
-        open my $fh, '>', $marker_file or POSIX::_exit(1);
+        my $descendant = spawn([ $^X, '-e', 'sleep shift', $seconds ], {});
+        open my $fh, '>', $marker_file or die "Unable to write marker: $!\n";
         print {$fh} "$$ $descendant\n";
-        close $fh or POSIX::_exit(1);
+        close $fh or die "Unable to close marker: $!\n";
         print "command-stdout-ready\n";
         print STDERR "command-stderr-ready\n";
         sleep $seconds;
-        POSIX::_exit(0);
-    }
-    return $child;
+    };
+    return Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, ( map { "-I$_" } @test_lib_paths ), '-e', $script, '--', $marker_file, $seconds ],
+        { process_group => 1 },
+    );
 }
 
 # read_marked_pids($marker_file)
@@ -193,12 +194,10 @@ sub await_absent_pids {
 # ===========================================================================
 {
     my $pidfile = File::Spec->catfile( $home, 'completed-windows-command.pid' );
-    my $child   = fork();
-    die "Unable to fork the stand-in Windows command: $!" if !defined $child;
-    if ( !$child ) {
-        sleep 0.3;
-        POSIX::_exit(7);
-    }
+    my $child = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'select undef, undef, undef, 0.3; exit 7' ],
+        {},
+    );
 
     no warnings 'redefine';
     local *Developer::Dashboard::CommandRunner::spawn_windows_command = sub { return $child };
@@ -309,11 +308,7 @@ SKIP: {
 # ===========================================================================
 {
     my $pidfile = File::Spec->catfile( $home, 'dd597-pollution-command.pid' );
-    my $child   = fork();
-    die "Unable to fork the stand-in Windows command: $!" if !defined $child;
-    if ( !$child ) {
-        POSIX::_exit(9);
-    }
+    my $child = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'exit 9' ], {} );
 
     no warnings 'redefine';
     local *Developer::Dashboard::CommandRunner::spawn_windows_command = sub { return $child };

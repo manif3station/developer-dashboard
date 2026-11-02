@@ -8,7 +8,7 @@ use Encode ();
 use JSON::XS ();
 use Developer::Dashboard::Version ();
 
-our $VERSION = '6.19';
+our $VERSION = '6.20';
 our @EXPORT  = qw(menu);
 
 require Developer::Dashboard::HtmlEscape;
@@ -348,10 +348,23 @@ sub _dispatch_events {
     return 1;
 }
 
+# Purpose: stop the native helper when Perl exits with a menu runtime still active.
+# Input: none; reads the module's active runtime registry and native helper state.
+# Output: true when active-runtime cleanup was attempted, otherwise false.
+sub _shutdown_active_helpers {
+    return 0 if !grep { $_->{active} } values %RUNTIME;
+
+    my $ok = eval {
+        _stop() if _running();
+        1;
+    };
+    warn "Developer::Dashboard::System::Menu: shutdown cleanup failed: $@"
+        if !$ok;
+    return 1;
+}
+
 END {
-    if (grep { $_->{active} } values %RUNTIME) {
-        eval { _stop() if _running() };
-    }
+    _shutdown_active_helpers();
 }
 
 package Developer::Dashboard::System::Menu::Item;

@@ -1,6 +1,8 @@
 use strict;
 use warnings;
 use utf8;
+use File::Spec;
+use FindBin qw($RealBin);
 use Test::More;
 use JSON::XS qw(decode_json);
 
@@ -58,7 +60,58 @@ SKIP: {
 
     ok( $enabled->stop, 'stop requests clean menu shutdown and waits for the worker' );
     is( 0 + $enabled_shared->{stopped}, 1, 'menu worker exits after its native adapter is stopped' );
+
+    share my $service_shared = { runs => 0, stop_calls => 0, entered => 0, stopped => 0 };
+    my $service_menu = Local::SystemMenuTestMenu->new($service_shared);
+    my $service_runner = Developer::Dashboard::SystemMenu::Runner->new(
+        config => { indicators => [
+            { name => 'build', indicator => { macos => 1 } },
+        ] },
+        platform => 'macos',
+        store    => Local::SystemMenuTestStore->new,
+        menu     => $service_menu,
+    );
+    my $service_attempt = 0;
+    my $served = $service_runner->run_with( sub {
+        while ( !$service_shared->{entered} && $service_attempt++ < 100 ) {
+            select undef, undef, undef, 0.01;
+        }
+        return 'server-exit';
+    } );
+    is( $served, 'server-exit', 'foreground service return value is preserved' );
+    is( 0 + $service_shared->{stopped}, 1, 'foreground service exit stops and joins the enabled menu worker' );
+
+    share my $failure_shared = { runs => 0, stop_calls => 0, entered => 0, stopped => 0 };
+    my $failure_runner = Developer::Dashboard::SystemMenu::Runner->new(
+        config => { indicators => [
+            { name => 'build', indicator => { macos => 1 } },
+        ] },
+        platform => 'macos',
+        store    => Local::SystemMenuTestStore->new,
+        menu     => Local::SystemMenuTestMenu->new($failure_shared),
+    );
+    my $failure_attempt = 0;
+    my $failure_ok = eval {
+        $failure_runner->run_with( sub {
+            while ( !$failure_shared->{entered} && $failure_attempt++ < 100 ) {
+                select undef, undef, undef, 0.01;
+            }
+            die "server failed\n";
+        } );
+        1;
+    };
+    ok( !$failure_ok, 'foreground service exception is propagated' );
+    like( $@, qr/server failed/, 'foreground service preserves the original failure text' );
+    is( 0 + $failure_shared->{stopped}, 1, 'foreground service failure still stops and joins the menu worker' );
 }
+
+my $core_path = File::Spec->catfile( $RealBin, File::Spec->updir, 'share', 'private-cli', '_dashboard-core' );
+open my $core_fh, '<', $core_path or die "Unable to read private dashboard runtime '$core_path': $!";
+my $core_source = do { local $/; <$core_fh> };
+close $core_fh or die "Unable to close private dashboard runtime '$core_path': $!";
+like( $core_source,
+    qr/elsif\s*\(\s*\$cmd\s+eq\s+'web-foreground'.*?SystemMenu::Runner->new\(.*?config\s*=>\s*\$config->merged.*?store\s*=>\s*\$indicators.*?->run_with\(/s,
+    'web-foreground starts the configured native menu around the long-lived service' );
 
 done_testing;
 
@@ -75,10 +128,10 @@ sub new { bless {}, shift }
 # Input: store object.
 # Output: array reference of indicator state hashes.
 sub list_indicators {
-    return [
+    return (
         { name => 'build', icon => '✅', status => 'ok' },
         { name => 'hidden', icon => '❌', status => 'error' },
-    ];
+    );
 }
 
 package Local::SystemMenuTestMenu;
@@ -151,6 +204,9 @@ platform visibility still requires the corresponding hosted platform workflow.
 The test loads C<Developer::Dashboard::SystemMenu::Runner>, verifies that a
 disabled platform setting is inert, starts an enabled fake menu, checks the
 projected indicator data, then requests stop and verifies worker exit.
+It also verifies that the staged private runtime wraps the long-lived
+C<web-foreground> service in this lifecycle using merged configuration and the
+shared indicator store.
 
 =head1 EXAMPLES
 
@@ -158,12 +214,16 @@ The disabled case configures C<macos =E<gt> 0> and proves that neither a
 GoRoutine nor the adapter's C<run> method is started. The enabled case configures
 one visible and one hidden indicator, verifies the visible entry carries the
 stored icon, then calls C<stop> and checks the adapter and worker shutdown.
+The service wrapper example returns a value from a short server callback and
+proves the value is preserved while the menu worker is joined. A second callback
+throws an error and the test checks both that the original error remains visible
+and that menu shutdown still occurs.
 
 =head1 WHAT USES IT
 
 The Docker unit suite uses this test as the platform-independent contract for
-C<Developer::Dashboard::SystemMenu::Runner>. It does not replace the native
-macOS, Windows, and Ubuntu integration workflows, which must exercise each
-platform-specific adapter on an appropriate host.
+C<Developer::Dashboard::SystemMenu::Runner> and its private service wiring. It
+does not replace the native macOS, Windows, and Ubuntu integration workflows,
+which must exercise each platform-specific adapter on an appropriate host.
 
 =cut

@@ -284,9 +284,14 @@ sub main {
 
     my @test_files = _expand_test_paths(@tests);
     my %native_thread_tests = map { $_ => 1 } qw(
+        17-web-server-ssl.t
         231-goroutine-integration.t
         237-goroutine-shared-objects.t
         238-goroutine-routine-controls.t
+        241-system-menu-runner.t
+        244-goroutine-channels.t
+        245-goroutine-native-reference-types.t
+        248-dashboard-goroutine-exports.t
     );
     my @native_thread_tests = grep { $native_thread_tests{ basename($_) } } @test_files;
     my @instrumented_tests = grep { !$native_thread_tests{ basename($_) } } @test_files;
@@ -400,6 +405,7 @@ sub main {
     my ( $stdout, $stderr, $status ) = capture {
         system(@report);
     };
+
 
     _warn( sprintf 'the report command exited %d; its output is being judged anyway', $status >> 8 )
         if $status != 0;
@@ -642,9 +648,9 @@ sub _slurp_stamp {
     return length $line ? $line : undef;
 }
 
-# Purpose: print the one environment and the three commands, so the operator can
-#          see what is about to run and confirm writer and reader agree.
-# Input: the resolved instrument path, the database, and the three command lists.
+# Purpose: print the one environment and the coverage commands, so the operator
+#          can verify the database and command chain before execution.
+# Input: the resolved instrument path, the database, and the command lists.
 # Output: nothing; writes to standard output.
 sub _announce {
     my ( $instrument, $database, $delete, $suite, $native_thread_suite, $report ) = @_;

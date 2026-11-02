@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+use utf8;
 use Test::More;
 use JSON::XS ();
 use File::Spec;
@@ -39,6 +40,9 @@ is( Developer::Dashboard::System::Menu::_id( bless { id => 'named-menu' }, 'Deve
     'named-menu', 'menu identity accepts a non-empty identifier' );
 is( Developer::Dashboard::System::Menu::_text( 'plain ASCII', 'value' ), 'plain ASCII',
     'plain scalar text without UTF-8 bytes is preserved' );
+my $unicode_text = 'café';
+is( Developer::Dashboard::System::Menu::_text( $unicode_text, 'value' ), $unicode_text,
+    'UTF-8-flagged text is preserved without byte decoding' );
 is( Developer::Dashboard::System::Menu::_click_stay(0, 'setting'), 0,
     'click_stay preserves the valid false setting' );
 my ( $default_click_stay, $empty_menu_items ) =
@@ -139,11 +143,31 @@ my $state = { running => 0, events => [] };
             ok( $built_item->{removed}, 'removed item is marked unavailable' );
             $built_item->remove;
             $active_menu->remove('not-present');
+            ok( Developer::Dashboard::System::Menu::_shutdown_active_helpers(),
+                'shutdown helper handles an active runtime explicitly' );
+            my @shutdown_warnings;
+            {
+                local *Developer::Dashboard::System::Menu::_stop = sub {
+                    die "simulated shutdown failure\n";
+                };
+                local $SIG{__WARN__} = sub { push @shutdown_warnings, @_ };
+                $state->{running} = 1;
+                ok( Developer::Dashboard::System::Menu::_shutdown_active_helpers(),
+                    'shutdown cleanup remains best-effort after a stop error' );
+            }
+            like( join( '', @shutdown_warnings ), qr/shutdown cleanup failed: simulated shutdown failure/,
+                'shutdown cleanup failure is reported visibly' );
+            $state->{running} = 0;
+            ok( Developer::Dashboard::System::Menu::_shutdown_active_helpers(),
+                'shutdown cleanup handles an active menu whose helper already stopped' );
             my $empty_remove = eval { $active_menu->remove(''); 1 };
             ok( !$empty_remove, 'remove refuses an empty name' );
             like( $@, qr/non-empty name/, 'empty remove error is explicit' );
             is( $active_menu->stop, $active_menu, 'stop returns the menu object' );
             is( $active_rt->{active}, 0, 'stop marks active menu runtime inactive' );
+            my $restart_ok = eval { $active_menu->run([]); 1 };
+            ok( $restart_ok, 'menu can start a new run after stop during the prior event callback' )
+                or diag $@;
             return '';
         };
         $active_menu->run([
@@ -151,6 +175,27 @@ my $state = { running => 0, events => [] };
         ]);
     }
     ok( $state->{stopped} > 0, 'stop asks the running native helper to stop' );
+
+    my $event_stop_menu = bless { id => 'event-stop-menu' }, 'Developer::Dashboard::System::Menu';
+    $state->{running} = 1;
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::System::Menu::_start = sub {};
+        local *Developer::Dashboard::System::Menu::_running = sub { $state->{running} };
+        local *Developer::Dashboard::System::Menu::_command_json = sub {};
+        local *Developer::Dashboard::System::Menu::_read_events = sub {
+            $event_stop_menu->stop;
+            return '';
+        };
+        local *Developer::Dashboard::System::Menu::_stop = sub {
+            $state->{event_stop_count}++;
+            $state->{running} = 0;
+        };
+        is( $event_stop_menu->run([]), $event_stop_menu,
+            'stop from the active event loop returns its menu object' );
+        is( $state->{event_stop_count}, 1,
+            'stop signals the native helper while it is running' );
+    }
 
     my $error_menu = bless { id => 'error-menu' }, 'Developer::Dashboard::System::Menu';
     $state->{running} = 1;
@@ -176,6 +221,8 @@ my $state = { running => 0, events => [] };
     local *Developer::Dashboard::System::Menu::_running = sub { 0 };
     local *Developer::Dashboard::System::Menu::_command_json = sub { push @commands, $_[0] };
     local *Developer::Dashboard::System::Menu::_stop = sub { ++$stop_count };
+    ok( !Developer::Dashboard::System::Menu::_shutdown_active_helpers(),
+        'shutdown helper is a no-op when no menu runtime is active' );
     is( $idle_menu->remove('not-running'), $idle_menu,
         'remove without an active helper returns the menu object' );
     is( scalar @commands, 0, 'remove does not send a command when the helper is stopped' );
@@ -249,6 +296,39 @@ my $state = { running => 0, events => [] };
     my $marker_text = <$fh>;
     close $fh or die "Unable to close shutdown marker '$marker': $!";
     is( $marker_text, "stopped\n", 'END stops the native helper when Perl exits with an active menu' );
+
+    my $already_stopped_marker = File::Spec->catfile( $scratch, 'end-cleanup-already-stopped' );
+    my $already_stopped_source = q{
+        use strict;
+        use warnings;
+        use JSON::XS ();
+        use Developer::Dashboard::System::Menu;
+        {
+            no warnings 'redefine';
+            my $running_checks = 0;
+            local *Developer::Dashboard::System::Menu::_start = sub {};
+            *Developer::Dashboard::System::Menu::_running = sub { ++$running_checks == 1 };
+            local *Developer::Dashboard::System::Menu::_command_json = sub {};
+            local *Developer::Dashboard::System::Menu::_read_events = sub {
+                return JSON::XS->new->canonical->encode({ event => 'click', name => 'exit' }) . "\n";
+            };
+            *Developer::Dashboard::System::Menu::_stop = sub {
+                open my $fh, '>', $ARGV[0] or die "Unable to write shutdown marker: $!";
+                print {$fh} "stopped\n";
+                close $fh or die "Unable to close shutdown marker: $!";
+            };
+            Developer::Dashboard::System::Menu::menu()->run([
+                { name => 'exit', icon => 'x', click => sub { exit 0 } },
+            ]);
+        }
+    };
+    my $already_stopped_pid = spawn(
+        [ $^X, '-e', $already_stopped_source, '--', $already_stopped_marker ], {}
+    );
+    is( wait_process($already_stopped_pid), 0,
+        'helper process exits normally when its native helper has already stopped' );
+    ok( !-e $already_stopped_marker,
+        'END does not stop the native helper a second time after it has stopped' );
 }
 
 my $non_singleton = Developer::Dashboard::System::Menu::menu();
@@ -373,6 +453,21 @@ my $dispatch_rt = {
 
 done_testing;
 
+END {
+    no warnings 'redefine';
+    my $running_checks = 0;
+    *Developer::Dashboard::System::Menu::_start = sub {};
+    *Developer::Dashboard::System::Menu::_running = sub { ++$running_checks == 1 };
+    *Developer::Dashboard::System::Menu::_command_json = sub {};
+    *Developer::Dashboard::System::Menu::_read_events = sub {
+        return JSON::XS->new->canonical->encode({ event => 'click', name => 'exit-at-end' }) . "\n";
+    };
+    *Developer::Dashboard::System::Menu::_stop = sub {};
+    Developer::Dashboard::System::Menu::menu()->run([
+        { name => 'exit-at-end', icon => 'x', click => sub { exit 0 } },
+    ]);
+}
+
 __END__
 
 =head1 NAME
@@ -401,8 +496,9 @@ nested items, callback handling, or native event transport.
 
     d2 docker compose exec dev prove -lv t/250-system-menu-coverage.t
 
-The test covers malformed API input, nested menu defaults, duplicate names,
-native event parsing, callback dispatch, and transport failure propagation.
+The test covers malformed API input, plain and UTF-8-flagged text, nested menu
+defaults, duplicate names, native event parsing, callback dispatch, and
+transport failure propagation.
 
 =head1 WHAT USES IT
 
@@ -414,7 +510,12 @@ does not claim native visual verification; that remains a hosted platform test.
 The fixture replaces the native helper XSUBs while calling the real Perl
 adapter. A serialized click event is dispatched to a callback, while malformed
 JSON and unknown events are handled by the production event reader.
-Other assertions cover invalid object identities, scalar text validation,
-menu defaults, and a final event drain after the native run loop exits.
+Other assertions cover invalid object identities, scalar text validation for
+flagged Unicode and encoded bytes, menu defaults, and a final event drain after
+the native run loop exits. Child-process fixtures cover both active-helper END
+cleanup and the no-op path when the helper has already stopped. The final END
+fixture drives the instrumented module's cleanup branch for an active helper.
+An active event-loop fixture also verifies that C<stop()> signals the helper
+and exits the loop cleanly.
 
 =cut

@@ -48,6 +48,8 @@ for my $payload (
     is( $run->(1), 124, 'supervisor reports timeout when the child ignores TERM' );
     is_deeply( [ map { $_->[0] } @calls ], [ 'terminate', 'terminate', 'wait' ],
         'timeout escalates from TERM to KILL before reaping a child that remains alive' );
+    is_deeply( [ map { $_->[2] } grep { $_->[0] eq 'terminate' } @calls ], [ 'TERM', 'KILL' ],
+        'a child that remains alive after TERM receives KILL' );
 }
 
 {
@@ -66,6 +68,16 @@ for my $payload (
 
 {
     no warnings 'redefine';
+    my $polls = 0;
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 4206 };
+    local *Developer::Dashboard::GoRoutine::process_exited = sub { return ++$polls > 1 };
+    local *Developer::Dashboard::GoRoutine::wait_process = sub { return 11 };
+    is( $run->(5000), 11, 'supervisor waits for a child that exits before its deadline' );
+    is( $polls, 2, 'supervisor checks its deadline while the child is still running' );
+}
+
+{
+    no warnings 'redefine';
     my @calls;
     my $polls = 0;
     local *Developer::Dashboard::GoRoutine::spawn = sub { return 4202 };
@@ -79,6 +91,8 @@ for my $payload (
     is( $run->(1), 124, 'supervisor returns timeout status after its deadline' );
     is_deeply( [ map { $_->[0] } @calls ], [ 'terminate', 'wait' ],
         'timeout sends TERM and reaps a child that exits during the grace period' );
+    is_deeply( [ map { $_->[2] } grep { $_->[0] eq 'terminate' } @calls ], ['TERM'],
+        'the timeout path does not send KILL after the child exits during grace' );
 }
 
 {
@@ -101,6 +115,54 @@ for my $payload (
         'signal handling terminates then reaps the command child' );
 }
 
+{
+    no warnings 'redefine';
+    my @calls;
+    my $first_poll = 1;
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 4208 };
+    local *Developer::Dashboard::GoRoutine::process_exited = sub {
+        if ($first_poll) {
+            $first_poll = 0;
+            kill 'TERM', $$;
+        }
+        return 0;
+    };
+    local *Developer::Dashboard::GoRoutine::terminate_process = sub { push @calls, [ terminate => @_ ] };
+    local *Developer::Dashboard::GoRoutine::wait_process = sub { push @calls, [ wait => @_ ]; return 0 };
+    is( $run->(0), 0, 'supervisor stops on TERM when the command child ignores termination' );
+    is_deeply( [ map { $_->[0] } @calls ], [ 'terminate', 'terminate', 'wait' ],
+        'signal handling escalates to KILL before reaping a child that remains alive' );
+    is_deeply( [ map { $_->[2] } grep { $_->[0] eq 'terminate' } @calls ], [ 'TERM', 'KILL' ],
+        'signal shutdown sends KILL only after the TERM grace period expires' );
+}
+
+{
+    no warnings 'redefine';
+    my @calls;
+    my $first_poll = 1;
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 4205 };
+    local *Developer::Dashboard::GoRoutine::process_exited = sub {
+        if ($first_poll) {
+            $first_poll = 0;
+            kill 'INT', $$;
+            return 0;
+        }
+        return 1;
+    };
+    local *Developer::Dashboard::GoRoutine::terminate_process = sub { push @calls, [ terminate => @_ ] };
+    local *Developer::Dashboard::GoRoutine::wait_process = sub { push @calls, [ wait => @_ ]; return 0 };
+    is( $run->(0), 0, 'supervisor stops on a forwarded INT request' );
+    is_deeply( [ map { $_->[0] } @calls ], [ 'terminate', 'wait' ],
+        'INT handling terminates then reaps the command child' );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::process_exited = sub { return 1 };
+    ok( Developer::Dashboard::ActionRunner::_wait_background_child_exit( 4207, 0 ),
+        'bounded child wait reports an exit detected at its final poll' );
+}
+
 done_testing;
 
 __END__
@@ -113,15 +175,17 @@ t/252-actionrunner-supervisor-coverage.t - exercise detached action supervisor e
 
 Test the background ActionRunner supervisor's payload validation, successful
 child completion, timeout handling, and forwarded termination signal handling.
-GoRoutine calls are replaced with deterministic local stubs so these branches
-are covered without leaving child processes running.
+GoRoutine calls are replaced with deterministic local stubs so these branches,
+including TERM-to-KILL escalation when a child ignores termination, are covered
+without leaving child processes running.
 
 =head1 WHY IT EXISTS
 
 The supervisor owns detached command lifecycle behavior. A regression in its
 timeout or signal branch could leave commands running after the page action has
-stopped. Direct unit coverage makes each exit path observable without relying
-on wall-clock races or external processes.
+stopped. Direct unit coverage verifies the TERM grace period, conditional KILL
+escalation, and child reaping without relying on process timing or unmanaged
+external processes.
 
 =head1 WHEN TO USE
 

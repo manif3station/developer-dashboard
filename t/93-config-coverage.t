@@ -108,6 +108,18 @@ sub clear_config {
     return;
 }
 
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::Config::_skill_config_fragments = sub { return () };
+    set_config( { indicators => 'preserved malformed scalar' } );
+    is_deeply(
+        $config->load_global->{indicators},
+        'preserved malformed scalar',
+        'load_global preserves a non-array global indicators value during normalization',
+    );
+    clear_config();
+}
+
 sub dies_like {
     my ( $code, $re, $desc ) = @_;
     my $err = eval { $code->(); 1 } ? '' : $@;

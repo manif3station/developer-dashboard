@@ -1,5 +1,22 @@
 # Fixed Bugs
 
+## 6.20
+
+- DKT-017: Connect the opt-in System Menu runner to the staged
+  `web-foreground` service path. Before this change, configuration projection
+  and the native menu adapter existed but no production runtime started them.
+  The service now starts the GoRoutine worker only for enabled host indicators
+  and stops/joins it on normal exit or server failure. Docker tests cover the
+  wrapper's normal return, error propagation, cleanup, and production wiring.
+- GitHub-hosted platform, JS-fuzz, and image builds lacked the native Linux
+  GTK/Ayatana development packages. The macOS helper used weak references
+  without ARC and a deprecated AppKit color API, and Windows attempted to
+  configure unsupported Devel::Cover 1.52. CI now installs native Linux build
+  dependencies, compiles macOS with ARC and deprecated APIs rejected, and
+  excludes Devel::Cover from Windows test prerequisites while retaining the
+  Windows full-suite Test::Harness path. The failure evidence was GitHub run
+  41303336372 (platform), 41303336361 (JS Fuzz), and 41303336422 (Docker Hub).
+
 ## 6.19
 
 - Preserve GoRoutine shared regular expressions as compiled `REGEXP` values
@@ -36,6 +53,9 @@
 - Build the Dashboard XS extension in the GitHub Release workflow before its
   test run and pass `blib/arch` and `blib/lib` to `prove`, so release checks
   validate the extension produced by the release checkout.
+- Keep the Linux Test workflow's external `CPAN::Audit` installation running
+  after earlier failures. The declared-chain audit uses `always()` and must
+  not obscure a preceding build failure with a missing `CPAN::Audit::DB` error.
 - Fix checkout-based Linux and cross-platform CI builds that install
   `File::ShareDir::Install` into `local/lib/perl5` but run `perl Makefile.PL`
   without exposing that directory. The Unix and Windows workflow build steps

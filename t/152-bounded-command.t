@@ -8,10 +8,19 @@ use Test::More;
 use FindBin;
 use File::Spec;
 use File::Temp qw(tempdir);
+use FindBin qw($RealBin);
 use Time::HiRes ();
 
 use lib File::Spec->catdir( $FindBin::Bin, 'lib' );
 use Local::BoundedCommand qw(run_bounded);
+
+{
+    my $helper_path = File::Spec->catfile( $RealBin, 'lib', 'Local', 'BoundedCommand.pm' );
+    open my $helper_fh, '<', $helper_path or die "Unable to read bounded-command helper '$helper_path': $!";
+    my $helper_source = do { local $/; <$helper_fh> };
+    close $helper_fh or die "Unable to close bounded-command helper '$helper_path': $!";
+    unlike( $helper_source, qr/\bfork\s*\(/, 'bounded command helper launches processes through GoRoutine, not Perl fork' );
+}
 
 # A command that finishes normally must be unaffected: same exit status, no
 # waiting for the bound to expire. A bound that changes the answer for healthy

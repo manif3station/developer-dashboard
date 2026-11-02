@@ -63,6 +63,13 @@ my $unsupported_group_tail = eval {
 ok( !$unsupported_group_tail, 'grouped share rejects text after its declaration' );
 like( $@, qr/unsupported text after share my/,
     'grouped share tail error names the unsupported syntax' );
+my @empty_group = Developer::Dashboard::GoRoutine::_rewrite_share_at('share my ($one);', 0);
+is( $empty_group[0], length('share my ($one);'),
+    'grouped share accepts a declaration without an initializer' );
+like( $empty_group[1], qr/_share_many\(\\\$one\)/,
+    'uninitialized grouped share still registers its shared reference' );
+unlike( $empty_group[1], qr/\)\s*=/,
+    'uninitialized grouped share does not synthesize an assignment' );
 my $invalid_aggregate = eval {
     Developer::Dashboard::GoRoutine::_rewrite_share_at('share my @;', 0);
     1;
@@ -199,6 +206,7 @@ statements.
 
 Additional examples covered by this test include:
 
+    share my ($one);          # accepted without an initializer
     share my ($one)          # rejected: missing semicolon
     share my ($one;          # rejected: unterminated grouped declaration
     share my @items trailing; # rejected: unsupported declaration tail

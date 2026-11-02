@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '6.19';
+our $VERSION = '6.20';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::PathIdentity qw(current_working_directory);
@@ -355,7 +355,7 @@ sub _run_job {
 # start_loop($job)
 # Starts a managed collector loop for interval or cron schedules.
 # Input: collector job hash reference.
-# Output: existing or newly forked collector pid integer.
+# Output: existing or newly spawned collector child-process PID integer.
 sub start_loop {
     my ( $self, $job ) = @_;
     my $interval = $self->_effective_interval_seconds($job);
@@ -368,13 +368,13 @@ sub start_loop {
         die "Collector '$name' has invalid cron expression: $cron_error\n" if $cron_error;
     }
 
-    # DD-737: a collector with neither 'command' nor 'code' used to be forked
+    # DD-737: a collector with neither 'command' nor 'code' used to be launched
     # into a loop anyway, which then died on its very first tick inside
     # _collector_source and every tick after that, forever, without ever
     # disabling itself - observed on a real machine as hundreds of unreaped
     # zombie loop-worker processes from one permanently misconfigured
     # collector. _collector_source already performs exactly the check this
-    # needs; running it here, before any pidfile or fork, turns a doomed
+    # needs; running it here, before any pidfile or child-process launch, turns a doomed
     # loop into an immediate, visible failure instead.
     $self->_collector_source($job);
 
@@ -403,12 +403,12 @@ sub start_loop {
 # _adopt_existing_loop_if_running(%args)
 # Checks whether a collector loop is already running for this name and, if
 # so, adopts it - rewriting its recorded state (and repairing a missing
-# pidfile) rather than letting start_loop fork a duplicate. Runs entirely
-# before any fork, so it carries none of start_loop's fork-timing risk.
+# pidfile) rather than letting start_loop spawn a duplicate process. Runs before
+# any child-process launch, so it carries none of start_loop's process-start timing risk.
 # Input: pidfile path, collector name, process title, effective interval,
 # and schedule mode.
-# Output: the adopted pid if a genuinely running loop was found and adopted;
-# undef if start_loop should proceed to fork a fresh loop.
+# Output: the adopted PID if a genuinely running loop was found and adopted;
+# undef if start_loop should proceed to spawn a fresh loop process.
 sub _adopt_existing_loop_if_running {
     my ( $self, %args ) = @_;
     my ( $pidfile, $name, $title, $interval, $schedule_mode )
@@ -417,23 +417,23 @@ sub _adopt_existing_loop_if_running {
     # The pidfile is a RECORD of what is running, not the authority on it. Asking
     # only the file is what let 27 supervisor loops accumulate for a collector
     # declared singleton: once the file was gone - a crash before the write, a
-    # cleanup, a /tmp sweep - every start forked another loop that nothing could
+    # cleanup, a /tmp sweep - every start launched another loop that nothing could
     # see, stop or count, and each one went on spawning work every interval.
     #
-    # So if the record is missing, ask the process table before forking, then
+    # So if the record is missing, ask the process table before spawning, then
     # consult the parent's state record if process-title matching has not caught
-    # a newly forked child yet. An existing loop is adopted and its record
+    # a newly started child process yet. An existing loop is adopted and its record
     # rewritten, which is both the correct outcome and the repair of the missing
     # file.
     my $existing = -f $pidfile ? do { my $recorded = slurp_file($pidfile); chomp $recorded; $recorded } : undef;
     if (!$existing) {
         $existing = $self->_find_running_loop($name);
         if (!$existing) {
-            # The parent records the forked pid and its intended title before
+            # The launcher records the spawned process PID and its intended title before
             # returning from start_loop. A concurrent start can therefore see a
             # valid state record while the child is still adopting that title,
             # which makes process-table matching temporarily miss it. Consult
-            # that parent-written state before deciding to fork another loop.
+            # that launcher-written state before deciding to spawn another loop.
             my $state = $self->loop_state($name);
             my $state_pid = ref($state) eq 'HASH' ? $state->{pid} : undef;
             $existing = $state_pid
@@ -1116,7 +1116,7 @@ sub _is_managed_loop {
 #
 # This exists because the pidfile is a record and not the authority. A record can
 # be lost while the thing it describes keeps running, and when that happened here
-# every subsequent start forked another supervisor: 27 were alive at once for a
+# every subsequent start launched another supervisor process: 27 were alive at once for a
 # singleton collector, each firing every 900 seconds, while stop knew about one
 # and status reported none.
 #
@@ -1134,7 +1134,7 @@ sub _find_running_loop {
 
     # Identity by TITLE, not by the environment marker. _is_managed_loop accepts
     # either, which is right when confirming a pid you already have - but the
-    # marker is set into %ENV and every forked child INHERITS it, so a collector's
+    # marker is set into %ENV and every spawned child process INHERITS it, so a collector's
     # own worker is indistinguishable from its supervisor by that test. Searching
     # on it found two "supervisors" four pids apart: the loop and the command it
     # had just spawned. A supervisor sets its own title; a worker does not carry
@@ -1325,8 +1325,8 @@ sub _write_loop_state {
 
 # _replace_path_via_powershell($source, $target)
 # Uses the native Windows Move-Item path as a last-resort file replacement
-# fallback when Perl's in-process rename fails inside pseudo-forked collector
-# flows.
+# fallback when Perl's in-process rename fails inside a collector child-process
+# flow.
 # Input: source file path and destination file path.
 # Output: boolean success flag and optional failure text string.
 sub _replace_path_via_powershell {

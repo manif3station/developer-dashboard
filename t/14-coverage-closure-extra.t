@@ -2,9 +2,11 @@ use strict;
 use warnings;
 use utf8;
 
+use Cwd qw(cwd);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
+use Fcntl qw(F_GETFD F_SETFD FD_CLOEXEC);
 use POSIX qw(:sys_wait_h setsid);
 use Socket qw(AF_UNIX PF_UNSPEC SOCK_STREAM);
 use Test::More;
@@ -30,6 +32,33 @@ use Developer::Dashboard::Prompt;
 use Developer::Dashboard::SessionStore;
 use Developer::Dashboard::Web::App;
 use Developer::Dashboard::Folder;
+use Developer::Dashboard::GoRoutine ();
+
+my $repo_root = cwd();
+
+# _run_perl_child($source, @arguments)
+# Runs an isolated Perl fixture through GoRoutine and returns its exit code.
+# Input: Perl source and arguments passed to that source.
+# Output: child exit code.
+sub _run_perl_child {
+    my ( $source, @arguments ) = @_;
+    my @include = map { '-I' . File::Spec->catdir( $repo_root, $_ ) } qw(lib blib/lib blib/arch t/lib);
+    my %options;
+    my $coverage_switches = $ENV{HARNESS_PERL_SWITCHES};
+    if ( defined $coverage_switches && length $coverage_switches && $coverage_switches =~ /Devel::Cover/ ) {
+        # The fixtures inherit a temporary HOME as CWD in ordinary runs. In a
+        # coverage run, start at the checkout so Devel::Cover instruments the
+        # repository modules loaded by this isolated GoRoutine child.
+        $options{cwd} = $repo_root;
+        $options{env} = { PERL5OPT => $coverage_switches };
+    }
+    my $pid = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, @include, '-e', $source, @arguments ],
+        \%options,
+    );
+    die "GoRoutine spawn failed: $!" if !defined $pid;
+    return Developer::Dashboard::GoRoutine::wait_process($pid);
+}
 
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
@@ -48,6 +77,22 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
     indicators => $indicator_store,
     paths      => $paths,
 );
+
+{
+    my $cwd_marker = File::Spec->catfile( $home, 'coverage-child-cwd.txt' );
+    my $source = q{
+        use Cwd qw(cwd);
+        open my $fh, '>', $ARGV[0] or die "Unable to write child cwd marker: $!";
+        print {$fh} cwd(), "\n";
+        close $fh or die "Unable to close child cwd marker: $!";
+    };
+    is( _run_perl_child( $source, $cwd_marker ), 0, 'GoRoutine coverage-CWD probe exits successfully' );
+    open my $fh, '<', $cwd_marker or die "Unable to read child cwd marker '$cwd_marker': $!";
+    my $child_cwd = <$fh>;
+    close $fh or die "Unable to close child cwd marker '$cwd_marker': $!";
+    my $expected_cwd = ( $ENV{HARNESS_PERL_SWITCHES} // q{} ) =~ /Devel::Cover/ ? $repo_root : $home;
+    is( $child_cwd, "$expected_cwd\n", 'coverage-instrumented GoRoutine children start in the checkout while ordinary fixtures retain the temporary HOME cwd' );
+}
 
 {
     my $json_file = File::Spec->catfile( $paths->dashboards_root, 'migrated.json' );
@@ -138,15 +183,16 @@ PAGE
     my $pidfile   = $runner->_pidfile($loop_name);
     my $statefile = $runner->_statefile($loop_name);
 
-    my $managed_child = fork();
-    die "fork failed: $!" if !defined $managed_child;
-    if ( !$managed_child ) {
-        $ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = $loop_name;
-        $0 = $runner->_process_title($loop_name);
-        $SIG{TERM} = 'IGNORE';
-        sleep 30;
-        exit 0;
-    }
+    my $process_title = $runner->_process_title($loop_name);
+    my $managed_child = Developer::Dashboard::GoRoutine::spawn(
+        [
+            $^X, '-MPOSIX', '-e',
+            q{$ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = shift; $0 = shift; POSIX::setpgid(0, 0) or die "setpgid: $!"; $SIG{TERM} = 'IGNORE'; sleep 30;},
+            $loop_name, $process_title,
+        ],
+        { cwd => $home, env => { HOME => $home } },
+    );
+    die "GoRoutine spawn failed: $!" if !defined $managed_child;
     open my $fh, '>', $pidfile or die $!;
     print {$fh} $managed_child;
     close $fh;
@@ -168,7 +214,6 @@ PAGE
 
     my $stopped_pid = $runner->stop_loop($loop_name);
     is( $stopped_pid, $managed_child, 'stop_loop returns managed loop pid' );
-    waitpid( $managed_child, 0 );
     ok( !-e $pidfile, 'stop_loop removes loop pid files after forced kill' );
     ok( !-e $statefile, 'stop_loop removes loop state files after forced kill' );
 
@@ -196,9 +241,26 @@ PAGE
     # immediately, not only at the top of the next iteration, so a crash cannot
     # orphan a worker that is invisible to the persisted state.
     my $persist_name = 'coverage.persist.on.spawn';
-    my $child = fork();
-    die "fork failed: $!" if !defined $child;
-    if ( !$child ) {
+    my $source = q{
+        use File::Spec;
+        use Developer::Dashboard::Collector;
+        use Developer::Dashboard::CollectorRunner;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::IndicatorStore;
+        use Developer::Dashboard::PathRegistry;
+        my ( $home, $persist_name ) = @ARGV;
+        $ENV{HOME} = $home;
+        chdir $home or die "Unable to chdir to $home: $!";
+        my $paths = Developer::Dashboard::PathRegistry->new(
+            home => $home,
+            workspace_roots => [ File::Spec->catdir( $home, 'workspace' ) ],
+        );
+        my $runner = Developer::Dashboard::CollectorRunner->new(
+            collectors => Developer::Dashboard::Collector->new( paths => $paths ),
+            files => Developer::Dashboard::FileRegistry->new( paths => $paths ),
+            indicators => Developer::Dashboard::IndicatorStore->new( paths => $paths ),
+            paths => $paths,
+        );
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::_job_is_due = sub { return 1 };
         my $ok = $runner->_run_loop_child(
@@ -211,8 +273,9 @@ PAGE
             title         => $runner->_process_title($persist_name),
         );
         exit( $ok ? 0 : 1 );
-    }
-    waitpid( $child, 0 );
+    };
+    is( _run_perl_child( $source, $home, $persist_name ), 0,
+        'isolated loop fixture exits successfully after persisting its worker' );
     my @persisted = $runner->_state_active_worker_pids($persist_name);
     ok( scalar(@persisted) >= 1, 'loop persists active_worker_pids immediately on spawn so a just-started worker survives a crash-and-stop' );
     for my $wpid (@persisted) { kill 9, -$wpid; kill 9, $wpid; }
@@ -224,24 +287,26 @@ PAGE
     # send the group SIGKILL unconditionally to reap it.
     my $gc_file = File::Spec->catfile( $home, "trapgc.$$" );
     unlink $gc_file;
-    my $worker = fork();
-    die "fork failed: $!" if !defined $worker;
-    if ( !$worker ) {
-        setsid();
-        my $gc = fork();
-        if ( !defined $gc ) { exit 1 }
-        if ( !$gc ) {
-            $SIG{TERM} = 'IGNORE';
-            select undef, undef, undef, 60;
-            exit 0;
-        }
-        open my $gf, '>', $gc_file or exit 1;
-        print {$gf} $gc;
-        close $gf;
+    my $worker_source = q{
+        use Developer::Dashboard::GoRoutine ();
+        my ( $gc_file, @include ) = @ARGV;
+        my $gc = Developer::Dashboard::GoRoutine::spawn(
+            [ $^X, @include, '-e', q{$SIG{TERM} = 'IGNORE'; select undef, undef, undef, 60;} ],
+            {},
+        );
+        die "GoRoutine spawn failed: $!" if !defined $gc;
+        open my $gf, '>', $gc_file or die "Unable to write descendant pid file: $!";
+        print {$gf} $gc or die "Unable to write descendant pid: $!";
+        close $gf or die "Unable to close descendant pid file: $!";
         $SIG{TERM} = 'DEFAULT';
         select undef, undef, undef, 60;
-        exit 0;
-    }
+    };
+    my @include = map { '-I' . File::Spec->catdir( $repo_root, $_ ) } qw(lib blib/lib blib/arch);
+    my $worker = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, @include, '-e', $worker_source, $gc_file, @include ],
+        { cwd => $home, env => { HOME => $home }, process_group => 1 },
+    );
+    die "GoRoutine spawn failed: $!" if !defined $worker;
     my $gc_pid = '';
     for ( 1 .. 60 ) { last if -s $gc_file; select undef, undef, undef, 0.05; }
     if ( open my $gf, '<', $gc_file ) { local $/; $gc_pid = <$gf>; close $gf; }
@@ -259,9 +324,11 @@ PAGE
     # loop recorded in loop.json must still be recognized from its pid/name/title
     # even when its status is outside the old whitelist, so stop can kill it.
     my $ename  = 'coverage.confirm.broadened';
-    my $echild = fork();
-    die "fork failed: $!" if !defined $echild;
-    if ( !$echild ) { $SIG{TERM} = 'DEFAULT'; select undef, undef, undef, 60; exit 0; }
+    my $echild = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', q{$SIG{TERM} = 'DEFAULT'; select undef, undef, undef, 60;} ],
+        { cwd => $home, env => { HOME => $home }, process_group => 1 },
+    );
+    die "GoRoutine spawn failed: $!" if !defined $echild;
     my $epidfile = $runner->_pidfile($ename);
     open my $ef, '>', $epidfile or die $!;
     print {$ef} $echild;
@@ -322,21 +389,25 @@ PAGE
     # the child knows when it is ready, so only the child can say so.
     my $ready = "$flag.ready";
     unlink $ready;
-    my $bchild = fork();
-    die "fork failed: $!" if !defined $bchild;
-    if ( !$bchild ) {
-        my $flagfile = $flag;
-        $SIG{TERM} = sub {
-            select undef, undef, undef, 3;
-            if ( open my $f, '>', $flagfile ) { print {$f} 'done'; close $f; }
-            exit 0;
-        };
-        $0 = $runner->_process_title($bname);
-        $ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = $bname;
-        if ( open my $r, '>', $ready ) { print {$r} 'ready'; close $r; }
-        select undef, undef, undef, 60;
-        exit 0;
-    }
+    my $bchild = Developer::Dashboard::GoRoutine::spawn(
+        [
+            $^X, '-e', q{
+                my ( $flagfile, $readyfile, $loop_name, $process_title ) = @ARGV;
+                $SIG{TERM} = sub {
+                    select undef, undef, undef, 3;
+                    if ( open my $f, '>', $flagfile ) { print {$f} 'done'; close $f; }
+                    exit 0;
+                };
+                $0 = $process_title;
+                $ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = $loop_name;
+                if ( open my $r, '>', $readyfile ) { print {$r} 'ready'; close $r; }
+                select undef, undef, undef, 60;
+            },
+            $flag, $ready, $bname, $runner->_process_title($bname),
+        ],
+        { cwd => $home, env => { HOME => $home }, process_group => 1 },
+    );
+    die "GoRoutine spawn failed: $!" if !defined $bchild;
 
     # Bounded, and loud when it expires: a fixture that silently gave up waiting
     # would turn this into the very flake it is meant to remove.
@@ -350,7 +421,7 @@ PAGE
     $runner->_write_loop_state( $bname, { pid => $bchild } );
     $runner->stop_loop($bname);
     ok( -f $flag, 'stop_loop scales the loop TERM grace by worker count so the loop finishes its own worker cleanup before any KILL-9' );
-    kill 9, $bchild; waitpid( $bchild, 0 ) if kill 0, $bchild;
+    kill 9, $bchild if kill 0, $bchild;
     unlink $flag;
     unlink "$flag.ready";
 }
@@ -359,13 +430,14 @@ PAGE
     # Fix B+C else-branch (Facet 4): a crashed loop (dead pidfile) that left
     # orphaned workers recorded in state must still have those workers swept.
     my $cname  = 'coverage.crashed.loop.orphans';
-    my $orphan = fork();
-    die "fork failed: $!" if !defined $orphan;
-    if ( !$orphan ) { setsid(); $SIG{TERM} = 'DEFAULT'; select undef, undef, undef, 60; exit 0; }
-    my $deadpid = fork();
-    die "fork failed: $!" if !defined $deadpid;
-    if ( !$deadpid ) { exit 0; }
-    waitpid( $deadpid, 0 );
+    my $orphan = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', q{$SIG{TERM} = 'DEFAULT'; select undef, undef, undef, 60;} ],
+        { cwd => $home, env => { HOME => $home }, process_group => 1 },
+    );
+    die "GoRoutine spawn failed: $!" if !defined $orphan;
+    my $deadpid = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'exit 0;' ], {} );
+    die "GoRoutine spawn failed: $!" if !defined $deadpid;
+    Developer::Dashboard::GoRoutine::wait_process($deadpid);
     my $cpidfile = $runner->_pidfile($cname);
     open my $cf, '>', $cpidfile or die $!;
     print {$cf} $deadpid;
@@ -383,7 +455,7 @@ PAGE
     $runner->stop_loop($cname);
     select undef, undef, undef, 0.3;
     ok( !kill( 0, $orphan ), 'stop_loop sweeps orphaned worker subtrees left behind by a crashed loop with a stale pidfile' );
-    kill 9, -$orphan; kill 9, $orphan; waitpid( $orphan, 0 ) if kill 0, $orphan;
+    kill 9, -$orphan; kill 9, $orphan if kill 0, $orphan;
 }
 
 {
@@ -392,9 +464,11 @@ PAGE
     # supervisor cannot create a DUPLICATE loop by racing a fresh loop before it
     # has set its process title.
     my $dname = 'coverage.startloop.dedup';
-    my $dchild = fork();
-    die "fork failed: $!" if !defined $dchild;
-    if ( !$dchild ) { $SIG{TERM} = 'DEFAULT'; select undef, undef, undef, 60; exit 0; }
+    my $dchild = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', q{$SIG{TERM} = 'DEFAULT'; select undef, undef, undef, 60;} ],
+        { cwd => $home, env => { HOME => $home }, process_group => 1 },
+    );
+    die "GoRoutine spawn failed: $!" if !defined $dchild;
     my $dpidfile = $runner->_pidfile($dname);
     open my $dpf, '>', $dpidfile or die $!;
     print {$dpf} $dchild;
@@ -408,18 +482,18 @@ PAGE
             status       => 'running',
         }
     );
-    my $forked = 0;
+    my $spawned = 0;
     my $ret;
     {
         no warnings qw(redefine once);
         local *Developer::Dashboard::CollectorRunner::_read_process_title      = sub { return undef };
         local *Developer::Dashboard::CollectorRunner::_read_process_env_marker = sub { return undef };
-        local *Developer::Dashboard::CollectorRunner::_fork_process            = sub { $forked++; return 4000000001; };
+        local *Developer::Dashboard::GoRoutine::spawn = sub { $spawned++; return 4000000001; };
         $ret = $runner->start_loop( { name => $dname, command => 'true', cwd => $home, interval => 1 } );
     }
     is( $ret,    $dchild, 'start_loop returns the existing loop pid when it is state-confirmed on a proc-blind host' );
-    is( $forked, 0,       'start_loop does not fork a duplicate loop when the existing loop is recognized from state' );
-    kill 9, $dchild; waitpid( $dchild, 0 ) if kill 0, $dchild;
+    is( $spawned, 0,      'start_loop does not spawn a duplicate loop when the existing loop is recognized from state' );
+    kill 9, $dchild if kill 0, $dchild;
     $runner->_cleanup_loop_files($dname);
 }
 
@@ -485,14 +559,15 @@ PAGE
     my @names = qw(coverage.sort-b coverage.sort-a);
     my @children;
     for my $name (@names) {
-        my $pid = fork();
-        die "fork failed: $!" if !defined $pid;
-        if ( !$pid ) {
-            $ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = $name;
-            $0 = $runner->_process_title($name);
-            sleep 30;
-            exit 0;
-        }
+        my $pid = Developer::Dashboard::GoRoutine::spawn(
+            [
+                $^X, '-e',
+                q{my ( $name, $title ) = @ARGV; $ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = $name; $0 = $title; sleep 30;},
+                $name, $runner->_process_title($name),
+            ],
+            { cwd => $home, env => { HOME => $home } },
+        );
+        die "GoRoutine spawn failed: $!" if !defined $pid;
         push @children, $pid;
         open my $fh, '>', $runner->_pidfile($name) or die $!;
         print {$fh} $pid;
@@ -516,49 +591,83 @@ PAGE
     );
     for my $index ( 0 .. $#children ) {
         kill 'KILL', $children[$index];
-        waitpid( $children[$index], 0 );
         $runner->_cleanup_loop_files( $names[$index] );
     }
 }
 
 {
     my $shutdown_name = 'coverage.shutdown';
-    my $shutdown_pid = fork();
-    die "fork failed: $!" if !defined $shutdown_pid;
-    if ( !$shutdown_pid ) {
+    my $shutdown_source = q{
+        use File::Spec;
+        use Developer::Dashboard::Collector;
+        use Developer::Dashboard::CollectorRunner;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::IndicatorStore;
+        use Developer::Dashboard::PathRegistry;
+        my ( $home, $shutdown_name ) = @ARGV;
+        $ENV{HOME} = $home;
+        chdir $home or die "Unable to chdir to $home: $!";
+        my $paths = Developer::Dashboard::PathRegistry->new(
+            home => $home,
+            workspace_roots => [ File::Spec->catdir( $home, 'workspace' ) ],
+        );
         my $child_runner = Developer::Dashboard::CollectorRunner->new(
-            collectors => $collector_store,
-            files      => $files,
-            indicators => $indicator_store,
+            collectors => Developer::Dashboard::Collector->new( paths => $paths ),
+            files      => Developer::Dashboard::FileRegistry->new( paths => $paths ),
+            indicators => Developer::Dashboard::IndicatorStore->new( paths => $paths ),
             paths      => $paths,
         );
         $child_runner->_shutdown_loop( $shutdown_name, 'stopped' );
-    }
-    waitpid( $shutdown_pid, 0 );
-    is( $? >> 8, 0, '_shutdown_loop exits a managed child cleanly' );
+    };
+    is( _run_perl_child( $shutdown_source, $home, $shutdown_name ), 0,
+        '_shutdown_loop exits a managed child cleanly' );
 
     my $signal_name = 'coverage.signal';
-    my $signal_pid = fork();
-    die "fork failed: $!" if !defined $signal_pid;
-    if ( !$signal_pid ) {
-        local $Developer::Dashboard::CollectorRunner::SIGNAL_RUNNER    = Developer::Dashboard::CollectorRunner->new(
-            collectors => $collector_store,
-            files      => $files,
-            indicators => $indicator_store,
+    my $signal_source = q{
+        use Developer::Dashboard::Collector;
+        use Developer::Dashboard::CollectorRunner;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::IndicatorStore;
+        use Developer::Dashboard::PathRegistry;
+        my ( $home, $signal_name ) = @ARGV;
+        $ENV{HOME} = $home;
+        chdir $home or die "Unable to chdir to $home: $!";
+        my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
+        local $Developer::Dashboard::CollectorRunner::SIGNAL_RUNNER = Developer::Dashboard::CollectorRunner->new(
+            collectors => Developer::Dashboard::Collector->new( paths => $paths ),
+            files      => Developer::Dashboard::FileRegistry->new( paths => $paths ),
+            indicators => Developer::Dashboard::IndicatorStore->new( paths => $paths ),
             paths      => $paths,
         );
         local $Developer::Dashboard::CollectorRunner::SIGNAL_LOOP_NAME = $signal_name;
         Developer::Dashboard::CollectorRunner::_signal_stop();
-    }
-    waitpid( $signal_pid, 0 );
-    is( $? >> 8, 0, '_signal_stop exits a managed child cleanly' );
+    };
+    is( _run_perl_child( $signal_source, $home, $signal_name ), 0,
+        '_signal_stop exits a managed child cleanly' );
 }
 
 {
     my $loop_name = 'coverage.loop.child';
-    my $child_pid = fork();
-    die "fork failed: $!" if !defined $child_pid;
-    if ( !$child_pid ) {
+    my $loop_source = q{
+        use File::Spec;
+        use Developer::Dashboard::Collector;
+        use Developer::Dashboard::CollectorRunner;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::IndicatorStore;
+        use Developer::Dashboard::PathRegistry;
+        my ( $home, $loop_name ) = @ARGV;
+        $ENV{HOME} = $home;
+        chdir $home or die "Unable to chdir to $home: $!";
+        my $paths = Developer::Dashboard::PathRegistry->new(
+            home => $home,
+            workspace_roots => [ File::Spec->catdir( $home, 'workspace' ) ],
+        );
+        my $runner = Developer::Dashboard::CollectorRunner->new(
+            collectors => Developer::Dashboard::Collector->new( paths => $paths ),
+            files => Developer::Dashboard::FileRegistry->new( paths => $paths ),
+            indicators => Developer::Dashboard::IndicatorStore->new( paths => $paths ),
+            paths => $paths,
+        );
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::_job_is_due = sub { return 1 };
         local *Developer::Dashboard::CollectorRunner::run_once     = sub { return { ok => 1 } };
@@ -572,9 +681,9 @@ PAGE
             title         => $runner->_process_title($loop_name),
         );
         exit( $ok ? 0 : 1 );
-    }
-    waitpid( $child_pid, 0 );
-    is( $? >> 8, 0, '_run_loop_child returns cleanly after one daemonized tick' );
+    };
+    is( _run_perl_child( $loop_source, $home, $loop_name ), 0,
+        '_run_loop_child returns cleanly after one daemonized tick' );
     my $state = $runner->loop_state($loop_name);
     is( $state->{status}, 'running', '_run_loop_child writes running state during a successful tick' );
 }
@@ -603,7 +712,7 @@ PAGE
     my $state = $runner->loop_state($loop_name);
     is( $state->{status}, 'starting', 'start_loop writes starting metadata for the spawned helper' );
     is( $state->{pid}, 424242, 'start_loop records the GoRoutine child pid in state' );
-    is( $files->read( File::Spec->catfile( $paths->collectors_root, "$loop_name.pid" ) ), '424242', 'start_loop parent path writes the pidfile from the wrapped fork result' );
+    is( $files->read( File::Spec->catfile( $paths->collectors_root, "$loop_name.pid" ) ), '424242', 'start_loop parent path writes the pidfile from the wrapped process-launch result' );
 
     my $stale_name = 'coverage.start.stale.' . $$;
     open my $stale_pid, '>', $runner->_pidfile($stale_name) or die $!;
@@ -754,7 +863,7 @@ PAGE
     local *Developer::Dashboard::CollectorRunner::_spawn_windows_background_command = sub {
         die "unable to spawn GoRoutine child process: No such file or directory\n";
     };
-    my $error = eval { $runner->_start_loop_worker( { command => 'true' }, 'fork.fail', 'title' ); 1 } ? '' : $@;
+    my $error = eval { $runner->_start_loop_worker( { command => 'true' }, 'spawn.fail', 'title' ); 1 } ? '' : $@;
     like( $error, qr/unable to spawn GoRoutine child process/, '_start_loop_worker propagates GoRoutine spawn failures explicitly' );
 }
 
@@ -782,18 +891,14 @@ PAGE
 }
 
 {
-    my $child_a = fork();
-    die "fork failed: $!" if !defined $child_a;
-    if ( !$child_a ) {
-        sleep 30;
-        exit 0;
-    }
-    my $child_b = fork();
-    die "fork failed: $!" if !defined $child_b;
-    if ( !$child_b ) {
-        sleep 30;
-        exit 0;
-    }
+    my $child_a = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'sleep 30;' ], { cwd => $home, env => { HOME => $home } },
+    );
+    die "GoRoutine spawn failed: $!" if !defined $child_a;
+    my $child_b = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'sleep 30;' ], { cwd => $home, env => { HOME => $home } },
+    );
+    die "GoRoutine spawn failed: $!" if !defined $child_b;
     my %active = ( $child_a => 1, $child_b => 1 );
     ok( $runner->_terminate_loop_workers( \%active ), '_terminate_loop_workers returns true after terminating active workers' );
     is_deeply( \%active, {}, '_terminate_loop_workers clears the active worker set' );
@@ -813,14 +918,11 @@ PAGE
 }
 
 {
-    my $child = fork();
-    die "fork failed: $!" if !defined $child;
-    if ( !$child ) {
-        setsid() or die "setsid failed: $!";
-        $SIG{TERM} = 'IGNORE';
-        sleep 30;
-        exit 0;
-    }
+    my $child = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', q{$SIG{TERM} = 'IGNORE'; sleep 30;} ],
+        { cwd => $home, env => { HOME => $home }, process_group => 1 },
+    );
+    die "GoRoutine spawn failed: $!" if !defined $child;
     my %active = ( $child => 1 );
     ok( $runner->_terminate_loop_workers( \%active ), '_terminate_loop_workers escalates to KILL when a worker ignores TERM' );
     is_deeply( \%active, {}, '_terminate_loop_workers clears stubborn workers after KILL escalation' );
@@ -853,80 +955,145 @@ PAGE
 
 {
     pipe my $result_reader, my $result_writer or die "Unable to create result pipe: $!";
-    my $pid = fork();
-    die "fork failed: $!" if !defined $pid;
-    if ( !$pid ) {
-        close $result_reader;
-        socketpair( my $keep_left, my $keep_right, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-          or die "Unable to create keep socketpair: $!";
-        socketpair( my $drop_left, my $drop_right, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-          or die "Unable to create drop socketpair: $!";
+    socketpair( my $keep_left, my $keep_right, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create keep socketpair: $!";
+    socketpair( my $drop_left, my $drop_right, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create drop socketpair: $!";
+    my @inherited_handles = ( $result_writer, $keep_left, $keep_right, $drop_left, $drop_right );
+    my @descriptor_flags = map {
+        my $flags = fcntl( $_, F_GETFD, 0 );
+        die "Unable to read descriptor flags: $!" if !defined $flags;
+        $flags;
+    } @inherited_handles;
+    for my $index ( 0 .. $#inherited_handles ) {
+        my $flags = $descriptor_flags[$index] & ~FD_CLOEXEC;
+        fcntl( $inherited_handles[$index], F_SETFD, $flags )
+          or die "Unable to make descriptor inheritable for GoRoutine spawn: $!";
+    }
+    my $source = q{
+        use Developer::Dashboard::Collector;
+        use Developer::Dashboard::CollectorRunner;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::IndicatorStore;
+        use Developer::Dashboard::PathRegistry;
+        my ( $home, $result_fd, $keep_left_fd, $keep_right_fd, $drop_right_fd ) = @ARGV;
+        $ENV{HOME} = $home;
+        chdir $home or die "Unable to chdir to $home: $!";
+        open my $result_writer, '>&=' . $result_fd or die "Unable to adopt result pipe: $!";
+        open my $keep_left, '+<&=' . $keep_left_fd or die "Unable to adopt preserved socket: $!";
+        open my $keep_right, '+<&=' . $keep_right_fd or die "Unable to adopt preserved socket: $!";
+        open my $drop_right, '+<&=' . $drop_right_fd or die "Unable to adopt dropped socket: $!";
+        my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
+        my $runner = Developer::Dashboard::CollectorRunner->new(
+            collectors => Developer::Dashboard::Collector->new( paths => $paths ),
+            files => Developer::Dashboard::FileRegistry->new( paths => $paths ),
+            indicators => Developer::Dashboard::IndicatorStore->new( paths => $paths ),
+            paths => $paths,
+        );
         local $SIG{PIPE} = 'IGNORE';
-        local $SIG{__WARN__} = sub {
-            my ($warning) = @_;
-            return if defined $warning && $warning =~ /Broken pipe|Bad file descriptor/;
-            warn $warning;
-        };
         $runner->_close_inherited_fds(
-            keep => [
-                fileno($result_writer),
-                fileno($keep_left),
-                fileno($keep_right),
-            ],
+            keep => [ $result_fd, $keep_left_fd, $keep_right_fd ],
             close_ipc => 1,
         );
         my $keep_ok = defined syswrite( $keep_right, "kept\n" ) ? 1 : 0;
         my $drop_ok = defined syswrite( $drop_right, "dropped\n" ) ? 1 : 0;
-        print {$result_writer} "$keep_ok:$drop_ok\n";
-        close $result_writer;
-        POSIX::_exit(0);
+        print {$result_writer} "$keep_ok:$drop_ok\n" or die "Unable to report descriptor results: $!";
+        close $result_writer or die "Unable to close result pipe: $!";
+    };
+    my @include = map { '-I' . File::Spec->catdir( $repo_root, $_ ) } qw(lib blib/lib blib/arch);
+    my $pid = Developer::Dashboard::GoRoutine::spawn(
+        [
+            $^X, @include, '-e', $source,
+            $home, fileno($result_writer), fileno($keep_left), fileno($keep_right), fileno($drop_right),
+        ],
+        { cwd => $home, env => { HOME => $home } },
+    );
+    for my $index ( 0 .. $#inherited_handles ) {
+        fcntl( $inherited_handles[$index], F_SETFD, $descriptor_flags[$index] )
+          or die "Unable to restore descriptor flags after GoRoutine spawn: $!";
     }
+    die "GoRoutine spawn failed: $!" if !defined $pid;
     close $result_writer;
+    close $keep_right;
+    close $drop_right;
+    close $drop_left;
     my $payload = <$result_reader>;
     close $result_reader;
-    waitpid( $pid, 0 );
+    is( Developer::Dashboard::GoRoutine::wait_process($pid), 0,
+        '_close_inherited_fds descriptor fixture exits cleanly' );
     chomp $payload if defined $payload;
     is( $payload, '1:0', '_close_inherited_fds also closes inherited socketpair descriptors while preserving explicit keep handles' );
+    my $kept_message = <$keep_left>;
+    close $keep_left;
+    is( $kept_message, "kept\n", 'spawned process retains the explicitly allowed inherited socket endpoint' );
 }
 
 {
     my $shutdown_name = 'coverage.shutdown.with-workers';
-    my $shutdown_pid = fork();
-    die "fork failed: $!" if !defined $shutdown_pid;
-    if ( !$shutdown_pid ) {
-        my $worker = fork();
-        die "fork failed: $!" if !defined $worker;
-        if ( !$worker ) {
-            sleep 30;
-            exit 0;
-        }
-        my %active = ( $worker => 1 );
-        my $child_runner = Developer::Dashboard::CollectorRunner->new(
-            collectors => $collector_store,
-            files      => $files,
-            indicators => $indicator_store,
-            paths      => $paths,
+    my $shutdown_source = q{
+        use File::Spec;
+        use Developer::Dashboard::Collector;
+        use Developer::Dashboard::CollectorRunner;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::GoRoutine ();
+        use Developer::Dashboard::IndicatorStore;
+        use Developer::Dashboard::PathRegistry;
+        my ($home, $name) = @ARGV;
+        $ENV{HOME} = $home;
+        chdir $home or die "Unable to chdir to $home: $!";
+        my $paths = Developer::Dashboard::PathRegistry->new(
+            home => $home,
+            workspace_roots => [ File::Spec->catdir($home, 'workspace') ],
         );
-        $child_runner->_shutdown_loop( $shutdown_name, 'stopped', \%active );
-    }
-    waitpid( $shutdown_pid, 0 );
-    is( $? >> 8, 0, '_shutdown_loop terminates tracked workers before exiting a managed child' );
+        my $runner = Developer::Dashboard::CollectorRunner->new(
+            collectors => Developer::Dashboard::Collector->new(paths => $paths),
+            files => Developer::Dashboard::FileRegistry->new(paths => $paths),
+            indicators => Developer::Dashboard::IndicatorStore->new(paths => $paths),
+            paths => $paths,
+        );
+        my $worker = Developer::Dashboard::GoRoutine::spawn(
+            [ $^X, '-e', 'sleep 30' ],
+            {},
+        );
+        die "GoRoutine worker launch failed: $!" if !defined $worker;
+        my %active = ( $worker => 1 );
+        $runner->_shutdown_loop($name, 'stopped', \%active);
+    };
+    is( _run_perl_child( $shutdown_source, $home, $shutdown_name ), 0,
+        '_shutdown_loop terminates tracked GoRoutine workers before exiting a managed child' );
     pass('_shutdown_loop reaps tracked worker children during shutdown');
 }
 
 {
-    my %state_capture;
-    my @log_entries;
-    my $child_pid = fork();
-    die "fork failed: $!" if !defined $child_pid;
-    if ( !$child_pid ) {
+    my $source = q{
+        use File::Spec;
+        use JSON::XS ();
+        use Developer::Dashboard::Collector;
+        use Developer::Dashboard::CollectorRunner;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::IndicatorStore;
+        use Developer::Dashboard::JSON ();
+        use Developer::Dashboard::PathRegistry;
+        my ($home) = @ARGV;
+        $ENV{HOME} = $home;
+        chdir $home or die "Unable to chdir to $home: $!";
+        my $paths = Developer::Dashboard::PathRegistry->new(
+            home => $home,
+            workspace_roots => [ File::Spec->catdir( $home, 'workspace' ) ],
+        );
+        my $runner = Developer::Dashboard::CollectorRunner->new(
+            collectors => Developer::Dashboard::Collector->new( paths => $paths ),
+            files => Developer::Dashboard::FileRegistry->new( paths => $paths ),
+            indicators => Developer::Dashboard::IndicatorStore->new( paths => $paths ),
+            paths => $paths,
+        );
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::run_once = sub { die "worker fallback failure\n" };
         local *Developer::Dashboard::CollectorRunner::_write_loop_state = sub {
             my ( undef, $name, $data ) = @_;
             my $file = File::Spec->catfile( $home, 'worker-fallback-state.json' );
             open my $fh, '>', $file or die $!;
-            print {$fh} json_encode( { name => $name, %{$data} } );
+            print {$fh} JSON::XS->new->encode( { name => $name, %{$data} } );
             close $fh;
             return $data;
         };
@@ -936,9 +1103,9 @@ PAGE
             undef,
             undef,
         );
-    }
-    waitpid( $child_pid, 0 );
-    is( $? >> 8, 255, '_run_loop_worker exits non-zero when the worker body dies' );
+    };
+    is( _run_perl_child( $source, $home ), 255,
+        '_run_loop_worker exits non-zero when the worker body dies' );
     my $state_file = File::Spec->catfile( $home, 'worker-fallback-state.json' );
     open my $state_fh, '<', $state_file or die $!;
     my $state = json_decode( do { local $/; <$state_fh> } );
@@ -950,15 +1117,32 @@ PAGE
 
 {
     my $loop_name = 'coverage.loop.start-failure';
-    my $child_pid = fork();
-    die "fork failed: $!" if !defined $child_pid;
-    if ( !$child_pid ) {
+    my $source = q{
+        use File::Spec;
+        use Developer::Dashboard::Collector;
+        use Developer::Dashboard::CollectorRunner;
+        use Developer::Dashboard::FileRegistry;
+        use Developer::Dashboard::IndicatorStore;
+        use Developer::Dashboard::PathRegistry;
+        my ($home, $loop_name) = @ARGV;
+        $ENV{HOME} = $home;
+        chdir $home or die "Unable to chdir to $home: $!";
+        my $paths = Developer::Dashboard::PathRegistry->new(
+            home => $home,
+            workspace_roots => [ File::Spec->catdir($home, 'workspace') ],
+        );
+        my $runner = Developer::Dashboard::CollectorRunner->new(
+            collectors => Developer::Dashboard::Collector->new(paths => $paths),
+            files => Developer::Dashboard::FileRegistry->new(paths => $paths),
+            indicators => Developer::Dashboard::IndicatorStore->new(paths => $paths),
+            paths => $paths,
+        );
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::_job_is_due = sub { return 1 };
         local *Developer::Dashboard::CollectorRunner::_start_loop_worker = sub { die "forced worker start failure\n" };
         local *Developer::Dashboard::CollectorRunner::sleep = sub { return 0 };
         my $ok = $runner->_run_loop_child(
-            daemonize     => 1,
+            daemonize     => 0,
             interval      => 0,
             job           => { command => 'printf child', cwd => $home },
             name          => $loop_name,
@@ -966,11 +1150,19 @@ PAGE
             single_tick   => 1,
             title         => $runner->_process_title($loop_name),
         );
+        my $state = $runner->loop_state($loop_name);
+        open my $fh, '>', File::Spec->catfile($home, 'start-failure-state.json')
+          or die "Unable to write loop state: $!";
+        print {$fh} Developer::Dashboard::JSON::json_encode($state);
+        close $fh or die "Unable to close loop state: $!";
         exit( $ok ? 0 : 1 );
-    }
-    waitpid( $child_pid, 0 );
-    is( $? >> 8, 0, '_run_loop_child returns cleanly after a worker-start failure tick' );
-    my $state = $runner->loop_state($loop_name);
+    };
+    is( _run_perl_child( $source, $home, $loop_name ), 0,
+        '_run_loop_child returns cleanly after a worker-start failure tick' );
+    my $state_file = File::Spec->catfile( $home, 'start-failure-state.json' );
+    open my $state_fh, '<', $state_file or die "Unable to read loop state: $!";
+    my $state = json_decode( do { local $/; <$state_fh> } );
+    close $state_fh or die "Unable to close loop state: $!";
     is( $state->{status}, 'error', '_run_loop_child records error state when worker startup fails' );
     like( $state->{error}, qr/forced worker start failure/, '_run_loop_child persists worker-start failure details' );
 }
@@ -1274,6 +1466,9 @@ __END__
 
 This test exercises migration, fallback, private helper, and managed-child
 paths that are difficult to reach from the higher-level CLI and browser flows.
+Long-lived process fixtures are launched with the GoRoutine process API so the
+coverage test exercises the same cross-platform process boundary as the
+application without direct Perl process-creation calls outside GoRoutine.
 
 =for comment FULL-POD-DOC START
 
@@ -1291,7 +1486,7 @@ Use this file when changing the hard-to-hit branches that keep library coverage 
 
 =head1 HOW TO USE
 
-Run it directly with C<prove -lv t/14-coverage-closure-extra.t> while iterating, then keep it green under C<prove -lr t> and the coverage runs before release. 
+Run it inside the dev Docker container with C<d2 docker compose exec dev prove -Iblib/lib -Iblib/arch -lv t/14-coverage-closure-extra.t> while iterating, then keep it green under the Docker test suite and coverage runs before release.
 
 =head1 WHAT USES IT
 

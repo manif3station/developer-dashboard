@@ -320,8 +320,7 @@ sub share (\$) : lvalue {
     if (tied($$slot)) {
         my $tied = tied($$slot);
         die "share() called on an already tied scalar"
-            unless blessed($tied)
-                && $tied->isa(__PACKAGE__ . '::SharedScalar');
+            unless _is_shared_proxy($tied, __PACKAGE__ . '::SharedScalar');
     }
     else {
         my $initial = $$slot;
@@ -345,8 +344,7 @@ sub _share_many {
             my $tied = tied @$ref;
             if ($tied) {
                 die "share() called on an already tied array"
-                    unless blessed($tied)
-                        && $tied->isa(__PACKAGE__ . '::SharedArray');
+                    unless _is_shared_proxy($tied, __PACKAGE__ . '::SharedArray');
                 next;
             }
 
@@ -361,8 +359,7 @@ sub _share_many {
             my $tied = tied %$ref;
             if ($tied) {
                 die "share() called on an already tied hash"
-                    unless blessed($tied)
-                        && $tied->isa(__PACKAGE__ . '::SharedHash');
+                    unless _is_shared_proxy($tied, __PACKAGE__ . '::SharedHash');
                 next;
             }
 
@@ -396,8 +393,7 @@ FILTER_ONLY code => sub {
 sub _proxy_ptr {
     my ($value) = @_;
 
-    if (blessed($value)
-        && $value->isa(__PACKAGE__ . '::SharedValue')) {
+    if (_is_shared_proxy($value, __PACKAGE__ . '::SharedValue')) {
         return $value->{ptr};
     }
 
@@ -416,10 +412,20 @@ sub _proxy_ptr {
         $tied = tied ${$value};
     }
 
-    return unless blessed($tied)
-        && $tied->isa(__PACKAGE__ . '::SharedProxyBase');
+    return unless _is_shared_proxy($tied, __PACKAGE__ . '::SharedProxyBase');
 
     return $tied->{ptr};
+}
+
+# Purpose: determine whether a value is a blessed instance of a requested proxy
+#          class without relying on short-circuit behavior at every call site.
+# Input:   a candidate value and the fully qualified class name to check.
+# Output:  true for a blessed instance of that class, false otherwise.
+sub _is_shared_proxy {
+    my ( $candidate, $class ) = @_;
+
+    return 0 unless blessed($candidate);
+    return $candidate->isa($class) ? 1 : 0;
 }
 
 sub _value_for_ptr {
@@ -576,8 +582,7 @@ sub _handle_remote_dispatch {
 
 sub _scalar_snapshot {
     my ($value) = @_;
-    if (blessed($value)
-        && $value->isa(__PACKAGE__ . '::SharedValue')) {
+    if (_is_shared_proxy($value, __PACKAGE__ . '::SharedValue')) {
         return _shared_scalar_get($value->{ptr});
     }
     return $value;
@@ -707,11 +712,12 @@ package Developer::Dashboard::GoRoutine::SharedScalar;
 use strict;
 use warnings;
 use parent -norequire, 'Developer::Dashboard::GoRoutine::SharedProxyBase';
-use Scalar::Util qw(blessed);
 
 sub TIESCALAR {
     my ($class, $ptr) = @_;
-    $ptr ||= Developer::Dashboard::GoRoutine::_shared_node_new();
+    if (!$ptr) {
+        $ptr = Developer::Dashboard::GoRoutine::_shared_node_new();
+    }
     return bless { ptr => $ptr }, $class;
 }
 
@@ -723,8 +729,8 @@ sub STORE {
     my ($self, $value) = @_;
     my $ptr = $self->{ptr};
 
-    if (blessed($value)
-        && $value->isa('Developer::Dashboard::GoRoutine::SharedOp')) {
+    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
+            $value, 'Developer::Dashboard::GoRoutine::SharedOp' )) {
         Developer::Dashboard::GoRoutine::_shared_scalar_apply(
             $value->{ptr},
             $value->{op},
@@ -734,8 +740,8 @@ sub STORE {
         return;
     }
 
-    if (blessed($value)
-        && $value->isa('Developer::Dashboard::GoRoutine::SharedValue')) {
+    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
+            $value, 'Developer::Dashboard::GoRoutine::SharedValue' )) {
         return if $value->{already_applied} && $value->{ptr} == $ptr;
         return if $value->{ptr} == $ptr;
         die "assigning one shared reference directly to another top-level shared scalar is not supported; assign it inside a shared hash/array instead";
@@ -770,7 +776,6 @@ package Developer::Dashboard::GoRoutine::SharedHash;
 use strict;
 use warnings;
 use parent -norequire, 'Developer::Dashboard::GoRoutine::SharedProxyBase';
-use Scalar::Util qw(blessed);
 
 sub TIEHASH {
     my ($class, $ptr) = @_;
@@ -797,8 +802,8 @@ sub STORE {
     my ($self, $key, $value) = @_;
     my $parent = $self->{ptr};
 
-    if (blessed($value)
-        && $value->isa('Developer::Dashboard::GoRoutine::SharedOp')) {
+    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
+            $value, 'Developer::Dashboard::GoRoutine::SharedOp' )) {
         Developer::Dashboard::GoRoutine::_shared_scalar_apply(
             $value->{ptr}, $value->{op}, $value->{arg},
             $value->{reverse} ? 1 : 0,
@@ -806,8 +811,8 @@ sub STORE {
         return;
     }
 
-    if (blessed($value)
-        && $value->isa('Developer::Dashboard::GoRoutine::SharedValue')) {
+    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
+            $value, 'Developer::Dashboard::GoRoutine::SharedValue' )) {
         return if $value->{already_applied};
         Developer::Dashboard::GoRoutine::_shared_hash_store_ptr(
             $parent, $key, $value->{ptr}
@@ -870,7 +875,6 @@ package Developer::Dashboard::GoRoutine::SharedArray;
 use strict;
 use warnings;
 use parent -norequire, 'Developer::Dashboard::GoRoutine::SharedProxyBase';
-use Scalar::Util qw(blessed);
 
 sub TIEARRAY {
     my ($class, $ptr) = @_;
@@ -909,8 +913,8 @@ sub STORE {
     my $size = $self->FETCHSIZE;
     $index += $size if $index < 0;
 
-    if (blessed($value)
-        && $value->isa('Developer::Dashboard::GoRoutine::SharedOp')) {
+    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
+            $value, 'Developer::Dashboard::GoRoutine::SharedOp' )) {
         Developer::Dashboard::GoRoutine::_shared_scalar_apply(
             $value->{ptr}, $value->{op}, $value->{arg},
             $value->{reverse} ? 1 : 0,
@@ -918,8 +922,8 @@ sub STORE {
         return;
     }
 
-    if (blessed($value)
-        && $value->isa('Developer::Dashboard::GoRoutine::SharedValue')) {
+    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
+            $value, 'Developer::Dashboard::GoRoutine::SharedValue' )) {
         return if $value->{already_applied};
         Developer::Dashboard::GoRoutine::_shared_array_store_ptr(
             $self->{ptr}, $index, $value->{ptr}

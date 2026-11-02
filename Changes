@@ -1,3 +1,23 @@
+6.20  2026-11-01
+
+  - Export the complete GoRoutine API, including process_exited, beside d2
+    through use Developer::Dashboard. Preserve the GoRoutine source syntax
+    filter for callers and add Docker coverage for the imported routines,
+    shared values, channels, and child-process lifecycle.
+  - Wire the opt-in native System Menu into the foreground web-service
+    lifecycle. The staged runtime now supplies merged configuration and the
+    indicator store to SystemMenu::Runner; GoRoutine-managed menu workers are
+    stopped and joined on service return or error. Add Docker lifecycle and
+    runtime-wiring regression tests, and document that native visibility still
+    requires hosted platform verification.
+  - Repair hosted native builds: install GTK/Ayatana development packages on
+    Linux workflow runners and the published image; build the macOS helper
+    with ARC and deprecated-API diagnostics as errors; and omit unsupported
+    Devel::Cover installation from Windows test dependencies.
+  - Keep the CPAN audit tool installation running after an earlier build-gate
+    failure, so the always-run declared dependency-chain audit reports its own
+    result instead of failing only because CPAN::Audit was never installed.
+
 6.19  2026-10-31
 
   - Extend GoRoutine shared graph transport to preserve compiled regular

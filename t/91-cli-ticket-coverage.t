@@ -12,9 +12,9 @@ use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use Errno qw(EACCES ENOENT);
-use POSIX qw(_exit);
 
 use lib 'lib';
+use lib 't/lib';
 
 use Developer::Dashboard::CLI::Ticket qw(
   apply_ticket_status
@@ -35,6 +35,8 @@ use Developer::Dashboard::CLI::Ticket qw(
   tmux_command
   workspace_environment
 );
+use Developer::Dashboard qw(spawn wait_process);
+use Local::DevelCoverSwitch qw(devel_cover_switches);
 
 # registered_workspace_dir() resolves these three at run time; load them here so
 # the hermetic chdir below cannot strand a relative library path.
@@ -2012,18 +2014,28 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
 
 
 {
-    my ( $stdout, $stderr, $status ) = capture {
-        my $pid = fork();
-        die "Unable to fork for failed tmux exec test: $!\n" if !defined $pid;
-        if ( !$pid ) {
-            local $ENV{PATH} = '/directory-that-does-not-exist';
-            local $SIG{__WARN__} = 'DEFAULT';
-            Developer::Dashboard::CLI::Ticket::_exec_tmux('attach-session');
-            _exit(23);
-        }
-        waitpid( $pid, 0 );
-        return $? >> 8;
-    };
+    my $stdout_path = File::Spec->catfile( $home, 'failed-tmux-exec.stdout' );
+    my $stderr_path = File::Spec->catfile( $home, 'failed-tmux-exec.stderr' );
+    my @include = map { '-I' . File::Spec->catdir( $repo, $_ ) } qw(lib blib/lib blib/arch);
+    my @coverage_switch = devel_cover_switches($ENV{HARNESS_PERL_SWITCHES});
+    my $pid = spawn(
+        [
+            $^X, @include, @coverage_switch, '-e',
+            q{use Developer::Dashboard::CLI::Ticket (); local $SIG{__WARN__} = 'DEFAULT'; Developer::Dashboard::CLI::Ticket::_exec_tmux('attach-session'); exit 23;},
+        ],
+        {
+            cwd    => $repo,
+            env    => { PATH => '/directory-that-does-not-exist' },
+            stdout => $stdout_path,
+            stderr => $stderr_path,
+        },
+    );
+    die "Unable to spawn failed tmux exec test: $!\n" if !defined $pid;
+    my $status = wait_process($pid);
+    open my $stderr_fh, '<', $stderr_path or die "Unable to read $stderr_path: $!";
+    local $/;
+    my $stderr = <$stderr_fh>;
+    close $stderr_fh or die "Unable to close $stderr_path: $!";
     is( $status, 23, 'the direct tmux exec helper returns control when tmux cannot be found' );
     like( $stderr, qr/Can't exec "tmux"/, 'a failed direct exec reports the operating-system error' );
 }
@@ -2110,10 +2122,13 @@ Tmux socket selection honors
 C<TMUX_TMPDIR>, falls back to
 C</dev/shm> when C</tmp> is unwritable, and reports when neither is usable. A
 fake C<d2> executable verifies the default Compose
-handoff uses an argument list without shell interpretation; a fork-isolated
-missing-C<tmux> case exercises the failed C<exec> boundary without replacing
-the test process. Entrypoint fallback, signal status, invalid arguments, and
-malformed runner results are also covered explicitly.
+handoff uses an argument list without shell interpretation; a missing-C<tmux>
+child, launched and reaped through GoRoutine, exercises the
+failed C<exec> boundary without replacing the test process. When the coverage
+harness is active, that child receives the complete C<Devel::Cover> switch so
+the direct C<exec> helper's control-return path is recorded in the same
+database. Entrypoint fallback, signal status,
+invalid arguments, and malformed runner results are also covered explicitly.
 
 =head1 HOW TO USE
 

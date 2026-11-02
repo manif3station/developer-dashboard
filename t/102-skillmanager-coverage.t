@@ -17,6 +17,7 @@ use lib 'lib';
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Platform ();
 use Developer::Dashboard::SkillManager;
+use Developer::Dashboard::GoRoutine ();
 
 # ---------------------------------------------------------------------------
 # Hermetic runtime rooted in an isolated HOME. Config resolution keys off the
@@ -1998,41 +1999,41 @@ my $repos = tempdir( CLEANUP => 1 );
     # it, even while ignored, exercising the same "reaped without KILL"
     # branch as a cooperative child - looping keeps it alive past the whole
     # window), and the child must have its ignore-handler installed BEFORE
-    # terminate sends TERM (a bare fork with no synchronization races: TERM
-    # can arrive before the child's first statement runs, in which case the
+    # terminate sends TERM (an unsynchronized process launch races: TERM
+    # can arrive before the child's handler setup runs, in which case the
     # default disposition kills it immediately and no escalation is ever
     # exercised - confirmed by reproducing this race directly). A readiness
     # file makes the parent wait for the handler to be installed first.
     my $ready = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'ready' );
-    my $pid = fork;
-    die "fork failed: $!" if !defined $pid;    # uncoverable branch true
-    if ( $pid == 0 ) {
-        local $SIG{TERM} = 'IGNORE';
-        open my $fh, '>', $ready or die "Unable to write $ready: $!";    # uncoverable branch true
-        close $fh;
-        sleep 1 for 1 .. 30;
-        exit 0;    # uncoverable statement
-    }
+    my $pid = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', q{
+            my ($ready) = @ARGV;
+            $SIG{TERM} = 'IGNORE';
+            open my $fh, '>', $ready or die "Unable to write $ready: $!";
+            close $fh or die "Unable to close $ready: $!";
+            sleep 1 for 1 .. 30;
+        }, $ready ],
+        {},
+    );
+    die "GoRoutine spawn failed: $!" if !defined $pid;
     my $waited_ready = 0;
     while ( !-e $ready && $waited_ready < 500 ) {
         select( undef, undef, undef, 0.005 );
         $waited_ready++;
     }
     $manager->_terminate_streaming_command($pid);
-    my $waited = waitpid( $pid, 1 );
-    ok( $waited == $pid || $waited == -1, 'terminate escalates to KILL when the child ignores TERM, and it is reaped' );
+    ok( Developer::Dashboard::GoRoutine::process_exited($pid),
+        'terminate escalates to KILL when the child ignores TERM, and it is reaped' );
 
     # A child reaped by someone else before terminate is called: the internal
     # waitpid answers -1 (no such child), exercising that side of the
     # $waited == $pid || $waited == -1 condition without needing a KILL -
     # matching CollectorRunner::_terminate_command_process's own established
     # test for the identical pattern (t/115-collectorrunner-coverage-2.t).
-    my $gone = fork;
-    die "fork failed: $!" if !defined $gone;    # uncoverable branch true
-    if ( $gone == 0 ) {
-        exit 0;    # uncoverable statement
-    }
-    waitpid( $gone, 0 );
+    my $gone = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'exit 0;' ], {} );
+    die "GoRoutine spawn failed: $!" if !defined $gone;
+    is( Developer::Dashboard::GoRoutine::wait_process($gone), 0,
+        'already-finished process fixture exits before the termination check' );
     ok( $manager->_terminate_streaming_command($gone),
         'terminate treats a waitpid of -1 as an already-reaped child, without escalating to KILL' );
 

@@ -8,22 +8,49 @@ use Test::More;
 use File::Temp qw(tempdir);
 use File::Path qw(make_path);
 use File::Spec;
+use Cwd qw(getcwd);
 
 use lib 'lib';
+use lib 't/lib';
 
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SkillManager;
 use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::CLI::Which;
 use Developer::Dashboard::CLI::TableHelpers;
+use Developer::Dashboard::GoRoutine ();
+use Local::DevelCoverSwitch qw(devel_cover_switches);
 
 # Hermetic runtime: a temp HOME the test also chdirs into, so the
 # DD-OOP-LAYERS runtime root resolves from this directory (the which helper
 # builds its own registry from $ENV{HOME} and the cwd) and nothing leaks in
 # from the developer's real home.
+my $repo = getcwd();
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
 chdir $home or die "Unable to chdir to $home: $!";
+
+{
+    my @include = map { '-I' . File::Spec->catdir( $repo, $_ ) } qw(lib blib/lib blib/arch);
+    my @coverage_switch = devel_cover_switches($ENV{HARNESS_PERL_SWITCHES});
+    my $exec_child = Developer::Dashboard::GoRoutine::spawn(
+        [
+            $^X,
+            @include,
+            @coverage_switch,
+            '-MDeveloper::Dashboard::CLI::Which',
+            '-e',
+            q{Developer::Dashboard::CLI::Which::_command_exec($^X, '-e', 'exit 23')},
+        ],
+        { cwd => $repo },
+    );
+    ok( $exec_child, '_command_exec child starts through GoRoutine' );
+    is(
+        Developer::Dashboard::GoRoutine::wait_process($exec_child),
+        23,
+        '_command_exec preserves literal executable arguments and the child status'
+    );
+}
 
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
 
@@ -401,6 +428,10 @@ C<COMMAND>/C<HOOK> output can be asserted without disturbing TAP. The unreadable
 hook-directory case is skipped when the test runs as root because root bypasses
 POSIX directory permissions. Keep it green under C<prove -lr t> and under the
 Devel::Cover branch and condition run before release.
+The exec-wrapper check uses a GoRoutine-managed child so the production helper
+is exercised while the test process remains alive. When the parent harness
+provides configured C<Devel::Cover> options, the child receives the complete
+module switch so its data reaches the same coverage database.
 
 =head1 WHAT USES IT
 
@@ -424,7 +455,7 @@ Run it through the harness with verbose per-assertion output.
 
 Example 3:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t/75-cli-which-coverage.t
+  HARNESS_PERL_SWITCHES=-MDevel::Cover=-db,cover_db prove -lr t/75-cli-which-coverage.t
 
 Exercise the same test while collecting branch and condition coverage for the
 locator module.

@@ -47,6 +47,7 @@ on 'test' => sub {
     }
     requires 'Test::Harness', '3.48';
     requires 'TAP::Harness::Env', '3.29';
+    requires 'CPAN::Audit';
 };
 
 on 'develop' => sub {

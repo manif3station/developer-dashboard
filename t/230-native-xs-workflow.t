@@ -169,6 +169,22 @@ my $test_workflow = LoadFile($test_workflow_path);
 my $test_job = $test_workflow->{jobs}{test};
 ok( ref($test_job) eq 'HASH', 'the Linux test workflow declares its test job' );
 my $test_steps = $test_job->{steps} || [];
+my ($audit_install_index) = grep {
+    ( $test_steps->[$_]{name} // q{} ) eq 'Install the audit tool outside the scanned root'
+} 0 .. $#{$test_steps};
+ok( defined $audit_install_index,
+    'the Linux Test workflow installs the dependency auditor outside the scanned root' );
+is( $test_steps->[$audit_install_index]{if}, 'always()',
+    'the dependency auditor is installed even when an earlier release gate fails' );
+my ($declared_audit_index) = grep {
+    ( $test_steps->[$_]{name} // q{} ) eq 'Audit declared dependency chain (RELEASE GATE)'
+} 0 .. $#{$test_steps};
+ok( defined $declared_audit_index,
+    'the Linux Test workflow reports the declared-chain audit result' );
+is( $test_steps->[$declared_audit_index]{if}, 'always()',
+    'the declared-chain audit still reports after an earlier gate fails' );
+cmp_ok( $audit_install_index, '<', $declared_audit_index,
+    'the auditor is prepared before the declared-chain audit runs' );
 my ($test_native_deps) = grep {
     ( $_->{name} // q{} ) eq 'Install native Linux system-menu build dependencies'
 } @{$test_steps};
@@ -293,7 +309,9 @@ such as C<File::ShareDir::Install> load before C<blib> exists. Linux jobs must
 install the GTK and Ayatana AppIndicator development packages needed by the
 native menu helper, macOS must enable ARC for its weak Objective-C references,
 and Windows must not request Devel::Cover, which is unsupported by its current
-toolchain.
+toolchain. The main Test workflow also prepares its external CPAN auditor with
+C<always()> so an earlier build failure does not make the downstream audit fail
+merely because C<CPAN::Audit> was never installed.
 
 =head1 WHY IT EXISTS
 
@@ -306,7 +324,10 @@ run the source suite without the just-built XS API available. The platform
 matrix and JavaScript fuzz workflow also compile the native Linux helper, so
 each needs its own Linux-only system package setup. MacOS helper compilation
 uses ARC, and Devel::Cover remains a non-Windows test dependency because the
-Windows compatibility job runs the full suite without instrumentation.
+Windows compatibility job runs the full suite without instrumentation. The
+regression test also checks that the audit-tool installer runs with
+C<if: always()> before the always-run declared-chain audit, allowing that audit
+to report its own result after an earlier build failure.
 
 =head1 WHEN TO USE
 

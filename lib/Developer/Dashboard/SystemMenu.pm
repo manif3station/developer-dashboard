@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use JSON::XS ();
 
-our $VERSION = '6.19';
+our $VERSION = '6.20';
 
 # items_for_platform(%args)
 # Projects configured indicator declarations and current indicator states into
@@ -39,7 +39,7 @@ sub items_for_platform {
             next if !defined $enabled;
             my $valid_boolean = ref($enabled)
               ? JSON::XS::is_bool($enabled)
-              : !ref($enabled) && $enabled =~ /\A(?:0|1)\z/;
+              : $enabled =~ /\A(?:0|1)\z/;
             die "indicator '$name' $platform selector must be boolean\n"
               if !$valid_boolean;
             $selected = $enabled ? 1 : 0 if $platform eq $args{platform};
@@ -88,18 +88,19 @@ framework during ordinary command startup.
 =head1 WHY IT EXISTS
 
 The Dashboard already records named indicators and their current display
-icons. A system menu should show only indicators explicitly enabled for that
-platform, in configuration order, while leaving the existing terminal prompt
-indicator path unchanged. Separating this projection from AppKit keeps Linux
-tests able to validate configuration and mapping without pretending to run a
-macOS menu.
+icons. The foreground web service can show the enabled indicators in a native
+operating-system menu while leaving the existing terminal prompt indicator
+path unchanged. Separating this configuration projection from the native
+adapter keeps Linux tests able to validate selection without pretending to
+display a desktop menu.
 
 =head1 WHEN TO USE
 
-Use C<items_for_platform> from a platform-specific menu runner after loading
-the merged dashboard configuration and current indicator records. The current
-projection recognises the C<macos>, C<windows>, and C<ubuntu> selectors;
-native menu startup and event handling are separate integration work. Ordinary
+Use C<items_for_platform> from C<Developer::Dashboard::SystemMenu::Runner>
+after loading merged Dashboard configuration and current indicator records.
+The runner supports C<macos>, C<windows>, and C<ubuntu> selectors and owns the
+native menu's blocking event loop on a controlled GoRoutine worker. The
+foreground service must stop and join that worker during shutdown. Ordinary
 commands must not start a blocking menu loop.
 
 =head1 HOW TO USE
@@ -121,8 +122,9 @@ platform.
 Pass the already merged configuration, current indicator records from
 C<Developer::Dashboard::IndicatorStore>, and the platform key. The returned
 array preserves declaration order and contains only currently available,
-enabled indicators; callers pass it to a matching native adapter only after
-that platform's lifecycle integration is available.
+enabled indicators. To run a native menu, pass the merged configuration and
+indicator store to C<Developer::Dashboard::SystemMenu::Runner> and use
+C<run_with> around the foreground service callback.
 
 =head1 EXAMPLES
 
@@ -137,14 +139,15 @@ Given current states C<{ name =E<gt> 'build', icon =E<gt> 'OK' }> and
 C<{ name =E<gt> 'tests', icon =E<gt> 'FAIL' }>, a C<macos> or C<windows> call
 contains the C<build> entry, while an C<ubuntu> call contains C<tests>. This is
 configuration projection only; it does not assert that any native menu is
-started or visible.
+started or visible. Native integration is opt-in per platform; Ubuntu requires
+Ayatana AppIndicator3 and GTK3 development packages to build its helper.
 
 =head1 WHAT USES IT
 
 Configuration tests use this module on Linux to verify platform selection and
-validation without launching a graphical process. A native runner may use the
-projection once its platform backend and lifecycle have been integrated. The
-module itself has no native dependencies and can be loaded by commands on
-every platform.
+validation without launching a graphical process. The foreground service's
+SystemMenu runner uses the projection before starting the bundled native
+adapter. The projection module itself has no native dependencies and can be
+loaded by commands on every platform.
 
 =cut

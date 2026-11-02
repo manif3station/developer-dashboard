@@ -192,16 +192,31 @@ sub invocations {
     is( $exit, 0, 'a clean four-metric report passes through the canonical entrypoint' );
 
     my @ran = invocations($stub);
-    is( scalar @ran, 4, 'the entrypoint ran four commands: delete, instrumented suite, native-thread suite, report' );
-    is_deeply( [ map { $_->{name} } @ran ], [qw(cover prove prove cover)], 'the chain ran delete, both suites, then the report' );
+    is( scalar @ran, 4, 'the entrypoint ran database drop, both suites, and report' );
+    is_deeply( [ map { $_->{name} } @ran ], [qw(cover prove prove cover)], 'the chain ran database drop, both suites, then the report' );
     like( $ran[1]{arguments}, qr/t\/232-goroutine-process\.t/, 'the instrumented suite includes non-thread tests' );
-    unlike( $ran[1]{arguments}, qr/t\/(?:231-goroutine-integration|237-goroutine-shared-objects|238-goroutine-routine-controls)\.t/, 'the instrumented suite excludes only the three thread tests' );
+    unlike(
+        $ran[1]{arguments},
+        qr{t/(?:17-web-server-ssl|231-goroutine-integration|237-goroutine-shared-objects|238-goroutine-routine-controls|241-system-menu-runner|244-goroutine-channels|245-goroutine-native-reference-types|248-dashboard-goroutine-exports)\.t},
+        'the instrumented suite excludes tests that start native GoRoutine threads',
+    );
     is_deeply(
         [ split / /, $ran[2]{arguments} ],
-        [ '-l', 't/231-goroutine-integration.t', 't/237-goroutine-shared-objects.t', 't/238-goroutine-routine-controls.t' ],
-        'the native-thread suite uses the checkout library path and runs all three excluded tests explicitly',
+        [
+            '-l',
+            't/17-web-server-ssl.t',
+            't/231-goroutine-integration.t',
+            't/237-goroutine-shared-objects.t',
+            't/238-goroutine-routine-controls.t',
+            't/241-system-menu-runner.t',
+            't/244-goroutine-channels.t',
+            't/245-goroutine-native-reference-types.t',
+            't/248-dashboard-goroutine-exports.t',
+        ],
+        'the native-thread suite runs every excluded test without coverage instrumentation',
     );
     like( $ran[1]{harness_switches}, qr/Devel::Cover/, 'the ordinary suite is instrumented' );
+    like( $ran[1]{harness_switches}, qr/-db,\Q$stub->{dir}\E\/cover_db(?:,|\s)/, 'the instrumented suite uses the shared database that GoRoutine children inherit' );
     is( $ran[2]{harness_switches}, '(unset)', 'thread tests run without the unsupported coverage hook' );
 
     my %libraries = map { $_->{library} => 1 } @ran;
@@ -449,12 +464,15 @@ coverage-gate entrypoint
 
 An executable specification for C<script/coverage-gate>, the single command that
 runs the whole four-metric coverage chain: dropping the coverage database,
-running ordinary tests under Devel::Cover, running the three GoRoutine ithread
+running ordinary tests under Devel::Cover, running GoRoutine/native-thread
 tests without the unsupported hook, collecting the C<lib/> report, and passing
-that report through the enforcing checker.
+that report through the enforcing checker. Instrumented GoRoutine subprocesses
+inherit the harness's C<PERL5OPT> and shared database. Their tests start from the
+checkout so Devel::Cover includes repository modules in C<lib/>.
 
 It proves the property the entrypoint exists to guarantee: that every command in
-the chain runs inside one environment. The scenarios run the real entrypoint
+the chain runs inside one environment and child-process coverage remains in the
+same database. The scenarios run the real entrypoint
 against scripted C<cover> and C<prove> stand-ins placed on C<PATH>, then read
 back what each stand-in actually observed, so the guarantee is measured rather
 than asserted.

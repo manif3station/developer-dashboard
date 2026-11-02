@@ -177,18 +177,18 @@ like(
 );
 like(
     $cpanfile,
-    qr/^on 'test' => sub \{\n.*?requires 'Devel::Cover';.*?^\};/ms,
-    'cpanfile declares Devel::Cover for release-tarball coverage gate tests',
+    qr/^on 'test' => sub \{\n.*?requires 'Devel::Cover' if \$\^O ne 'MSWin32';.*?^\};/ms,
+    'cpanfile declares Devel::Cover for coverage-gate tests except on unsupported Windows runners',
 );
 like(
     $makefile,
-    qr/TEST_REQUIRES\s*=>\s*\{[^}]*'Test::Harness'\s*=>\s*'3\.48'/s,
+    qr/my\s+%test_requires\s*=\s*\(\s*'Test::Harness'\s*=>\s*'3\.48'/s,
     'Makefile.PL exports the TAP harness test prerequisite for checkout-based CI installs',
 );
 like(
     $makefile,
-    qr/TEST_REQUIRES\s*=>\s*\{[^}]*'Devel::Cover'\s*=>\s*'?0'?/s,
-    'Makefile.PL exports Devel::Cover as a test prerequisite for checkout-based CI installs',
+    qr/\$test_requires\{'Devel::Cover'\}\s*=\s*0\s+if\s+\$\^O\s+ne\s+'MSWin32'.*?TEST_REQUIRES\s*=>\s*\\%test_requires/s,
+    'Makefile.PL omits Devel::Cover on Windows while preserving it for supported checkout CI installs',
 );
 like(
     $dist,
