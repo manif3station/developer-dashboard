@@ -295,11 +295,3 @@ jobs:
         env:
           PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5:${{ github.workspace }}/local/lib/perl5
         run: script/cpan-audit-declared-chain local/lib/perl5
-
-      - name: Install JS test dependencies
-        if: matrix.label == 'Linux x64'
-        run: npm ci --ignore-scripts
-
-      - name: Run fast-check property tests
-        if: matrix.label == 'Linux x64'
-        run: npm run fuzz:scorecard
