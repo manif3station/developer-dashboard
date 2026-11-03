@@ -46,7 +46,7 @@ jobs:
             runner: windows-latest
             expected-os: MSWin32
             expected-arch: x64
-            setup-perl: true
+            setup-perl: false
           - label: Windows arm64
             runner: windows-11-arm
             expected-os: MSWin32
@@ -63,8 +63,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Install supported Perl on Windows ARM64
-        if: matrix.label == 'Windows arm64'
+      - name: Install supported Strawberry Perl on Windows
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $version = '5.42.3.1'
@@ -103,7 +103,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           $perlArch = & perl -MConfig -e 'print $Config{archname}'
-          Write-Host "Windows ARM64 host uses $perlArch under Windows-on-ARM emulation."
+          Write-Host "Windows $env:RUNNER_ARCH host uses $perlArch from pinned Strawberry Perl."
 
       - name: Install native Linux system-menu build dependencies
         if: startsWith(matrix.label, 'Linux')
