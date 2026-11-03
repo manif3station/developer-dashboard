@@ -1889,6 +1889,104 @@ cmp_ok( Developer::Dashboard::Web::Server::_waitpid( 2_147_483_647, 1 ),
         'missing Host header falls back to the bound public listener' );
 }
 
+
+# Inject frontend close failures through the narrow close adapter. Keeping
+# these in the instrumented suite covers diagnostics which ordinary SSL
+# integration tests cannot report to Devel::Cover's thread-unsafe recorder.
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create worker-close failure fixture: $!";
+    local @Local::ScriptedListener::ACCEPTS = (
+        sub { return $client },
+        sub {
+            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
+            $! = EINTR;
+            return;
+        },
+    );
+    my $close_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
+        sub { return [$^X, '-e', 'exit 0'] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91041 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
+        sub { return 1 };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
+        sub { return 1 };
+    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    local *Developer::Dashboard::GoRoutine::go = sub {
+        $_[0]->();
+        return bless {}, 'Local::CompletedRoutine';
+    };
+    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client =
+        sub { return 1 };
+    local *Developer::Dashboard::Web::Server::_close_ssl_frontend_socket =
+        sub {
+            my ($socket) = @_;
+            return 0 if ++$close_calls == 1;
+            return close $socket;
+        };
+    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
+    ok( !$ok, 'SSL frontend reports a worker-owned socket close failure' );
+    like( $@, qr/Unable to close SSL frontend client/,
+        'worker socket close failure survives backend cleanup' );
+    is( $close_calls, 3, 'worker, listener-side, and frontend listener closes are attempted' );
+    close $peer or die "Unable to close worker-close fixture peer: $!";
+}
+
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create listener-side close failure fixture: $!";
+    local @Local::ScriptedListener::ACCEPTS = ( sub { return $client } );
+    my $close_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
+        sub { return [$^X, '-e', 'exit 0'] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91042 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
+        sub { return 1 };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
+        sub { return 1 };
+    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    local *Developer::Dashboard::GoRoutine::go = sub {
+        $_[0]->();
+        return bless {}, 'Local::CompletedRoutine';
+    };
+    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client =
+        sub { return 1 };
+    local *Developer::Dashboard::Web::Server::_close_ssl_frontend_socket =
+        sub {
+            my ($socket) = @_;
+            return 0 if ++$close_calls == 2;
+            return close $socket;
+        };
+    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
+    ok( !$ok, 'SSL frontend reports a listener-side client close failure' );
+    like( $@, qr/Unable to release SSL frontend client in listener/,
+        'listener-side socket close failure names the affected handle' );
+    is( $close_calls, 2, 'frontend checks the listener-side close result' );
+    close $peer or die "Unable to close listener-side fixture peer: $!";
+}
+
+{
+    local @Local::ScriptedListener::ACCEPTS = ( sub { $! = 0; return } );
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
+        sub { return [$^X, '-e', 'exit 0'] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91043 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
+        sub { return 1 };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
+        sub { return 1 };
+    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    local *Developer::Dashboard::Web::Server::_close_ssl_frontend_socket =
+        sub { close $_[0]; return 0 };
+    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
+    ok( !$ok, 'SSL frontend fails when its public listener cannot close' );
+    like( $@, qr/Unable to close SSL frontend listener/,
+        'public listener close failure is reported explicitly' );
+}
+
 done_testing;
 
 __END__
