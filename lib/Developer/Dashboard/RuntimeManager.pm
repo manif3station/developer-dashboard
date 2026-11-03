@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '6.20';
+our $VERSION = '6.25';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -193,7 +193,8 @@ sub _start_web_background {
     for ( 1 .. $self->_runtime_stability_polls ) {
         my @listener_pids = $self->_listener_pids_for_port($port);
         if (@listener_pids && $self->_port_accepting_connections($port)) {
-            my $listener_pid = $listener_pids[0] || $pid;
+            my $listener_pid = $listener_pids[0];
+            $listener_pid = $pid if !$listener_pid;
             my $state = {
                 host         => $host,
                 pid          => $listener_pid,
@@ -2185,7 +2186,9 @@ sub _run_web_child {
     # endpoint. Keep the order - reversing it would delay the parent's read
     # without closing any window.
     $self->_write_startup_pipe_message( $writer, join( '|', 'ok', $child_pid, $bound_host, $bound_port ) . "\n" );
-    $self->_close_inherited_fds( close_ipc => 1 ) if $detach || $redirect;
+    # Detached startup returned above, so this child path only needs the
+    # inherited-fd cleanup when its I/O was redirected.
+    $self->_close_inherited_fds( close_ipc => 1 ) if $redirect;
 
     $self->_write_web_state(
         {

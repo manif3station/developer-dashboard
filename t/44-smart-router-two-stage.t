@@ -71,8 +71,16 @@ _run_or_die(
     'docker', 'run', '-d',
     '--name', $container,
     '-p', "127.0.0.1:$host_port:7890",
-    'perl:latest',
+    'perl:5.44-threaded-bookworm@sha256:4bc64abbc2d74e0354b6b8af8229456183a516eff033dc986ff3d3bf78326c79',
     'sleep', 'infinity',
+);
+_run_or_die(
+    'docker', 'exec', $container, 'perl', '-MConfig', '-e',
+    'die "Perl interpreter must be built with ithreads\\n" if !$Config{useithreads};',
+);
+_run_or_die(
+    'docker', 'exec', $container, 'sh', '-lc',
+    'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential libayatana-appindicator3-dev libgtk-3-dev pkg-config && rm -rf /var/lib/apt/lists/*',
 );
 _run_or_die( 'docker', 'cp', $tarball, "$container:$container_tarball" );
 _run_or_die( 'docker', 'cp', $skill_repo, "$container:$skill_mount_path" );
@@ -260,9 +268,12 @@ __END__
 =head1 DESCRIPTION
 
 This test is a post-build guardrail. It runs only after a fresh distribution
-tarball exists, installs that tarball into a blank C<perl:latest> Docker
-container, and then exercises the two-stage smart-router contract for one
-extracted dashboard skill fixture.
+tarball exists, installs that tarball into a pinned threaded Perl 5.44
+Docker container, verifies that its interpreter supports ithreads, installs
+the Linux GTK/Ayatana build headers required by the distribution's native XS
+helpers, and then exercises the two-stage smart-router contract for one
+extracted dashboard skill fixture. The threaded Perl build is required by the
+Dashboard native GoRoutine XS extension.
 
 =for comment FULL-POD-DOC START
 

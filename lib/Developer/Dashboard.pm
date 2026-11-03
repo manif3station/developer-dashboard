@@ -82,7 +82,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.20
+6.25
 
 =head1 INTRODUCTION
 
@@ -1607,6 +1607,17 @@ In SSL mode, the public frontend starts C<web-ssl-backend-foreground> with
 GoRoutine's shell-free OS-process API. Accepted client sockets are handled by
 GoRoutine routines using the 0.12 shared filehandle support; shutdown stops
 and waits for the backend process and drains client routine errors explicitly.
+If a client or listener socket close fails, the frontend retains the first
+close error, joins its workers, stops the managed backend, and then reports the
+saved error so cleanup is not abandoned at the first failed close.
+
+=item *
+
+On Windows, saved-Ajax C<stdout> and C<stderr> pipes are drained by one Perl
+reader thread per pipe because C<IO::Select> cannot reliably report anonymous
+pipe readiness there. Chunks and read errors pass through a bounded event
+queue; interrupted reads are retried, and a disconnected writer or fatal stream
+error terminates the child and joins both readers before returning.
 
 =item *
 

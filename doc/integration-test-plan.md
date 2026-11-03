@@ -138,7 +138,9 @@ The integration run creates:
 
 1. Build the distribution tarball on the host with `dzil build`.
 2. Run `prove -lv t/44-smart-router-two-stage.t` against that freshly built tarball so the extracted-dashboard smart-router contract is verified at the post-build stage. That guard retries one transient `cpanm` fetch or unpack failure inside its Docker container before treating the post-build install as a real repository regression.
+   Its disposable install container uses Perl 5.44 with ithreads enabled and verifies that configuration before compiling the GoRoutine XS extension.
 3. Start the blank container with only that host-built tarball mounted into it.
+   The image is pinned to a threaded Perl 5.44 build because the GoRoutine XS extension requires ithreads; it installs the GTK/Ayatana headers needed by the Linux native helper.
 4. Copy the mounted tarball to a versioned local path inside the container and
    install and test that staged tarball with `cpanm`. The staged filename must keep the
    concrete `Developer-Dashboard-X.XX.tar.gz` version so `cpanm` cannot drift

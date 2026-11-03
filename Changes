@@ -1,3 +1,33 @@
+6.25  2026-11-03
+
+  - Complete the SSL backend dispatcher correction with regression coverage
+    for the staged command-wrapper marker in both server test suites, and
+    document backend readiness and helper resolution.
+
+6.24  2026-11-03
+
+  - Launch the isolated SSL backend through the staged _dashboard-core
+    dispatcher, even when the running-helper marker names a command wrapper;
+    this prevents recursive SSL frontend startup and makes the Chromium smoke
+    test reach the ready backend.
+  - Detect an exited-but-unreaped SSL backend before each readiness probe and
+    report its collected exit status immediately.
+
+6.23  2026-11-03
+
+  - Stream Windows saved-Ajax stdout and stderr through dedicated reader
+    threads with bounded events, interrupted-read retries, explicit failures,
+    and child cleanup on disconnect; add forced-Windows regression coverage.
+  - Keep SSL frontend worker and backend cleanup running after socket-close
+    failures, then report the first close error; cover client and listener
+    close failures.
+  - Close remaining library branch and condition coverage gaps with
+    behavior-driven tests. The full four-metric gate passes at 100.0%.
+  - Pin the post-build Docker guard to Perl 5.44 with ithreads enabled and
+    verify that prerequisite before installing the distribution.
+  - Pin the full blank-environment install to the same threaded Perl 5.44
+    build, check `Config{useithreads}`, and provide GTK/Ayatana build headers.
+
 6.20  2026-11-01
 
   - Export the complete GoRoutine API, including process_exited, beside d2

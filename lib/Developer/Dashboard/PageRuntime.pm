@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '6.20';
+our $VERSION = '6.25';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -728,19 +728,55 @@ sub stream_saved_ajax_file {
     close $stdin;
     my $process_group = $self->_own_saved_ajax_process_group($pid);
 
-    my $select = IO::Select->new( $stdout, $stderr );
+    my $select = is_windows() ? undef : IO::Select->new( $stdout, $stderr );
     my $stream_error = '';
     my $disconnected = 0;
     my $saved_status;
+    my $terminated_status;
+    my $terminated_by_streamer = 0;
     eval {
-        while (1) {
-            my @ready = $select->can_read(0.25);
-            if ( !@ready ) {
-                last if !$select->count;
-                my ( $child_exited, $status ) = $self->_saved_ajax_child_exited($pid);
-                if ($child_exited) {
-                    $saved_status = $status;
-                    my $continued = $self->_drain_saved_ajax_post_exit_handles(
+        if (is_windows()) {
+            my $result = $self->_stream_saved_ajax_windows(
+                pid           => $pid,
+                path          => $path,
+                stdout        => $stdout,
+                stderr        => $stderr,
+                stdout_writer => $stdout_writer,
+                stderr_writer => $stderr_writer,
+            );
+            $stream_error = $result->{error} // '';
+            $disconnected = $result->{disconnected} ? 1 : 0;
+            $saved_status = $result->{saved_status};
+            $terminated_status = $result->{terminated_status};
+            $terminated_by_streamer = $result->{terminated} ? 1 : 0;
+            1;
+        }
+        else {
+            while (1) {
+                my @ready = $select->can_read(0.25);
+                if ( !@ready ) {
+                    last if !$select->count;
+                    my ( $child_exited, $status ) = $self->_saved_ajax_child_exited($pid);
+                    if ($child_exited) {
+                        $saved_status = $status;
+                        my $continued = $self->_drain_saved_ajax_post_exit_handles(
+                            path          => $path,
+                            select        => $select,
+                            stdout        => $stdout,
+                            stdout_writer => $stdout_writer,
+                            stderr_writer => $stderr_writer,
+                        );
+                        if ( !$continued ) {
+                            $disconnected = 1;
+                            die "__DD_AJAX_STREAM_DISCONNECTED__\n";
+                        }
+                        last;
+                    }
+                    next;
+                }
+                for my $fh (@ready) {
+                    my $continued = $self->_drain_saved_ajax_ready_handle(
+                        fh            => $fh,
                         path          => $path,
                         select        => $select,
                         stdout        => $stdout,
@@ -751,38 +787,23 @@ sub stream_saved_ajax_file {
                         $disconnected = 1;
                         die "__DD_AJAX_STREAM_DISCONNECTED__\n";
                     }
-                    last;
-                }
-                next;
-            }
-            for my $fh (@ready) {
-                my $continued = $self->_drain_saved_ajax_ready_handle(
-                    fh            => $fh,
-                    path          => $path,
-                    select        => $select,
-                    stdout        => $stdout,
-                    stdout_writer => $stdout_writer,
-                    stderr_writer => $stderr_writer,
-                );
-                if ( !$continued ) {
-                    $disconnected = 1;
-                    die "__DD_AJAX_STREAM_DISCONNECTED__\n";
                 }
             }
+            1;
         }
-        1;
     } or do {
         $stream_error = $@;
     };
 
     $self->_close_saved_ajax_streams( $select, $stdout, $stderr );
     my $fatal_error = '';
-    my $terminated_status;
     if ($disconnected) {
-        $self->_terminate_saved_ajax_process( $pid, $process_group, \$terminated_status );
+        $self->_terminate_saved_ajax_process( $pid, $process_group, \$terminated_status )
+          if !$terminated_by_streamer;
     }
     elsif ( $stream_error ne '' ) {
-        $self->_terminate_saved_ajax_process( $pid, $process_group, \$terminated_status );
+        $self->_terminate_saved_ajax_process( $pid, $process_group, \$terminated_status )
+          if !$terminated_by_streamer;
         $fatal_error = $stream_error if !$self->_looks_like_stream_disconnect_error($stream_error);
     }
     my $status;
@@ -802,6 +823,135 @@ sub stream_saved_ajax_file {
         disconnected => $disconnected ? 1 : 0,
         exit_code => $status >> 8,
         status    => $status,
+    };
+}
+
+# _read_saved_ajax_windows_pipe($reader, $chunk_ref)
+# Reads the next bytes from one Windows saved-Ajax pipe. Keeping the low-level
+# read behind this method makes the EINTR retry path deterministic to test.
+# Input: the pipe reader handle and a scalar reference for the received chunk.
+# Output: sysread's byte count, zero at EOF, or undef with $! describing failure.
+sub _read_saved_ajax_windows_pipe {
+    my ( $self, $reader, $chunk_ref ) = @_;
+    return sysread( $reader, $$chunk_ref, 8192 );
+}
+
+# _stream_saved_ajax_windows(%args)
+# Streams Windows saved-Ajax pipes from dedicated reader threads because IO::Select
+# cannot reliably report anonymous pipe readiness on Windows. The caller handles
+# final file closure and preserves the shared result and cleanup contract.
+# Input: worker pid, path, stdout/stderr handles, and corresponding writer callbacks.
+# Output: hash with disconnected, error, saved status, terminated status, and whether
+#         this helper terminated the worker before joining its readers.
+sub _stream_saved_ajax_windows {
+    my ( $self, %args ) = @_;
+    my $pid           = $args{pid} || die 'Missing saved ajax worker pid';
+    my $path          = $args{path} || '';
+    my $stdout        = $args{stdout} || die 'Missing saved ajax stdout handle';
+    my $stderr        = $args{stderr} || die 'Missing saved ajax stderr handle';
+    my $stdout_writer = $args{stdout_writer} || \&_noop_writer;
+    my $stderr_writer = $args{stderr_writer} || \&_noop_writer;
+
+    require threads;
+    require Thread::Queue;
+    my $queue = Thread::Queue->new;
+    $queue->limit(8);
+    my @readers;
+    for my $stream ( [ o => $stdout ], [ e => $stderr ] ) {
+        my ( $label, $fh ) = @{$stream};
+        push @readers, threads->create(
+            sub {
+                my ( $events, $reader, $stream_label ) = @_;
+                while (1) {
+                    my $chunk = '';
+                    my $bytes = $self->_read_saved_ajax_windows_pipe( $reader, \$chunk );
+                    if ( !defined $bytes ) {
+                        next if $!{EINTR};
+                        my $error = "$!";
+                        $events->enqueue( 'R' . $stream_label . pack( 'N', length($error) ) . $error );
+                        last;
+                    }
+                    last if $bytes == 0;
+                    $events->enqueue( 'D' . $stream_label . pack( 'N', length($chunk) ) . $chunk );
+                }
+                $events->enqueue( 'C' . $stream_label );
+                return 1;
+            },
+            $queue, $fh, $label,
+        );
+    }
+
+    my %open_stream = ( o => 1, e => 1 );
+    my ( $saved_status, $terminated_status, $disconnected, $terminated );
+    my $stream_error = '';
+    while (%open_stream) {
+        my $event = $queue->dequeue_timed(0.25);
+        if ( !defined $event ) {
+            my ( $child_exited, $status ) = $self->_saved_ajax_child_exited($pid);
+            $saved_status = $status if $child_exited && !defined $saved_status;
+            next;
+        }
+
+        my $type = substr( $event, 0, 1 );
+        my $label = substr( $event, 1, 1 );
+        if ( $type eq 'C' ) {
+            delete $open_stream{$label};
+            next;
+        }
+        if ( $type ne 'D' && $type ne 'R' ) {
+            $stream_error = 'Invalid Windows saved-Ajax reader event';
+            last;
+        }
+        if ( length($event) < 6 ) {
+            $stream_error = 'Incomplete Windows saved-Ajax reader event';
+            last;
+        }
+        my $length = unpack 'N', substr( $event, 2, 4 );
+        my $payload = substr( $event, 6 );
+        if ( length($payload) != $length ) {
+            $stream_error = 'Truncated Windows saved-Ajax reader event';
+            last;
+        }
+
+        my $continued = eval {
+            if ( $type eq 'R' ) {
+                $stderr_writer->("Unable to read ajax stream for $path: $payload\n");
+            }
+            elsif ( $label eq 'o' ) {
+                $stdout_writer->($payload);
+            }
+            else {
+                $stderr_writer->($payload);
+            }
+        };
+        if ($@) {
+            $stream_error = $@;
+            last;
+        }
+        if ( defined $continued && !$continued ) {
+            $disconnected = 1;
+            last;
+        }
+    }
+
+    if ( $disconnected || $stream_error ne '' ) {
+        $self->_terminate_saved_ajax_process( $pid, undef, \$terminated_status );
+        $terminated = 1;
+        while (%open_stream) {
+            my $event = $queue->dequeue_timed(0.25);
+            next if !defined $event;
+            delete $open_stream{ substr( $event, 1, 1 ) }
+              if substr( $event, 0, 1 ) eq 'C';
+        }
+    }
+    $_->join for @readers;
+
+    return {
+        disconnected      => $disconnected ? 1 : 0,
+        error             => $stream_error,
+        saved_status      => $saved_status,
+        terminated_status => $terminated_status,
+        terminated        => $terminated ? 1 : 0,
     };
 }
 
@@ -1569,6 +1719,32 @@ C<fragment.tt> continue to resolve from the current skill dashboard first.
 
 Input: page document, optionally carrying C<meta.skill_path>.
 Output: ordered list of include-root directory paths.
+
+=head2 _read_saved_ajax_windows_pipe, _stream_saved_ajax_windows
+
+C<_read_saved_ajax_windows_pipe> reads one chunk from a Windows saved-Ajax pipe
+into a caller-provided scalar reference. It returns the C<sysread> byte count,
+zero at EOF, or C<undef> with C<$!> set when the operating system reports a
+read failure. C<_stream_saved_ajax_windows> runs one reader thread per pipe,
+queues bounded data/error/close events, forwards chunks to the matching writer,
+and terminates the worker before joining readers after a disconnect or fatal
+stream event. A transient C<EINTR> read is retried; other read errors are
+reported through the stderr writer.
+
+Use these private methods through C<stream_saved_ajax_file>; direct calls are
+appropriate only for the focused platform and error-path tests. The streaming
+helper is used by the saved-Ajax runtime on Windows, where C<IO::Select> cannot
+reliably signal anonymous pipe readiness.
+
+  my $result = $runtime->stream_saved_ajax_file(
+      path => $saved_ajax_path,
+      page => $page_id,
+      type => 'text',
+      params => { page => $page_id, file => $saved_ajax_name, type => 'text' },
+  );
+
+The returned result contains the child exit status and a disconnect flag; read
+errors are included in the streamed stderr output.
 
 =head2 _template_processor_for_roots
 

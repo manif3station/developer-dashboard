@@ -982,9 +982,9 @@ SIGNAL_PERL
     );
     is_deeply(
         $server->_ssl_backend_command($daemon),
-        [ $^X, '/tmp/private dashboard helper', 'web-ssl-backend-foreground',
+        [ $^X, '/tmp/_dashboard-core', 'web-ssl-backend-foreground',
           '--host', '127.0.0.1', '--port', 17898, '--workers', 1 ],
-        'default SSL backend command uses the staged helper path as literal argv values',
+        'default SSL backend command resolves the staged core dispatcher beside its command wrapper',
     );
 }
 

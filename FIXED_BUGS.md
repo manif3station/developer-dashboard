@@ -1,5 +1,43 @@
 # Fixed Bugs
 
+## 6.25
+
+- Complete the SSL backend dispatcher regression across the lifecycle and
+  browser suites. A running-helper marker that names `serve` now resolves to
+  the sibling `_dashboard-core`; test expectations and Server POD explain why
+  invoking the wrapper again would recursively start SSL frontends.
+
+## 6.24
+
+- Prevent recursive SSL backend startup when the running-helper marker names
+  the staged `serve` wrapper. Resolve the sibling `_dashboard-core` dispatcher
+  explicitly so the backend subcommand reaches `serve_ssl_backend_foreground`.
+  The real Chromium browser smoke now reaches readiness and passes its HTTPS,
+  alias-host, and unauthenticated-access checks.
+- Detect and report a backend process that exited but has not yet been reaped;
+  `process_running` alone can classify a POSIX zombie as live.
+
+## 6.23
+
+- Prevent Windows saved-Ajax streaming from waiting on anonymous-pipe
+  readiness that `IO::Select` does not reliably report. Separate reader
+  threads now forward stdout and stderr chunks through a bounded queue, retry
+  interrupted reads, report other read failures, and are joined after child
+  termination on disconnect or fatal stream errors.
+- Ensure SSL frontend socket-close failures do not bypass worker or backend
+  cleanup. The frontend preserves the first close error, joins client workers,
+  stops the managed backend, and then reports the error. Regression tests use
+  real failing pipe closes to verify the error paths.
+- Close the remaining all-metric library coverage gaps through behavior-based
+  tests; the full gate now passes 100.0% statement, branch, condition, and
+  subroutine coverage.
+- Make the post-build install guard use an explicitly threaded Perl image and
+  fail clearly if ithreads are unavailable. The former mutable `perl:latest`
+  image lacked the interpreter configuration required to compile GoRoutine XS.
+- Make the blank-environment install use a pinned threaded Perl image and
+  provide its native GTK/Ayatana build prerequisites. Its previous unthreaded
+  image failed at `aTHX` and `perl_clone` while compiling GoRoutine XS.
+
 ## 6.20
 
 - DKT-017: Connect the opt-in System Menu runner to the staged

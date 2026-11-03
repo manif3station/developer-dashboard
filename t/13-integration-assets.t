@@ -172,12 +172,23 @@ if ($has_integration_assets) {
     like( $runner, qr/dashboard init reports only the fake-project bookmark files that the integration fixture created instead of seeding extracted core starter dashboards/, 'integration runner documents that dashboard init now reports the fixture bookmark files instead of seeding extracted starter dashboards from core' );
     like( $runner, qr/__END__/, 'integration runner carries POD trailer' );
 
+    open my $router_test_fh, '<', 't/44-smart-router-two-stage.t' or die $!;
+    my $router_test = do { local $/; <$router_test_fh> };
+    close $router_test_fh;
+    like( $router_test, qr/perl:5\.44-threaded/, 'post-build guard pins a threaded Perl image for the GoRoutine XS extension' );
+    like( $router_test, qr/Config\{useithreads\}/, 'post-build guard rejects a Perl image without ithreads' );
+    like( $router_test, qr/libayatana-appindicator3-dev.*libgtk-3-dev/s, 'post-build guard installs native menu build headers before cpanm' );
+
     open my $docker_fh, '<', 'integration/blank-env/Dockerfile' or die $!;
     my $dockerfile = do { local $/; <$docker_fh> };
     close $docker_fh;
+    like( $dockerfile, qr/^FROM perl:5\.44-threaded-bookworm\@sha256:/m, 'blank-environment install uses the pinned threaded Perl runtime required by GoRoutine XS' );
+    like( $dockerfile, qr/RUN perl -MConfig.*Config\{useithreads\}/, 'blank-environment image verifies its Perl interpreter has ithreads enabled' );
     like( $dockerfile, qr/\bchromium\b/, 'integration Dockerfile installs Chromium for browser verification' );
     like( $dockerfile, qr/\blibexpat1-dev\b/, 'integration Dockerfile installs libexpat1-dev for XML::Parser during host-built tarball installs' );
     like( $dockerfile, qr/\blibssl-dev\b/, 'integration Dockerfile installs libssl-dev for Net::SSLeay during host-built tarball installs' );
+    like( $dockerfile, qr/\blibgtk-3-dev\b/, 'integration Dockerfile installs GTK headers for the native menu helper during tarball builds' );
+    like( $dockerfile, qr/\blibayatana-appindicator3-dev\b/, 'integration Dockerfile installs Ayatana headers for the native menu helper during tarball builds' );
     like( $dockerfile, qr/\bpkg-config\b/, 'integration Dockerfile installs pkg-config for native CPAN prerequisite discovery' );
     like( $dockerfile, qr/\bzlib1g-dev\b/, 'integration Dockerfile installs zlib1g-dev for native CPAN prerequisite builds' );
     unlike( $dockerfile, qr/\bDist::Zilla\b/, 'integration Dockerfile no longer installs Dist::Zilla because host builds the tarball' );
