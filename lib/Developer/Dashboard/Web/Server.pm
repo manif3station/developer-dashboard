@@ -276,7 +276,7 @@ sub _serve_ssl_frontend {
     while ( grep { $_->is_running } @client_routines ) {
         sleep 0.01;
     }
-    my @routine_errors = grep { defined && $_ ne '' } @client_errors;
+    my @routine_errors = @client_errors;
     _stop_ssl_backend( $backend_pid, \%reaped_children );
     die "SSL frontend client handler failed: $routine_errors[0]" if @routine_errors;
     return 1;
