@@ -3670,6 +3670,15 @@ sub _write_zip_entries {
 
 sub _run {
     my ($cmd) = @_;
+    if ( $^O eq 'MSWin32' ) {
+        # The Windows Perl executable is a native drive path. A POSIX shell
+        # strips its unquoted backslashes (C:\\... becomes C:...), so quote
+        # the executable while leaving the command's shell operators intact.
+        my $shell_perl = $perl;
+        $shell_perl =~ s/'/'"'"'/g;
+        $shell_perl = "'$shell_perl'";
+        $cmd =~ s/(?<!['"])\Q$perl\E(?=\s)/$shell_perl/g;
+    }
     my $child_perl5opt = join ' ', grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
     my $runtime_command = (
         defined $dashboard
@@ -3768,8 +3777,10 @@ sub _module_version {
     close $fh;
     return $1 if $content =~ /our \$VERSION = '([^']+)'/;
     if ( $content =~ /our \$VERSION = \$Developer::Dashboard::Version::VERSION;/ ) {
-        my ( undef, $directory ) = File::Spec->splitpath($path);
-        return _module_version( File::Spec->catfile( $directory, 'Dashboard', 'Version.pm' ) );
+        my ( $volume, $directory ) = File::Spec->splitpath($path);
+        return _module_version(
+            File::Spec->catpath( $volume, $directory, File::Spec->catfile( 'Dashboard', 'Version.pm' ) )
+        );
     }
     die "Unable to find module version in $path";
 }
