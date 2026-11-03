@@ -1822,6 +1822,73 @@ cmp_ok( Developer::Dashboard::Web::Server::_waitpid( 2_147_483_647, 1 ),
     ok( -f $key, 'stale certificate regeneration also replaces the key' );
 }
 
+
+# Backend readiness must handle a delayed listener, a failed socket close and
+# a finite startup deadline without spending 45 seconds in a coverage test.
+{
+    my $calls = 0;
+    my $stopped = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::time =
+        sub { return ++$calls == 1 ? 0 : 46 };
+    local *Developer::Dashboard::GoRoutine::process_running = sub { return 1 };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
+        sub { $stopped++; return 1 };
+    my $ok = eval {
+        $ssl_server->_wait_for_ssl_backend_ready($ssl_daemon, 91031);
+        1;
+    };
+    ok( !$ok, 'SSL backend readiness times out after the configured deadline' );
+    like( $@, qr/Timed out waiting for SSL backend listener readiness/,
+        'readiness timeout reports the internal listener failure' );
+    is( $stopped, 1, 'readiness timeout stops the unready SSL backend' );
+}
+{
+    my $probes = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::process_running = sub { return 1 };
+    local *IO::Socket::SSL::new = sub {
+        $probes++;
+        return undef if $probes == 1;
+        return Local::StubSocket->new(closeable => 1);
+    };
+    is( $ssl_server->_wait_for_ssl_backend_ready($ssl_daemon, 91032), 1,
+        'SSL readiness retries a failed handshake and closes the next successful probe' );
+    is( $probes, 2, 'SSL backend readiness makes a second handshake attempt' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::process_running = sub { return 1 };
+    local *IO::Socket::SSL::new =
+        sub { return Local::StubSocket->new(closeable => 0) };
+    my $ok = eval {
+        $ssl_server->_wait_for_ssl_backend_ready($ssl_daemon, 91033);
+        1;
+    };
+    ok( !$ok, 'SSL readiness rejects a probe socket that cannot be closed' );
+    like( $@, qr/Unable to close SSL backend readiness probe/,
+        'failed readiness socket close is reported directly' );
+}
+
+# Socket readiness can mean EOF, which differs from recv returning undef.
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create EOF frontend fixture: $!";
+    shutdown( $peer, 1 ) or die "Unable to close fixture write side: $!";
+    is( $ssl_server->_handle_ssl_frontend_client(
+            client => $client, daemon => $ssl_daemon,
+        ), 1, 'frontend treats an empty first byte as a completed connection' );
+    close $client or die "Unable to close EOF frontend socket: $!";
+    close $peer or die "Unable to close EOF frontend peer: $!";
+    my $daemon = Developer::Dashboard::Web::Server::Daemon->new(
+        host => '127.0.0.1', port => 17432,
+    );
+    is( _redirect_server()->_request_host_from_head(
+            "GET / HTTP/1.1\r\nUser-Agent: test\r\n\r\n", $daemon,
+        ), '127.0.0.1:17432',
+        'missing Host header falls back to the bound public listener' );
+}
+
 done_testing;
 
 __END__
