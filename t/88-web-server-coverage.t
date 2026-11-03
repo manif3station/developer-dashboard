@@ -1712,6 +1712,116 @@ sub Local::CompletedRoutine::kill { return 1 }
 cmp_ok( Developer::Dashboard::Web::Server::_waitpid( 2_147_483_647, 1 ),
     '<=', 0, 'real waitpid adapter reports an unrelated absent child' );
 
+
+# Cover worker errors in the synchronous GoRoutine test adapter. The listener
+# and backend are fixtures, so this cannot leak an actual child or port.
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create failing frontend worker fixture: $!";
+    local @Local::ScriptedListener::ACCEPTS = (
+        sub { return $client },
+        sub {
+            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
+            $! = EINTR;
+            return undef;
+        },
+    );
+    my $stopped = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
+        sub { return [ $^X, '-e', 'exit 0' ] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91021 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
+        sub { return 1 };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
+        sub { ++$stopped; return 1 };
+    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    local *Developer::Dashboard::GoRoutine::go = sub {
+        $_[0]->();
+        return bless {}, 'Local::CompletedRoutine';
+    };
+    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client =
+        sub { die "simulated frontend worker exception\n" };
+    local $ssl_server->{ssl_subject_alt_names} = ['coverage.local'];
+    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
+    ok( !$ok, 'SSL frontend propagates failures from managed client workers' );
+    like( $@, qr/SSL frontend client handler failed: simulated frontend worker exception/,
+        'SSL frontend reports the original managed worker error' );
+    is( $stopped, 1, 'failed client worker still stops the SSL backend' );
+    close $peer or die "Unable to close failing frontend worker peer: $!";
+}
+
+# An accepted connection may coincide with shutdown. The next iteration must
+# obey the shutdown flag and cancel a still-running routine without spinning.
+{
+    package Local::RunningRoutine;
+    sub is_running { return ++$_[0]{checks} <= 2 }
+    sub kill { $_[0]{killed} = 1; return 1 }
+}
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create shutdown frontend fixture: $!";
+    local @Local::ScriptedListener::ACCEPTS = (
+        sub {
+            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
+            return $client;
+        },
+    );
+    my $routine;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
+        sub { return [ $^X, '-e', 'exit 0' ] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91022 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
+        sub { return 1 };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
+        sub { return 1 };
+    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    local *Developer::Dashboard::GoRoutine::go = sub {
+        $_[0]->();
+        $routine = bless { checks => 0 }, 'Local::RunningRoutine';
+        return $routine;
+    };
+    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client =
+        sub { return 1 };
+    is( $ssl_server->_serve_ssl_frontend($ssl_daemon), 1,
+        'SSL frontend honours shutdown before the next accept' );
+    ok( $routine->{killed}, 'SSL frontend cancels an active client routine' );
+    cmp_ok( $routine->{checks}, '>=', 3,
+        'SSL frontend waits for a cancelled client routine to finish' );
+    close $peer or die "Unable to close shutdown frontend peer: $!";
+}
+
+# An explicit empty helper is different from an unset helper, but both are
+# rejected before attempting to launch a managed SSL backend.
+{
+    local $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER} = '';
+    my $ok = eval { $ssl_server->_ssl_backend_command($ssl_daemon); 1 };
+    ok( !$ok, 'SSL backend rejects an explicitly empty private helper path' );
+    like( $@, qr/Missing private Dashboard helper/,
+        'empty private helper has the same explicit startup diagnostic' );
+}
+
+# Cover reuse and regeneration of an existing complete certificate pair.
+{
+    my $cert_home = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = $cert_home;
+    my $first = Developer::Dashboard::Web::Server::generate_self_signed_cert(
+        validity_days => 30,
+    );
+    ok( -f $first, 'explicit certificate validity produces a real certificate' );
+    my $again = Developer::Dashboard::Web::Server::generate_self_signed_cert();
+    is( $again, $first, 'valid certificate and private key are reused' );
+    my $key = File::Spec->catfile(
+        $cert_home, '.developer-dashboard', 'certs', 'server.key',
+    );
+    ok( -f $key, 'reused certificate retains its private key' );
+    _write_file( $first, "invalid certificate fixture\n" );
+    is( Developer::Dashboard::Web::Server::generate_self_signed_cert(),
+        $first, 'stale certificate with existing key is regenerated' );
+    ok( -f $key, 'stale certificate regeneration also replaces the key' );
+}
+
 done_testing;
 
 __END__
