@@ -1987,6 +1987,56 @@ cmp_ok( Developer::Dashboard::Web::Server::_waitpid( 2_147_483_647, 1 ),
         'public listener close failure is reported explicitly' );
 }
 
+
+# A worker can report an exception only after shutdown has started. Once the
+# frontend has asked it to stop, that exception must not turn a clean shutdown
+# into a client-handler failure.
+{
+    package Local::DeferredRoutine;
+    sub is_running {
+        my ($self) = @_;
+        return 0 if $self->{finished};
+        $self->{callback}->();
+        $self->{finished} = 1;
+        return 0;
+    }
+    sub kill { return 1 }
+}
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create deferred-worker fixture: $!";
+    local @Local::ScriptedListener::ACCEPTS = (
+        sub { return $client },
+        sub {
+            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
+            $! = EINTR;
+            return;
+        },
+    );
+    my $worker_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
+        sub { return [$^X, '-e', 'exit 0'] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91044 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
+        sub { return 1 };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
+        sub { return 1 };
+    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    local *Developer::Dashboard::GoRoutine::go = sub {
+        return bless { callback => $_[0] }, 'Local::DeferredRoutine';
+    };
+    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client =
+        sub { ++$worker_calls; die "worker cancelled during shutdown\n" };
+    local *Developer::Dashboard::Web::Server::_close_ssl_frontend_socket =
+        sub { close $_[0]; return 1 };
+    is( $ssl_server->_serve_ssl_frontend($ssl_daemon), 1,
+        'a worker exception arriving after shutdown does not fail the frontend' );
+    is( $worker_calls, 1,
+        'the deferred worker is observed during the shutdown routine check' );
+    close $peer or die "Unable to close deferred-worker fixture peer: $!";
+}
+
 done_testing;
 
 __END__
