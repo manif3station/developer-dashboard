@@ -118,6 +118,14 @@ sub _same_or_descendant_identity {
         $case_tolerant = $volume ne '' ? File::Spec->case_tolerant($volume) : 0;
     }
     my ( $candidate, $root ) = $case_tolerant ? ( lc($path_id), lc($root_id) ) : ( $path_id, $root_id );
+    # Cwd::abs_path may return forward slashes on Windows while File::Spec
+    # supplies a backslash root separator. Compare one separator style so
+    # real descendants do not disappear from runtime-layer discovery.
+    if ( $separator eq '\\' ) {
+        $candidate =~ tr{\\}{/};
+        $root      =~ tr{\\}{/};
+        $separator = '/';
+    }
     return 1 if $candidate eq $root;
     my $prefix = $root;
     $prefix .= $separator if substr( $prefix, -length($separator) ) ne $separator;

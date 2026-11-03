@@ -218,6 +218,28 @@ for my $invalid_pwd ( 'relative/path', File::Spec->catdir( $tmp, 'missing-pwd' )
         ),
         'identity comparison handles a drive-root separator without duplicating it'
     );
+    ok(
+        Developer::Dashboard::PathIdentity::_same_or_descendant_identity(
+            'C:/Users/Alice/project', 'C:\\Users\\Alice',
+            separator => $win_separator, case_tolerant => 1,
+        ),
+        'Windows canonical forward slashes match a backslash-spelled ancestor'
+    );
+    ok(
+        Developer::Dashboard::PathIdentity::_same_or_descendant_identity(
+            'C:\\Users\\Alice\\project', 'C:/Users/Alice',
+            separator => $win_separator, case_tolerant => 1,
+        ),
+        'Windows backslash descendants match a forward-slash ancestor'
+    );
+    is(
+        Developer::Dashboard::PathIdentity::_same_or_descendant_identity(
+            'C:/Users/Alice-other/project', 'C:\\Users\\Alice',
+            separator => $win_separator, case_tolerant => 1,
+        ),
+        0,
+        'mixed Windows separators still require an exact directory boundary'
+    );
     is(
         Developer::Dashboard::PathIdentity::_same_or_descendant_identity(
             'C:\\Users\\Alicia', 'C:\\Users\\Alice',
