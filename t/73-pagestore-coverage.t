@@ -1159,6 +1159,34 @@ SKIP: {
     }
 }
 
+# File type checks must work when a Windows Fcntl build omits S_ISLNK.
+# Forced platform branches exercise the portable fallback under Devel::Cover.
+{
+    my $mode_fixture = File::Spec->catfile( $home, 'file-type-probe.txt' );
+    write_raw( $mode_fixture, 'ok' );
+    my $mode = ( stat $mode_fixture )[2];
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::PageStore::is_windows = sub { return 1 };
+        ok( !$store->_page_is_symlink( $mode_fixture, $mode ),
+            'Windows file test does not classify a regular page as a symlink' );
+        ok( $store->_page_is_regular( $mode_fixture, $mode ),
+            'Windows file test recognises a regular page without Fcntl macros' );
+        ok( !$store->_page_is_regular( "$mode_fixture.missing", $mode ),
+            'Windows file test rejects a missing page path' );
+    }
+    SKIP: {
+        skip 'POSIX Fcntl mode macros are not guaranteed on Windows', 2
+          if $^O eq 'MSWin32';
+        no warnings 'redefine';
+        local *Developer::Dashboard::PageStore::is_windows = sub { return 0 };
+        ok( !$store->_page_is_symlink( $mode_fixture, $mode ),
+            'POSIX mode test does not classify a regular page as a symlink' );
+        ok( $store->_page_is_regular( $mode_fixture, $mode ),
+            'POSIX mode test accepts a regular page' );
+    }
+}
+
 done_testing;
 
 __END__

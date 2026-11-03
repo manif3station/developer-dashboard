@@ -93,6 +93,26 @@ sub load_saved_page {
     return $page;
 }
 
+# _page_is_symlink($file, $mode)
+# Checks a saved-page path for a symbolic link on each supported platform.
+# Windows Perl does not consistently expose the POSIX Fcntl S_ISLNK macro;
+# use its native -l file test there rather than invoking an absent constant.
+# Input: existing path and the lstat mode recorded for that path.
+# Output: true when the path is a symbolic link.
+sub _page_is_symlink {
+    my ( $self, $file, $mode ) = @_;
+    return is_windows() ? -l $file : S_ISLNK($mode);
+}
+
+# _page_is_regular($file, $mode)
+# Checks file type without relying on unsupported Windows Fcntl mode macros.
+# Input: path and its lstat mode.
+# Output: true when the path names a regular file.
+sub _page_is_regular {
+    my ( $self, $file, $mode ) = @_;
+    return is_windows() ? -f $file : S_ISREG($mode);
+}
+
 # load_nav_fragment($id)
 # Loads a discovered saved nav fragment. Literal HTML returns directly without
 # allocating a page document; TT and structured instructions retain the normal
@@ -123,15 +143,15 @@ sub load_nav_fragment {
         $file = File::Spec->catfile( $root, $normalized_id );
         @initial_stat = Time::HiRes::lstat($file);
         return if !@initial_stat;
-        die 'Invalid page path' if S_ISLNK( $initial_stat[2] );
-        return if !S_ISREG( $initial_stat[2] );
+        die 'Invalid page path' if $self->_page_is_symlink( $file, $initial_stat[2] );
+        return if !$self->_page_is_regular( $file, $initial_stat[2] );
     }
     else {
         ( $file, $root ) = $self->_existing_page_file($normalized_id);
         return if !$file;
         @initial_stat = Time::HiRes::lstat($file);
-        die 'Invalid page path' if @initial_stat && S_ISLNK( $initial_stat[2] );
-        die 'Invalid page path' if @initial_stat && !S_ISREG( $initial_stat[2] );
+        die 'Invalid page path' if @initial_stat && $self->_page_is_symlink( $file, $initial_stat[2] );
+        die 'Invalid page path' if @initial_stat && !$self->_page_is_regular( $file, $initial_stat[2] );
     }
 
     my $initial_fingerprint = @initial_stat
@@ -160,7 +180,7 @@ sub load_nav_fragment {
     if ( $looks_like_nav && !$has_instruction_header ) {
         if ( index( $instruction, '[%' ) < 0 ) {
             my @final_stat = Time::HiRes::lstat($file);
-            my $final_fingerprint = @final_stat && S_ISREG( $final_stat[2] )
+            my $final_fingerprint = @final_stat && $self->_page_is_regular( $file, $final_stat[2] )
               ? join( "\0", @final_stat[ 0, 1, 2, 7, 9, 10 ] )
               : undef;
             $self->_cache_literal_nav_fragment( $file, $final_fingerprint, $instruction )
