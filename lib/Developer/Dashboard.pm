@@ -82,7 +82,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.26
+6.28
 
 =head1 INTRODUCTION
 
@@ -4282,9 +4282,18 @@ verification.
 
 Tests that observe managed collector child output must wait for the asynchronous
 log event with a bounded wall-clock timeout, then keep an explicit assertion
-that the expected message arrived. For example, C<t/07-core-units.t> waits for
-the C<broken-loop> failure entry instead of assuming one fixed sleep is enough
-on every hosted runner.
+that the expected message arrived. In C<t/07-core-units.t>, the wait belongs in
+the C<broken-loop> test before its child is stopped and the log is asserted; do
+not put it in a neighboring collector test. This avoids assuming one fixed
+sleep is enough on every hosted runner.
+
+For local GitHub Actions runs executed through C<act>, use:
+
+  d2 github-workflow --container-options "--init"
+
+The init process reaps orphaned child processes so process-group cleanup tests
+observe the expected exit behavior. This option does not skip tests or change
+their assertions.
 
 The cross-platform compatibility workflow installs C<Devel::Cover> into its
 local dependency tree and exports that tree through C<PERL5LIB> before running

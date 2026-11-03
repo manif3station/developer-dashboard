@@ -3973,12 +3973,7 @@ close $stale_pid;
             );
         }
         ok( $pid, 'start_loop replaces stale pidfiles and starts a new loop' );
-        my $log_deadline = Time::HiRes::time() + 5;
-        while ( ( $files->read('collector_log') || '' ) !~ /broken-loop/
-            && Time::HiRes::time() < $log_deadline )
-        {
-            sleep 0.05;
-        }
+        sleep 1;
         ok( $runner->loop_state('stale')->{pid}, 'start_loop writes loop metadata for new loops' );
         my $stopped_pid = $runner->stop_loop('stale');
         is( waitpid( $stopped_pid, 1 ), -1, 'stop_loop reaps stale-loop children instead of leaving zombies behind' ) if $stopped_pid;
@@ -4083,7 +4078,12 @@ close $stale_pid;
             );
         }
         ok( $pid, 'start_loop also returns a pid for failing jobs' );
-        sleep 1;
+        my $log_deadline = Time::HiRes::time() + 5;
+        while ( ( $files->read('collector_log') || '' ) !~ /broken-loop/
+            && Time::HiRes::time() < $log_deadline )
+        {
+            sleep 0.05;
+        }
         like( $runner->loop_state('broken-loop')->{status}, qr/error|running|starting/, 'failing loops keep state metadata for management' );
         my $stopped_pid = $runner->stop_loop('broken-loop');
         is( waitpid( $stopped_pid, 1 ), -1, 'stop_loop reaps failing managed loop children instead of leaving zombies behind' ) if $stopped_pid;

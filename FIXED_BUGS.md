@@ -1,11 +1,25 @@
 # Fixed Bugs
 
+## 6.28
+
+- Correct GoRoutine coverage by testing unsupported regexp references through
+  observable behavior instead of attempting to monkeypatch Scalar::Util's
+  imported `reftype` function. Remove the unreachable fallback after the
+  reference guard; supported runtime behavior is unchanged.
+
+## 6.27
+
+- Correct the collector failure-log regression by polling for `broken-loop`
+  inside the test that asserts the child log. The previous bounded wait was
+  attached to the preceding stale-pidfile test, so the hosted assertion still
+  raced the asynchronous worker. The final assertion remains and fails if the
+  event is absent after five seconds.
+
 ## 6.26
 
-- Prevent a hosted-runner scheduling delay from making the collector loop log
-  regression assert before the asynchronous child failure is recorded. The
-  test now polls for the expected entry with a five-second bound and still
-  fails clearly if the event never appears.
+- Add the first bounded-wait attempt for the collector child-log regression;
+  hosted testing showed the wait was in the preceding stale-pidfile test and
+  did not protect the actual log assertion. Corrected in 6.27.
 
 ## 6.25
 

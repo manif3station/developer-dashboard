@@ -549,11 +549,9 @@ ok( 'NATIVEEE' =~ $regexp_proxy, 'materialized regexp preserves matching behavio
         'proxy lookup safely ignores a reference-to-reference without a shared tie' );
 }
 {
-    my $value = bless {}, 'Local::ReferenceWithoutType';
-    no warnings 'redefine';
-    local *Developer::Dashboard::GoRoutine::reftype = sub { return; };
+    my $value = qr/proxy/;
     ok( !defined Developer::Dashboard::GoRoutine::_proxy_ptr($value),
-        'proxy lookup safely handles a reference without a reported referent type' );
+        'proxy lookup safely ignores an unsupported regexp reference' );
 }
 
 {
@@ -909,7 +907,9 @@ worker thread. Its dispatch checks prove that glob, IO, and format node kinds
 reach their respective materializers with the correct shared handle and class
 metadata. Materializer edge checks cover blessed IO and regexp values as well
 as empty optional class/name values, invalid descriptor duplication, and the
-explicit missing-IO-slot error. Shared-reference checks reject non-reference
+explicit missing-IO-slot error. Proxy lookup also leaves unsupported regexp
+references unproxied, exercising the reference-type path without replacing the
+imported Scalar::Util function. Shared-reference checks reject non-reference
 inputs. Mocked routine statuses cover killed,
 timed-out, and normally exited handles without loading Devel::Cover into an
 ithread. Proxy storage assertions cover already-applied and pending shared

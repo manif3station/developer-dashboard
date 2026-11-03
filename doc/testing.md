@@ -178,6 +178,11 @@ path, serializer module and the exact commands before spending a slot, and
 `perl script/coverage-gate --database DIR t/some-file.t` to collect a focused
 run into a scratch database.
 
+For local GitHub Actions runs through `act`, use
+`d2 github-workflow --container-options "--init"`. The init process reaps
+orphaned child processes so process-group cleanup tests observe the expected
+exit behavior; it does not skip tests or change their assertions.
+
 When a MakeMaker build has created `blib/arch`, the gate puts that directory
 first in the child-process `PERL5LIB`. This makes versioned XS lookups use the
 checkout's freshly built extension instead of an older installed copy, while
@@ -241,10 +246,11 @@ still holds the single active worker slot across multiple due ticks, and that
 stopping the collector loop tears down that long-running command instead of
 only stopping the loop wrapper.
 Tests that observe a managed child's failure log must account for asynchronous
-worker scheduling: C<t/07-core-units.t> polls for the expected C<broken-loop>
-entry for a bounded wall-clock interval, then retains an explicit assertion so
-a missing event still fails the test instead of being hidden by a longer fixed
-sleep.
+worker scheduling: in the C<broken-loop> case, C<t/07-core-units.t> polls for
+the expected log entry for a bounded wall-clock interval before stopping the
+child, then retains an explicit assertion so a missing event still fails the
+test instead of being hidden by a longer fixed sleep. Keep that wait in the
+same test that checks the log.
 Collector disable coverage now also locks in the stop-and-skip contract:
 `disable => 1` collectors are not started, explicit named starts reject them,
 already-running managed loops for those collectors are stopped on the next

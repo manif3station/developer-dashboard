@@ -6,7 +6,7 @@ use Exporter 'import';
 use Scalar::Util qw(blessed reftype);
 use Filter::Simple;
 
-our $VERSION = '6.26';
+our $VERSION = '6.28';
 
 our @EXPORT = qw(
     go
@@ -390,6 +390,9 @@ FILTER_ONLY code => sub {
     $_ = Developer::Dashboard::GoRoutine::_rewrite_user_syntax($_);
 };
 
+# Purpose: return the native pointer for an existing shared proxy, when present.
+# Input:   any Perl value; only recognized shared proxy references yield a pointer.
+# Output:  the native pointer integer, or undef when the value is not a shared proxy.
 sub _proxy_ptr {
     my ($value) = @_;
 
@@ -399,7 +402,7 @@ sub _proxy_ptr {
 
     return unless ref $value;
 
-    my $type = reftype($value) || '';
+    my $type = reftype($value);
     my $tied;
 
     if ($type eq 'HASH') {
