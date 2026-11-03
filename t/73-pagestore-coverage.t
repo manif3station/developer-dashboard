@@ -1187,6 +1187,22 @@ SKIP: {
     }
 }
 
+# Saved instructions must not change newline representation between a
+# Windows text-mode writer and the intentionally raw reader.
+{
+    my $document = Developer::Dashboard::PageDocument->new(
+        id => 'canonical-newlines',
+        title => 'Canonical newlines',
+        layout => { body => "first\nsecond" },
+    );
+    my $file = $store->save_page($document);
+    open my $raw_fh, '<:raw', $file or die "Unable to read raw page $file: $!";
+    my $bytes = do { local $/; <$raw_fh> };
+    close $raw_fh or die "Unable to close raw page $file: $!";
+    is( $bytes, $document->canonical_instruction,
+        'page writes preserve canonical LF on disk on every platform' );
+}
+
 done_testing;
 
 __END__

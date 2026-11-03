@@ -511,8 +511,10 @@ sub _open_saved_page_at {
     }
     else {
         sysopen $fh, $file, $args{flags} | $NOFOLLOW or die 'Invalid page path';
-        binmode $fh, ':raw';
     }
+    # The reader is raw, so the writer must also be raw. Windows text mode
+    # otherwise converts canonical LF instructions into CRLF on disk.
+    binmode $fh, ':raw';
     return $fh;
 }
 
