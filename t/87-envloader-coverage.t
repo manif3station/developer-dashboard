@@ -764,6 +764,22 @@ write_file( File::Spec->catfile( $ab,  '.env' ),    "AK=abval\n" );
     );
 }
 
+{
+    my $inherited = $EL->_inherited_key_names({
+        '=C:'                                         => 'C:\\workspace',
+        'HOME'                                        => '/home/fixture',
+        'USERPROFILE'                                 => 'C:\\Users\\fixture',
+        '_VALID123'                                   => 'ok',
+        'invalid-name'                                => 'not a variable name',
+        '_DEVELOPER_DASHBOARD_INHERITED_ENV_KEYS'      => '[]',
+    });
+    is_deeply(
+        $inherited,
+        [ 'HOME', 'USERPROFILE', '_VALID123' ],
+        'Windows drive-directory pseudo keys are never inherited as env variables',
+    );
+}
+
 is_deeply( \@warnings, [], 'no warnings were emitted during the EnvLoader coverage run' )
   or diag( "warnings:\n" . join( '', @warnings ) );
 
