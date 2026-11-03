@@ -399,7 +399,7 @@ sub _proxy_ptr {
 
     return unless ref $value;
 
-    my $type = reftype($value) || '';
+    my $type = reftype($value);
     my $tied;
 
     if ($type eq 'HASH') {
