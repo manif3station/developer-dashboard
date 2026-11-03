@@ -240,6 +240,11 @@ The live singleton regression now also proves that a real long-running command
 still holds the single active worker slot across multiple due ticks, and that
 stopping the collector loop tears down that long-running command instead of
 only stopping the loop wrapper.
+Tests that observe a managed child's failure log must account for asynchronous
+worker scheduling: C<t/07-core-units.t> polls for the expected C<broken-loop>
+entry for a bounded wall-clock interval, then retains an explicit assertion so
+a missing event still fails the test instead of being hidden by a longer fixed
+sleep.
 Collector disable coverage now also locks in the stop-and-skip contract:
 `disable => 1` collectors are not started, explicit named starts reject them,
 already-running managed loops for those collectors are stopped on the next

@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use JSON::XS ();
 
-our $VERSION = '6.25';
+our $VERSION = '6.26';
 
 # items_for_platform(%args)
 # Projects configured indicator declarations and current indicator states into

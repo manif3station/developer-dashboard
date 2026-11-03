@@ -3973,7 +3973,12 @@ close $stale_pid;
             );
         }
         ok( $pid, 'start_loop replaces stale pidfiles and starts a new loop' );
-        sleep 1;
+        my $log_deadline = Time::HiRes::time() + 5;
+        while ( ( $files->read('collector_log') || '' ) !~ /broken-loop/
+            && Time::HiRes::time() < $log_deadline )
+        {
+            sleep 0.05;
+        }
         ok( $runner->loop_state('stale')->{pid}, 'start_loop writes loop metadata for new loops' );
         my $stopped_pid = $runner->stop_loop('stale');
         is( waitpid( $stopped_pid, 1 ), -1, 'stop_loop reaps stale-loop children instead of leaving zombies behind' ) if $stopped_pid;

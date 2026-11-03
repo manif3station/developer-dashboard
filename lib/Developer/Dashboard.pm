@@ -82,7 +82,7 @@ Developer Dashboard - a home for day-to-day development
 
 =head1 VERSION
 
-6.25
+6.26
 
 =head1 INTRODUCTION
 
@@ -4279,6 +4279,12 @@ Run the full Perl test suite from the repository root:
 The maintained end-to-end scenario plan defines expected routes, inputs, and
 outputs. Hosted workflows provide additional platform checks and packaging
 verification.
+
+Tests that observe managed collector child output must wait for the asynchronous
+log event with a bounded wall-clock timeout, then keep an explicit assertion
+that the expected message arrived. For example, C<t/07-core-units.t> waits for
+the C<broken-loop> failure entry instead of assuming one fixed sleep is enough
+on every hosted runner.
 
 The cross-platform compatibility workflow installs C<Devel::Cover> into its
 local dependency tree and exports that tree through C<PERL5LIB> before running

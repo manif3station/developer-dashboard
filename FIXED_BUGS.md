@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 6.26
+
+- Prevent a hosted-runner scheduling delay from making the collector loop log
+  regression assert before the asynchronous child failure is recorded. The
+  test now polls for the expected entry with a five-second bound and still
+  fails clearly if the event never appears.
+
 ## 6.25
 
 - Complete the SSL backend dispatcher regression across the lifecycle and

@@ -1,3 +1,8 @@
+6.26  2026-11-03
+
+  - Make the collector child-log regression wait for its asynchronous failure
+    event with a bounded timeout, preserving the explicit missing-log failure.
+
 6.25  2026-11-03
 
   - Complete the SSL backend dispatcher correction with regression coverage

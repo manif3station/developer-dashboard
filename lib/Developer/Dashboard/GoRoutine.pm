@@ -6,7 +6,7 @@ use Exporter 'import';
 use Scalar::Util qw(blessed reftype);
 use Filter::Simple;
 
-our $VERSION = '6.25';
+our $VERSION = '6.26';
 
 our @EXPORT = qw(
     go
