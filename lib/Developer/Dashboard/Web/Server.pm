@@ -263,12 +263,12 @@ sub _serve_ssl_frontend {
                 1;
             };
             push @client_errors, "$@" if !$ok && !$shutdown_workers;
-            close $shared_client or push @client_errors, "Unable to close SSL frontend client: $!";
+            _close_ssl_frontend_socket($shared_client) or push @client_errors, "Unable to close SSL frontend client: $!";
         });
-        close $client or die "Unable to release SSL frontend client in listener: $!";
+        _close_ssl_frontend_socket($client) or die "Unable to release SSL frontend client in listener: $!";
     }
 
-    close $listener or die "Unable to close SSL frontend listener: $!";
+    _close_ssl_frontend_socket($listener) or die "Unable to close SSL frontend listener: $!";
     $shutdown_workers = 1;
     for my $routine (@client_routines) {
         $routine->kill if $routine->is_running;
@@ -280,6 +280,15 @@ sub _serve_ssl_frontend {
     _stop_ssl_backend( $backend_pid, \%reaped_children );
     die "SSL frontend client handler failed: $routine_errors[0]" if @routine_errors;
     return 1;
+}
+
+# _close_ssl_frontend_socket($socket)
+# Closes an owned frontend handle; also provides a test seam for failure paths.
+# Input: socket/filehandle owned by the SSL frontend.
+# Output: true on successful close, otherwise false.
+sub _close_ssl_frontend_socket {
+    my ($socket) = @_;
+    return close $socket;
 }
 
 # _wait_for_ssl_backend_ready($daemon, $pid)
