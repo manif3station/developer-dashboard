@@ -12,6 +12,7 @@ use File::Path qw(make_path);
 use File::Spec;
 use Scalar::Util qw(blessed);
 use Developer::Dashboard::JSON qw(json_encode);
+use Developer::Dashboard::Platform qw(is_windows);
 use Developer::Dashboard::PathIdentity ();
 
 # _resolved_home_from_env()
@@ -1945,7 +1946,10 @@ sub _expand_home {
     return $path if !defined $path;
     $path =~ s/^\$HOME(?=\/|$)/$self->{home}/;
     $path =~ s/^~/$self->{home}/;
-    return $path;
+    # File::Spec::Win32 canonicalises mixed slash spellings to the native
+    # separator. Without this, named aliases and environment overrides can
+    # return C:\\home/foo instead of the expected C:\\home\\foo.
+    return is_windows() ? File::Spec->canonpath($path) : $path;
 }
 
 # _ancestor_runtime_layers()

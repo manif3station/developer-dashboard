@@ -1726,6 +1726,18 @@ is_deeply(
 is( $paths->_expand_home(undef), undef, '_expand_home leaves undefined values unchanged' );
 is( $paths->_expand_home('$HOME/shared-path'), File::Spec->catdir( $home, 'shared-path' ), '_expand_home expands leading $HOME tokens' );
 is( $paths->_expand_home('$HOME'), $home, '_expand_home expands a bare $HOME token' );
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::PathRegistry::is_windows = sub { return 1 };
+    local *File::Spec::canonpath = sub {
+        my ( $class, $path ) = @_;
+        return File::Spec::Win32->canonpath($path);
+    };
+    require File::Spec::Win32;
+    is( $paths->_expand_home('~/windows-alias'),
+        File::Spec::Win32->catdir( $home, 'windows-alias' ),
+        'Windows home aliases use native separators rather than mixed slashes' );
+}
 
 dies_like( sub { $paths->collector_dir('') }, qr/Missing collector name/, 'collector_dir requires a name' );
 dies_like( sub { $paths->indicator_dir('') }, qr/Missing indicator name/, 'indicator_dir requires a name' );
