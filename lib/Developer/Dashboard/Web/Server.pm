@@ -533,7 +533,6 @@ sub _proxy_streams {
             }
         }
     }
-    return 1;
 }
 
 # _stop_ssl_backend($pid, $reaped_children)
