@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.20
+6.28
 
 # INTRODUCTION
 
@@ -1396,6 +1396,14 @@ you override it
 GoRoutine's shell-free OS-process API. Accepted client sockets are handled by
 GoRoutine routines using the 0.12 shared filehandle support; shutdown stops
 and waits for the backend process and drains client routine errors explicitly.
+If a client or listener socket close fails, the frontend retains the first
+close error, joins its workers, stops the managed backend, and then reports the
+saved error so cleanup is not abandoned at the first failed close.
+- On Windows, saved-Ajax `stdout` and `stderr` pipes are drained by one Perl
+reader thread per pipe because `IO::Select` cannot reliably report anonymous
+pipe readiness there. Chunks and read errors pass through a bounded event
+queue; interrupted reads are retried, and a disconnected writer or fatal stream
+error terminates the child and joins both readers before returning.
 - `dashboard serve --no-editor` and `dashboard serve --no-endit` keep the
 browser in read-only mode by hiding Share, Play, and View Source chrome,
 denying `/app/<id>/edit`, `/app/<id>/source`, and
@@ -3474,6 +3482,21 @@ Run the full Perl test suite from the repository root:
 The maintained end-to-end scenario plan defines expected routes, inputs, and
 outputs. Hosted workflows provide additional platform checks and packaging
 verification.
+
+Tests that observe managed collector child output must wait for the asynchronous
+log event with a bounded wall-clock timeout, then keep an explicit assertion
+that the expected message arrived. In `t/07-core-units.t`, the wait belongs in
+the `broken-loop` test before its child is stopped and the log is asserted; do
+not put it in a neighboring collector test. This avoids assuming one fixed
+sleep is enough on every hosted runner.
+
+For local GitHub Actions runs executed through `act`, use:
+
+    d2 github-workflow --container-options "--init"
+
+The init process reaps orphaned child processes so process-group cleanup tests
+observe the expected exit behavior. This option does not skip tests or change
+their assertions.
 
 The cross-platform compatibility workflow installs `Devel::Cover` into its
 local dependency tree and exports that tree through `PERL5LIB` before running

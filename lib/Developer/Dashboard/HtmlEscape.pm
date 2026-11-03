@@ -3,7 +3,7 @@ package Developer::Dashboard::HtmlEscape;
 use strict;
 use warnings;
 
-our $VERSION = '6.20';
+our $VERSION = '6.28';
 
 our $XS_LOADED = 0;
 

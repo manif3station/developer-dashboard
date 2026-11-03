@@ -1,14 +1,63 @@
 # Fixed Bugs
 
-## Unreleased
+## 6.28
 
-- Actions 41539084136: The SSL backend launched the `serve` wrapper with an
-  internal command, causing it to dispatch `serve` again and time out during
-  readiness checks. Launch the sibling `_dashboard-core` dispatcher directly
-  and pass the active Perl library paths to the child.
-- Actions 41539084136: The collector error test stopped its child after one
-  second, before a slow child could log its failure. Poll for the error within
-  a bounded deadline and exercise the fixture with delayed startup.
+- Correct GoRoutine coverage by testing unsupported regexp references through
+  observable behavior instead of attempting to monkeypatch Scalar::Util's
+  imported `reftype` function. Remove the unreachable fallback after the
+  reference guard; supported runtime behavior is unchanged.
+
+## 6.27
+
+- Correct the collector failure-log regression by polling for `broken-loop`
+  inside the test that asserts the child log. The previous bounded wait was
+  attached to the preceding stale-pidfile test, so the hosted assertion still
+  raced the asynchronous worker. The final assertion remains and fails if the
+  event is absent after five seconds.
+
+## 6.26
+
+- Add the first bounded-wait attempt for the collector child-log regression;
+  hosted testing showed the wait was in the preceding stale-pidfile test and
+  did not protect the actual log assertion. Corrected in 6.27.
+
+## 6.25
+
+- Complete the SSL backend dispatcher regression across the lifecycle and
+  browser suites. A running-helper marker that names `serve` now resolves to
+  the sibling `_dashboard-core`; test expectations and Server POD explain why
+  invoking the wrapper again would recursively start SSL frontends.
+
+## 6.24
+
+- Prevent recursive SSL backend startup when the running-helper marker names
+  the staged `serve` wrapper. Resolve the sibling `_dashboard-core` dispatcher
+  explicitly so the backend subcommand reaches `serve_ssl_backend_foreground`.
+  The real Chromium browser smoke now reaches readiness and passes its HTTPS,
+  alias-host, and unauthenticated-access checks.
+- Detect and report a backend process that exited but has not yet been reaped;
+  `process_running` alone can classify a POSIX zombie as live.
+
+## 6.23
+
+- Prevent Windows saved-Ajax streaming from waiting on anonymous-pipe
+  readiness that `IO::Select` does not reliably report. Separate reader
+  threads now forward stdout and stderr chunks through a bounded queue, retry
+  interrupted reads, report other read failures, and are joined after child
+  termination on disconnect or fatal stream errors.
+- Ensure SSL frontend socket-close failures do not bypass worker or backend
+  cleanup. The frontend preserves the first close error, joins client workers,
+  stops the managed backend, and then reports the error. Regression tests use
+  real failing pipe closes to verify the error paths.
+- Close the remaining all-metric library coverage gaps through behavior-based
+  tests; the full gate now passes 100.0% statement, branch, condition, and
+  subroutine coverage.
+- Make the post-build install guard use an explicitly threaded Perl image and
+  fail clearly if ithreads are unavailable. The former mutable `perl:latest`
+  image lacked the interpreter configuration required to compile GoRoutine XS.
+- Make the blank-environment install use a pinned threaded Perl image and
+  provide its native GTK/Ayatana build prerequisites. Its previous unthreaded
+  image failed at `aTHX` and `perl_clone` while compiling GoRoutine XS.
 
 ## 6.20
 

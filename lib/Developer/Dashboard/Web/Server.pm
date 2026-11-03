@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '6.20';
+our $VERSION = '6.28';
 
 use Capture::Tiny qw(capture);
 use Errno qw(EINTR);
@@ -19,7 +19,6 @@ use Time::HiRes qw(sleep time);
 
 use Developer::Dashboard::GoRoutine;
 use Developer::Dashboard::Platform qw(is_windows);
-use Developer::Dashboard::ProcessSupervision qw(_perl_library_args);
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::DancerApp;
 use Developer::Dashboard::Web::Server::Daemon;
@@ -235,6 +234,7 @@ sub _serve_ssl_frontend {
     );
 
     my @client_routines;
+    my $frontend_close_error;
     share my @client_errors;
     share my $shutdown_workers = 0;
     my $worker_server = bless {
@@ -263,12 +263,20 @@ sub _serve_ssl_frontend {
                 1;
             };
             push @client_errors, "$@" if !$ok && !$shutdown_workers;
-            _close_ssl_frontend_socket($shared_client) or push @client_errors, "Unable to close SSL frontend client: $!";
+            $worker_server->_close_ssl_frontend_handle($shared_client)
+              or push @client_errors, "Unable to close SSL frontend client: $!";
         });
-        _close_ssl_frontend_socket($client) or die "Unable to release SSL frontend client in listener: $!";
+        if ( !$self->_close_ssl_frontend_handle($client) ) {
+            $frontend_close_error = "Unable to release SSL frontend client in listener: $!";
+            last;
+        }
     }
 
-    _close_ssl_frontend_socket($listener) or die "Unable to close SSL frontend listener: $!";
+    if ( !$self->_close_ssl_frontend_handle($listener) ) {
+        if ( !defined $frontend_close_error ) {
+            $frontend_close_error = "Unable to close SSL frontend listener: $!";
+        }
+    }
     $shutdown_workers = 1;
     for my $routine (@client_routines) {
         $routine->kill if $routine->is_running;
@@ -278,17 +286,18 @@ sub _serve_ssl_frontend {
     }
     my @routine_errors = @client_errors;
     _stop_ssl_backend( $backend_pid, \%reaped_children );
+    die $frontend_close_error if defined $frontend_close_error;
     die "SSL frontend client handler failed: $routine_errors[0]" if @routine_errors;
     return 1;
 }
 
-# _close_ssl_frontend_socket($socket)
-# Closes an owned frontend handle; also provides a test seam for failure paths.
-# Input: socket/filehandle owned by the SSL frontend.
-# Output: true on successful close, otherwise false.
-sub _close_ssl_frontend_socket {
-    my ($socket) = @_;
-    return close $socket;
+# _close_ssl_frontend_handle($handle)
+# Closes one SSL frontend socket handle and returns the close result unchanged.
+# Input: open socket or filehandle reference owned by the SSL frontend.
+# Output: true when closed successfully, false when Perl reports a close error.
+sub _close_ssl_frontend_handle {
+    my ( $self, $handle ) = @_;
+    return close $handle;
 }
 
 # _wait_for_ssl_backend_ready($daemon, $pid)
@@ -300,7 +309,7 @@ sub _wait_for_ssl_backend_ready {
     my ( $self, $daemon, $pid ) = @_;
     my $deadline = time() + 45;
     while ( time() < $deadline ) {
-        if ( !Developer::Dashboard::GoRoutine::process_running($pid) ) {
+        if ( Developer::Dashboard::GoRoutine::process_exited($pid) ) {
             my $status = Developer::Dashboard::GoRoutine::wait_process($pid);
             $SSL_BACKEND_REAPED{$pid} = 1;
             die "SSL backend exited before becoming ready (status $status)";
@@ -324,7 +333,8 @@ sub _wait_for_ssl_backend_ready {
 }
 
 # _ssl_backend_command($daemon)
-# Builds the private-helper command that runs the isolated SSL Starman backend.
+# Builds the staged-core command that runs the isolated SSL Starman backend,
+# resolving the core dispatcher beside the current helper wrapper.
 # Input: daemon descriptor with public and internal endpoints.
 # Output: argv array reference safe for GoRoutine's native process API.
 sub _ssl_backend_command {
@@ -339,13 +349,12 @@ sub _ssl_backend_command {
           if ref($command) ne 'ARRAY' || !@{$command};
         return $command;
     }
-    my $helper = $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER};
-    die 'Missing private Dashboard helper for SSL backend process' if !defined $helper || $helper eq '';
-    # The running helper may be the serve wrapper, which prepends its own
-    # command. Internal commands must go straight to the sibling dispatcher.
-    my $core = File::Spec->catfile( dirname($helper), '_dashboard-core' );
+    my $running_helper = $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER};
+    die 'Missing private Dashboard helper for SSL backend process'
+      if !defined $running_helper || $running_helper eq '';
+    my $helper = File::Spec->catfile( dirname($running_helper), '_dashboard-core' );
     return [
-        $^X, $self->_perl_library_args, $core, 'web-ssl-backend-foreground',
+        $^X, $helper, 'web-ssl-backend-foreground',
         '--host',    $daemon->internal_sockhost,
         '--port',    $daemon->internal_sockport,
         '--workers', $self->{workers},
@@ -1122,7 +1131,7 @@ and runs it under Starman through Plack::Runner.
 
 =head1 METHODS
 
-=head2 new, run, start_daemon, listening_url, serve_daemon, psgi_app, _build_runner, _serve_ssl_frontend, _ssl_backend_command, _wait_for_ssl_backend_ready, _handle_ssl_frontend_client, _default_headers, _ssl_certificate_directory, generate_self_signed_cert, get_ssl_cert_paths
+=head2 new, run, start_daemon, listening_url, serve_daemon, psgi_app, _build_runner, _serve_ssl_frontend, _close_ssl_frontend_handle, _ssl_backend_command, _wait_for_ssl_backend_ready, _handle_ssl_frontend_client, _default_headers, _ssl_certificate_directory, generate_self_signed_cert, get_ssl_cert_paths
 
 Construct and run the local PSGI web server with optional SSL/HTTPS support.
 
@@ -1132,23 +1141,33 @@ When C<ssl => 1> is passed to new(), generates or refreshes self-signed certific
 
 The public front-proxy owns the external listener. It starts the internal
 Starman server with the private C<web-ssl-backend-foreground> helper using an
-argument vector, not a shell command. The helper reconstructs the ordinary
-application and serves only on the reserved internal endpoint. Startup is not
-considered ready until a TLS handshake succeeds; premature helper exit and
-readiness timeout are reported as errors.
-
-Internal backend commands use the C<_dashboard-core> dispatcher beside the
-running helper, since command wrappers such as C<serve> prepend their own
-command name. The child receives the active Perl library paths as arguments.
+argument vector, not a shell command. The command targets the staged
+C<_dashboard-core> dispatcher beside the running helper rather than reusing
+the command wrapper named by C<DEVELOPER_DASHBOARD_RUNNING_HELPER>; wrappers
+prepend their own command name and would otherwise recursively start SSL
+frontends. The helper reconstructs the ordinary application and serves only on
+the reserved internal endpoint. Startup is not considered ready until a TLS
+handshake succeeds. Readiness checks detect exited-but-unreaped child
+processes, and premature helper exit and timeout are reported as errors.
 
 Each accepted client socket is handed to a GoRoutine worker with shared socket,
 daemon descriptor, and minimal host/SAN state. Workers use bounded readiness
 waits so shutdown cancellation also works when a client remains idle. The
 front-end cancels and joins workers before stopping and waiting for the backend,
 and surfaces worker failures unless shutdown itself requested cancellation.
+Socket close errors are retained while workers and the managed backend are
+cleaned up, then reported so a failed close cannot strand the backend process.
 The worker contract depends on GoRoutine's supported shared filehandle and
 reference types; it does not claim that arbitrary opaque native pointers can
 be shared.
+
+=head2 _close_ssl_frontend_handle($handle)
+
+Closes one SSL frontend socket or filehandle and returns Perl's close result
+unchanged. The SSL frontend uses this helper for worker sockets, listener-side
+socket release, and the public listener so each close error can be preserved
+while shutdown finishes. The input is an open socket or filehandle reference;
+the output is true on success or false when Perl reports a close error.
 
 Pass C<ssl => 1> to the new() constructor to enable HTTPS:
 

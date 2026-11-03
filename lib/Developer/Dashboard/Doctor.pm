@@ -3,7 +3,7 @@ package Developer::Dashboard::Doctor;
 use strict;
 use warnings;
 
-our $VERSION = '6.20';
+our $VERSION = '6.28';
 
 use File::Find ();
 use File::Spec;

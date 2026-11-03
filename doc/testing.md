@@ -8,6 +8,22 @@ Run the full test suite with:
 prove -lr t
 ```
 
+## Pipe and socket cleanup regressions
+
+The focused PageRuntime regression test covers saved-Ajax streaming across
+stdout and stderr. Its forced-Windows path verifies that separate reader
+threads forward chunks while the child is running, retry an interrupted read,
+report other read failures, and terminate and join readers after disconnect or
+writer error. The Linux simulation protects dispatch and event handling;
+native Windows Actions remain necessary to verify Perl's Windows pipe and
+thread behavior.
+
+`t/88-web-server-coverage.t` exercises SSL frontend shutdown, including real
+socket-close errors. Close failures must remain visible, but cleanup continues:
+the frontend joins client workers, stops the managed backend, and then reports
+the first close error. These cases use temporary homes, loopback sockets, and
+pipe fixtures so they do not touch the operator's saved runtime.
+
 The dotted installed-skill command regressions cover both `cli/<command>.py`
 and `cli/<command>.js`. The JavaScript execution assertions require `node` on
 `PATH`, so the release tarball gate keeps the path-resolution assertions
@@ -162,6 +178,11 @@ path, serializer module and the exact commands before spending a slot, and
 `perl script/coverage-gate --database DIR t/some-file.t` to collect a focused
 run into a scratch database.
 
+For local GitHub Actions runs through `act`, use
+`d2 github-workflow --container-options "--init"`. The init process reaps
+orphaned child processes so process-group cleanup tests observe the expected
+exit behavior; it does not skip tests or change their assertions.
+
 When a MakeMaker build has created `blib/arch`, the gate puts that directory
 first in the child-process `PERL5LIB`. This makes versioned XS lookups use the
 checkout's freshly built extension instead of an older installed copy, while
@@ -224,6 +245,12 @@ The live singleton regression now also proves that a real long-running command
 still holds the single active worker slot across multiple due ticks, and that
 stopping the collector loop tears down that long-running command instead of
 only stopping the loop wrapper.
+Tests that observe a managed child's failure log must account for asynchronous
+worker scheduling: in the C<broken-loop> case, C<t/07-core-units.t> polls for
+the expected log entry for a bounded wall-clock interval before stopping the
+child, then retains an explicit assertion so a missing event still fails the
+test instead of being hidden by a longer fixed sleep. Keep that wait in the
+same test that checks the log.
 Collector disable coverage now also locks in the stop-and-skip contract:
 `disable => 1` collectors are not started, explicit named starts reject them,
 already-running managed loops for those collectors are stopped on the next
@@ -477,7 +504,7 @@ The extension tests also cover:
 - when changing starter-page refresh logic, run `prove -lv t/04-update-manager.t` and `prove -lv t/05-cli-smoke.t` so the core seeded-page init/update refresh path stays covered against stale managed saved copies
 - when changing bookmark rendering, verify both the browser route and the CLI render path with the same TT bookmark: run `prove -lv t/05-cli-smoke.t` for `dashboard page render <id>` coverage and `integration/browser/run-bookmark-browser-smoke.pl --bookmark-file /path/to/bookmark` for the browser route
 - when changing Template Toolkit rendering or `nav/*.tt`, verify syntax-error handling too: broken TT must surface a visible `runtime-error` block and must not leak raw `[% ... %]` source in either the browser route or `dashboard page render`
-- when changing `dashboard serve --ssl`, run `prove -lv t/17-web-server-ssl.t` and `prove -lv t/33-web-server-ssl-browser.t` so both the certificate profile and the real Chromium browser path stay covered; the generated cert must keep SAN coverage for `localhost`, `127.0.0.1`, `::1`, the concrete non-wildcard bind host, and any configured `web.ssl_subject_alt_names`, older dashboard certs must regenerate when stale or when the expected SAN list changes, plain HTTP must redirect on the public port, and Chromium must report the certificate privacy interstitial (as DOM or a headless certificate diagnostic) plus reach the real dashboard page when certificate trust is bypassed for the test browser, including one configured alias hostname
+- when changing `dashboard serve --ssl`, run `prove -lv t/17-web-server-ssl.t` and `prove -lv t/33-web-server-ssl-browser.t` so both the certificate profile and the real Chromium browser path stay covered; the generated cert must keep SAN coverage for `localhost`, `127.0.0.1`, `::1`, the concrete non-wildcard bind host, and any configured `web.ssl_subject_alt_names`, older dashboard certs must regenerate when stale or when the expected SAN list changes, plain HTTP must redirect on the public port, and Chromium must report the certificate privacy interstitial (as DOM or a headless certificate diagnostic) plus reach the real dashboard page when certificate trust is bypassed for the test browser, including one configured alias hostname. The isolated backend must be dispatched through the staged `_dashboard-core` file rather than the current command wrapper, and readiness polling must detect exited-but-unreaped children.
 - when changing layered machine auth for saved `/ajax/...` handlers, run `prove -lv t/07-core-units.t` and `prove -lv t/08-web-update-coverage.t` so `config/api.json` still follows `DD-OOP-LAYERS`, installed skill `config/api.json` fragments still contribute to skill-local saved ajax routes, helper sessions still work on API-registered ajax routes, remote machine callers still need matching `X-DD-API-Key` plus `X-DD-API-Secret` headers, and registered remote ajax routes still fail closed with `403 {"status":"forbidden"}`
 - when changing the operator-facing `dashboard api` workflow, also run `prove -lv t/05-cli-smoke.t` and `prove -lv t/22-cli-module-coverage.t` so the built-in helper still lists the effective merged registry, hashes raw secrets from `--secret` or `--maybe-secret` before persistence, writes only to the deepest writable `config/api.json` layer, keeps duplicate route adds idempotent, and masks inherited keys through child-layer tombstones instead of rewriting parent files
 - when changing runtime-local optional Perl dependency handling, run `prove -lv t/05-cli-smoke.t` and `prove -lv t/28-runtime-cpan-env.t` to verify `dashboard cpan DBD::Driver` still installs into `./.developer-dashboard/local`, appends the runtime `cpanfile`, records `DBI` automatically for requested `DBD::*` drivers, and keeps the runtime-local `PERL5LIB` wiring script-local instead of reintroducing a dedicated manager module
@@ -545,9 +572,11 @@ This integration path builds the distribution tarball on the host with
 `integration/blank-env/Dockerfile`, runs that container with only the tarball
 mounted into it, installs and tests the tarball with `cpanm`, and then
 exercises the installed `dashboard` command inside the clean Perl container.
-The blank-environment image must also carry the native CPAN build baseline
-needed by packaged installs, including `libexpat1-dev`, `libssl-dev`,
-`pkg-config`, and `zlib1g-dev`, so modules such as `XML::Parser` and
+The blank-environment image uses the pinned Perl 5.44 threaded build and checks
+`Config{useithreads}` because the GoRoutine XS extension requires ithreads. It
+also carries the native CPAN build baseline needed by packaged installs,
+including GTK/Ayatana, `libexpat1-dev`, `libssl-dev`, `pkg-config`, and
+`zlib1g-dev`, so native helpers and modules such as `XML::Parser` and
 `Net::SSLeay` can build before the installed-runtime smoke reaches the staged
 helper checks.
 That image must also provide a real headless Chromium binary instead of an
@@ -557,6 +586,9 @@ The host-side launcher now also runs `prove -lv t/44-smart-router-two-stage.t`
 immediately after `dzil build` and before the broader blank-environment
 container flow. Treat that smart-router two-stage guard as a managed
 post-build gate, not as an optional memory step.
+The guard uses the pinned `perl:5.44-threaded` image and checks `Config{useithreads}`
+before installation because the GoRoutine XS extension needs an ithreads-enabled
+interpreter; `perl:latest` can change Perl version and thread configuration.
 
 ### Post-Build Guard Container Reclaim
 

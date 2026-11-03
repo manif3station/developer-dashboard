@@ -172,6 +172,23 @@ a fresh clone of the GitHub `master` checkout, while the smoke overrides that
 with the exact staged tarball under test; `dashboard shell ps`, `dashboard ps1`,
 collector, saved Ajax, web, and browser checks still execute in the guest.
 
+## Saved Ajax pipe streaming
+
+Windows anonymous pipes do not provide reliable readiness through
+`IO::Select::can_read`, so saved-Ajax output and error streams use separate Perl
+reader threads and a bounded event queue. Each reader forwards chunks or an
+explicit read error; `EINTR` is retried. If the client disconnects or a writer
+fails, the worker is terminated and both readers are joined before the stream
+returns. `t/12-legacy-helper-coverage.t` forces the Windows dispatch path and
+checks chunk delivery, retry, disconnect, and termination behavior on Linux.
+That simulation is a regression test, not a substitute for native Windows
+validation: the committed Windows x64 Actions job must still pass.
+
+The SSL frontend also treats socket close errors as shutdown errors. It joins
+client workers and stops the managed backend before surfacing the first close
+failure; `t/88-web-server-coverage.t` uses real failing pipe closes to verify
+that cleanup order.
+
 ## Release Rule
 
 For Windows-targeted changes:

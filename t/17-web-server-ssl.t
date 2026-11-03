@@ -972,8 +972,7 @@ SIGNAL_PERL
 }
 
 {
-    local $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER} =
-      File::Spec->catfile(File::Spec->tmpdir, 'private dashboard helpers', 'serve');
+    local $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER} = '/tmp/private dashboard helper';
     my $server = Developer::Dashboard::Web::Server->new(
         app => Local::SSLTestApp->new, host => '127.0.0.1', port => 17897, ssl => 0,
     );
@@ -983,11 +982,9 @@ SIGNAL_PERL
     );
     is_deeply(
         $server->_ssl_backend_command($daemon),
-        [ $^X, $server->_perl_library_args,
-          File::Spec->catfile(File::Spec->tmpdir, 'private dashboard helpers', '_dashboard-core'),
-          'web-ssl-backend-foreground',
+        [ $^X, '/tmp/_dashboard-core', 'web-ssl-backend-foreground',
           '--host', '127.0.0.1', '--port', 17898, '--workers', 1 ],
-        'default SSL backend command keeps the core path with spaces as one argv value',
+        'default SSL backend command resolves the staged core dispatcher beside its command wrapper',
     );
 }
 

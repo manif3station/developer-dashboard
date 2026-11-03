@@ -16,7 +16,7 @@ BEGIN {
 }
 
 use Capture::Tiny qw(capture);
-use Errno qw(EINTR);
+use Errno qw(EBADF EINTR);
 use File::Basename qw(basename dirname);
 use File::Path qw(make_path);
 use File::Spec;
@@ -77,16 +77,40 @@ ok( $paths->home_runtime_path, 'hermetic path registry resolves a home runtime p
     sub sockport { return $PORT }
 }
 
+{
+    package Local::EmptyDaemon;
+
+    # sockhost()
+    # Models a daemon descriptor without a reported host.
+    # Input: daemon fixture object.
+    # Output: undef.
+    sub sockhost { return }
+
+    # sockport()
+    # Models a daemon descriptor without a reported port.
+    # Input: daemon fixture object.
+    # Output: undef.
+    sub sockport { return }
+}
+
 # A frontend listener whose accept() replays a scripted sequence of results.
 {
     package Local::ScriptedListener;
 
     our @ACCEPTS;
+    our $FAIL_CLOSE = 0;
 
     sub new {
         my ($class) = @_;
-        open my $fh, '<', File::Spec->devnull
-          or die "Unable to open scripted listener fixture: $!";
+        my $fh;
+        if ($FAIL_CLOSE) {
+            open $fh, '-|', 'sh', '-c', 'exit 3'
+              or die "Unable to open failing scripted listener fixture: $!";
+        }
+        else {
+            open $fh, '<', File::Spec->devnull
+              or die "Unable to open scripted listener fixture: $!";
+        }
         return bless $fh, $class;
     }
 
@@ -247,6 +271,50 @@ OPENSSL_CONFIG
 
 my $app = Local::StubApp->new;
 
+{
+    my $missing = eval { Developer::Dashboard::Web::Server->new(); 1 };
+    ok( !$missing, 'server constructor requires an app object' );
+    like( $@, qr/Missing web app/, 'server constructor names a missing app object' );
+
+    my $defaults = Developer::Dashboard::Web::Server->new(
+        app                   => $app,
+        ssl_subject_alt_names => 'not-an-array',
+    );
+    is( $defaults->{host}, '0.0.0.0', 'server constructor defaults the bind host' );
+    is( $defaults->{port}, 7890, 'server constructor defaults the listen port' );
+    is( $defaults->{workers}, 1, 'server constructor defaults to one worker' );
+    is( $defaults->{ssl}, 0, 'server constructor disables SSL by default' );
+    is_deeply( $defaults->{ssl_subject_alt_names}, [], 'server constructor ignores a non-array SAN option' );
+    my $with_san = Developer::Dashboard::Web::Server->new(
+        app                   => $app,
+        ssl_subject_alt_names => ['dashboard.example.test'],
+    );
+    is_deeply( $with_san->{ssl_subject_alt_names}, ['dashboard.example.test'],
+        'server constructor copies an array of configured subject alternative names' );
+    is(
+        $defaults->listening_url( bless( {}, 'Local::EmptyDaemon' ) ),
+        'http://localhost:7890/',
+        'listening_url supplies host and port defaults when the daemon omits both',
+    );
+    is(
+        $defaults->listening_url( Developer::Dashboard::Web::Server::Daemon->new( host => 'dashboard.local', port => 8123 ) ),
+        'http://dashboard.local:8123/',
+        'listening_url preserves host and port reported by the daemon',
+    );
+
+    my $running = bless {}, 'Developer::Dashboard::Web::Server';
+    my $run_daemon = bless {}, 'Local::RunDaemon';
+    my ( $served_daemon, $run_result );
+    local *Developer::Dashboard::Web::Server::start_daemon = sub { return $run_daemon };
+    local *Developer::Dashboard::Web::Server::listening_url = sub { return 'http://fixture:7890/' };
+    local *Developer::Dashboard::Web::Server::serve_daemon = sub { $served_daemon = $_[1]; return 1 };
+    my ( $stdout, $stderr ) = capture { $run_result = $running->run };
+    is( $run_result, 1, 'run returns the daemon loop result' );
+    is( $stdout, "Developer Dashboard listening on http://fixture:7890/\n", 'run prints the resolved server URL' );
+    is( $stderr, '', 'run reports no stderr output on a successful daemon loop' );
+    is( $served_daemon, $run_daemon, 'run passes its started daemon descriptor to the server loop' );
+}
+
 # One shared SSL-enabled server. Building it also exercises the real
 # certificate generation path once, which is reused by the SSL frontend tests.
 my $ssl_home = tempdir( CLEANUP => 1 );
@@ -269,18 +337,121 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     internal_port => 17903,
 );
 
+{
+    local @Local::ScriptedListener::ACCEPTS = ();
+    local $Local::ScriptedListener::FAIL_CLOSE = 1;
+    my @stopped;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 991004 };
+    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub { push @stopped, $_[0]; return 1 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready = sub { return 1 };
+
+    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
+    ok( !$ok, 'SSL frontend reports a listener close failure' );
+    like( $@, qr/Unable to close SSL frontend listener/, 'listener close failure is explicit' );
+    is_deeply( \@stopped, [991004], 'SSL backend is stopped after listener close failure' );
+}
+
+{
+    my $closeable = Local::StubSocket->new( closeable => 1 );
+    ok( $ssl_server->_close_ssl_frontend_handle($closeable), 'SSL handle close helper returns a successful close' );
+    my $uncloseable = Local::StubSocket->new( closeable => 0 );
+    ok( !$ssl_server->_close_ssl_frontend_handle($uncloseable), 'SSL handle close helper returns a real close failure' );
+}
+
+{
+    my $client = Local::StubSocket->new( closeable => 0 );
+    local @Local::ScriptedListener::ACCEPTS = (
+        sub { return $client },
+        sub { $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1; return },
+    );
+    local $Local::ScriptedListener::FAIL_CLOSE = 1;
+    my @stopped;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 991005 };
+    local *Developer::Dashboard::GoRoutine::go = sub { return Local::DelayedRoutine->new };
+    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    my $close_calls = 0;
+    local *Developer::Dashboard::Web::Server::_close_ssl_frontend_handle = sub {
+        my ( $self, $handle ) = @_;
+        if ( !$close_calls++ ) {
+            $! = EBADF;
+            return;
+        }
+        return close $handle;
+    };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub { push @stopped, $_[0]; return 1 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready = sub { return 1 };
+
+    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
+    ok( !$ok, 'SSL frontend reports a client release close failure' );
+    like( $@, qr/Unable to release SSL frontend client/, 'client release close failure is explicit' );
+    is_deeply( \@stopped, [991005], 'SSL backend is stopped after client release close failure' );
+}
+
+{
+    socketpair( my $client, my $client_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to build failing worker-close fixture: $!";
+    local @Local::ScriptedListener::ACCEPTS = (
+        sub { return $client },
+        sub { $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1; return },
+    );
+    my @stopped;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 991006 };
+    local *Developer::Dashboard::GoRoutine::go = sub {
+        my ($callback) = @_;
+        $callback->();
+        return bless {}, 'Local::CompletedRoutine';
+    };
+    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client = sub { return 1 };
+    my $close_calls = 0;
+    local *Developer::Dashboard::Web::Server::_close_ssl_frontend_handle = sub {
+        my ( $self, $handle ) = @_;
+        if ( !$close_calls++ ) {
+            $! = EBADF;
+            return;
+        }
+        return close $handle;
+    };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub { push @stopped, $_[0]; return 1 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready = sub { return 1 };
+
+    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
+    ok( !$ok, 'SSL frontend reports a client worker close failure' );
+    like( $@, qr/Unable to close SSL frontend client/, 'client worker close failure is explicit' );
+    is_deeply( \@stopped, [991006], 'SSL backend is stopped after client worker close failure' );
+    close $client_peer or die "Unable to close worker-close fixture peer: $!";
+}
+
 # Backend readiness is validated without opening a socket or starting a child.
 {
     no warnings qw(redefine once);
     local %Developer::Dashboard::Web::Server::SSL_BACKEND_REAPED;
-    local *Developer::Dashboard::GoRoutine::process_running = sub { return 0 };
+    local *Developer::Dashboard::GoRoutine::process_exited = sub { return 1 };
     local *Developer::Dashboard::GoRoutine::wait_process = sub { return 23 };
     my $ok = eval { $ssl_server->_wait_for_ssl_backend_ready( $ssl_daemon, 93001 ); 1 };
     ok( !$ok, 'SSL readiness fails when the managed backend exits before listening' );
     like( $@, qr/exited before becoming ready \(status 23\)/, 'early backend exit reports its process status' );
     ok( $Developer::Dashboard::Web::Server::SSL_BACKEND_REAPED{93001}, 'early backend exit is recorded as reaped' );
 
-    local *Developer::Dashboard::GoRoutine::process_running = sub { return 1 };
+    {
+        local %Developer::Dashboard::Web::Server::SSL_BACKEND_REAPED;
+        local *Developer::Dashboard::GoRoutine::process_running = sub { die 'readiness must detect an exited, unreaped child' };
+        local *Developer::Dashboard::GoRoutine::process_exited = sub { return 1 };
+        local *Developer::Dashboard::GoRoutine::wait_process = sub { return 24 };
+        my $exited_ok = eval { $ssl_server->_wait_for_ssl_backend_ready( $ssl_daemon, 93005 ); 1 };
+        ok( !$exited_ok, 'SSL readiness detects an exited but unreaped backend process' );
+        like( $@, qr/exited before becoming ready \(status 24\)/, 'unreaped backend failure reports its exit status immediately' );
+        ok( $Developer::Dashboard::Web::Server::SSL_BACKEND_REAPED{93005}, 'unreaped backend is marked reaped after collecting its status' );
+    }
+
+    local *Developer::Dashboard::GoRoutine::process_exited = sub { return 0 };
     local *IO::Socket::SSL::new = sub {
         open my $backend, '<', File::Spec->devnull
           or die "Unable to create the SSL readiness socket fixture: $!";
@@ -288,6 +459,33 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     };
     is( $ssl_server->_wait_for_ssl_backend_ready( $ssl_daemon, 93002 ), 1,
         'SSL readiness succeeds after a loopback TLS handshake' );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::process_exited = sub { return 0 };
+    local *IO::Socket::SSL::new = sub { return _tied_handle('Local::FailingCloseHandle') };
+    my $ok = eval { $ssl_server->_wait_for_ssl_backend_ready( $ssl_daemon, 93003 ); 1 };
+    ok( !$ok, 'SSL readiness reports a backend probe socket close failure' );
+    like( $@, qr/Unable to close SSL backend readiness probe/, 'probe close failure remains explicit' );
+}
+
+{
+    my ( $clock, $probe_count, @stopped ) = ( 0, 0 );
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::time = sub { $clock += 20; return $clock };
+    local *Developer::Dashboard::Web::Server::sleep = sub { return 1 };
+    local *Developer::Dashboard::GoRoutine::process_exited = sub { return 0 };
+    local *IO::Socket::SSL::new = sub { $probe_count++; return };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub {
+        push @stopped, $_[0];
+        return 1;
+    };
+    my $ok = eval { $ssl_server->_wait_for_ssl_backend_ready( $ssl_daemon, 93004 ); 1 };
+    ok( !$ok, 'SSL readiness fails after the backend startup deadline' );
+    like( $@, qr/Timed out waiting for SSL backend listener readiness/, 'backend timeout reports its exact failure' );
+    is( $probe_count, 2, 'backend readiness probes are retried until the deadline' );
+    is_deeply( \@stopped, [93004], 'backend timeout terminates the managed backend' );
 }
 
 # The helper-command contract rejects an absent staged helper and malformed
@@ -299,12 +497,40 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     ok( !$ok, 'SSL backend command refuses to run without the staged helper' );
     like( $@, qr/Missing private Dashboard helper/, 'missing SSL helper has an explicit diagnostic' );
 
+    local $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER} = '';
+    $ok = eval { $ssl_server->_ssl_backend_command($ssl_daemon); 1 };
+    ok( !$ok, 'SSL backend command refuses an empty staged helper path' );
+    like( $@, qr/Missing private Dashboard helper/, 'empty SSL helper has an explicit diagnostic' );
+
     for my $bad_command ( 'not an argv array', [] ) {
         local $ssl_server->{ssl_backend_command_builder} = sub { return $bad_command };
         $ok = eval { $ssl_server->_ssl_backend_command($ssl_daemon); 1 };
         ok( !$ok, 'SSL backend command rejects a malformed builder result' );
         like( $@, qr/command builder must return an argv array reference/, 'invalid builder result has an explicit diagnostic' );
     }
+}
+
+{
+    local $ssl_server->{ssl_backend_command_builder} = sub {
+        my ( $host, $port, $workers ) = @_;
+        return [ $^X, '-e', 'exit 0', $host, $port, $workers ];
+    };
+    is_deeply(
+        $ssl_server->_ssl_backend_command($ssl_daemon),
+        [ $^X, '-e', 'exit 0', '127.0.0.1', 17903, 1 ],
+        'SSL backend command accepts a valid custom argv builder result',
+    );
+}
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER} = '/private/cli/serve';
+    local $ssl_server->{ssl_backend_command_builder};
+    is_deeply(
+        $ssl_server->_ssl_backend_command($ssl_daemon),
+        [ $^X, '/private/cli/_dashboard-core', 'web-ssl-backend-foreground', '--host', '127.0.0.1',
+          '--port', 17903, '--workers', 1 ],
+        'SSL backend command resolves the core dispatcher beside the running command wrapper',
+    );
 }
 
 # is_running()
@@ -318,6 +544,28 @@ sub Local::CompletedRoutine::is_running { return 0 }
 # Input: routine fixture object.
 # Output: true value.
 sub Local::CompletedRoutine::kill { return 1 }
+
+{
+    package Local::DelayedRoutine;
+
+    # new()
+    # Creates a routine fixture that stays active long enough for one shutdown poll.
+    # Input: none.
+    # Output: routine fixture with poll and kill counters.
+    sub new { return bless { checks => 0, killed => 0 }, shift }
+
+    # is_running()
+    # Reports active twice, then reports completion.
+    # Input: routine fixture object.
+    # Output: true for its first two polls, false after that.
+    sub is_running { return ++$_[0]->{checks} <= 2 }
+
+    # kill()
+    # Records that the frontend requested routine cancellation.
+    # Input: routine fixture object.
+    # Output: true value.
+    sub kill { $_[0]->{killed}++; return 1 }
+}
 
 # --- new(): worker count validation -----------------------------------------
 {
@@ -352,6 +600,25 @@ sub Local::CompletedRoutine::kill { return 1 }
 }
 
 # --- start_daemon(): socket reservation and close failures ------------------
+{
+    my $server = Developer::Dashboard::Web::Server->new( app => $app );
+    no warnings 'redefine';
+    local *IO::Socket::INET::new = sub { return };
+    my $ok = eval { $server->start_daemon; 1 };
+    ok( !$ok, 'start_daemon fails when the requested listen address cannot be opened' );
+    like( $@, qr/Unable to start server on 0[.]0[.]0[.]0:7890/, 'listen bind failure reports its host and port' );
+}
+
+{
+    my $server = Developer::Dashboard::Web::Server->new( app => $app );
+    no warnings 'redefine';
+    local *IO::Socket::INET::new = sub { return Local::StubSocket->new( closeable => 1 ) };
+    my $daemon = $server->start_daemon;
+    isa_ok( $daemon, 'Developer::Dashboard::Web::Server::Daemon', 'non-SSL start_daemon returns its daemon descriptor' );
+    is( $daemon->sockhost, '127.0.0.1', 'non-SSL daemon preserves the reserved host' );
+    is( $daemon->sockport, 17901, 'non-SSL daemon preserves the reserved port' );
+}
+
 {
     my $server = Developer::Dashboard::Web::Server->new(
         app     => $app,
@@ -403,6 +670,19 @@ sub Local::CompletedRoutine::kill { return 1 }
     );
 }
 
+{
+    my @sockets = (
+        Local::StubSocket->new( closeable => 1 ),
+        Local::StubSocket->new( closeable => 1 ),
+    );
+    no warnings 'redefine';
+    local *IO::Socket::INET::new = sub { return shift @sockets };
+    my $daemon = $ssl_server->start_daemon;
+    is( $daemon->sockhost, '127.0.0.1', 'SSL daemon retains the public address after successful reservations' );
+    is( $daemon->internal_sockhost, '127.0.0.1', 'SSL daemon retains the internal backend address' );
+    is( $daemon->internal_sockport, 17901, 'SSL daemon retains the internal backend port after closing its reservation' );
+}
+
 # --- listening_url(): missing daemon ----------------------------------------
 {
     my $url = $ssl_server->listening_url(undef);
@@ -432,15 +712,14 @@ sub Local::CompletedRoutine::kill { return 1 }
             $! = EINTR;
             return undef;
         },
-        sub { return $client },
         sub {
             $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
-            return;
+            return $client;
         },
     );
 
     my @spawned;
-    my $handled = 0;
+    my ( $handled, @routines ) = (0);
     local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
     local *Developer::Dashboard::GoRoutine::spawn = sub {
         @spawned = @_;
@@ -453,7 +732,9 @@ sub Local::CompletedRoutine::kill { return 1 }
     local *Developer::Dashboard::GoRoutine::go = sub {
         my ($callback) = @_;
         $callback->();
-        return bless {}, 'Local::CompletedRoutine';
+        my $routine = Local::DelayedRoutine->new;
+        push @routines, $routine;
+        return $routine;
     };
     local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client = sub { $handled++; return 1 };
     local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub {
@@ -461,6 +742,7 @@ sub Local::CompletedRoutine::kill { return 1 }
         return 1;
     };
     local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready = sub { return 1 };
+    local $ssl_server->{ssl_subject_alt_names} = undef;
 
     is(
         $ssl_server->_serve_ssl_frontend($ssl_daemon),
@@ -470,9 +752,90 @@ sub Local::CompletedRoutine::kill { return 1 }
     is_deeply( \@spawned, [ [ $^X, '-e', 'exit 0' ], { process_group => 1 } ],
         'SSL frontend starts its backend with the managed process-group option' );
     is( $handled, 1, 'accepted client is handled by one GoRoutine worker' );
+    is( $routines[0]{killed}, 1, 'SSL frontend cancels a client routine during shutdown' );
+    is( $routines[0]{checks}, 3, 'SSL frontend waits for a running client routine to finish' );
     is_deeply( \@stopped, [991001], 'SSL frontend stops the internal backend before returning' );
 
     close $client_peer or die "Unable to close frontend client fixture peer: $!";
+}
+
+{
+    socketpair( my $client, my $client_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to build failing frontend client fixture: $!";
+    local @Local::ScriptedListener::ACCEPTS = (
+        sub { return $client },
+        sub {
+            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
+            return;
+        },
+    );
+
+    my @stopped;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 991002 };
+    local *Developer::Dashboard::GoRoutine::go = sub {
+        my ($callback) = @_;
+        $callback->();
+        return bless {}, 'Local::CompletedRoutine';
+    };
+    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client = sub {
+        die "simulated frontend client failure\n";
+    };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub {
+        push @stopped, $_[0];
+        return 1;
+    };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready = sub { return 1 };
+
+    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
+    ok( !$ok, 'SSL frontend reports a failed client handler after cleaning up' );
+    like( $@, qr/SSL frontend client handler failed: simulated frontend client failure/,
+        'SSL frontend preserves the client handler error in its final diagnostic' );
+    is_deeply( \@stopped, [991002], 'SSL frontend stops the backend before reporting a client handler failure' );
+    close $client_peer or die "Unable to close failing frontend client fixture peer: $!";
+}
+
+{
+    socketpair( my $client, my $client_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to build late failing frontend client fixture: $!";
+    local @Local::ScriptedListener::ACCEPTS = (
+        sub {
+            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
+            return $client;
+        },
+    );
+
+    my @stopped;
+    my @routines;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 991003 };
+    local *Developer::Dashboard::GoRoutine::go = sub {
+        my ($callback) = @_;
+        my $routine = Local::DelayedRoutine->new;
+        $routine->{callback} = $callback;
+        push @routines, $routine;
+        return $routine;
+    };
+    local *Local::DelayedRoutine::kill = sub {
+        $_[0]->{killed}++;
+        $_[0]->{callback}->();
+        return 1;
+    };
+    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
+    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client = sub {
+        die "late client failure during shutdown\n";
+    };
+    local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub { push @stopped, $_[0]; return 1 };
+    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready = sub { return 1 };
+
+    my $result = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
+    ok( $result, 'SSL frontend suppresses a late client-handler failure after shutdown starts' );
+    is( $routines[0]{killed}, 1, 'SSL frontend cancels the late client routine during shutdown' );
+    is_deeply( \@stopped, [991003], 'SSL frontend still stops its backend after the late handler failure' );
+    close $client_peer or die "Unable to close late frontend client fixture peer: $!";
 }
 
 # --- SSL frontend helper argument guards ------------------------------------
@@ -623,6 +986,12 @@ sub Local::CompletedRoutine::kill { return 1 }
         1,
         'managed-child wait helper skips children the local CHLD handler already reaped',
     );
+    my $waited_pid;
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::wait_process = sub { $waited_pid = $_[0]; return 0 };
+    is( Developer::Dashboard::Web::Server::_wait_for_managed_child( 4322, {} ), 1,
+        'managed-child wait proceeds when a provided reap set does not contain the child' );
+    is( $waited_pid, 4322, 'managed-child wait passes the unreaped pid to GoRoutine' );
     is(
         Developer::Dashboard::Web::Server::_track_reaped_child( undef, 4321 ),
         1,
@@ -633,6 +1002,13 @@ sub Local::CompletedRoutine::kill { return 1 }
         1,
         'track-reaped-child helper is a no-op for an undefined child pid',
     );
+    my %tracked;
+    is( Developer::Dashboard::Web::Server::_track_reaped_child( \%tracked, 4325 ), 1,
+        'track-reaped-child records a positive child pid' );
+    is_deeply( \%tracked, { 4325 => 1 }, 'track-reaped-child stores the pid in its reap set' );
+    is( Developer::Dashboard::Web::Server::_track_reaped_child( \%tracked, 0 ), 1,
+        'track-reaped-child ignores a non-positive child pid' );
+    is_deeply( \%tracked, { 4325 => 1 }, 'track-reaped-child leaves the reap set unchanged for a non-positive pid' );
 }
 
 # --- _https_redirect_location(): host, port, and path rebuilding ------------
@@ -985,6 +1361,32 @@ sub Local::CompletedRoutine::kill { return 1 }
             'profile check rejects an openssl verify that reports OK on neither stream',
         );
     }
+}
+
+{
+    my $reuse_home = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = $reuse_home;
+    my $first = Developer::Dashboard::Web::Server::generate_self_signed_cert();
+    my $second = Developer::Dashboard::Web::Server::generate_self_signed_cert();
+    is( $second, $first, 'certificate generation reuses a valid certificate with the expected profile' );
+    ok( -f $first, 'reused dashboard certificate remains present' );
+    ok( -f File::Spec->catfile( dirname($first), 'server.key' ), 'reused dashboard private key remains present' );
+}
+
+{
+    my $regen_home = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = $regen_home;
+    my $cert_dir = File::Spec->catdir( $regen_home, '.developer-dashboard', 'certs' );
+    make_path($cert_dir);
+    _profile_fixture_cert(
+        File::Spec->catfile( $cert_dir, 'server.crt' ),
+        File::Spec->catfile( $cert_dir, 'server.key' ),
+        "basicConstraints = critical,CA:FALSE\nextendedKeyUsage = serverAuth\nkeyUsage = critical,digitalSignature,keyEncipherment",
+    );
+    my $generated = Developer::Dashboard::Web::Server::generate_self_signed_cert( validity_days => 30 );
+    is( $generated, File::Spec->catfile( $cert_dir, 'server.crt' ),
+        'certificate generation replaces an invalid certificate and key using the requested validity period' );
+    ok( -s $generated, 'certificate regeneration writes a non-empty certificate file' );
 }
 
 # --- generate_self_signed_cert(): the Windows home-resolution chain ---------
@@ -1354,6 +1756,40 @@ sub Local::CompletedRoutine::kill { return 1 }
 }
 
 {
+    my $runner = Local::Runner->new;
+    my $public_daemon = Developer::Dashboard::Web::Server::Daemon->new( host => '127.0.0.1', port => 17924 );
+    no warnings 'redefine';
+    local *Plack::Runner::new = sub { return $runner };
+    local *Developer::Dashboard::Web::Server::is_windows = sub { return 0 };
+    local *Developer::Dashboard::Web::Server::get_ssl_cert_paths = sub { return ( 'fixture-cert.pem', 'fixture-key.pem' ) };
+
+    is( $ssl_server->_build_runner($public_daemon), $runner,
+        'runner builder returns the runner when SSL uses a daemon without internal socket accessors' );
+    my @options = @{ $runner->{parsed} };
+    my %option;
+    while (@options) {
+        my ( $key, $value ) = splice @options, 0, 2;
+        $option{$key} = $value;
+    }
+    is( $option{'--host'}, '127.0.0.1', 'SSL runner falls back to the daemon public host when the internal host is absent' );
+    is( $option{'--port'}, 17924, 'SSL runner falls back to the daemon public port when the internal port is absent' );
+    is( $option{'--ssl-cert'}, 'fixture-cert.pem', 'SSL runner retains the configured certificate after endpoint fallback' );
+}
+
+{
+    my $runner = Local::Runner->new;
+    no warnings 'redefine';
+    local *Plack::Runner::new = sub { return $runner };
+    local *Developer::Dashboard::Web::Server::is_windows = sub { return 1 };
+    local *Developer::Dashboard::Web::Server::get_ssl_cert_paths = sub { return ( 'fixture-cert.pem', 'fixture-key.pem' ) };
+
+    $ssl_server->_build_runner($ssl_daemon);
+    my @options = @{ $runner->{parsed} };
+    is( $options[1], 'Standalone', 'Windows runner uses the standalone Plack server' );
+    ok( !( grep { $_ eq '--workers' } @options ), 'Windows runner leaves worker selection to the standalone server' );
+}
+
+{
     my $daemon = Developer::Dashboard::Web::Server::Daemon->new( host => '127.0.0.1', port => 17923 );
     my $listener = Local::StubSocket->new( closeable => 1 );
     no warnings 'redefine';
@@ -1394,6 +1830,32 @@ sub Local::CompletedRoutine::kill { return 1 }
 
 {
     socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to build empty-client fixture: $!";
+    close $peer or die "Unable to close empty-client peer: $!";
+    is( $ssl_server->_handle_ssl_frontend_client( client => $client, daemon => $ssl_daemon ), 1,
+        'frontend closes an already-empty client without attempting a redirect or proxy' );
+    close $client or die "Unable to close empty-client fixture: $!";
+}
+
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to build failed-backend fixture: $!";
+    syswrite( $peer, "\x16" ) == 1 or die "Unable to prime failed-backend fixture: $!";
+    no warnings 'redefine';
+    local *IO::Socket::INET::new = sub { return };
+    my $ok = eval {
+        $ssl_server->_handle_ssl_frontend_client( client => $client, daemon => $ssl_daemon );
+        1;
+    };
+    ok( !$ok, 'frontend reports an internal backend connection failure for TLS traffic' );
+    like( $@, qr/Unable to connect to internal SSL backend/,
+        'failed backend connection has an explicit diagnostic' );
+    close $client or die "Unable to close failed-backend fixture client: $!";
+    close $peer or die "Unable to close failed-backend fixture peer: $!";
+}
+
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
       or die "Unable to build HTTP redirect fixture: $!";
     my $request = "GET /alpha?x=1 HTTP/1.1\r\nHost: localhost:7890\r\n\r\n";
     syswrite( $peer, $request ) == length($request) or die "Unable to prime HTTP redirect fixture: $!";
@@ -1417,12 +1879,36 @@ sub Local::CompletedRoutine::kill { return 1 }
     socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
       or die "Unable to build complete request-head fixture: $!";
     syswrite( $peer, $head ) == length($head) or die "Unable to prime complete request-head fixture: $!";
+    my $can_read = \&IO::Select::can_read;
+    my $read_waits = 0;
+    no warnings 'redefine';
+    local *IO::Select::can_read = sub {
+        if ( !$read_waits++ ) {
+            return;
+        }
+        return $can_read->(@_);
+    };
     $captured = Developer::Dashboard::Web::Server::_read_http_request_head($client);
     is( $captured, "POST /submit HTTP/1.1\r\nHost: localhost\r\n\r\n", 'request-head reader returns through the complete header terminator' );
+    cmp_ok( $read_waits, '>=', 2, 'request-head reader resumes after a timed readiness poll returns no sockets' );
     close $client or die "Unable to close request-head fixture client: $!";
     close $peer or die "Unable to close request-head fixture peer: $!";
 
     is( Developer::Dashboard::Web::Server::_request_target_from_head("BROKEN\r\n"), '/', 'malformed request line defaults to the root target' );
+    is( Developer::Dashboard::Web::Server::_request_target_from_head(''), '/', 'empty request head defaults to the root target' );
+    is( Developer::Dashboard::Web::Server::_request_target_from_head(undef), '/', 'undefined request head defaults to the root target' );
+    is( Developer::Dashboard::Web::Server::_socket_looks_like_tls(undef), 0, 'TLS detector rejects an undefined first byte' );
+    is( Developer::Dashboard::Web::Server::_socket_looks_like_tls(''), 0, 'TLS detector rejects an empty first byte' );
+    is( Developer::Dashboard::Web::Server::_socket_looks_like_tls("\x16"), 1, 'TLS detector accepts the handshake content type byte' );
+    is( Developer::Dashboard::Web::Server::_socket_looks_like_tls('G'), 0, 'TLS detector rejects a non-TLS request byte' );
+    is(
+        $server->_request_host_from_head(
+            "GET / HTTP/1.1\r\n\r\n",
+            Developer::Dashboard::Web::Server::Daemon->new( host => 'public.example.test', port => 9443 ),
+        ),
+        'public.example.test:9443',
+        'request-host fallback preserves a valid daemon authority and non-default port',
+    );
     is(
         $server->_request_host_from_head(
             "GET / HTTP/1.1\r\nHost: localhost:8443\r\n\r\n",
@@ -1431,7 +1917,27 @@ sub Local::CompletedRoutine::kill { return 1 }
         'localhost:8443',
         'request-host helper preserves an allowlisted authority and custom public port',
     );
+    is(
+        $server->_request_host_from_head(
+            "GET / HTTP/1.1\r\n\r\n",
+            Developer::Dashboard::Web::Server::Daemon->new( host => '', port => 0 ),
+        ),
+        '127.0.0.1',
+        'request-host fallback supplies loopback and the default HTTPS port when the daemon address is empty',
+    );
     like( Developer::Dashboard::Web::Server::_http_redirect_response(), qr{Location: https://127\.0\.0\.1/}, 'raw redirect response supplies both default authority and target' );
+}
+
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to build incomplete request-head fixture: $!";
+    my $partial = "GET /partial HTTP/1.1\r\nHost: localhost\r\n";
+    syswrite( $peer, $partial ) == length($partial) or die "Unable to prime incomplete request-head fixture: $!";
+    shutdown( $peer, 1 ) or die "Unable to half-close incomplete request-head fixture: $!";
+    is( Developer::Dashboard::Web::Server::_read_http_request_head($client), $partial,
+        'request-head reader returns partial input when the peer closes before the header terminator' );
+    close $client or die "Unable to close incomplete request-head client: $!";
+    close $peer or die "Unable to close incomplete request-head peer: $!";
 }
 
 {
@@ -1445,7 +1951,17 @@ sub Local::CompletedRoutine::kill { return 1 }
     syswrite( $backend_peer, $reply ) == length($reply) or die "Unable to prime proxy backend payload: $!";
     shutdown( $client_peer, 1 ) or die "Unable to half-close proxy client fixture: $!";
     shutdown( $backend_peer, 1 ) or die "Unable to half-close proxy backend fixture: $!";
+    my $can_read = \&IO::Select::can_read;
+    my $read_waits = 0;
+    no warnings 'redefine';
+    local *IO::Select::can_read = sub {
+        if ( !$read_waits++ ) {
+            return;
+        }
+        return $can_read->(@_);
+    };
     is( Developer::Dashboard::Web::Server::_proxy_streams( $client, $backend ), 1, 'proxy forwards each socket direction until both peers close' );
+    cmp_ok( $read_waits, '>=', 2, 'proxy waits again after a select poll returns no ready streams' );
     my ( $client_data, $backend_data ) = ( '', '' );
     sysread( $client_peer, $client_data, 1024 );
     sysread( $backend_peer, $backend_data, 1024 );
@@ -1477,21 +1993,38 @@ sub Local::CompletedRoutine::kill { return 1 }
     is( Developer::Dashboard::Web::Server::_stop_ssl_backend(4242), 1, 'backend stop helper signals a known backend and waits for it' );
     is_deeply( \@process_events, [ ['running', 4242], ['terminate', 4242, 'TERM'], ['wait', 4242] ],
         'backend stop uses GoRoutine process inspection, termination, and wait operations' );
+    {
+        local %Developer::Dashboard::Web::Server::SSL_BACKEND_REAPED = ( 4243 => 1 );
+        local *Developer::Dashboard::GoRoutine::process_running = sub { die 'reaped backend must not be inspected' };
+        is( Developer::Dashboard::Web::Server::_stop_ssl_backend(4243), 1,
+            'backend stop skips a pid that has already been reaped' );
+    }
+    {
+        my @not_running;
+        local %Developer::Dashboard::Web::Server::SSL_BACKEND_REAPED;
+        local *Developer::Dashboard::GoRoutine::process_running = sub { push @not_running, ['running', $_[0]]; return 0 };
+        local *Developer::Dashboard::GoRoutine::terminate_process = sub { die 'stopped backend must not be signalled' };
+        local *Developer::Dashboard::GoRoutine::wait_process = sub { push @not_running, ['wait', $_[0]]; return 0 };
+        is( Developer::Dashboard::Web::Server::_stop_ssl_backend(4244), 1,
+            'backend stop waits for a child that is no longer running without signalling it' );
+        is_deeply( \@not_running, [ ['running', 4244], ['wait', 4244] ],
+            'backend stop records liveness and wait without sending TERM' );
+    }
     my @signals;
     local $main::KILL_OVERRIDE = sub { push @signals, [@_]; return 1 };
     is( Developer::Dashboard::Web::Server::_signal_default_term(), 1, 'default TERM helper re-signals the current process through the signal adapter' );
     is_deeply( $signals[0], [ 15, $$ ], 'default TERM helper targets the current process with TERM' );
 
     my %already = ();
+    cmp_ok( Developer::Dashboard::Web::Server::_waitpid( 2_147_483_647, 1 ), '<=', 0,
+        '_waitpid reports no waitable status for an unrelated nonexistent child' );
+
     local *Developer::Dashboard::Web::Server::_waitpid = sub { return 4421 };
     is( Developer::Dashboard::Web::Server::_wait_for_managed_child(4421), 1, 'managed wait accepts the requested child pid' );
     local *Developer::Dashboard::Web::Server::_waitpid = sub { return -1 };
     is( Developer::Dashboard::Web::Server::_wait_for_managed_child(4422), 1, 'managed wait accepts an already-vanished child' );
     local *Developer::Dashboard::Web::Server::_waitpid = sub { return 0 };
     is( Developer::Dashboard::Web::Server::_wait_for_managed_child(4423), 1, 'managed wait returns cleanly when waitpid reports no child yet' );
-
-    cmp_ok( Developer::Dashboard::Web::Server::_waitpid( 2_147_483_647, 1 ), '<=', 0,
-        '_waitpid reports no waitable status for an unrelated nonexistent child' );
 
     my %reaped;
     my @wait_results = ( 501, 502, 0 );
@@ -1549,494 +2082,6 @@ sub Local::CompletedRoutine::kill { return 1 }
     );
 }
 
-
-# The coverage gate excludes t/17-web-server-ssl.t from instrumentation because
-# native GoRoutine threads and Devel::Cover cannot run together. Exercise the
-# corresponding non-threaded SSL paths here so the report reflects the contract.
-{
-    my $server = Developer::Dashboard::Web::Server->new(
-        app => $app, host => '127.0.0.1', port => 0, workers => 1,
-        ssl_subject_alt_names => [ 'coverage.local' ],
-    );
-    is_deeply( $server->{ssl_subject_alt_names}, ['coverage.local'],
-        'constructor clones the configured SSL SAN array under instrumentation' );
-    $server->{ssl} = 1;   # Certificate generation is covered separately.
-    my $daemon = $server->start_daemon;
-    isa_ok( $daemon, 'Developer::Dashboard::Web::Server::Daemon' );
-    ok( $daemon->internal_sockport > 0,
-        'SSL start_daemon reserves and then releases an internal backend port' );
-}
-
-# A bare daemon lacks internal accessors, while a second fixture offers them
-# but returns undef. Both must select the public socket rather than an empty
-# backend bind address.
-{
-    package Local::PublicOnlyDaemon;
-    sub sockhost { return '127.0.0.1' }
-    sub sockport { return 17431 }
-}
-{
-    package Local::UndefinedInternalDaemon;
-    our @ISA = ('Local::PublicOnlyDaemon');
-    sub internal_sockhost { return undef }
-    sub internal_sockport { return undef }
-}
-{
-    no warnings 'redefine';
-    local *Plack::Runner::new = sub { return Local::Runner->new };
-    local *Developer::Dashboard::Web::Server::get_ssl_cert_paths =
-        sub { return ('stub.crt', 'stub.key') };
-    for my $class (qw(Local::PublicOnlyDaemon Local::UndefinedInternalDaemon)) {
-        my $runner = $ssl_server->_build_runner( bless {}, $class );
-        is_deeply(
-            [ @{ $runner->{parsed} }[ 2 .. 6 ] ],
-            [ '--host', '127.0.0.1', '--port', 17431, '--env' ],
-            "SSL runner falls back to the public listener for $class",
-        );
-    }
-}
-
-{
-    is( Developer::Dashboard::Web::Server::_socket_looks_like_tls(undef), 0,
-        'undefined first byte is not a TLS handshake' );
-    is( Developer::Dashboard::Web::Server::_request_target_from_head(undef), '/',
-        'undefined request head falls back to root' );
-
-    my $public = Developer::Dashboard::Web::Server::Daemon->new(
-        host => '127.0.0.1', port => 443,
-    );
-    is( _redirect_server()->_request_host_from_head(undef, $public),
-        '127.0.0.1', 'fallback authority omits the standard HTTPS port' );
-    my $custom = Developer::Dashboard::Web::Server::Daemon->new(
-        host => '127.0.0.1', port => 17431,
-    );
-    is( _redirect_server()->_request_host_from_head(undef, $custom),
-        '127.0.0.1:17431', 'fallback authority keeps a custom HTTPS port' );
-}
-
-# Readiness timeouts and partial request heads should be explicit and bounded.
-{
-    package Local::OneTimeoutSelect;
-    sub new { return bless { calls => 0 }, shift }
-    sub can_read { return ++$_[0]{calls} > 1 }
-}
-{
-    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to create delayed request-head fixture: $!";
-    my $partial = "GET /delayed HTTP/1.1\r\nHost: localhost\r\n";
-    syswrite( $peer, $partial ) == length $partial
-      or die "Unable to send delayed request head: $!";
-    shutdown( $peer, 1 ) or die "Unable to half-close delayed fixture: $!";
-    no warnings 'redefine';
-    local *IO::Select::new = sub { return Local::OneTimeoutSelect->new };
-    is( Developer::Dashboard::Web::Server::_read_http_request_head($client),
-        $partial, 'request-head reader retries readiness and returns partial headers at EOF' );
-    close $client or die "Unable to close delayed fixture: $!";
-    close $peer or die "Unable to close delayed fixture peer: $!";
-}
-
-# A select timeout is not an EOF or a failed proxy request.
-{
-    package Local::ProxyTimeoutSelect;
-    sub new { return bless { calls => 0, client => $_[1] }, $_[0] }
-    sub can_read { return () if ++$_[0]{calls} == 1; return ($_[0]{client}) }
-}
-{
-    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to create proxy timeout fixture: $!";
-    socketpair( my $backend, my $backend_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to create proxy timeout backend: $!";
-    syswrite( $peer, 'timed', 5 ) == 5 or die "Unable to prime proxy timeout: $!";
-    shutdown( $peer, 1 ) or die "Unable to finish proxy input: $!";
-    no warnings 'redefine';
-    local *IO::Select::new = sub {
-        return Local::ProxyTimeoutSelect->new($_[1]);
-    };
-    is( Developer::Dashboard::Web::Server::_proxy_streams($client, $backend),
-        1, 'proxy continues after an empty readiness set' );
-    my $received = '';
-    is( sysread($backend_peer, $received, 5), 5,
-        'proxy forwards the bytes after a readiness timeout' );
-    is( $received, 'timed', 'proxy preserves data after a readiness timeout' );
-    close $_ or die "Unable to close proxy timeout fixture: $!"
-      for ($client, $peer, $backend, $backend_peer);
-}
-
-# The internal TLS backend connection failure must be propagated; the accepted
-# frontend connection must not silently fall back to an HTTP redirect.
-{
-    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to create backend-connect failure fixture: $!";
-    syswrite( $peer, "\x16", 1 ) == 1 or die "Unable to send TLS prefix: $!";
-    no warnings 'redefine';
-    local *IO::Socket::INET::new = sub { return undef };
-    my $ok = eval {
-        $ssl_server->_handle_ssl_frontend_client(
-            client => $client, daemon => $ssl_daemon,
-        );
-        1;
-    };
-    ok( !$ok, 'SSL frontend refuses an unavailable internal backend' );
-    like( $@, qr/Unable to connect to internal SSL backend/,
-        'unavailable internal backend produces an actionable error' );
-    close $client or die "Unable to close failed TLS frontend fixture: $!";
-    close $peer or die "Unable to close failed TLS frontend peer: $!";
-}
-
-# Reap bookkeeping is idempotent, including the already-reaped and
-# no-longer-running branches. Avoid signalling any real process.
-{
-    local %Developer::Dashboard::Web::Server::SSL_BACKEND_REAPED =
-        ( 91012 => 1 );
-    is( Developer::Dashboard::Web::Server::_stop_ssl_backend(91012), 1,
-        'backend shutdown ignores an already reaped managed process' );
-
-    my @events;
-    no warnings 'redefine';
-    local *Developer::Dashboard::GoRoutine::process_running =
-        sub { push @events, 'running'; return 0 };
-    local *Developer::Dashboard::GoRoutine::terminate_process =
-        sub { push @events, 'terminate'; return 1 };
-    local *Developer::Dashboard::GoRoutine::wait_process =
-        sub { push @events, 'wait'; return 0 };
-    is( Developer::Dashboard::Web::Server::_stop_ssl_backend(91013), 1,
-        'backend shutdown waits without signalling an already stopped process' );
-    is_deeply( \@events, ['running', 'wait'],
-        'stopped backend receives no redundant TERM signal' );
-    is( Developer::Dashboard::Web::Server::_wait_for_managed_child(
-        91014, { 91014 => 0 },
-    ), 1, 'managed-child waiter handles an unreaped hash entry' );
-    is( Developer::Dashboard::Web::Server::_track_reaped_child({}, 0), 1,
-        'reap tracking ignores a zero child identifier' );
-}
-cmp_ok( Developer::Dashboard::Web::Server::_waitpid( 2_147_483_647, 1 ),
-    '<=', 0, 'real waitpid adapter reports an unrelated absent child' );
-
-
-# Cover worker errors in the synchronous GoRoutine test adapter. The listener
-# and backend are fixtures, so this cannot leak an actual child or port.
-{
-    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to create failing frontend worker fixture: $!";
-    local @Local::ScriptedListener::ACCEPTS = (
-        sub { return $client },
-        sub {
-            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
-            $! = EINTR;
-            return undef;
-        },
-    );
-    my $stopped = 0;
-    no warnings 'redefine';
-    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
-        sub { return [ $^X, '-e', 'exit 0' ] };
-    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91021 };
-    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
-        sub { return 1 };
-    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
-        sub { ++$stopped; return 1 };
-    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
-    local *Developer::Dashboard::GoRoutine::go = sub {
-        $_[0]->();
-        return bless {}, 'Local::CompletedRoutine';
-    };
-    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client =
-        sub { die "simulated frontend worker exception\n" };
-    local $ssl_server->{ssl_subject_alt_names} = ['coverage.local'];
-    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
-    ok( !$ok, 'SSL frontend propagates failures from managed client workers' );
-    like( $@, qr/SSL frontend client handler failed: simulated frontend worker exception/,
-        'SSL frontend reports the original managed worker error' );
-    is( $stopped, 1, 'failed client worker still stops the SSL backend' );
-    close $peer or die "Unable to close failing frontend worker peer: $!";
-}
-
-# An accepted connection may coincide with shutdown. The next iteration must
-# obey the shutdown flag and cancel a still-running routine without spinning.
-{
-    package Local::RunningRoutine;
-    sub is_running { return ++$_[0]{checks} <= 2 }
-    sub kill { $_[0]{killed} = 1; return 1 }
-}
-{
-    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to create shutdown frontend fixture: $!";
-    local @Local::ScriptedListener::ACCEPTS = (
-        sub {
-            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
-            return $client;
-        },
-    );
-    my $routine;
-    no warnings 'redefine';
-    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
-        sub { return [ $^X, '-e', 'exit 0' ] };
-    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91022 };
-    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
-        sub { return 1 };
-    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
-        sub { return 1 };
-    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
-    local *Developer::Dashboard::GoRoutine::go = sub {
-        $_[0]->();
-        $routine = bless { checks => 0 }, 'Local::RunningRoutine';
-        return $routine;
-    };
-    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client =
-        sub { return 1 };
-    is( $ssl_server->_serve_ssl_frontend($ssl_daemon), 1,
-        'SSL frontend honours shutdown before the next accept' );
-    ok( $routine->{killed}, 'SSL frontend cancels an active client routine' );
-    cmp_ok( $routine->{checks}, '>=', 3,
-        'SSL frontend waits for a cancelled client routine to finish' );
-    close $peer or die "Unable to close shutdown frontend peer: $!";
-}
-
-# An explicit empty helper is different from an unset helper, but both are
-# rejected before attempting to launch a managed SSL backend.
-{
-    local $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER} = '';
-    my $ok = eval { $ssl_server->_ssl_backend_command($ssl_daemon); 1 };
-    ok( !$ok, 'SSL backend rejects an explicitly empty private helper path' );
-    like( $@, qr/Missing private Dashboard helper/,
-        'empty private helper has the same explicit startup diagnostic' );
-}
-
-# Cover reuse and regeneration of an existing complete certificate pair.
-{
-    my $cert_home = tempdir( CLEANUP => 1 );
-    local $ENV{HOME} = $cert_home;
-    my $first = Developer::Dashboard::Web::Server::generate_self_signed_cert(
-        validity_days => 30,
-    );
-    ok( -f $first, 'explicit certificate validity produces a real certificate' );
-    my $again = Developer::Dashboard::Web::Server::generate_self_signed_cert();
-    is( $again, $first, 'valid certificate and private key are reused' );
-    my $key = File::Spec->catfile(
-        $cert_home, '.developer-dashboard', 'certs', 'server.key',
-    );
-    ok( -f $key, 'reused certificate retains its private key' );
-    _write_file( $first, "invalid certificate fixture\n" );
-    is( Developer::Dashboard::Web::Server::generate_self_signed_cert(),
-        $first, 'stale certificate with existing key is regenerated' );
-    ok( -f $key, 'stale certificate regeneration also replaces the key' );
-}
-
-
-# Backend readiness must handle a delayed listener, a failed socket close and
-# a finite startup deadline without spending 45 seconds in a coverage test.
-{
-    my $calls = 0;
-    my $stopped = 0;
-    no warnings 'redefine';
-    local *Developer::Dashboard::Web::Server::time =
-        sub { return ++$calls == 1 ? 0 : 46 };
-    local *Developer::Dashboard::GoRoutine::process_running = sub { return 1 };
-    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
-        sub { $stopped++; return 1 };
-    my $ok = eval {
-        $ssl_server->_wait_for_ssl_backend_ready($ssl_daemon, 91031);
-        1;
-    };
-    ok( !$ok, 'SSL backend readiness times out after the configured deadline' );
-    like( $@, qr/Timed out waiting for SSL backend listener readiness/,
-        'readiness timeout reports the internal listener failure' );
-    is( $stopped, 1, 'readiness timeout stops the unready SSL backend' );
-}
-{
-    my $probes = 0;
-    no warnings 'redefine';
-    local *Developer::Dashboard::GoRoutine::process_running = sub { return 1 };
-    local *IO::Socket::SSL::new = sub {
-        $probes++;
-        return undef if $probes == 1;
-        return Local::StubSocket->new(closeable => 1);
-    };
-    is( $ssl_server->_wait_for_ssl_backend_ready($ssl_daemon, 91032), 1,
-        'SSL readiness retries a failed handshake and closes the next successful probe' );
-    is( $probes, 2, 'SSL backend readiness makes a second handshake attempt' );
-}
-{
-    no warnings 'redefine';
-    local *Developer::Dashboard::GoRoutine::process_running = sub { return 1 };
-    local *IO::Socket::SSL::new =
-        sub { return Local::StubSocket->new(closeable => 0) };
-    my $ok = eval {
-        $ssl_server->_wait_for_ssl_backend_ready($ssl_daemon, 91033);
-        1;
-    };
-    ok( !$ok, 'SSL readiness rejects a probe socket that cannot be closed' );
-    like( $@, qr/Unable to close SSL backend readiness probe/,
-        'failed readiness socket close is reported directly' );
-}
-
-# Socket readiness can mean EOF, which differs from recv returning undef.
-{
-    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to create EOF frontend fixture: $!";
-    shutdown( $peer, 1 ) or die "Unable to close fixture write side: $!";
-    is( $ssl_server->_handle_ssl_frontend_client(
-            client => $client, daemon => $ssl_daemon,
-        ), 1, 'frontend treats an empty first byte as a completed connection' );
-    close $client or die "Unable to close EOF frontend socket: $!";
-    close $peer or die "Unable to close EOF frontend peer: $!";
-    my $daemon = Developer::Dashboard::Web::Server::Daemon->new(
-        host => '127.0.0.1', port => 17432,
-    );
-    is( _redirect_server()->_request_host_from_head(
-            "GET / HTTP/1.1\r\nUser-Agent: test\r\n\r\n", $daemon,
-        ), '127.0.0.1:17432',
-        'missing Host header falls back to the bound public listener' );
-}
-
-
-# Inject frontend close failures through the narrow close adapter. Keeping
-# these in the instrumented suite covers diagnostics which ordinary SSL
-# integration tests cannot report to Devel::Cover's thread-unsafe recorder.
-{
-    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to create worker-close failure fixture: $!";
-    local @Local::ScriptedListener::ACCEPTS = (
-        sub { return $client },
-        sub {
-            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
-            $! = EINTR;
-            return;
-        },
-    );
-    my $close_calls = 0;
-    no warnings 'redefine';
-    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
-        sub { return [$^X, '-e', 'exit 0'] };
-    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91041 };
-    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
-        sub { return 1 };
-    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
-        sub { return 1 };
-    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
-    local *Developer::Dashboard::GoRoutine::go = sub {
-        $_[0]->();
-        return bless {}, 'Local::CompletedRoutine';
-    };
-    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client =
-        sub { return 1 };
-    local *Developer::Dashboard::Web::Server::_close_ssl_frontend_socket =
-        sub {
-            my ($socket) = @_;
-            return 0 if ++$close_calls == 1;
-            return close $socket;
-        };
-    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
-    ok( !$ok, 'SSL frontend reports a worker-owned socket close failure' );
-    like( $@, qr/Unable to close SSL frontend client/,
-        'worker socket close failure survives backend cleanup' );
-    is( $close_calls, 3, 'worker, listener-side, and frontend listener closes are attempted' );
-    close $peer or die "Unable to close worker-close fixture peer: $!";
-}
-
-{
-    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to create listener-side close failure fixture: $!";
-    local @Local::ScriptedListener::ACCEPTS = ( sub { return $client } );
-    my $close_calls = 0;
-    no warnings 'redefine';
-    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
-        sub { return [$^X, '-e', 'exit 0'] };
-    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91042 };
-    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
-        sub { return 1 };
-    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
-        sub { return 1 };
-    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
-    local *Developer::Dashboard::GoRoutine::go = sub {
-        $_[0]->();
-        return bless {}, 'Local::CompletedRoutine';
-    };
-    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client =
-        sub { return 1 };
-    local *Developer::Dashboard::Web::Server::_close_ssl_frontend_socket =
-        sub {
-            my ($socket) = @_;
-            return 0 if ++$close_calls == 2;
-            return close $socket;
-        };
-    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
-    ok( !$ok, 'SSL frontend reports a listener-side client close failure' );
-    like( $@, qr/Unable to release SSL frontend client in listener/,
-        'listener-side socket close failure names the affected handle' );
-    is( $close_calls, 2, 'frontend checks the listener-side close result' );
-    close $peer or die "Unable to close listener-side fixture peer: $!";
-}
-
-{
-    local @Local::ScriptedListener::ACCEPTS = ( sub { $! = 0; return } );
-    no warnings 'redefine';
-    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
-        sub { return [$^X, '-e', 'exit 0'] };
-    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91043 };
-    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
-        sub { return 1 };
-    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
-        sub { return 1 };
-    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
-    local *Developer::Dashboard::Web::Server::_close_ssl_frontend_socket =
-        sub { close $_[0]; return 0 };
-    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
-    ok( !$ok, 'SSL frontend fails when its public listener cannot close' );
-    like( $@, qr/Unable to close SSL frontend listener/,
-        'public listener close failure is reported explicitly' );
-}
-
-
-# A worker can report an exception only after shutdown has started. Once the
-# frontend has asked it to stop, that exception must not turn a clean shutdown
-# into a client-handler failure.
-{
-    package Local::DeferredRoutine;
-    sub is_running {
-        my ($self) = @_;
-        return 0 if $self->{finished};
-        $self->{callback}->();
-        $self->{finished} = 1;
-        return 0;
-    }
-    sub kill { return 1 }
-}
-{
-    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to create deferred-worker fixture: $!";
-    local @Local::ScriptedListener::ACCEPTS = (
-        sub { return $client },
-        sub {
-            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
-            $! = EINTR;
-            return;
-        },
-    );
-    my $worker_calls = 0;
-    no warnings 'redefine';
-    local *Developer::Dashboard::Web::Server::_ssl_backend_command =
-        sub { return [$^X, '-e', 'exit 0'] };
-    local *Developer::Dashboard::GoRoutine::spawn = sub { return 91044 };
-    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready =
-        sub { return 1 };
-    local *Developer::Dashboard::Web::Server::_stop_ssl_backend =
-        sub { return 1 };
-    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
-    local *Developer::Dashboard::GoRoutine::go = sub {
-        return bless { callback => $_[0] }, 'Local::DeferredRoutine';
-    };
-    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client =
-        sub { ++$worker_calls; die "worker cancelled during shutdown\n" };
-    local *Developer::Dashboard::Web::Server::_close_ssl_frontend_socket =
-        sub { close $_[0]; return 1 };
-    is( $ssl_server->_serve_ssl_frontend($ssl_daemon), 1,
-        'a worker exception arriving after shutdown does not fail the frontend' );
-    is( $worker_calls, 1,
-        'the deferred worker is observed during the shutdown routine check' );
-    close $peer or die "Unable to close deferred-worker fixture peer: $!";
-}
-
 done_testing;
 
 __END__
@@ -2057,7 +2102,9 @@ HTTP-to-HTTPS redirect helpers, SAN normalization, self-signed certificate
 generation, the certificate directory's home resolution order, and certificate
 profile verification. It drives every branch and condition those paths own,
 including the ones that only appear when a socket, a pipe, a process launch, or openssl
-itself fails.
+itself fails. The SSL frontend cases also prove that failed client or listener
+closes are reported only after client routines are joined and the managed
+backend is stopped, while preserving the first cleanup error.
 
 The home resolution cases matter because Windows exports no HOME variable: the
 certificate helpers are driven here with HOME deleted and only USERPROFILE set,
