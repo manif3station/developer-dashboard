@@ -2185,7 +2185,7 @@ sub _run_web_child {
     # endpoint. Keep the order - reversing it would delay the parent's read
     # without closing any window.
     $self->_write_startup_pipe_message( $writer, join( '|', 'ok', $child_pid, $bound_host, $bound_port ) . "\n" );
-    $self->_close_inherited_fds( close_ipc => 1 ) if $detach || $redirect;
+    $self->_close_inherited_fds( close_ipc => 1 ) if $redirect;
 
     $self->_write_web_state(
         {
