@@ -497,11 +497,13 @@ my $pid;
 {
     no warnings 'redefine';
     my %launch_args;
-    local *Developer::Dashboard::RuntimeManager::_start_web_background = sub {
+    my $launch = sub {
         my ( $self, %args ) = @_;
         %launch_args = %args;
         return 17;
     };
+    local *Developer::Dashboard::RuntimeManager::_start_web_background = $launch;
+    local *Developer::Dashboard::RuntimeManager::_start_web_windows_background = $launch;
     is(
         $manager->start_web( host => '0.0.0.0', port => 7897, workers => 2, ssl => 1 ),
         17,
