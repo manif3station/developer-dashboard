@@ -1549,6 +1549,169 @@ sub Local::CompletedRoutine::kill { return 1 }
     );
 }
 
+
+# The coverage gate excludes t/17-web-server-ssl.t from instrumentation because
+# native GoRoutine threads and Devel::Cover cannot run together. Exercise the
+# corresponding non-threaded SSL paths here so the report reflects the contract.
+{
+    my $server = Developer::Dashboard::Web::Server->new(
+        app => $app, host => '127.0.0.1', port => 0, workers => 1,
+        ssl_subject_alt_names => [ 'coverage.local' ],
+    );
+    is_deeply( $server->{ssl_subject_alt_names}, ['coverage.local'],
+        'constructor clones the configured SSL SAN array under instrumentation' );
+    $server->{ssl} = 1;   # Certificate generation is covered separately.
+    my $daemon = $server->start_daemon;
+    isa_ok( $daemon, 'Developer::Dashboard::Web::Server::Daemon' );
+    ok( $daemon->internal_sockport > 0,
+        'SSL start_daemon reserves and then releases an internal backend port' );
+}
+
+# A bare daemon lacks internal accessors, while a second fixture offers them
+# but returns undef. Both must select the public socket rather than an empty
+# backend bind address.
+{
+    package Local::PublicOnlyDaemon;
+    sub sockhost { return '127.0.0.1' }
+    sub sockport { return 17431 }
+}
+{
+    package Local::UndefinedInternalDaemon;
+    our @ISA = ('Local::PublicOnlyDaemon');
+    sub internal_sockhost { return undef }
+    sub internal_sockport { return undef }
+}
+{
+    no warnings 'redefine';
+    local *Plack::Runner::new = sub { return Local::Runner->new };
+    local *Developer::Dashboard::Web::Server::get_ssl_cert_paths =
+        sub { return ('stub.crt', 'stub.key') };
+    for my $class (qw(Local::PublicOnlyDaemon Local::UndefinedInternalDaemon)) {
+        my $runner = $ssl_server->_build_runner( bless {}, $class );
+        is_deeply(
+            [ @{ $runner->{parsed} }[ 2 .. 6 ] ],
+            [ '--host', '127.0.0.1', '--port', 17431, '--env' ],
+            "SSL runner falls back to the public listener for $class",
+        );
+    }
+}
+
+{
+    is( Developer::Dashboard::Web::Server::_socket_looks_like_tls(undef), 0,
+        'undefined first byte is not a TLS handshake' );
+    is( Developer::Dashboard::Web::Server::_request_target_from_head(undef), '/',
+        'undefined request head falls back to root' );
+
+    my $public = Developer::Dashboard::Web::Server::Daemon->new(
+        host => '127.0.0.1', port => 443,
+    );
+    is( _redirect_server()->_request_host_from_head(undef, $public),
+        '127.0.0.1', 'fallback authority omits the standard HTTPS port' );
+    my $custom = Developer::Dashboard::Web::Server::Daemon->new(
+        host => '127.0.0.1', port => 17431,
+    );
+    is( _redirect_server()->_request_host_from_head(undef, $custom),
+        '127.0.0.1:17431', 'fallback authority keeps a custom HTTPS port' );
+}
+
+# Readiness timeouts and partial request heads should be explicit and bounded.
+{
+    package Local::OneTimeoutSelect;
+    sub new { return bless { calls => 0 }, shift }
+    sub can_read { return ++$_[0]{calls} > 1 }
+}
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create delayed request-head fixture: $!";
+    my $partial = "GET /delayed HTTP/1.1\r\nHost: localhost\r\n";
+    syswrite( $peer, $partial ) == length $partial
+      or die "Unable to send delayed request head: $!";
+    shutdown( $peer, 1 ) or die "Unable to half-close delayed fixture: $!";
+    no warnings 'redefine';
+    local *IO::Select::new = sub { return Local::OneTimeoutSelect->new };
+    is( Developer::Dashboard::Web::Server::_read_http_request_head($client),
+        $partial, 'request-head reader retries readiness and returns partial headers at EOF' );
+    close $client or die "Unable to close delayed fixture: $!";
+    close $peer or die "Unable to close delayed fixture peer: $!";
+}
+
+# A select timeout is not an EOF or a failed proxy request.
+{
+    package Local::ProxyTimeoutSelect;
+    sub new { return bless { calls => 0, client => $_[1] }, $_[0] }
+    sub can_read { return () if ++$_[0]{calls} == 1; return ($_[0]{client}) }
+}
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create proxy timeout fixture: $!";
+    socketpair( my $backend, my $backend_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create proxy timeout backend: $!";
+    syswrite( $peer, 'timed', 5 ) == 5 or die "Unable to prime proxy timeout: $!";
+    shutdown( $peer, 1 ) or die "Unable to finish proxy input: $!";
+    no warnings 'redefine';
+    local *IO::Select::new = sub {
+        return Local::ProxyTimeoutSelect->new($_[1]);
+    };
+    is( Developer::Dashboard::Web::Server::_proxy_streams($client, $backend),
+        1, 'proxy continues after an empty readiness set' );
+    my $received = '';
+    is( sysread($backend_peer, $received, 5), 5,
+        'proxy forwards the bytes after a readiness timeout' );
+    is( $received, 'timed', 'proxy preserves data after a readiness timeout' );
+    close $_ or die "Unable to close proxy timeout fixture: $!"
+      for ($client, $peer, $backend, $backend_peer);
+}
+
+# The internal TLS backend connection failure must be propagated; the accepted
+# frontend connection must not silently fall back to an HTTP redirect.
+{
+    socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to create backend-connect failure fixture: $!";
+    syswrite( $peer, "\x16", 1 ) == 1 or die "Unable to send TLS prefix: $!";
+    no warnings 'redefine';
+    local *IO::Socket::INET::new = sub { return undef };
+    my $ok = eval {
+        $ssl_server->_handle_ssl_frontend_client(
+            client => $client, daemon => $ssl_daemon,
+        );
+        1;
+    };
+    ok( !$ok, 'SSL frontend refuses an unavailable internal backend' );
+    like( $@, qr/Unable to connect to internal SSL backend/,
+        'unavailable internal backend produces an actionable error' );
+    close $client or die "Unable to close failed TLS frontend fixture: $!";
+    close $peer or die "Unable to close failed TLS frontend peer: $!";
+}
+
+# Reap bookkeeping is idempotent, including the already-reaped and
+# no-longer-running branches. Avoid signalling any real process.
+{
+    local %Developer::Dashboard::Web::Server::SSL_BACKEND_REAPED =
+        ( 91012 => 1 );
+    is( Developer::Dashboard::Web::Server::_stop_ssl_backend(91012), 1,
+        'backend shutdown ignores an already reaped managed process' );
+
+    my @events;
+    no warnings 'redefine';
+    local *Developer::Dashboard::GoRoutine::process_running =
+        sub { push @events, 'running'; return 0 };
+    local *Developer::Dashboard::GoRoutine::terminate_process =
+        sub { push @events, 'terminate'; return 1 };
+    local *Developer::Dashboard::GoRoutine::wait_process =
+        sub { push @events, 'wait'; return 0 };
+    is( Developer::Dashboard::Web::Server::_stop_ssl_backend(91013), 1,
+        'backend shutdown waits without signalling an already stopped process' );
+    is_deeply( \@events, ['running', 'wait'],
+        'stopped backend receives no redundant TERM signal' );
+    is( Developer::Dashboard::Web::Server::_wait_for_managed_child(
+        91014, { 91014 => 0 },
+    ), 1, 'managed-child waiter handles an unreaped hash entry' );
+    is( Developer::Dashboard::Web::Server::_track_reaped_child({}, 0), 1,
+        'reap tracking ignores a zero child identifier' );
+}
+cmp_ok( Developer::Dashboard::Web::Server::_waitpid( 2_147_483_647, 1 ),
+    '<=', 0, 'real waitpid adapter reports an unrelated absent child' );
+
 done_testing;
 
 __END__
