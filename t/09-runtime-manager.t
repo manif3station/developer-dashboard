@@ -3386,6 +3386,9 @@ TCP6
         my ( undef, $pid ) = @_;
         return $pid == 333_333 ? 'starman master' : undef;
     };
+    # Keep this fake-listener fixture independent of any real web service
+    # launched by other tests earlier in the same test file.
+    local *Developer::Dashboard::RuntimeManager::_find_web_processes = sub { return () };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { die "_cleanup_web_files should not run while a saved listener still exists\n" };
     my $running = $manager->running_web;
     is( $running->{pid}, 333_333, 'running_web falls back to the saved listener pid when the real listener no longer keeps the dashboard wrapper title' );
