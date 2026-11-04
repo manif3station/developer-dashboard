@@ -219,7 +219,7 @@ sub _load_runtime_env {
     require Developer::Dashboard::EnvLoader;
     require Developer::Dashboard::JSON;
     Developer::Dashboard::EnvAudit->clear();
-    my @inherited_keys = @{ Developer::Dashboard::EnvLoader->_inherited_key_names( \%ENV ) };
+    my @inherited_keys = @{ Developer::Dashboard::EnvLoader->inherited_key_names( \%ENV ) };
     {
         # The marker name is an intentional package variable shared with the
         # loader. Perl's once-only warning would pollute every CLI response.
