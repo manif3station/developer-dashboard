@@ -1789,8 +1789,11 @@ sub secure_dir_permissions {
     }
     return $dir if $dir eq $layer_root;
 
-    my $suffix = substr( $dir, length($layer_root) );
-    $suffix =~ s{^/}{};
+    # A runtime root and its child can have different separator spellings on
+    # Windows (for example C:/work versus C:\\work). Computing a byte offset
+    # into the unnormalised paths can lose the child directory chain. Let the
+    # platform-aware path module derive the suffix before hardening children.
+    my $suffix = File::Spec->abs2rel( $dir, $layer_root );
     for my $part ( grep { $_ ne '' } File::Spec->splitdir($suffix) ) {
         $path = File::Spec->catdir( $path, $part );
         next if !-d $path;
