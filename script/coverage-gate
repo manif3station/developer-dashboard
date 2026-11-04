@@ -871,11 +871,12 @@ in that directory as invalid database content. A prior C<gate-serializer>
 marker inside the database is compared with the current reader and removed
 before the database is dropped; a mismatch still fails closed.
 
-The coverage collector excludes only disposable C</tmp/> and staged
-C<.developer-dashboard/> source trees. Tests remove those temporary helper files
-before report generation, which would otherwise make Devel::Cover emit missing
-source warnings. The enforced report still includes every repository C<lib/>
-source; these exclusions do not reduce the library coverage target. The report
+The coverage collector selects every repository C<lib/> source and ignores
+all non-library test and transient fixture code. Devel::Cover may otherwise
+merge dynamic anonymous subroutines created in different test processes and
+produce C<ignoring extra> warnings that invalidate a strict coverage report.
+The selection never excludes library source and does not reduce the enforced
+statement, branch, condition, or subroutine coverage target. The report
 also disables optional C<gcov> output: its contract covers Perl files under
 C<lib/>, while native XS paths are verified by functional tests. C<gcov> adds
 extra C-file tables and diagnostics to the text stream, which the fail-closed

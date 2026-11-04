@@ -234,6 +234,10 @@ sub invocations {
         'the native-thread suite runs every excluded test without coverage instrumentation',
     );
     like( $ran[1]{harness_switches}, qr/Devel::Cover/, 'the ordinary suite is instrumented' );
+    like( $ran[1]{harness_switches}, qr/-select,\^lib\//,
+        'the instrumented suite collects repository lib/ source only' );
+    like( $ran[1]{harness_switches}, qr/-ignore,\^/,
+        'non-library dynamic test source never contaminates the library report' );
     like( $ran[1]{harness_switches}, qr/-db,\Q$stub->{dir}\E\/cover_db(?:,|\s)/, 'the instrumented suite uses the shared database that GoRoutine children inherit' );
     is( $ran[2]{harness_switches}, '(unset)', 'thread tests run without the unsupported coverage hook' );
 
