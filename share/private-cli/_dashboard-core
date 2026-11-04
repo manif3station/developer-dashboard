@@ -350,9 +350,8 @@ sub _runtime_perl5lib_env {
     else {
         @local_libs = ( _runtime_local_lib(%args) );
     }
-    for my $local_lib (@local_libs) {
-        next if !defined $local_lib || $local_lib eq '' || !-d $local_lib;
-    }
+    # PerlEnv->perl5lib_list filters undefined, empty and nonexistent roots
+    # when building PERL5LIB. A loop with only 'next' does not filter them.
     return (
         PERL5LIB => Developer::Dashboard::PerlEnv->perl5lib_env(
             dashboard_lib => $dashboard_lib,
