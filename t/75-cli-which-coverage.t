@@ -314,6 +314,22 @@ is( scalar Developer::Dashboard::CLI::Which::_resolve_directory_runner( File::Sp
     );
 }
 
+# Repository entrypoints can be checked out without executable file mode.
+# Re-enter the public Perl switchboard explicitly in that situation.
+{
+    my $entrypoint = File::Spec->catfile( $home, 'non-executable-dashboard' );
+    open my $fh, '>', $entrypoint or die "Unable to create entrypoint fixture: $!";
+    print {$fh} "#!/usr/bin/env perl\nexit 0;\n";
+    close $fh or die "Unable to close entrypoint fixture: $!";
+    chmod 0644, $entrypoint or die "Unable to set fixture file mode: $!";
+    local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = $entrypoint;
+    is_deeply(
+        [ Developer::Dashboard::CLI::Which::_dashboard_entry_command() ],
+        [ $^X, $entrypoint ],
+        'which --edit re-enters a non-executable Perl switchboard through Perl',
+    );
+}
+
 # --- main-gate hook discovery (DD-810) ---------------------------------------
 # The switchboard runs <layer>/hooks/* once per invocation before the command is
 # resolved, so `dashboard which` reports those hooks ahead of the per-command

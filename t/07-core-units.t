@@ -1728,7 +1728,7 @@ is( $paths->_expand_home('$HOME/shared-path'), File::Spec->catdir( $home, 'share
 is( $paths->_expand_home('$HOME'), $home, '_expand_home expands a bare $HOME token' );
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::PathRegistry::is_windows = sub { return 1 };
+    local *Developer::Dashboard::PathRegistry::_native_windows_paths = sub { return 1 };
     local *File::Spec::canonpath = sub {
         my ( $class, $path ) = @_;
         return File::Spec::Win32->canonpath($path);

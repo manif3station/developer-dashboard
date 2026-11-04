@@ -35,12 +35,16 @@ is( $windows_arm->{runner}, 'windows-11-arm',
 ok( !$windows_arm->{'setup-perl'},
     'Windows ARM64 uses its explicit Strawberry Perl bootstrap instead of unsupported setup-perl' );
 
+my ($windows_x64) = grep { ( $_->{label} // q{} ) eq 'Windows x64' } @{$matrix};
+ok( !$windows_x64->{'setup-perl'},
+    'Windows x64 uses the same pinned Strawberry Perl as Windows ARM64' );
+
 my ($arm_perl) = grep {
-    ( $_->{name} // q{} ) eq 'Install supported Perl on Windows ARM64'
+    ( $_->{name} // q{} ) eq 'Install supported Strawberry Perl on Windows'
 } @{$steps};
-ok( ref($arm_perl) eq 'HASH', 'Windows ARM64 has an explicit supported Perl bootstrap' );
-is( $arm_perl->{if}, "matrix.label == 'Windows arm64'",
-    'the Windows ARM64 Perl bootstrap runs only on that matrix leg' );
+ok( ref($arm_perl) eq 'HASH', 'both Windows architectures have a pinned Strawberry Perl bootstrap' );
+is( $arm_perl->{if}, "runner.os == 'Windows'",
+    'the Strawberry Perl bootstrap runs on both Windows matrix legs' );
 like( $arm_perl->{run} // q{}, qr/strawberry-perl-\$version-64bit-portable\.zip/,
     'Windows ARM64 downloads the pinned portable Strawberry Perl release' );
 like( $arm_perl->{run} // q{}, qr/6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690/,

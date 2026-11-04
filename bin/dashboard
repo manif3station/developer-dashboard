@@ -220,8 +220,13 @@ sub _load_runtime_env {
     require Developer::Dashboard::JSON;
     Developer::Dashboard::EnvAudit->clear();
     my @inherited_keys = @{ Developer::Dashboard::EnvLoader->_inherited_key_names( \%ENV ) };
-    $ENV{$Developer::Dashboard::EnvLoader::INHERITED_ENV_KEYS} =
-      Developer::Dashboard::JSON::json_encode_with_options( \@inherited_keys );
+    {
+        # The marker name is an intentional package variable shared with the
+        # loader. Perl's once-only warning would pollute every CLI response.
+        no warnings 'once';
+        $ENV{$Developer::Dashboard::EnvLoader::INHERITED_ENV_KEYS} =
+          Developer::Dashboard::JSON::json_encode_with_options( \@inherited_keys );
+    }
     my $paths = _switchboard_paths();
     Developer::Dashboard::EnvLoader->load_runtime_layers( paths => $paths );
     return 1;

@@ -262,10 +262,11 @@ sub _resolve_directory_runner {
 # Resolves the public dashboard entrypoint used when which --edit re-enters
 # dashboard open-file.
 # Input: none.
-# Output: command list whose first element is the dashboard executable path or
-# command name.
+# Output: command list using Perl for an existing non-executable dashboard
+# script, or the entrypoint itself for installed executable commands.
 sub _dashboard_entry_command {
     my $entrypoint = $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} || 'dashboard';
+    return ( $^X, $entrypoint ) if -f $entrypoint && !-x $entrypoint;
     return ($entrypoint);
 }
 

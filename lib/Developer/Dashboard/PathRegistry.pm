@@ -12,7 +12,6 @@ use File::Path qw(make_path);
 use File::Spec;
 use Scalar::Util qw(blessed);
 use Developer::Dashboard::JSON qw(json_encode);
-use Developer::Dashboard::Platform qw(is_windows);
 use Developer::Dashboard::PathIdentity ();
 
 # _resolved_home_from_env()
@@ -1937,6 +1936,12 @@ sub _ensure_state_dir {
     return $dir;
 }
 
+# _native_windows_paths()
+# Identifies the host path syntax without eagerly loading Platform and Fcntl.
+# Input: none.
+# Output: true for Windows Perl, false on other runtimes.
+sub _native_windows_paths { return $^O eq 'MSWin32' ? 1 : 0 }
+
 # _expand_home($path)
 # Expands leading home shorthands used by config and env values.
 # Input: path string that may start with ~ or $HOME.
@@ -1949,7 +1954,7 @@ sub _expand_home {
     # File::Spec::Win32 canonicalises mixed slash spellings to the native
     # separator. Without this, named aliases and environment overrides can
     # return C:\\home/foo instead of the expected C:\\home\\foo.
-    return is_windows() ? File::Spec->canonpath($path) : $path;
+    return _native_windows_paths() ? File::Spec->canonpath($path) : $path;
 }
 
 # _ancestor_runtime_layers()
