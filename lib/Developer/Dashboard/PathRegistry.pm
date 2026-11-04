@@ -1940,7 +1940,7 @@ sub _ensure_state_dir {
 # Identifies the host path syntax without eagerly loading Platform and Fcntl.
 # Input: none.
 # Output: true for Windows Perl, false on other runtimes.
-sub _native_windows_paths { return $^O eq 'MSWin32' ? 1 : 0 }
+sub _native_windows_paths { return $^O eq 'MSWin32' }
 
 # _expand_home($path)
 # Expands leading home shorthands used by config and env values.
