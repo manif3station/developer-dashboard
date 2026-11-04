@@ -169,6 +169,24 @@ sub invocations {
     return @rows;
 }
 
+# Scenario: selecting ten parallel workers applies to both test groups.
+# The fully instrumented group and the native-thread group must both use
+# the requested worker count without altering the coverage verdict.
+{
+    my $stub = build_stub_path();
+    my ( $exit, $stdout, $stderr ) = run_entry( $stub, '--jobs', '10' );
+    is( $exit, 0, 'the 100 percent coverage gate accepts ten workers' );
+    my @ran = invocations($stub);
+    is( scalar @ran, 4, 'parallel coverage still runs both groups and the report' );
+    is( $ran[1]{name}, 'prove', 'instrumented group uses prove' );
+    is( $ran[2]{name}, 'prove', 'native-thread group uses prove' );
+    like( $ran[1]{arguments}, qr/\A-j 10 -l\b/,
+        'instrumented test group uses ten workers' );
+    like( $ran[2]{arguments}, qr/\A-j 10 -l\b/,
+        'native-thread group also uses ten workers' );
+    is( $stderr, '', 'passing parallel coverage emits no error' );
+}
+
 # Feature: one canonical entrypoint runs the whole coverage chain.
 # Scenario: the entrypoint is a real, executable repository script.
 # Given the repository, when the canonical coverage gate is looked for, then it

@@ -218,12 +218,13 @@ sub main {
     my @argv = @_;
 
     my $database = 'cover_db';
-    my ( $dry_run, $help ) = ( 0, 0 );
+    my ( $dry_run, $help, $jobs ) = ( 0, 0, 1 );
 
     local @ARGV = @argv;
     GetOptions(
         'database=s' => \$database,
         'dry-run'    => \$dry_run,
+        'jobs=i'     => \$jobs,
         'help'       => \$help,
     ) or return _usage('unrecognized option');
 
@@ -231,6 +232,8 @@ sub main {
         print _usage_text();
         return EXIT_CLEAN;
     }
+
+    return _usage('--jobs must be a positive integer') if $jobs < 1;
 
     my @tests = @ARGV ? @ARGV : ('t');
 
@@ -349,8 +352,9 @@ sub main {
     return $stamp_failure if defined $stamp_failure;
 
     my @delete = ( 'cover', $database, '-delete' );
-    my @suite  = ( 'prove', '-l', @instrumented_tests );
-    my @native_thread_suite = @native_thread_tests ? ( 'prove', '-l', @native_thread_tests ) : ();
+    my @parallel = $jobs > 1 ? ( '-j', $jobs ) : ();
+    my @suite  = ( 'prove', @parallel, '-l', @instrumented_tests );
+    my @native_thread_suite = @native_thread_tests ? ( 'prove', @parallel, '-l', @native_thread_tests ) : ();
     my @report = (
         'cover', $database, '-report', 'text', '-select_re', '^lib/', '-gcov', '0',
         '-coverage', 'statement',
@@ -753,7 +757,7 @@ sub _usage {
 # Output: the usage text as one string.
 sub _usage_text {
     return <<'USAGE';
-usage: perl script/coverage-gate [--database DIR] [--dry-run] [--help] [TEST_PATH...]
+usage: perl script/coverage-gate [--database DIR] [--jobs N] [--dry-run] [--help] [TEST_PATH...]
 
 Refuses when your working directory is inside a different git checkout from the
 one this script belongs to - run that checkout's own script/coverage-gate.
@@ -768,6 +772,7 @@ chain inherits one environment:
   5. enforce 100.0 on all four through script/check-all-metric-coverage
 
   --database DIR  use DIR as the coverage database (default: cover_db)
+  --jobs N        run both prove suites with N parallel workers (default: 1)
   --dry-run       print the resolved environment and each command, run none
   --help          print this text
 

@@ -75,6 +75,36 @@ for my $retired (qw(
 
 like( $unit_workflow, qr/\bprove -j 10\b/,
     'the full Perl test suite is run with ten parallel workers' );
+
+my $coverage_workflow_path = File::Spec->catfile( $WORKFLOWS, 'test-coverage.yml' );
+ok( -f $coverage_workflow_path, 'the dependent coverage workflow is present' );
+my $coverage_workflow = _slurp($coverage_workflow_path);
+like( $coverage_workflow, qr/^permissions:\s*$/m,
+    'coverage declares token permissions explicitly' );
+like( $coverage_workflow, qr/^\s+contents:\s*read\s*$/m,
+    'coverage requests read-only permission' );
+unlike( $coverage_workflow, qr/^\s+\w[\w-]*:\s*write\s*$/m,
+    'coverage requests no write permission' );
+like( $coverage_workflow, qr/^concurrency:\s*$/m,
+    'coverage bounds duplicated upstream runs' );
+like( $coverage_workflow, qr/^\s+timeout-minutes:\s*\d+\s*$/m,
+    'coverage sets an explicit timeout' );
+unlike( $coverage_workflow, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/,
+    'coverage avoids floating action tags' );
+my @coverage_pins;
+while ( $coverage_workflow =~ /uses:\s*(\S+)\@([^\s#]+)/g ) {
+    my ( $action, $pin ) = ( $1, $2 );
+    push @coverage_pins, $action;
+    like( $pin, qr/\A[0-9a-f]{40}\z/,
+        "coverage pins $action by full SHA" );
+}
+cmp_ok( scalar(@coverage_pins), '>=', 2,
+    'coverage has SHA-pinned actions' );
+like( $coverage_workflow, qr/workflow_run\.conclusion == 'success'/,
+    'coverage only runs after passing unit tests' );
+like( $coverage_workflow, qr/perl script\/coverage-gate --jobs 10/,
+    'coverage enforces all metrics with ten workers' );
+
 unlike( $unit_workflow, qr/gh\s+release\s+(?:create|upload)\b|docker\/build-push-action/,
     'the unit-test workflow does not publish releases or Docker images' );
 
@@ -92,10 +122,9 @@ __END__
 
 =head1 DESCRIPTION
 
-Checks the security-policy files and the four owner-approved GitHub Actions
-workflows for pinned actions, explicit permissions, timeouts, dedicated
-100-percent coverage gates, Docker Hub-only publishing, consolidated platform
-verification, and isolated release provenance.
+Checks security-policy files and the two active test workflows for pinned
+actions, explicit read-only permissions, timeouts and the four-metric
+100 percent coverage gate following successful unit tests.
 
 =head1 PURPOSE
 
@@ -106,15 +135,14 @@ fuzz workflow merely to satisfy historical Scorecard assumptions.
 =head1 WHY IT EXISTS
 
 Removing workflows changes which automated Scorecard signals exist, but the
-remaining verification, release, and publishing paths still handle project
-quality, credentials, and repository identity. Their least-privilege and
-coverage properties must remain explicit.
+remaining test and coverage workflows still handle quality and repository
+identity. Their least-privilege and coverage properties must remain explicit.
 
 =head1 WHEN TO USE
 
-Run this test whenever changing F<.github/workflows/>, release provenance,
-Docker Hub publishing, workflow permissions, action pins, coverage gates, or
-the decision to keep Dependabot automation disabled.
+Run this test whenever changing F<.github/workflows/>, test or coverage
+permissions, action pins, coverage gates or the decision to keep Dependabot
+automation disabled.
 
 =head1 HOW TO USE
 
@@ -122,8 +150,8 @@ the decision to keep Dependabot automation disabled.
 
 =head1 WHAT USES IT
 
-The source-tree test suite and Platform compatibility workflow use these
-assertions to guard the retained CI security surface.
+The source-tree unit-test and coverage workflows use these assertions to
+guard the retained CI security surface.
 
 =head1 EXAMPLES
 

@@ -16,11 +16,11 @@ anyone building or contributing to the distribution itself.
   pages/ajax), `CollectorRunner` (scheduled checks), `Housekeeper` (cleanup),
   `PathRegistry`/`Config` (the layered `.developer-dashboard/` directory stack).
 - `t/*.t` covers `lib/`; each carries POD naming what it covers.
-- `.github/workflows/` contains exactly **one** active workflow:
-  `unit-tests.yml`. It builds the native XS extension with Perl 5.44 on
-  Ubuntu and runs all `t/` tests using `prove -j 10` on `master` pushes,
-  pull requests, or manual dispatch. The former coverage, platform-matrix,
-  Docker Hub publishing, and GitHub Release workflows are retired.
+- `.github/workflows/` contains exactly **two** workflows. `unit-tests.yml`
+  builds the native XS extension with Perl 5.44 and runs the full test suite
+  using `prove -j 10`. After Unit Tests succeeds, `test-coverage.yml` runs
+  the four-metric 100% Devel::Cover gate using `--jobs 10` on that revision.
+  The previous platform matrix, Docker Hub and release workflows are retired.
 
 ## Running the tests
 
@@ -38,7 +38,7 @@ tree, and it is not exported by non-interactive shells.
 condition, subroutine):
 
 ```
-perl script/coverage-gate
+perl script/coverage-gate --jobs 10
 ```
 
 Every tracked Perl module/test/script in the POD coverage surface must also
