@@ -181,13 +181,13 @@ sub load_files {
     return \@loaded;
 }
 
-# _inherited_key_names($env)
-# Selects environment names safe for the inherited-key JSON marker.
+# inherited_key_names($env)
+# Public switchboard helper: selects environment names safe for the inherited-key JSON marker.
 # Windows can expose hidden drive-directory entries such as =C: in %ENV;
 # these are not shell variable names and must not reach the strict loader.
 # Input: hash reference containing the caller's current environment.
 # Output: sorted array reference of valid, non-marker names.
-sub _inherited_key_names {
+sub inherited_key_names {
     my ( $class, $env ) = @_;
     return [ sort grep {
         $_ ne $INHERITED_ENV_KEYS && /\A[A-Za-z_][A-Za-z0-9_]*\z/
