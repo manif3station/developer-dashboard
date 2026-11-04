@@ -1048,7 +1048,7 @@ done_testing();
 
 sub _slurp {
     my ($path) = @_;
-    open my $fh, '<', $path or die $!;
+    open my $fh, '<', $path or die "Unable to read $path: $!";
     my $content = do { local $/; <$fh> };
     close $fh;
     return $content;
@@ -1116,6 +1116,9 @@ sub _perl_doc_paths {
                 no_chdir => 1,
                 wanted   => sub {
                     return if !-f $_;
+                    # Concurrent tests create and remove transient Perl fixtures.
+                    # A release metadata sweep must read tracked sources only.
+                    return if !$tracked_repo_paths{ File::Spec->abs2rel( $File::Find::name, $ROOT ) };
                     return if $_ =~ m{/OLD_CODE/};
                     return if $_ !~ /\.(?:pm|pl|t)\z/ && $_ !~ m{/share/private-cli/[^/]+\z};
                     push @paths, $File::Find::name;
@@ -1141,6 +1144,7 @@ sub _test_citation_population {
                 no_chdir => 1,
                 wanted   => sub {
                     return if !-f $_;
+                    return if !$tracked_repo_paths{ File::Spec->abs2rel( $File::Find::name, $ROOT ) };
                     return if $_ !~ /\.md\z/;
                     # This locally ignored coverage work log is intentionally
                     # outside the shipped/repository documentation set while
@@ -1260,7 +1264,7 @@ sub _repo_search_without_self {
     my %seen;
     my @matches;
     FILE:
-    for my $path ( sort grep { !$seen{$_}++ } @files ) {
+    for my $path ( sort grep { !$seen{$_}++ && $tracked_repo_paths{ File::Spec->abs2rel( $_, $ROOT ) } } @files ) {
         next if $path eq $self;
         next if $path =~ m{/t/fixtures/};
         my $content = _slurp($path);
