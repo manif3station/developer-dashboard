@@ -97,9 +97,11 @@ sub load_saved_page {
 # Checks a saved-page path for a symbolic link on each supported platform.
 # Windows Perl does not consistently expose the POSIX Fcntl S_ISLNK macro;
 # use its native -l file test there rather than invoking an absent constant.
-# Windows rechecks the live path rather than classifying the cached lstat mode.
-# This preliminary check can race with replacement; containment checks and
-# the no-follow open enforce the later read boundary.
+# On Windows, -l rechecks the live path after lstat, so this result may
+# describe a different inode than the supplied $mode snapshot. This is a
+# preliminary classification check, NOT an access-control decision: callers
+# must rely on later containment checks and the guarded no-follow read.
+# Never use this helper alone to authorize access to a pathname.
 # Input: existing path and the lstat mode recorded for that path.
 # Output: true when the path is a symbolic link.
 sub _page_is_symlink {
@@ -109,8 +111,10 @@ sub _page_is_symlink {
 
 # _page_is_regular($file, $mode)
 # Checks file type without relying on unsupported Windows Fcntl mode macros.
-# The Windows -f fallback also rechecks the live path after lstat; it is not
-# an atomic type check or a substitute for the secure file-opening boundary.
+# The Windows -f fallback rechecks the live path after lstat. Its result
+# can describe a different inode than the supplied $mode snapshot, just as
+# _page_is_symlink can. Neither helper is an independent security gate;
+# callers must enforce containment and the guarded read boundary afterwards.
 # Input: path and its lstat mode.
 # Output: true when the path names a regular file.
 sub _page_is_regular {
