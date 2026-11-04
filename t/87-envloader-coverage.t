@@ -765,7 +765,7 @@ write_file( File::Spec->catfile( $ab,  '.env' ),    "AK=abval\n" );
 }
 
 {
-    my $inherited = $EL->_inherited_key_names({
+    my $inherited = $EL->inherited_key_names({
         '=C:'                                         => 'C:\\workspace',
         'HOME'                                        => '/home/fixture',
         'USERPROFILE'                                 => 'C:\\Users\\fixture',
