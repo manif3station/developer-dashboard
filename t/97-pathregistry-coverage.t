@@ -448,6 +448,7 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
 {
     require File::Spec::Win32;
     no warnings 'redefine';
+    no warnings 'once'; # Scoped File::Spec overrides are intentional.
     my $root  = 'Q:\\dd-fixture\\runtime';
     my $child = 'Q:/dd-fixture/runtime/config/auth';
     my @visited;
