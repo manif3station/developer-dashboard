@@ -1794,7 +1794,14 @@ sub secure_dir_permissions {
     # into the unnormalised paths can lose the child directory chain. Let the
     # platform-aware path module derive the suffix before hardening children.
     my $suffix = File::Spec->abs2rel( $dir, $layer_root );
-    for my $part ( grep { $_ ne '' } File::Spec->splitdir($suffix) ) {
+    my @parts = grep { $_ ne '' } File::Spec->splitdir($suffix);
+    # A canonical identity match can also come from a path reached through a
+    # symlink. Never let its lexical relative form escape the selected root.
+    die "Runtime directory is not a lexical descendant of its layer: $dir"
+      if File::Spec->file_name_is_absolute($suffix);
+    die "Runtime directory is not a lexical descendant of its layer: $dir"
+      if grep { $_ eq '..' } @parts;
+    for my $part (@parts) {
         $path = File::Spec->catdir( $path, $part );
         next if !-d $path;
         my @dir_stat = stat $path;
