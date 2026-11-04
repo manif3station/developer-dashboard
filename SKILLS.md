@@ -16,20 +16,16 @@ anyone building or contributing to the distribution itself.
   pages/ajax), `CollectorRunner` (scheduled checks), `Housekeeper` (cleanup),
   `PathRegistry`/`Config` (the layered `.developer-dashboard/` directory stack).
 - `t/*.t` covers `lib/`; each carries POD naming what it covers.
-- `.github/workflows/` contains exactly four workflows. **Platform
-  compatibility** runs the full Perl suite across Linux x64/arm64, macOS
-  Intel/arm64, Windows x64, and Windows arm64; Linux x64 also owns the
-  dependency-audit, action-pin, and JavaScript property-test gates. **Coverage**
-  runs three independent 100% gates: all four Devel::Cover metrics across
-  `lib/`, POD file coverage, and Markdown file coverage. **GitHub Release**
-  builds signed, provenance-attested releases from `v*` tags and supports manual
-  recovery dispatch. **Publish Docker Hub Image** publishes the
-  multi-architecture Docker Hub image on `master` pushes and manual dispatch.
+- `.github/workflows/` contains exactly **one** active workflow:
+  `unit-tests.yml`. It builds the native XS extension with Perl 5.44 on
+  Ubuntu and runs all `t/` tests using `prove -j 10` on `master` pushes,
+  pull requests, or manual dispatch. The former coverage, platform-matrix,
+  Docker Hub publishing, and GitHub Release workflows are retired.
 
 ## Running the tests
 
 ```
-PERL5LIB="$HOME/perl5/lib/perl5" prove -lr t
+PERL5LIB="$HOME/perl5/lib/perl5" prove -j 10 -lr t
 ```
 
 `PERL5LIB` must be inline on every invocation - this project's dependencies
@@ -75,7 +71,7 @@ list - never via `.gitignore`, which `dzil` does not consult.
 Version is `X.XX` (two decimals, never reused, read from the newest `git tag`).
 A version bump touches every `lib/**` `$VERSION`, `dist.ini`, the main POD, and
 `t/15-release-metadata.t`'s expected value in one atomic change, then tags
-`vX.XX` and pushes it - the tag push fires a signed GitHub Release.
+`vX.XX` and pushes it. Releases must now be published manually.
 CPAN upload is a separate, manual step.
 
 ## Two entrypoints, one CLI
