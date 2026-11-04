@@ -55,7 +55,7 @@ like( $unit->{run} // '', qr/--rules='seq=t\/09-runtime-manager\.t'/,
   'the server lifecycle test runs outside concurrent test workers' );
 like( $unit->{run} // '', qr/--rules='par=\*\*'/,
   'the rest of the suite retains ten-way parallel scheduling' );
-like( $unit->{run} // '', qr/PERL5LIB=.*blib\/arch.*\$local_lib/s,
+like( $unit->{run} // '', qr/PERL5LIB=.*blib\/arch.*blib\/lib.*\$local_lib/s,
   'test subprocesses see the native build and local dependencies' );
 
 
@@ -98,7 +98,7 @@ my ($coverage_gate) = grep {
 } @coverage_steps;
 like( $coverage_gate->{run} // '', qr/perl script\/coverage-gate --jobs 10/,
   'coverage uses the canonical all-metric gate with ten workers' );
-like( $coverage_gate->{run} // '', qr/PERL5LIB=.*blib\/arch.*blib\/lib.*\$local_lib/s,
+like( $coverage_gate->{run} // '', qr/PERL5LIB=.*blib\/arch.*\$local_lib/s,
   'coverage loads compiled XS objects and local dependencies' );
 unlike( $coverage_gate->{run} // '', qr/\$GITHUB_WORKSPACE\/blib\/lib:/,
   'coverage does not re-instrument compiled copies of the source Perl modules' );
