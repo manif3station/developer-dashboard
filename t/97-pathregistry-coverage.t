@@ -475,6 +475,17 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
         ],
         'Windows mixed-separator roots still visit every child directory in the hardening chain',
     );
+    dies_like(
+        sub { $paths->secure_dir_permissions('Q:/dd-fixture/elsewhere') },
+        qr/Runtime directory is not a lexical descendant of its layer/,
+        'Windows hardening rejects a parent traversal instead of chmodding outside its root',
+    );
+    dies_like(
+        sub { $paths->secure_dir_permissions('R:/dd-fixture/elsewhere') },
+        qr/Runtime directory is not a lexical descendant of its layer/,
+        'Windows hardening rejects a relative suffix on a different drive',
+    );
+    is( scalar @visited, 2, 'invalid Windows suffixes never enter the chmod traversal loop' );
 }
 
 # --------------------------------------------------------------------------
