@@ -352,7 +352,16 @@ sub main {
     return $stamp_failure if defined $stamp_failure;
 
     my @delete = ( 'cover', $database, '-delete' );
-    my @parallel = $jobs > 1 ? ( '-j', $jobs ) : ();
+    # Some integration-style tests own real ports or inspect transient source
+    # files. Keep those test files isolated from other workers; the remaining
+    # suite still has all requested parallel slots.
+    my @parallel = $jobs > 1 ? (
+        '-j', $jobs,
+        '--rules=seq=t/05-cli-smoke.t',
+        '--rules=seq=t/09-runtime-manager.t',
+        '--rules=seq=t/15-release-metadata.t',
+        '--rules=par=**',
+    ) : ();
     my @suite  = ( 'prove', @parallel, '-l', @instrumented_tests );
     my @native_thread_suite = @native_thread_tests ? ( 'prove', @parallel, '-l', @native_thread_tests ) : ();
     my @report = (

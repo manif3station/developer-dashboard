@@ -21,9 +21,12 @@ unit-test run and then executes:
 perl script/coverage-gate --jobs 10
 ```
 
-The canonical gate runs instrumentable tests under Devel::Cover using
-`prove -j 10`, then separately runs native-thread tests (which cannot safely
-be instrumented) using `prove -j 10`. The job fails unless all four covered
+Both workflows retain `-j 10` while scheduling process-owning tests
+(`t/05-cli-smoke.t`, `t/09-runtime-manager.t`) and the source-inventory
+regression (`t/15-release-metadata.t`) sequentially, away from other workers.
+All other eligible tests can use ten parallel workers. The coverage gate runs
+instrumentable tests under Devel::Cover and separately runs native-thread
+tests without unsupported instrumentation. The job fails unless all four covered
 `lib/` metrics — statement, branch, condition and subroutine — are exactly
 **100.0%**. Failed or cancelled upstream unit tests skip the coverage job.
 Coverage does not run directly from a push or a pull request.

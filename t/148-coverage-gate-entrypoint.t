@@ -180,9 +180,9 @@ sub invocations {
     is( scalar @ran, 4, 'parallel coverage still runs both groups and the report' );
     is( $ran[1]{name}, 'prove', 'instrumented group uses prove' );
     is( $ran[2]{name}, 'prove', 'native-thread group uses prove' );
-    like( $ran[1]{arguments}, qr/\A-j 10 -l\b/,
+    like( $ran[1]{arguments}, qr/\A-j 10 --rules=seq=t\/05-cli-smoke\.t.*--rules=par=\*\* -l\b/,
         'instrumented test group uses ten workers' );
-    like( $ran[2]{arguments}, qr/\A-j 10 -l\b/,
+    like( $ran[2]{arguments}, qr/\A-j 10 --rules=seq=t\/05-cli-smoke\.t.*--rules=par=\*\* -l\b/,
         'native-thread group also uses ten workers' );
     is( $stderr, '', 'passing parallel coverage emits no error' );
 }

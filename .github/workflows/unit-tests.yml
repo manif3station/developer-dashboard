@@ -60,4 +60,9 @@ jobs:
           local_lib="$GITHUB_WORKSPACE/local/lib/perl5"
           arch="$(perl -MConfig -e 'print $Config{archname}')"
           export PERL5LIB="$GITHUB_WORKSPACE/blib/arch:$GITHUB_WORKSPACE/blib/lib:$local_lib:$local_lib/$arch${PERL5LIB:+:$PERL5LIB}"
-          prove -j 10 -Iblib/arch -Iblib/lib -lr t
+          prove -j 10 \
+            --rules='seq=t/05-cli-smoke.t' \
+            --rules='seq=t/09-runtime-manager.t' \
+            --rules='seq=t/15-release-metadata.t' \
+            --rules='par=**' \
+            -Iblib/arch -Iblib/lib -lr t

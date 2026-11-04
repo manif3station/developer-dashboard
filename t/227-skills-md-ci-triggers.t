@@ -49,8 +49,12 @@ my ($build) = grep { ($_->{name} // '') eq 'Build native XS extension' } @steps;
 like( $build->{run} // '', qr/perl Makefile\.PL.*\bmake\b/s,
   'XS is compiled before the suite' );
 my ($unit) = grep { ($_->{name} // '') eq 'Run all unit tests (10 parallel workers)' } @steps;
-like( $unit->{run} // '', qr/\bprove -j 10 -Iblib\/arch -Iblib\/lib -lr t\b/,
+like( $unit->{run} // '', qr/\bprove -j 10\b.*-Iblib\/arch -Iblib\/lib -lr t\b/s,
   'the entire t/ suite runs with prove -j 10 and built XS paths' );
+like( $unit->{run} // '', qr/--rules='seq=t\/09-runtime-manager\.t'/,
+  'the server lifecycle test runs outside concurrent test workers' );
+like( $unit->{run} // '', qr/--rules='par=\*\*'/,
+  'the rest of the suite retains ten-way parallel scheduling' );
 like( $unit->{run} // '', qr/PERL5LIB=.*blib\/arch.*blib\/lib.*\$local_lib/s,
   'test subprocesses see the native build and local dependencies' );
 
