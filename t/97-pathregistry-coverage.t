@@ -442,6 +442,42 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
 }
 
 # --------------------------------------------------------------------------
+# Windows root/child separator mixes must not skip the hardening suffix.
+# Exercise the production method with Win32 path operations on every host.
+# --------------------------------------------------------------------------
+{
+    require File::Spec::Win32;
+    no warnings 'redefine';
+    my $root  = 'Q:\\dd-fixture\\runtime';
+    my $child = 'Q:/dd-fixture/runtime/config/auth';
+    my @visited;
+    local *Developer::Dashboard::PathRegistry::runtime_layer_root_for = sub { return $root };
+    local *File::Spec::abs2rel = sub {
+        my ( $class, $path, $base ) = @_;
+        return File::Spec::Win32->abs2rel( $path, $base );
+    };
+    local *File::Spec::splitdir = sub {
+        my ( $class, $path ) = @_;
+        return File::Spec::Win32->splitdir($path);
+    };
+    local *File::Spec::catdir = sub {
+        my ( $class, @parts ) = @_;
+        push @visited, [@parts];
+        return File::Spec::Win32->catdir(@parts);
+    };
+    is( $paths->secure_dir_permissions($child), $child,
+        'Windows mixed-separator hardening preserves the original requested path' );
+    is_deeply(
+        \@visited,
+        [
+            [ $root, 'config' ],
+            [ File::Spec::Win32->catdir( $root, 'config' ), 'auth' ],
+        ],
+        'Windows mixed-separator roots still visit every child directory in the hardening chain',
+    );
+}
+
+# --------------------------------------------------------------------------
 # secure_file_permissions guards + real chmod (default and executable).
 # --------------------------------------------------------------------------
 {
