@@ -42,7 +42,7 @@ my $dist = _slurp_optional( _repo_path('dist.ini') );
 my $meta = _slurp_optional( _repo_path('META.json') );
 my $cpanfile = _slurp( _repo_path('cpanfile') );
 my $makefile = _slurp( _repo_path('Makefile.PL') );
-my $platform_workflow = _slurp( _repo_path( '.github', 'workflows', 'platform-compatibility.yml' ) );
+my $unit_test_workflow = _slurp( _repo_path( '.github', 'workflows', 'unit-tests.yml' ) );
 my $pbkdf2_module = _slurp( _repo_path( 'lib', 'Developer', 'Dashboard', 'Crypto', 'PBKDF2.pm' ) );
 my $watch_module = _slurp( _repo_path( 'lib', 'Developer', 'Dashboard', 'IndicatorStore', 'Watch.pm' ) );
 my $agents_override = _slurp_optional( _repo_path('AGENTS.override.md') );
@@ -349,7 +349,7 @@ unlike( $dist // q{}, qr/FFI::(?:Platypus|CheckLib)/, 'dist.ini has no FFI recom
 unlike( $cpanfile, qr/FFI::(?:Platypus|CheckLib)/, 'cpanfile has no FFI dependency or recommendation' );
 unlike( $pbkdf2_module, qr/FFI::(?:Platypus|CheckLib)/, 'PBKDF2 runtime module does not load an FFI package' );
 unlike( $watch_module, qr/FFI::(?:Platypus|CheckLib)/, 'watch runtime module does not load an FFI package' );
-unlike( $platform_workflow, qr/FFI::(?:Platypus|CheckLib)/, 'platform workflow does not install an FFI package' );
+unlike( $unit_test_workflow, qr/FFI::(?:Platypus|CheckLib)/, 'unit-test workflow does not install an FFI package' );
 my %runtime_prereq_minimum = (
     'JSON::XS'               => '4.04',
     'YAML::XS'               => '0.903.0',

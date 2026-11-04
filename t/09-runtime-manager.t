@@ -1323,17 +1323,38 @@ is( $manager->web_log, '', 'web_log returns an empty string when the dashboard l
     $files->write( 'dashboard_log', "signal\n" );
     open my $fh, '>', $signal_follow or die $!;
     close $fh;
+    my $signal_ready = "$home/signal-follow-ready";
+    unlink $signal_ready if -f $signal_ready;
+    my $signal_script = _runtime_fixture_script($repo_lib, q{
+        no warnings 'redefine';
+        my $original_sleep = \&Time::HiRes::sleep;
+        local *Developer::Dashboard::RuntimeManager::sleep = sub {
+            open my $ready, '>', $ENV{DASHBOARD_FOLLOW_READY}
+                or die "Unable to open follow-ready marker: $!";
+            print {$ready} "ready\n" or die "Unable to write follow-ready marker: $!";
+            close $ready or die "Unable to close follow-ready marker: $!";
+            return $original_sleep->(@_);
+        };
+        $manager->_follow_log_file(file => $ENV{DASHBOARD_FOLLOW_FILE}, interval => 0.05);
+    });
     my $signal_pid = _spawn_perl_fixture(
-        _runtime_fixture_script($repo_lib, q{$manager->_follow_log_file(file => $ENV{DASHBOARD_FOLLOW_FILE}, interval => 0.05);}),
+        $signal_script,
         {
             env => {
                 HOME => $home,
                 DEVELOPER_DASHBOARD_STATE_ROOT => $ENV{DEVELOPER_DASHBOARD_STATE_ROOT},
                 DASHBOARD_FOLLOW_FILE => $signal_follow,
+                DASHBOARD_FOLLOW_READY => $signal_ready,
             },
         },
     );
-    sleep 0.2;
+    my $follow_ready = 0;
+    for ( 1 .. 200 ) {
+        $follow_ready = -f $signal_ready;
+        last if $follow_ready;
+        sleep 0.01;
+    }
+    ok( $follow_ready, '_follow_log_file has installed its signal handlers before INT is sent' );
     ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, 'INT' ),
         '_follow_log_file child receives INT through GoRoutine' );
     is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), 0,

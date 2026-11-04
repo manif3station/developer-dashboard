@@ -1101,7 +1101,8 @@ FRONTEND_PERL
     my $pid = _spawn_perl_fixture( $frontend_program, $port, $temp_home );
 
     my $ready = 0;
-    for ( 1 .. 50 ) {
+    # Ten parallel TAP workers can delay native server startup on CI.
+    for ( 1 .. 200 ) {
         my $probe = IO::Socket::INET->new(
             PeerAddr => '127.0.0.1',
             PeerPort => $port,

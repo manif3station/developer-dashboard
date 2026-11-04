@@ -51,7 +51,7 @@ like( $build->{run} // '', qr/perl Makefile\.PL.*\bmake\b/s,
 my ($unit) = grep { ($_->{name} // '') eq 'Run all unit tests (10 parallel workers)' } @steps;
 like( $unit->{run} // '', qr/\bprove -j 10 -Iblib\/arch -Iblib\/lib -lr t\b/,
   'the entire t/ suite runs with prove -j 10 and built XS paths' );
-like( $unit->{run} // '', qr/PERL5LIB=.*blib\/arch.*blib\/lib.*local\/lib\/perl5/s,
+like( $unit->{run} // '', qr/PERL5LIB=.*blib\/arch.*blib\/lib.*\$local_lib/s,
   'test subprocesses see the native build and local dependencies' );
 
 done_testing();
