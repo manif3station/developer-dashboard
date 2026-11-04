@@ -91,7 +91,7 @@ if ( -f $built_dashboard_xs ) {
     require Developer::Dashboard::CLI::Which;
     my $entrypoint = File::Spec->catfile( $ENV{HOME}, 'which-executable-dashboard' );
     open my $entry_fh, '>', $entrypoint or die "Unable to create $entrypoint: $!";
-    print {$entry_fh} "#!/bin/sh\\nexit 0\\n";
+    print {$entry_fh} "#!/bin/sh\nexit 0\n";
     close $entry_fh or die "Unable to close $entrypoint: $!";
     chmod 0755, $entrypoint or die "Unable to make $entrypoint executable: $!";
     SKIP: {
