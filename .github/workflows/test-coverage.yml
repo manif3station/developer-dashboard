@@ -67,6 +67,8 @@ jobs:
         run: |
           local_lib="$GITHUB_WORKSPACE/local/lib/perl5"
           arch="$(perl -MConfig -e 'print $Config{archname}')"
-          export PERL5LIB="$GITHUB_WORKSPACE/blib/arch:$GITHUB_WORKSPACE/blib/lib:$local_lib:$local_lib/$arch${PERL5LIB:+:$PERL5LIB}"
+          # Instrument source files from lib/ once, not both lib/ and blib/lib/.
+          # The compiled XS binary stays reachable through blib/arch.
+          export PERL5LIB="$GITHUB_WORKSPACE/blib/arch:$local_lib:$local_lib/$arch${PERL5LIB:+:$PERL5LIB}"
           export PATH="$GITHUB_WORKSPACE/local/bin:$PATH"
           perl script/coverage-gate --jobs 10
