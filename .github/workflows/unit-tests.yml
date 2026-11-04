@@ -60,7 +60,9 @@ jobs:
           local_lib="$GITHUB_WORKSPACE/local/lib/perl5"
           arch="$(perl -MConfig -e 'print $Config{archname}')"
           export PERL5LIB="$GITHUB_WORKSPACE/blib/arch:$GITHUB_WORKSPACE/blib/lib:$local_lib:$local_lib/$arch${PERL5LIB:+:$PERL5LIB}"
-          prove -j 10 \
+          # Bound intermittent hangs while retaining ten TAP workers.
+          # --timer reports per-test durations for diagnosis on failure.
+          timeout --signal=TERM --kill-after=30s 900s prove -j 10 --timer \
             --rules='seq=t/05-cli-smoke.t' \
             --rules='seq=t/09-runtime-manager.t' \
             --rules='seq=t/15-release-metadata.t' \
