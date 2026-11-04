@@ -84,6 +84,28 @@ if ( -f $built_dashboard_xs ) {
     );
     is( $goroutine_xs_probe, "spawn\n", 'child Perl processes load GoRoutine XSUBs from the current build before an installed older XS copy' );
 }
+# Regression: an existing executable dashboard entrypoint must not be
+# prefixed with Perl. This also exercises the executable-file branch of
+# CLI::Which::_dashboard_entry_command under Devel::Cover.
+{
+    require Developer::Dashboard::CLI::Which;
+    my $entrypoint = File::Spec->catfile( $ENV{HOME}, 'which-executable-dashboard' );
+    open my $entry_fh, '>', $entrypoint or die "Unable to create $entrypoint: $!";
+    print {$entry_fh} "#!/bin/sh\\nexit 0\\n";
+    close $entry_fh or die "Unable to close $entrypoint: $!";
+    chmod 0755, $entrypoint or die "Unable to make $entrypoint executable: $!";
+    SKIP: {
+        skip 'Perl executable file test is not supported by this filesystem', 1
+          if !-x $entrypoint;
+        local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = $entrypoint;
+        is_deeply(
+            [ Developer::Dashboard::CLI::Which::_dashboard_entry_command() ],
+            [$entrypoint],
+            'which --edit invokes an existing executable dashboard directly',
+        );
+    }
+}
+
 my $expected_version = _module_version( File::Spec->catfile( $lib, 'Developer', 'Dashboard.pm' ) );
 my $runtime_cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
 my $runtime_dd_cli_root = File::Spec->catdir( $runtime_cli_root, 'dd' );
