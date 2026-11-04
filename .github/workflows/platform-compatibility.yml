@@ -99,7 +99,7 @@ jobs:
           "$perlBin" >> $env:GITHUB_PATH
           "$compilerBin" >> $env:GITHUB_PATH
 
-          perl -e 'die "Perl 5.38 or newer is required\n" if $] < 5.038; print "Perl $^V ready on Windows ARM64 host\n"'
+          perl -e 'die "Perl 5.38 or newer is required\n" if $] < 5.038; print "Perl $^V ready on Windows ($ENV{RUNNER_ARCH} host)\n"'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Get-Command cpanm -ErrorAction SilentlyContinue)) {
             cpan App::cpanminus
