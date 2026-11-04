@@ -49,6 +49,8 @@ like( $arm_perl->{run} // q{}, qr/strawberry-perl-\$version-64bit-portable\.zip/
     'Windows ARM64 downloads the pinned portable Strawberry Perl release' );
 like( $arm_perl->{run} // q{}, qr/6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690/,
     'Windows ARM64 verifies the portable Strawberry Perl archive SHA256' );
+like( $arm_perl->{run} // q{}, qr/\$ENV\{RUNNER_ARCH\} host/,
+    'portable Perl bootstrap reports the actual runner architecture on both Windows hosts' );
 like( $arm_perl->{run} // q{}, qr/Expand-Archive/,
     'Windows ARM64 extracts Strawberry Perl without relying on an MSI installer' );
 like( $arm_perl->{run} // q{}, qr/\$\]\s*<\s*5\.038/,
