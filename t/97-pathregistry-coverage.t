@@ -460,6 +460,10 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
         my ( $class, $path ) = @_;
         return File::Spec::Win32->splitdir($path);
     };
+    local *File::Spec::file_name_is_absolute = sub {
+        my ( $class, $path ) = @_;
+        return File::Spec::Win32->file_name_is_absolute($path);
+    };
     local *File::Spec::catdir = sub {
         my ( $class, @parts ) = @_;
         push @visited, [@parts];
