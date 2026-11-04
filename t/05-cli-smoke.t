@@ -1323,14 +1323,15 @@ unlike( $shell_bootstrap, qr/\bd2\(\)\s*\{/, 'dashboard shell bash bootstrap no 
 like( $shell_bootstrap, qr/complete -F _dashboard_complete dashboard d2/, 'dashboard shell bash bootstrap wires tab completion for dashboard and d2' );
 like( $shell_bootstrap, qr/complete -F _dashboard_complete_cdr cdr dd_cdr which_dir/, 'dashboard shell bash bootstrap wires cdr-family tab completion' );
 unlike( $shell_bootstrap, qr/done\s+<\s+</, 'dashboard shell bash bootstrap avoids process substitution in completion helpers for macOS compatibility' );
-like( $shell_bootstrap, qr/completion_output="\$\('\Q$dashboard\E' complete /, 'dashboard shell bash bootstrap captures dashboard completions through command substitution' );
-like( $shell_bootstrap, qr/completion_output="\$\('\Q$dashboard\E' path complete-cdr /, 'dashboard shell bash bootstrap captures cdr completions through command substitution' );
+like( $shell_bootstrap, qr/completion_output="\$\('\Q$perl\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard\E' complete /, 'dashboard shell bash bootstrap captures dashboard completions through command substitution' );
+like( $shell_bootstrap, qr/\Q$perl\E.*\Q$dashboard\E/s, 'dashboard shell bootstrap uses the current Perl runtime for the checkout entrypoint' );
+like( $shell_bootstrap, qr/completion_output="\$\('\Q$perl\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard\E' path complete-cdr /, 'dashboard shell bash bootstrap captures cdr completions through command substitution' );
 {
     local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = '/tmp/stale-dashboard-entrypoint';
     my $stale_entrypoint_bootstrap = _run("$perl -I'$lib' '$dashboard' shell bash");
     like(
         $stale_entrypoint_bootstrap,
-        qr/completion_output="\$\('\Q$dashboard\E' complete /,
+        qr/completion_output="\$\('\Q$perl\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard\E' complete /,
         'dashboard shell bash bootstrap ignores a stale inherited dashboard entrypoint path',
     );
     unlike(
