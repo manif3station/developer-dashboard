@@ -386,16 +386,15 @@ sub main {
 
     my $before = _grading_identity();
 
-    # Coverage is enforced only for lib/. Tests deliberately stage executable
-    # helper trees under /tmp and .developer-dashboard, then remove those trees;
-    # asking Devel::Cover to hash those non-target files during report generation
-    # produces missing-file warnings after cleanup. Keep its defaults and exclude
-    # only those disposable source roots and t/ itself. Test files are inputs to
-    # the coverage run, not coverage targets; instrumenting them makes Devel::Cover
-    # report stale source structures for tests which exercise dynamic fixtures.
-    # Every repository lib/ file remains instrumented and graded.
+    # Only repository lib/ is the coverage target. Devel::Cover's select
+    # regex takes priority over ignore: all lib/ code is measured, while tests,
+    # temporary source trees, and generated subroutines are not collected.
+    # Collecting dynamic test-fixture sources from different Perl processes
+    # causes incompatible structures and 'ignoring extra' merge diagnostics,
+    # which make an otherwise complete 100% report untrustworthy.
+    # -blib,0 also ensures the built copy does not shadow lib/ during coverage.
     local $ENV{HARNESS_PERL_SWITCHES}
-        = "-MDevel::Cover=-db,$database,-blib,0,+ignore,^/tmp/,\\.developer-dashboard/,/t/";
+        = "-MDevel::Cover=-db,$database,-blib,0,-select,^lib/,-ignore,^";
     my $ran = _run( 'instrumented suite', @suite );
 
     if ( $ran != EXIT_CLEAN ) {
