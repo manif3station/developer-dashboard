@@ -462,7 +462,7 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub {
-        return "collector\\0worker\\0\\n";
+        return "collector\x00worker\x00\n";
     };
     is(
         $runner->_read_process_title(424242),
