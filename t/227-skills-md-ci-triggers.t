@@ -68,7 +68,7 @@ my $mac_arch = find_step( $mac_steps, 'Verify Apple Silicon runner' );
 like( $mac_arch->{run} // '', qr/uname -m.*arm64/s,
     'the macOS job checks the physical arm64 host' );
 my $mac_deps = find_step( $mac_steps, 'Install Devel::Cover' );
-like( $mac_deps->{run} // '', qr/cpanm --notest -L local Devel::Cover/,
+like( $mac_deps->{run} // '', qr/cpanm[^\r\n]*--notest -L local Devel::Cover/,
     'macOS installs coverage instrumentation' );
 my $mac_build = find_step( $mac_steps, 'Build native XS extension' );
 like( $mac_build->{run} // '', qr/perl Makefile\.PL.*\bmake\b/s,
