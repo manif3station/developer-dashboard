@@ -198,6 +198,9 @@ ok( $macos_perl->{with}{'multi-thread'},
 my $macos_deps = find_macos_step( \@macos_steps, 'Install Perl dependencies' );
 like( $macos_deps->{run} // '', qr/cpanm --installdeps --notest -L local \./,
   'macOS installs the full local Perl dependency set' );
+my $macos_native = find_macos_step( \@macos_steps, 'Install native build dependencies' );
+like( $macos_native->{run} // '', qr/brew install coreutils\b/,
+  'macOS provides the GNU timeout utility via Homebrew coreutils' );
 my $macos_build = find_macos_step( \@macos_steps, 'Build native XS extension' );
 like( $macos_build->{run} // '', qr/perl Makefile\.PL.*\bmake\b/s,
   'macOS builds the XS extension before running tests' );
@@ -206,6 +209,9 @@ my $macos_test =
 like( $macos_test->{run} // '',
   qr/\bprove -j 10\b.*-Iblib\/arch -Iblib\/lib -lr t\b/s,
   'macOS runs the full suite with ten parallel TAP workers' );
+like( $macos_test->{run} // '',
+  qr/gtimeout --signal=TERM --kill-after=30s 900s prove -j 10/,
+  'macOS bounds the whole prove suite with graceful termination' );
 like( $macos_test->{run} // '', qr/--rules='seq=t\/05-cli-smoke\.t'/,
   'macOS preserves serial execution for the CLI smoke test' );
 like( $macos_test->{run} // '', qr/--rules='seq=t\/09-runtime-manager\.t'/,

@@ -65,7 +65,7 @@ jobs:
         timeout-minutes: 20
         shell: bash
         run: |
-          brew install expat openssl@3 pkgconf
+          brew install coreutils expat openssl@3 pkgconf
           echo "CPATH=$(brew --prefix expat)/include:$(brew --prefix openssl@3)/include" >> "$GITHUB_ENV"
           echo "LIBRARY_PATH=$(brew --prefix expat)/lib:$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"
           echo "PKG_CONFIG_PATH=$(brew --prefix expat)/lib/pkgconfig:$(brew --prefix openssl@3)/lib/pkgconfig" >> "$GITHUB_ENV"
@@ -108,7 +108,7 @@ jobs:
           perl_bin="$(dirname "$(command -v perl)")"
           printf 'export PATH=%s:$PATH\n' "$(printf '%q' "$perl_bin")" > "$RUNNER_TEMP/perl-ci-bashenv"
           export BASH_ENV="$RUNNER_TEMP/perl-ci-bashenv"
-          prove -j 10 --timer \
+          gtimeout --signal=TERM --kill-after=30s 900s prove -j 10 --timer \
             --rules='seq=t/03-web-app.t' \
             --rules='seq=t/148-coverage-gate-entrypoint.t' \
             --rules='seq=t/05-cli-smoke.t' \

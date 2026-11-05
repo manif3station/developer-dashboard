@@ -1219,6 +1219,13 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
     my $file = File::Spec->catfile( $home, 'fd-regular-file' );
     open my $fh, '>', $file or die $!;
     is( $manager->_descriptor_is_inherited_pipe( fileno($fh), close_ipc => 1 ), 0, '_descriptor_is_inherited_pipe leaves a regular-file fd open even with close_ipc' );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::ProcessSupervision::_fd_link_target =
+            sub { return 'anon_inode:[eventfd]' };
+        is( $manager->_descriptor_is_inherited_pipe( fileno($fh), close_ipc => 1 ), 1,
+            '_descriptor_is_inherited_pipe also closes Linux anonymous kernel handles' );
+    }
     close $fh;
 }
 
