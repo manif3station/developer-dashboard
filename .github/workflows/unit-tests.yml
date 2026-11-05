@@ -68,3 +68,11 @@ jobs:
             --rules='seq=t/15-release-metadata.t' \
             --rules='par=**' \
             -Iblib/arch -Iblib/lib -lr t
+
+  macos-arm64-pr:
+    name: macOS arm64 unit tests after Linux
+    if: ${{ github.event_name == 'pull_request' }}
+    needs: unit-tests
+    permissions:
+      contents: read
+    uses: ./.github/workflows/macos-arm64-unit-tests.yml

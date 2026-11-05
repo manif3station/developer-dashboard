@@ -33,8 +33,17 @@ is_deeply( $events->{push}{branches}, ['master'], 'push runs on master only' );
 ok( exists $events->{pull_request}, 'pull requests run the tests' );
 ok( exists $events->{workflow_dispatch}, 'manual test runs are available' );
 
-is_deeply( [ sort keys %{ $workflow->{jobs} || {} } ], ['unit-tests'],
-  'the workflow has one unit-test job' );
+is_deeply( [ sort keys %{ $workflow->{jobs} || {} } ], ['macos-arm64-pr', 'unit-tests'],
+  'the workflow has Linux tests and a dependent macOS PR job' );
+my $macos_pr_job = $workflow->{jobs}{'macos-arm64-pr'} || {};
+is( $macos_pr_job->{needs}, 'unit-tests',
+  'macOS PR tests wait for Linux unit-test success' );
+like( $macos_pr_job->{if} // '', qr/github\.event_name\s*==\s*'pull_request'/,
+  'the reusable macOS job is only called during PR validation' );
+is( $macos_pr_job->{uses}, './.github/workflows/macos-arm64-unit-tests.yml',
+  'macOS PR tests call the dedicated reusable workflow' );
+is( $macos_pr_job->{permissions}{contents}, 'read',
+  'macOS PR tests inherit only read-only repository permissions' );
 my $job = $workflow->{jobs}{'unit-tests'};
 is( $job->{'runs-on'}, 'ubuntu-latest', 'unit suite runs on Ubuntu' );
 
@@ -118,8 +127,8 @@ my ($macos_events) = grep { ref $_ eq 'HASH' }
   map { $macos->{$_} } grep { /\A(?:on|true|1)\z/ } keys %$macos;
 ok( ref($macos_events) eq 'HASH', 'macOS workflow has GitHub Actions triggers' );
 my $macos_trigger = ref($macos_events) eq 'HASH' ? $macos_events : {};
-is_deeply( [ sort keys %$macos_trigger ], ['workflow_run'],
-  'macOS only starts from an upstream workflow completion' );
+is_deeply( [ sort keys %$macos_trigger ], ['workflow_call', 'workflow_run'],
+  'macOS supports ordered PR calls and post-unit master runs' );
 my $macos_run = ref($macos_trigger->{workflow_run}) eq 'HASH'
   ? $macos_trigger->{workflow_run} : {};
 is_deeply( $macos_run->{workflows}, ['Unit Tests'],
@@ -133,7 +142,13 @@ is_deeply( [ sort keys %{ $macos->{jobs} || {} } ], ['macos-arm64'],
 my $macos_job = $macos->{jobs}{'macos-arm64'} || {};
 like( $macos_job->{if} // '',
   qr/workflow_run\.conclusion\s*==\s*'success'/,
-  'macOS suite is skipped unless Linux unit tests pass' );
+  'post-unit macOS run requires a successful Linux workflow' );
+like( $macos_job->{if} // '', qr/workflow_run\.event\s*==\s*'push'/,
+  'post-unit macOS run only follows master push workflows' );
+like( $macos_job->{if} // '', qr/workflow_run\.head_repository\.full_name\s*==\s*github\.repository/,
+  'post-unit macOS run never executes code from forked repositories' );
+like( $macos_job->{if} // '', qr/github\.event_name\s*!=\s*'workflow_run'/,
+  'reusable macOS PR runs are permitted by the job gate' );
 is( $macos_job->{'runs-on'}, 'macos-15',
   'macOS selects the hosted Apple Silicon runner' );
 
@@ -159,7 +174,9 @@ like( $macos_checkout->{uses} // '', qr{\Aactions/checkout\@[0-9a-f]{40}\z},
 like( $macos_checkout->{with}{repository} // '', qr/workflow_run\.head_repository\.full_name/,
   'macOS checks out the upstream source repository' );
 like( $macos_checkout->{with}{ref} // '', qr/workflow_run\.head_sha/,
-  'macOS checks out the exact Linux-tested commit' );
+  'post-unit macOS runs check out the exact Linux-tested commit' );
+like( $macos_checkout->{with}{ref} // '', qr/github\.sha/,
+  'reusable macOS PR runs check out the same revision as Linux' );
 ok( !$macos_checkout->{with}{'persist-credentials'},
   'macOS checkout does not persist credentials from workflow_run' );
 my $macos_arch = find_macos_step( \@macos_steps, 'Verify Apple Silicon runner' );
@@ -204,15 +221,15 @@ t/227-skills-md-ci-triggers.t - enforce Linux, coverage and macOS CI workflows
 =head1 PURPOSE
 
 Protect the existing Linux unit-test and four-metric coverage contract.
-The macOS arm64 suite starts only after the Linux Unit Tests workflow completes
-successfully, and checks out that exact tested revision.
+The macOS arm64 suite runs on PRs only after the Linux unit-test job passes.
+On master, a separate run begins once the Linux workflow completes successfully.
 
 =head1 WHY IT EXISTS
 
 The active design permits exactly three workflows: Linux unit tests, coverage
-and macOS arm64 tests. Both downstream workflows depend on Linux Unit Tests
-success. Neither downstream workflow runs in parallel with the upstream
-workflow, and coverage is not made dependent on macOS test results.
+and macOS arm64 tests. PRs validate macOS through a job dependent on Linux;
+master pushes start macOS and coverage independently after Linux succeeds.
+No macOS test starts before the Linux unit-test job completes successfully.
 
 =head1 WHEN TO USE
 
