@@ -13,6 +13,11 @@ use JSON::XS qw(decode_json);
 use Developer::Dashboard::Runtime::Result;
 use Test::More;
 
+# These dependency fixtures deliberately exercise Debian package installation.
+# Set the simulated host explicitly so macOS does not select Homebrew instead.
+local $ENV{DD_TEST_OS} = 'linux';
+local $ENV{DD_TEST_DEBIAN_LIKE} = 1;
+
 use lib 'lib';
 use Developer::Dashboard::Config;
 use Developer::Dashboard::EnvAudit;

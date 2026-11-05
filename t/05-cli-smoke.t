@@ -2018,6 +2018,8 @@ close $failing_skill_apt_fh;
 }
 my ( $failed_skill_stdout, $failed_skill_stderr, $failed_skill_exit ) = capture {
     local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
+    local $ENV{DD_TEST_OS} = 'linux';
+    local $ENV{DD_TEST_DEBIAN_LIKE} = 1;
     system 'sh', '-c', "PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install 'file://$failing_skill_repo'";
 };
 is( $failed_skill_exit >> 8, 1, 'dashboard skills install exits non-zero when aptfile installation fails' );

@@ -116,16 +116,23 @@ like( $workspace_help_out, qr/Compose service named workspace/,
 is( $workspace_help_err, '', 'd2 workspace --help emits no parser errors' );
 
 my ( $grep_help_out, $grep_help_err, $grep_help_exit ) = run_cli( 'of', 'grep', '--help' );
-is( $grep_help_exit, 0, 'delegated grep --help exits with grep success status' );
-like( $grep_help_out, qr/^Usage: grep/m, 'delegated grep --help prints the system grep usage' );
-is( $grep_help_err, '', 'delegated grep --help does not emit dashboard routing errors' );
+my $bsd_grep = $^O eq 'darwin' ? 1 : 0;
+is( $grep_help_exit, $bsd_grep ? 2 : 0, 'delegated grep --help returns the native status' );
+like( $bsd_grep ? $grep_help_err : $grep_help_out, qr/^[Uu]sage: grep/m,
+    'delegated grep --help prints the system grep usage' );
+is( $bsd_grep ? $grep_help_out : $grep_help_err, '',
+    'delegated grep --help does not emit dashboard routing errors' );
 
 my ( $grep_after_options_out, $grep_after_options_err, $grep_after_options_exit ) =
   run_cli( 'of', '--print', 'grep', '--help' );
-is( $grep_after_options_exit, 0, 'grep help following an internal open-file option reaches grep' );
-like( $grep_after_options_out, qr/^Usage: grep/m, 'grep help following --print renders native grep help' );
-unlike( $grep_after_options_out, qr/^Usage: dashboard of/m, 'grep help following --print is not intercepted as dashboard help' );
-is( $grep_after_options_err, '', 'grep help following --print emits no dashboard parser error' );
+is( $grep_after_options_exit, $bsd_grep ? 2 : 0,
+    'grep help following an internal open-file option reaches grep' );
+like( $bsd_grep ? $grep_after_options_err : $grep_after_options_out, qr/^[Uu]sage: grep/m,
+    'grep help following --print renders native grep help' );
+unlike( $grep_after_options_out . $grep_after_options_err, qr/^Usage: dashboard of/m,
+    'grep help following --print is not intercepted as dashboard help' );
+is( $bsd_grep ? $grep_after_options_out : $grep_after_options_err, '',
+    'grep help following --print emits no dashboard parser error' );
 
 my $skill_cli_dir = File::Spec->catdir( $home, '.d2', 'skills', 'tira', 'cli' );
 make_path($skill_cli_dir);
