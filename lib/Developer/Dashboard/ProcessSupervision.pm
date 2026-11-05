@@ -205,7 +205,8 @@ sub _open_file_descriptors {
 sub _descriptor_is_inherited_pipe {
     my ( $self, $fd, %args ) = @_;
     return 0 if !defined $fd || $fd !~ /^\d+$/;
-    open my $handle, '<&', $fd or open( $handle, '>&', $fd ) or return 0;
+    my $handle;
+    open( $handle, '<&', $fd ) or open( $handle, '>&', $fd ) or return 0;
     my $pipe   = -p $handle ? 1 : 0;
     my $socket = -S $handle ? 1 : 0;
     close $handle;
