@@ -295,13 +295,17 @@ sub _powershell_single_quote {
     return "'$value'";
 }
 
+# Default procfs root; tests may use a private fixture directory so process
+# metadata parsing is exercised on systems without Linux procfs.
+our $PROCFS_ROOT = '/proc';
+
 # _read_process_env_marker($pid, $key)
 # Reads a specific environment variable from a running process when possible.
 # Input: process id integer and env key string.
 # Output: env value string or undef.
 sub _read_process_env_marker {
     my ( $self, $pid, $key ) = @_;
-    my $proc = "/proc/$pid/environ";
+    my $proc = "$PROCFS_ROOT/$pid/environ";
     return if !-r $proc;
     open my $fh, '<', $proc or return;
     local $/;
@@ -320,7 +324,7 @@ sub _read_process_env_marker {
 # Output: namespace identity string or undef.
 sub _pid_namespace_id {
     my ( $self, $pid ) = @_;
-    my $path = "/proc/$pid/ns/pid";
+    my $path = "$PROCFS_ROOT/$pid/ns/pid";
     return if !-l $path;
     return readlink $path;
 }
