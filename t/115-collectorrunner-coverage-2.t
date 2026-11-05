@@ -502,6 +502,17 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
         '_find_running_loop filters empty command lines, titles and namespaces portably' );
     is( $runner->_find_running_loop(''), undef,
         '_find_running_loop rejects an empty collector name' );
+    {
+        local *Developer::Dashboard::CollectorRunner::_read_process_title = sub { return undef };
+        is( $runner->_find_running_loop('fixture'), undef,
+            '_find_running_loop rejects candidates whose process title is unavailable' );
+    }
+    {
+        local *Developer::Dashboard::CollectorRunner::_same_pid_namespace = sub { return 0 };
+        is( $runner->_find_running_loop('fixture'), undef,
+            '_find_running_loop returns undef after exhausting foreign-namespace candidates' );
+    }
+
 }
 
 # A missing pidfile and no discoverable supervisor must return cleanly.
@@ -513,6 +524,26 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
     local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return undef };
     is( $runner->stop_loop('absent-loop'), undef,
         'stop_loop returns undef when neither pidfile nor process table finds a loop' );
+}
+
+# Missing pidfile, but a process-table lookup found an already reaped pid:
+# finish persisted state cleanup without signalling a synthetic process.
+{
+    no warnings 'redefine';
+    my $pid = 424242;
+    my $cleaned = 0;
+    local *Developer::Dashboard::CollectorRunner::_pidfile = sub {
+        return File::Spec->catfile( $home, 'absent-supervisor-found.pid' );
+    };
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return $pid };
+    local *Developer::Dashboard::CollectorRunner::_state_active_worker_pids = sub { return () };
+    local *Developer::Dashboard::CollectorRunner::_reap_child_process = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_same_pid_namespace = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_cleanup_loop_files = sub { $cleaned++; return 1 };
+    local *Developer::Dashboard::Collector::mark_stopped = sub { return 1 };
+    is( $runner->stop_loop('already-reaped-fixture'), $pid,
+        'stop_loop accepts a discovered pid and handles a reaped supervisor safely' );
+    is( $cleaned, 1, 'discovered, reaped supervisor state is cleaned exactly once' );
 }
 
 done_testing;
