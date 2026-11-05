@@ -203,6 +203,42 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
     }
 }
 
+# Read procfs metadata from a private directory so macOS and Windows also
+# execute the real parser instead of skipping Linux-only /proc entries.
+{
+    require File::Path;
+    my $root = File::Spec->catdir( $dir, 'portable-proc' );
+    my $pid = 61234;
+    my $pid_dir = File::Spec->catdir( $root, $pid );
+    File::Path::make_path($pid_dir);
+    my $environ = File::Spec->catfile( $pid_dir, 'environ' );
+    open my $fh, '>:raw', $environ or die "Unable to create $environ: $!";
+    print {$fh} "NOT_AN_ENV_ENTRY\0DD_MARK=fixture\0";
+    close $fh or die "Unable to close $environ: $!";
+    local $Developer::Dashboard::ProcessSupervision::PROCFS_ROOT = $root;
+    is( $self->_read_process_env_marker( $pid, 'DD_MARK' ), 'fixture',
+        '_read_process_env_marker parses real binary NUL-delimited fixture data' );
+    is( $self->_read_process_env_marker( $pid, 'ABSENT' ), undef,
+        '_read_process_env_marker returns undef for a missing key in readable procfs data' );
+    is( $self->_read_process_env_marker( $pid + 1, 'DD_MARK' ), undef,
+        '_read_process_env_marker handles a missing procfs entry on every platform' );
+    {
+        local $OPEN_FAIL{$environ} = 1;
+        is( $self->_read_process_env_marker( $pid, 'DD_MARK' ), undef,
+            '_read_process_env_marker handles a denied open after the readable-file check' );
+    }
+    my $ns_dir = File::Spec->catdir( $pid_dir, 'ns' );
+    File::Path::make_path($ns_dir);
+    my $namespace = File::Spec->catfile( $ns_dir, 'pid' );
+    is( $self->_pid_namespace_id($pid), undef,
+        '_pid_namespace_id ignores a missing namespace link' );
+    SKIP: {
+        skip 'symlinks unavailable on this host', 1 if !symlink( 'pid:[fixture]', $namespace );
+        is( $self->_pid_namespace_id($pid), 'pid:[fixture]',
+            '_pid_namespace_id reads a valid procfs namespace link' );
+    }
+}
+
 # Helper file support: a read handle whose close reports failure.
 {
     my $helper = File::Spec->catfile( $dir, 'helper.pl' );
