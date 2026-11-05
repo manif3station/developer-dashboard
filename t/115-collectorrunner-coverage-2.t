@@ -471,6 +471,39 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
     );
 }
 
+# Enumerate real temporary directory entries instead of Linux /proc. The
+# reader and identity lookups are stubbed, but enumeration and filtering run
+# through the real method on every platform.
+{
+    require File::Path;
+    my $root = File::Spec->catdir( $home, 'fake-collector-proc' );
+    my $self_pid = $;
+    my @pids = map { $self_pid + $_ } ( 10000, 10001, 10002, 10003 );
+    File::Path::make_path( $root, map { File::Spec->catdir( $root, $_ ) } ( $, @pids ) );
+    no warnings 'redefine';
+    local $Developer::Dashboard::CollectorRunner::PROCFS_ROOT = $root;
+    local *Developer::Dashboard::CollectorRunner::_process_title = sub { 'collector-fixture' };
+    local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub {
+        my ( undef, $path ) = @_;
+        return '' if $path =~ m{/\\Q$pids[0]\\E/cmdline\\z};
+        return 'command line' if $path =~ m{/\\Q$pids[1]\\E/cmdline\\z};
+        return undef;
+    };
+    local *Developer::Dashboard::CollectorRunner::_read_process_title = sub {
+        my ( undef, $pid ) = @_;
+        return 'other-title' if $pid == $pids[1];
+        return 'collector-fixture';
+    };
+    local *Developer::Dashboard::CollectorRunner::_same_pid_namespace = sub {
+        my ( undef, $pid ) = @_;
+        return $pid == $pids[3] ? 1 : 0;
+    };
+    is( $runner->_find_running_loop('fixture'), $pids[3],
+        '_find_running_loop filters empty command lines, titles and namespaces portably' );
+    is( $runner->_find_running_loop(''), undef,
+        '_find_running_loop rejects an empty collector name' );
+}
+
 done_testing;
 
 __END__
