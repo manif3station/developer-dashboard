@@ -3294,7 +3294,11 @@ TCP6
         ok( scalar $manager->_process_fd_paths, '_process_fd_paths returns proc fd entries on Linux hosts' );
     }
     else {
-        pass('_process_fd_paths is skipped on hosts without /proc');
+        is_deeply(
+            [ $manager->_process_fd_paths ],
+            [],
+            '_process_fd_paths returns no proc fd entries when procfs is absent',
+        );
     }
 }
 
