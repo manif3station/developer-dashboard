@@ -87,9 +87,17 @@ jobs:
           "$compilerBin" >> $env:GITHUB_PATH
           perl -e 'die "Perl 5.38 or newer required\n" if $] < 5.038; print "Perl $^V ready\n"'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not (Get-Command cpanm -ErrorAction SilentlyContinue)) {
+          # Do not trust a cpanm command from another Perl installation.
+          $cpanm = Get-Command cpanm -ErrorAction SilentlyContinue
+          if (-not $cpanm -or -not $cpanm.Source.StartsWith(
+              "$siteBin", [StringComparison]::OrdinalIgnoreCase)) {
             cpan App::cpanminus
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          $cpanm = Get-Command cpanm -ErrorAction SilentlyContinue
+          if (-not $cpanm -or -not $cpanm.Source.StartsWith(
+              "$siteBin", [StringComparison]::OrdinalIgnoreCase)) {
+            throw "cpanm is not from pinned Strawberry Perl: $($cpanm.Source)"
           }
 
       - name: Set up Node for test suite

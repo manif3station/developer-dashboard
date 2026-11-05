@@ -21,7 +21,7 @@ is_deeply(
   \@files,
   ['macos-arm64-unit-tests.yml', 'test-coverage.yml', 'unit-tests.yml',
    'windows-amd64-unit-tests.yml'],
-  'the Linux, coverage and macOS arm64 test workflows are active'
+  'the Linux, coverage, macOS arm64 and Windows amd64 workflows are active'
 );
 
 my $path = File::Spec->catfile( $dir, 'unit-tests.yml' );
@@ -287,6 +287,8 @@ my ($bootstrap_step) = grep { ($_->{name} // '') eq 'Install pinned Strawberry P
   @windows_steps;
 like( $bootstrap_step->{run} // '', qr/Get-FileHash.*SHA256/s,
   'Windows verifies its pinned Strawberry Perl archive' );
+like( $bootstrap_step->{run} // '', qr/cpanm\.Source\.StartsWith/,
+  'Windows verifies cpanm belongs to pinned Strawberry Perl' );
 my ($expected_sha) = ($bootstrap_step->{run} // '') =~
   /\$expectedSha256 = '([0-9a-f]+)'/;
 is( length($expected_sha // ''), 64,
