@@ -105,6 +105,8 @@ is_deeply( $coverage_events->{workflow_run}{workflows}, ['Unit Tests'],
   'coverage runs only after the named unit-test workflow' );
 is_deeply( $coverage_events->{workflow_run}{types}, ['completed'],
   'coverage only reacts to completed upstream runs' );
+is_deeply( $coverage_events->{workflow_run}{branches}, ['master'],
+  'standalone post-unit coverage runs only follow master' );
 is_deeply( [ sort keys %{ $coverage->{jobs} || {} } ], ['coverage'],
   'coverage defines one dedicated job' );
 my $coverage_job = $coverage->{jobs}{coverage};

@@ -97,7 +97,8 @@ jobs:
           $cpanm = Get-Command cpanm -ErrorAction SilentlyContinue
           if (-not $cpanm -or -not $cpanm.Source.StartsWith(
               "$siteBin", [StringComparison]::OrdinalIgnoreCase)) {
-            throw "cpanm is not from pinned Strawberry Perl: $($cpanm.Source)"
+            $cpanmPath = if ($cpanm) { $cpanm.Source } else { '(not found)' }
+            throw "cpanm is not from pinned Strawberry Perl: $cpanmPath"
           }
 
       - name: Set up Node for test suite
