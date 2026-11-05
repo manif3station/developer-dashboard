@@ -1094,6 +1094,13 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
     is( $paths->_display_path($priv),
         $^O eq 'darwin' ? '/tmp/dd-nonexistent-alias-xyz' : $priv,
         'the /private alias is resolved according to the host filesystem' );
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::PathRegistry::_path_identity = sub { return $_[1] };
+        is( $paths->_display_path($priv), $priv,
+            '_display_path preserves an alias when canonical identities differ' );
+    }
 }
 
 # --------------------------------------------------------------------------
