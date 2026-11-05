@@ -186,7 +186,7 @@ sub _open_file_descriptors {
     my ($self) = @_;
     my %seen;
     my @fds;
-    for my $path ( $self->_fd_candidate_paths ) {
+    for my $path ( Developer::Dashboard::ProcessSupervision::_fd_candidate_paths($self) ) {
         my ($fd) = $path =~ m{(\d+)\z};
         $fd += 0;
         next if $seen{$fd}++;
