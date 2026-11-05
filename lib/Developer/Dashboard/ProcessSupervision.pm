@@ -201,6 +201,7 @@ sub _open_file_descriptors {
 # Input: none.
 # Output: list of descriptor-path strings.
 sub _fd_candidate_paths {
+    my ($self) = @_;
     return ( glob('/proc/self/fd/*'), glob('/dev/fd/*') );
 }
 
