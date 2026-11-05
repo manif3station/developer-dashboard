@@ -64,13 +64,13 @@ jobs:
           # Do not trust a cpanm command from another Perl installation.
           $cpanm = Get-Command cpanm -ErrorAction SilentlyContinue
           if (-not $cpanm -or -not $cpanm.Source.StartsWith(
-              "$root\\", [StringComparison]::OrdinalIgnoreCase)) {
+              "$root\", [StringComparison]::OrdinalIgnoreCase)) {
             cpan App::cpanminus
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           $cpanm = Get-Command cpanm -ErrorAction SilentlyContinue
           if (-not $cpanm -or -not $cpanm.Source.StartsWith(
-              "$root\\", [StringComparison]::OrdinalIgnoreCase)) {
+              "$root\", [StringComparison]::OrdinalIgnoreCase)) {
             $cpanmPath = if ($cpanm) { $cpanm.Source } else { '(not found)' }
             throw "cpanm is not from pinned Strawberry Perl: $cpanmPath"
           }
