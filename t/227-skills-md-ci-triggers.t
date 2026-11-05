@@ -153,6 +153,9 @@ like( $macos_job->{if} // '', qr/workflow_run\.head_repository\.full_name\s*==\s
   'post-unit macOS run never executes code from forked repositories' );
 like( $macos_job->{if} // '', qr/github\.event_name\s*!=\s*'workflow_run'/,
   'reusable macOS PR runs are permitted by the job gate' );
+like( $macos_job->{if} // '',
+  qr/github\.repository\s*==\s*'manif3station\/developer-dashboard'/,
+  'macOS rejects fork repositories even for reusable calls' );
 is( $macos_job->{'runs-on'}, 'macos-15',
   'macOS selects the hosted Apple Silicon runner' );
 

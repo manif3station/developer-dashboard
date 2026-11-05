@@ -205,7 +205,7 @@ sub _open_file_descriptors {
 sub _descriptor_is_inherited_pipe {
     my ( $self, $fd, %args ) = @_;
     return 0 if !defined $fd || $fd !~ /^\d+$/;
-    open my $handle, '<&', $fd or return 0;
+    open my $handle, '<&', $fd or open( $handle, '>&', $fd ) or return 0;
     my $pipe   = -p $handle ? 1 : 0;
     my $socket = -S $handle ? 1 : 0;
     close $handle;
@@ -220,7 +220,8 @@ sub _descriptor_is_inherited_pipe {
 # Keep their procfs identity check while using portable fstat for other FDs.
 sub _fd_link_target {
     my ($fd) = @_;
-    return readlink("/proc/self/fd/$fd");
+    my $target = readlink("/proc/self/fd/$fd");
+    return defined $target ? $target : readlink("/dev/fd/$fd");
 }
 
 # _current_perl_command()
