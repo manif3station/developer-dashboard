@@ -16,6 +16,9 @@ use JSON::XS qw(decode_json encode_json);
 # package variable so a test can point it somewhere absent and exercise the
 # /proc/self/fd fallback.
 our $DEV_FD_DIR = '/dev/fd';
+# Darwin's /dev/fd proxy may share an inherited offset between Perl execs.
+# Keep a mode-0600 named tempfile readable to each child independently there.
+our $CHANNEL_USE_NAMED_PATH = $^O eq 'darwin';
 
 my %CHANNEL_FILE_HANDLE;
 my %CHANNEL_FILE_PATH;
@@ -246,7 +249,7 @@ sub _max_inline_bytes {
 # Opens one inherited file descriptor that child hook/command exec() calls can
 # read through RESULT_FILE without inflating the process environment.
 # Input: none.
-# Output: filehandle and portable fd-backed path string.
+# Output: filehandle and portable readable channel path string.
 sub _open_channel_file {
     my ( $fh, $path ) = tempfile( 'dashboard-result-XXXXXX', TMPDIR => 1, UNLINK => 1 );
     binmode $fh, ':raw';
@@ -265,7 +268,9 @@ sub _open_channel_file {
       or die "Unable to clear close-on-exec for RESULT file descriptor: $!";
 
     my $fd = fileno($fh);
-    my $fd_path = -e "$DEV_FD_DIR/$fd" ? "$DEV_FD_DIR/$fd" : "/proc/self/fd/$fd";
+    my $fd_path = $CHANNEL_USE_NAMED_PATH
+      ? $path
+      : ( -e "$DEV_FD_DIR/$fd" ? "$DEV_FD_DIR/$fd" : "/proc/self/fd/$fd" );
     return ( $fh, $fd_path );
 }
 

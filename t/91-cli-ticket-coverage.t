@@ -418,6 +418,7 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
 
 # --- tmux_command -----------------------------------------------------------
 
+diag 'tmux fixture: entering socket directory assertions';
 {
     local $ENV{TMUX_TMPDIR};
     delete $ENV{TMUX_TMPDIR};
@@ -518,12 +519,14 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
     );
 }
 
+diag 'tmux fixture: completed socket directory assertions';
 {
     # The test simulates tmux with a private socket directory. Darwin has
     # no /dev/shm fallback when the default /tmp probe reports unwritable.
     local $ENV{TMUX_TMPDIR} = $home;
     like( error_from( sub { tmux_command( args => 'nope' ) } ), qr/tmux args must be an array reference/, 'tmux_command rejects a non-array argv container' );
 
+    diag 'tmux fixture: calling fake tmux';
     local $ENV{PATH} = $fake_bin;
     my $bare = tmux_command();
     is( $bare->{exit_code}, 0,  'tmux_command runs tmux with no arguments when none are supplied' );
