@@ -821,6 +821,8 @@ PL
             diag sprintf 'oversized hook %s: exit=%s stderr_bytes=%d stdout_bytes=%d',
               $key, ( $hook->{exit_code} // 'undef' ),
               length( $hook->{stderr} // '' ), length( $hook->{stdout} // '' );
+            diag 'oversized hook stderr: ' . substr( $hook->{stderr} // '', 0, 350 )
+              if length( $hook->{stderr} // '' ) < 1000;
         }
     }
     ok( $oversized_payload->{result_file}, 'skill command sees RESULT_FILE when hook RESULT exceeds the inline limit' );
