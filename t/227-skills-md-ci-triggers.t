@@ -55,8 +55,12 @@ like( $build->{run} // '', qr/perl Makefile\.PL.*\bmake\b/s,
 my ($unit) = grep { ($_->{name} // '') eq 'Run all unit tests (10 parallel workers)' } @steps;
 like( $unit->{run} // '', qr/\bprove -j 10\b.*-Iblib\/arch -Iblib\/lib -lr t\b/s,
   'the entire t/ suite runs with prove -j 10 and built XS paths' );
+like( $unit->{run} // '', qr/--rules='seq=t\/05-cli-smoke\.t'/,
+  'the CLI smoke test runs outside concurrent test workers' );
 like( $unit->{run} // '', qr/--rules='seq=t\/09-runtime-manager\.t'/,
   'the server lifecycle test runs outside concurrent test workers' );
+like( $unit->{run} // '', qr/--rules='seq=t\/15-release-metadata\.t'/,
+  'the release metadata test runs outside concurrent test workers' );
 like( $unit->{run} // '', qr/--rules='par=\*\*'/,
   'the rest of the suite retains ten-way parallel scheduling' );
 like( $unit->{run} // '', qr/PERL5LIB=.*blib\/arch.*blib\/lib.*\$local_lib/s,
@@ -113,39 +117,81 @@ my $macos = YAML::XS::LoadFile($macos_path);
 my ($macos_events) = grep { ref $_ eq 'HASH' }
   map { $macos->{$_} } grep { /\A(?:on|true|1)\z/ } keys %$macos;
 ok( ref($macos_events) eq 'HASH', 'macOS workflow has GitHub Actions triggers' );
-is_deeply( $macos_events->{push}{branches}, ['master'],
-  'macOS workflow runs on master pushes' );
-ok( exists $macos_events->{pull_request}, 'macOS runs on pull requests' );
-ok( exists $macos_events->{workflow_dispatch}, 'macOS permits manual runs' );
-is( $macos->{permissions}{contents}, 'read', 'macOS permissions are read-only' );
+my $macos_trigger = ref($macos_events) eq 'HASH' ? $macos_events : {};
+is_deeply( [ sort keys %$macos_trigger ], ['workflow_run'],
+  'macOS only starts from an upstream workflow completion' );
+my $macos_run = ref($macos_trigger->{workflow_run}) eq 'HASH'
+  ? $macos_trigger->{workflow_run} : {};
+is_deeply( $macos_run->{workflows}, ['Unit Tests'],
+  'macOS waits for the existing Linux Unit Tests workflow' );
+is_deeply( $macos_run->{types}, ['completed'],
+  'macOS only triggers after the Linux workflow completes' );
+is( $macos->{permissions}{contents}, 'read',
+  'macOS does not need write permissions on upstream completion' );
 is_deeply( [ sort keys %{ $macos->{jobs} || {} } ], ['macos-arm64'],
-  'macOS workflow has a dedicated arm64 job' );
-my $macos_job = $macos->{jobs}{'macos-arm64'};
+  'macOS workflow has one dedicated arm64 job' );
+my $macos_job = $macos->{jobs}{'macos-arm64'} || {};
+like( $macos_job->{if} // '',
+  qr/workflow_run\.conclusion\s*==\s*'success'/,
+  'macOS suite is skipped unless Linux unit tests pass' );
 is( $macos_job->{'runs-on'}, 'macos-15',
   'macOS selects the hosted Apple Silicon runner' );
+
 my @macos_steps = @{ $macos_job->{steps} || [] };
-my ($macos_arch) = grep { ($_->{name} // '') eq 'Verify Apple Silicon runner' } @macos_steps;
+my $step_budget = 0;
+$step_budget += ($_->{'timeout-minutes'} // 0) for @macos_steps;
+cmp_ok( $macos_job->{'timeout-minutes'} // 0, '>=', $step_budget,
+  'macOS overall timeout accommodates all individual step timeouts' );
+
+# Return an empty hash after a missing-step assertion, so broken YAML produces
+# a useful TAP failure instead of a fatal undef dereference.
+sub find_macos_step {
+  my ( $steps, $name ) = @_;
+  my ($step) = grep { ref($_) eq 'HASH' && ($_->{name} // '') eq $name }
+    @$steps;
+  ok( defined $step, "macOS step $name is present" );
+  return $step || {};
+}
+
+my $macos_checkout = find_macos_step( \@macos_steps, 'Checkout' );
+like( $macos_checkout->{uses} // '', qr{\Aactions/checkout\@[0-9a-f]{40}\z},
+  'macOS checkout action is pinned by SHA' );
+like( $macos_checkout->{with}{repository} // '', qr/workflow_run\.head_repository\.full_name/,
+  'macOS checks out the upstream source repository' );
+like( $macos_checkout->{with}{ref} // '', qr/workflow_run\.head_sha/,
+  'macOS checks out the exact Linux-tested commit' );
+ok( !$macos_checkout->{with}{'persist-credentials'},
+  'macOS checkout does not persist credentials from workflow_run' );
+my $macos_arch = find_macos_step( \@macos_steps, 'Verify Apple Silicon runner' );
 like( $macos_arch->{run} // '', qr/uname -m.*arm64/s,
   'macOS runner is checked for arm64 architecture' );
-my ($macos_perl) = grep { ($_->{name} // '') eq 'Set up Perl' } @macos_steps;
+my $macos_perl = find_macos_step( \@macos_steps, 'Set up Perl' );
 is( $macos_perl->{with}{'perl-version'}, '5.44',
   'macOS matches the supported Linux Perl version' );
 ok( $macos_perl->{with}{'multi-thread'},
   'macOS Perl has threads for native XS' );
-my ($macos_deps) = grep { ($_->{name} // '') eq 'Install Perl dependencies' } @macos_steps;
+my $macos_deps = find_macos_step( \@macos_steps, 'Install Perl dependencies' );
 like( $macos_deps->{run} // '', qr/cpanm --installdeps --notest -L local \./,
   'macOS installs the full local Perl dependency set' );
-my ($macos_build) = grep { ($_->{name} // '') eq 'Build native XS extension' } @macos_steps;
+my $macos_build = find_macos_step( \@macos_steps, 'Build native XS extension' );
 like( $macos_build->{run} // '', qr/perl Makefile\.PL.*\bmake\b/s,
   'macOS builds the XS extension before running tests' );
-my ($macos_test) = grep {
-  ($_->{name} // '') eq 'Run all unit tests (10 parallel workers)'
-} @macos_steps;
+my $macos_test =
+  find_macos_step( \@macos_steps, 'Run all unit tests (10 parallel workers)' );
 like( $macos_test->{run} // '',
   qr/\bprove -j 10\b.*-Iblib\/arch -Iblib\/lib -lr t\b/s,
   'macOS runs the full suite with ten parallel TAP workers' );
+like( $macos_test->{run} // '', qr/--rules='seq=t\/05-cli-smoke\.t'/,
+  'macOS preserves serial execution for the CLI smoke test' );
 like( $macos_test->{run} // '', qr/--rules='seq=t\/09-runtime-manager\.t'/,
   'macOS preserves serial execution for the server lifecycle test' );
+like( $macos_test->{run} // '', qr/--rules='seq=t\/15-release-metadata\.t'/,
+  'macOS preserves serial execution for the release metadata test' );
+like( $macos_test->{run} // '', qr/--rules='par=\*\*'/,
+  'macOS retains parallel scheduling for the remaining tests' );
+like( $macos_test->{run} // '',
+  qr/PERL5LIB=.*blib\/arch.*blib\/lib.*\$local_lib/s,
+  'macOS test subprocesses see the XS build and local dependencies' );
 
 done_testing();
 
@@ -157,16 +203,16 @@ t/227-skills-md-ci-triggers.t - enforce Linux, coverage and macOS CI workflows
 
 =head1 PURPOSE
 
-Protect the Linux unit-test and dependent four-metric coverage contract, while
-also requiring a separate full suite on a macOS arm64 runner. Coverage only
-starts after the named Linux unit-test workflow succeeds.
+Protect the existing Linux unit-test and four-metric coverage contract.
+The macOS arm64 suite starts only after the Linux Unit Tests workflow completes
+successfully, and checks out that exact tested revision.
 
 =head1 WHY IT EXISTS
 
-The repository's former publishing and broad cross-platform workflows were
-removed. The active design permits three test workflows: Linux unit tests,
-coverage gated by Linux unit-test success, and a dedicated macOS arm64 suite.
-This protects against detached coverage and unintended publishing workflows.
+The active design permits exactly three workflows: Linux unit tests, coverage
+and macOS arm64 tests. Both downstream workflows depend on Linux Unit Tests
+success. Neither downstream workflow runs in parallel with the upstream
+workflow, and coverage is not made dependent on macOS test results.
 
 =head1 WHEN TO USE
 
@@ -182,7 +228,8 @@ install the declared Perl dependencies and run the test with C<prove>.
 The test reads the workflows from the repository rather than invoking remote
 GitHub APIs or running nested CI jobs. It parses all three YAML files and
 checks triggers, permissions, revision selection and job commands, including
-macOS arm64 selection, ten-worker parallelism and XS library paths.
+upstream workflow ordering, macOS arm64 selection, ten-worker parallelism
+and XS library paths.
 
 =head1 WHAT USES IT
 
