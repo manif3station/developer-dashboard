@@ -387,7 +387,11 @@ is( $runner->_state_confirms_managed_loop( 'confirm.nostatus', $$ ), 1, '_state_
 # _read_process_env_marker / _read_process_title / _read_process_state.
 # ===========================================================================
 is( $runner->_read_process_env_marker( 999999999, 'ANY' ), undef, '_read_process_env_marker returns undef for an unreadable environ' );
-ok( defined $runner->_read_process_env_marker( $$, 'PATH' ), '_read_process_env_marker reads a present env marker for the current process' );
+SKIP: {
+    skip 'procfs environment unavailable', 1 if !-r "/proc/$/environ";
+    ok( defined $runner->_read_process_env_marker( $, 'PATH' ),
+        '_read_process_env_marker reads a present env marker for the current process' );
+}
 
 # A child that clears %ENV before exec has a genuinely empty (zero-length)
 # environ, which reads back as a defined empty string and drives the
@@ -406,6 +410,7 @@ ok( defined $runner->_read_process_env_marker( $$, 'PATH' ), '_read_process_env_
 # environment in this very child process removes the intermediate process entirely, and
 # the environ assertion below turns the precondition into a real one.
 SKIP: {
+    skip 'empty environment probe requires procfs', 2 if !-r "/proc/$/environ";
     my ($sleep_bin) = grep { -x } qw(/bin/sleep /usr/bin/sleep);
     skip 'no sleep binary available to hold an empty environment open', 2 if !defined $sleep_bin;
     my $probe_title = 'dd-empty-environ-probe';
