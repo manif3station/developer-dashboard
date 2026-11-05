@@ -53,6 +53,15 @@ like( $@, qr/\Q$missing_path\E/, 'CollectorRunner.pm-shaped call: text mode, die
 # CLI/Ask.pm contract: raw + custom message + never returns undef
 is( slurp_file( $text_path, raw => 1 ), "hello\n", 'CLI/Ask.pm-shaped call: raw mode on an existing file' );
 
+# The platform's null device always opens but yields EOF immediately. This
+# exercises the undef-read normalization on macOS and Windows as well as Linux,
+# without depending on Linux-only /proc/self/mem.
+my $devnull = File::Spec->devnull;
+is( slurp_file( $devnull, raw => 1 ), undef,
+    'a successfully opened, empty device returns undef without normalization' );
+is( slurp_file( $devnull, raw => 1, normalize_undef => 1 ), '',
+    'normalize_undef converts an undef read to an empty string on every platform' );
+
 # normalize_undef: an I/O error on an already-open handle (not a missing file)
 # yields undef from <$fh>. Reproduced hermetically the same way as
 # t/89-collector-coverage.t's "unreadable artifact" case: symlink to
