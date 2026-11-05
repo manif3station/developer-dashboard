@@ -36,3 +36,42 @@ use Developer::Dashboard::File ();
 }
 
 done_testing;
+
+__END__
+
+=head1 NAME
+
+t/807-file-write-close-coverage.t - file write close error
+
+=head1 PURPOSE
+
+Exercise the failed output-handle close error path for C<File::write>.
+
+=head1 WHY IT EXISTS
+
+Uses a private child pipe that exits nonzero to cover the otherwise rare file write close failure. The strict cross-platform coverage gate requires that this
+failure be observed instead of assuming that a successful open guarantees
+a successful close.
+
+=head1 WHEN TO USE
+
+Run this regression when changing the command or file persistence path
+or its error-handling behavior.
+
+=head1 HOW TO USE
+
+  prove -lv t/807-file-write-close-coverage.t
+
+Run under the repository coverage gate for all-metric verification.
+
+=head1 WHAT USES IT
+
+The developer test suite and the CI coverage gate.
+
+=head1 EXAMPLES
+
+  prove -lv t/807-file-write-close-coverage.t
+
+Execute the failure-injection regression without touching real application files.
+
+=cut
