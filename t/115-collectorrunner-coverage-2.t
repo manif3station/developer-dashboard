@@ -504,6 +504,17 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
         '_find_running_loop rejects an empty collector name' );
 }
 
+# A missing pidfile and no discoverable supervisor must return cleanly.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_pidfile = sub {
+        return File::Spec->catfile( $home, 'absent-supervisor.pid' );
+    };
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return undef };
+    is( $runner->stop_loop('absent-loop'), undef,
+        'stop_loop returns undef when neither pidfile nor process table finds a loop' );
+}
+
 done_testing;
 
 __END__
