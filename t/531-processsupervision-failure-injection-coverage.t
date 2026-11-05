@@ -5,7 +5,7 @@ use warnings;
 
 # BEGIN-time CORE::GLOBAL::open override: it fails or redirects only for exact
 # registered paths, so these branches run the same for root and non-root users.
-our ( %OPEN_FAIL, %OPEN_REDIRECT, %READ_DUP_FAIL, $FORCE_DEV_FD_LINK );
+our ( %OPEN_FAIL, %OPEN_REDIRECT, %READ_DUP_FAIL, $FORCE_DEV_FD_LINK, $FORCE_EMPTY_READ );
 
 BEGIN {
     *CORE::GLOBAL::open = sub (*;$@) {
@@ -28,6 +28,11 @@ BEGIN {
         }
         return CORE::open( $_[0], $_[1] ) if @_ == 2;
         return CORE::open( $_[0], $_[1], @_[ 2 .. $#_ ] );
+    };
+
+    *CORE::GLOBAL::readline = sub (*) {
+        return '' if $FORCE_EMPTY_READ;
+        return CORE::readline( $_[0] );
     };
 
     *CORE::GLOBAL::readlink = sub (_) {
@@ -318,6 +323,11 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
     local $Developer::Dashboard::ProcessSupervision::PROCFS_ROOT = $root;
     is( $self->_read_process_env_marker(61005, 'DD_MARK'), undef,
         'empty readable procfs environ file contains no marker' );
+    {
+        local $FORCE_EMPTY_READ = 1;
+        is( $self->_read_process_env_marker(61005, 'DD_MARK'), undef,
+            'defined but empty procfs environ payload has no marker' );
+    }
 }
 
 # A Windows SystemRoot value must be honoured before probing the PowerShell
@@ -329,6 +339,12 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
     local $ENV{SystemRoot} = File::Spec->catdir( $dir, 'nonexistent-winroot' );
     is( Developer::Dashboard::ProcessSupervision::_powershell_command(), '',
         'PowerShell fallback honours an explicit SystemRoot when executable is absent' );
+    {
+        local %ENV = %ENV;
+        delete $ENV{SystemRoot};
+        is( Developer::Dashboard::ProcessSupervision::_powershell_command(), '',
+            'PowerShell fallback chooses default Windows root without SystemRoot' );
+    }
 }
 
 # Helper file support: a read handle whose close reports failure.
