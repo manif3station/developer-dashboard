@@ -200,6 +200,9 @@ is( $macos_perl->{with}{'perl-version'}, '5.44',
   'macOS matches the supported Linux Perl version' );
 ok( $macos_perl->{with}{'multi-thread'},
   'macOS Perl has threads for native XS' );
+my $macos_node = find_macos_step( \@macos_steps, 'Set up Node for test suite' );
+is( $macos_node->{with}{cache}, 'npm',
+  'macOS reuses the npm dependency cache like Linux' );
 my $macos_deps = find_macos_step( \@macos_steps, 'Install Perl dependencies' );
 like( $macos_deps->{run} // '', qr/cpanm --installdeps --notest -L local \./,
   'macOS installs the full local Perl dependency set' );
