@@ -338,7 +338,7 @@ for my $case (@env_int_cases) {
     # mutated after startup.
     my $home_value = $manager->_read_process_env_marker( $$, 'HOME' );
     SKIP: {
-        skip 'current process environment requires procfs', 1 if !-r "/proc/$/environ";
+        skip 'current process environment requires procfs', 1 if !-r "/proc/$$/environ";
         ok( defined $home_value && $home_value ne '',
             '_read_process_env_marker reads a well-formed KEY=VALUE pair from the current process' );
     }

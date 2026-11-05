@@ -695,8 +695,8 @@ is( $manager->_slurp_proc_file(undef), undef, '_slurp_proc_file rejects an undef
 is( $manager->_slurp_proc_file(''),    undef, '_slurp_proc_file rejects an empty path' );
 is( $manager->_slurp_proc_file('/proc/does-not-exist-xyz'), undef, '_slurp_proc_file returns undef for an unreadable path' );
 SKIP: {
-    skip 'procfs not present', 1 if !-r "/proc/$/stat";
-    ok( defined $manager->_slurp_proc_file("/proc/$/stat"), '_slurp_proc_file reads a real proc file' );
+    skip 'procfs not present', 1 if !-r "/proc/$$/stat";
+    ok( defined $manager->_slurp_proc_file("/proc/$$/stat"), '_slurp_proc_file reads a real proc file' );
 }
 
 # --- _same_pid_namespace -----------------------------------------------------
@@ -732,7 +732,7 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
 {
     my $home_value = $manager->_read_process_env_marker( $$, 'HOME' );
     SKIP: {
-        skip 'procfs process environment unavailable', 1 if !-r "/proc/$/environ";
+        skip 'procfs process environment unavailable', 1 if !-r "/proc/$$/environ";
         ok( defined $home_value, '_read_process_env_marker reads a matching environment key' );
     }
     is( $manager->_read_process_env_marker( $$, 'DD_NO_SUCH_KEY_XYZ' ), undef, '_read_process_env_marker returns undef for an absent key' );
