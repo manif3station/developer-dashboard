@@ -28,11 +28,22 @@ jobs:
       NONINTERACTIVE_TESTING: '1'
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
+      - name: Verify trusted upstream
+        if: ${{ github.event_name == 'workflow_run' }}
+        timeout-minutes: 2
+        shell: bash
+        env:
+          UPSTREAM_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          UPSTREAM_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          test "$UPSTREAM_REPOSITORY" = "$GITHUB_REPOSITORY"
+          test "$UPSTREAM_EVENT" = push
+
       - name: Checkout
         timeout-minutes: 10
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ github.event.workflow_run.head_repository.full_name || github.repository }}
+          repository: ${{ github.repository }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           persist-credentials: false
 
@@ -95,7 +106,7 @@ jobs:
           export PERL5LIB="$GITHUB_WORKSPACE/blib/arch:$GITHUB_WORKSPACE/blib/lib:$local_lib:$local_lib/$arch${PERL5LIB:+:$PERL5LIB}"
           # Nested login shells must use the Perl that compiled the native XS.
           perl_bin="$(dirname "$(command -v perl)")"
-          printf 'export PATH="%s:$PATH"\n' "$perl_bin" > "$RUNNER_TEMP/perl-ci-bashenv"
+          printf 'export PATH=%s:$PATH\n' "$(printf '%q' "$perl_bin")" > "$RUNNER_TEMP/perl-ci-bashenv"
           export BASH_ENV="$RUNNER_TEMP/perl-ci-bashenv"
           prove -j 10 --timer \
             --rules='seq=t/05-cli-smoke.t' \

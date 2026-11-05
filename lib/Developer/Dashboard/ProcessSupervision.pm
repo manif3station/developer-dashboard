@@ -205,13 +205,12 @@ sub _open_file_descriptors {
 sub _descriptor_is_inherited_pipe {
     my ( $self, $fd, %args ) = @_;
     return 0 if !defined $fd || $fd !~ /^\d+$/;
-    my $proc_target = readlink("/proc/self/fd/$fd");
-    my $dev_target  = readlink("/dev/fd/$fd");
-    my $target = defined $proc_target ? $proc_target : $dev_target;
-    return 0 if !defined $target;
-    return 1 if $target =~ /^pipe:/;
-    return 0 if !$args{close_ipc};
-    return $target =~ /^(?:socket:|anon_inode:)/ ? 1 : 0;
+    open my $handle, '<&', $fd or return 0;
+    my $pipe   = -p $handle ? 1 : 0;
+    my $socket = -S $handle ? 1 : 0;
+    close $handle;
+    return 1 if $pipe;
+    return $args{close_ipc} && $socket ? 1 : 0;
 }
 
 # _current_perl_command()

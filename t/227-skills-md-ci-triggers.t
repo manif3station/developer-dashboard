@@ -39,7 +39,9 @@ my $macos_pr_job = $workflow->{jobs}{'macos-arm64-pr'} || {};
 is( $macos_pr_job->{needs}, 'unit-tests',
   'macOS PR tests wait for Linux unit-test success' );
 like( $macos_pr_job->{if} // '', qr/github\.event_name\s*==\s*'pull_request'/,
-  'the reusable macOS job is only called during PR validation' );
+  'the reusable macOS job runs during PR validation' );
+like( $macos_pr_job->{if} // '', qr/github\.event_name\s*==\s*'workflow_dispatch'/,
+  'manual dispatch also waits for Linux validation' );
 is( $macos_pr_job->{uses}, './.github/workflows/macos-arm64-unit-tests.yml',
   'macOS PR tests call the dedicated reusable workflow' );
 is( $macos_pr_job->{permissions}{contents}, 'read',
@@ -171,8 +173,11 @@ sub find_macos_step {
 my $macos_checkout = find_macos_step( \@macos_steps, 'Checkout' );
 like( $macos_checkout->{uses} // '', qr{\Aactions/checkout\@[0-9a-f]{40}\z},
   'macOS checkout action is pinned by SHA' );
-like( $macos_checkout->{with}{repository} // '', qr/workflow_run\.head_repository\.full_name/,
-  'macOS checks out the upstream source repository' );
+is( $macos_checkout->{with}{repository}, '${{ github.repository }}',
+  'macOS always checks out the trusted base repository' );
+my $macos_trust = find_macos_step( \@macos_steps, 'Verify trusted upstream' );
+like( $macos_trust->{run} // '', qr/UPSTREAM_REPOSITORY.*GITHUB_REPOSITORY/s,
+  'post-unit macOS checkout rejects an untrusted upstream' );
 like( $macos_checkout->{with}{ref} // '', qr/workflow_run\.head_sha/,
   'post-unit macOS runs check out the exact Linux-tested commit' );
 like( $macos_checkout->{with}{ref} // '', qr/github\.sha/,
@@ -209,6 +214,8 @@ like( $macos_test->{run} // '', qr/--rules='seq=t\/15-release-metadata\.t'/,
   'macOS preserves serial execution for the release metadata test' );
 like( $macos_test->{run} // '', qr/BASH_ENV.*perl-ci-bashenv/s,
   'nested Bash shells inherit the same Perl used to compile XS' );
+like( $macos_test->{run} // '', qr/printf '%q' "\$perl_bin"/,
+  'the Perl bin directory is safely escaped in the Bash environment' );
 like( $macos_test->{run} // '', qr/--rules='par=\*\*'/,
   'macOS retains parallel scheduling for the remaining tests' );
 like( $macos_test->{run} // '',

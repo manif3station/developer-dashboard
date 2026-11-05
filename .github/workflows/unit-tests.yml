@@ -71,7 +71,7 @@ jobs:
 
   macos-arm64-pr:
     name: macOS arm64 unit tests after Linux
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     needs: unit-tests
     permissions:
       contents: read
