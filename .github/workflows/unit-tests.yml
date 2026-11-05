@@ -69,10 +69,25 @@ jobs:
             --rules='par=**' \
             -Iblib/arch -Iblib/lib -lr t
 
-  macos-arm64-pr:
-    name: macOS arm64 unit tests after Linux
+  coverage-pr:
+    name: Four-metric coverage after Linux
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     needs: unit-tests
     permissions:
       contents: read
+    uses: ./.github/workflows/test-coverage.yml
+
+  macos-arm64-pr:
+    name: macOS arm64 tests after coverage
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+    needs: coverage-pr
+    permissions:
+      contents: read
     uses: ./.github/workflows/macos-arm64-unit-tests.yml
+
+  windows-amd64-pr:
+    name: Windows amd64 tests after macOS
+    needs: macos-arm64-pr
+    permissions:
+      contents: read
+    uses: ./.github/workflows/windows-amd64-unit-tests.yml

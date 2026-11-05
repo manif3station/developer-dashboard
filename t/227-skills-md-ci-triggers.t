@@ -19,7 +19,8 @@ closedir $fh or die "Unable to close $dir: $!";
 
 is_deeply(
   \@files,
-  ['macos-arm64-unit-tests.yml', 'test-coverage.yml', 'unit-tests.yml'],
+  ['macos-arm64-unit-tests.yml', 'test-coverage.yml', 'unit-tests.yml',
+   'windows-amd64-unit-tests.yml'],
   'the Linux, coverage and macOS arm64 test workflows are active'
 );
 
@@ -33,11 +34,20 @@ is_deeply( $events->{push}{branches}, ['master'], 'push runs on master only' );
 ok( exists $events->{pull_request}, 'pull requests run the tests' );
 ok( exists $events->{workflow_dispatch}, 'manual test runs are available' );
 
-is_deeply( [ sort keys %{ $workflow->{jobs} || {} } ], ['macos-arm64-pr', 'unit-tests'],
-  'the workflow has Linux tests and a dependent macOS PR job' );
+is_deeply( [ sort keys %{ $workflow->{jobs} || {} } ], ['coverage-pr', 'macos-arm64-pr', 'unit-tests', 'windows-amd64-pr'],
+  'the workflow enforces the four-stage PR chain' );
 my $macos_pr_job = $workflow->{jobs}{'macos-arm64-pr'} || {};
-is( $macos_pr_job->{needs}, 'unit-tests',
-  'macOS PR tests wait for Linux unit-test success' );
+is( $macos_pr_job->{needs}, 'coverage-pr',
+  'macOS PR tests wait for 100% coverage' );
+my $coverage_pr = $workflow->{jobs}{'coverage-pr'} || {};
+is( $coverage_pr->{needs}, 'unit-tests', 'coverage follows Linux tests' );
+is( $coverage_pr->{uses}, './.github/workflows/test-coverage.yml',
+  'coverage PR job invokes the existing gate' );
+my $windows_pr = $workflow->{jobs}{'windows-amd64-pr'} || {};
+is( $windows_pr->{needs}, 'macos-arm64-pr',
+  'Windows PR tests wait for macOS success' );
+is( $windows_pr->{uses}, './.github/workflows/windows-amd64-unit-tests.yml',
+  'Windows PR job invokes the dedicated workflow' );
 like( $macos_pr_job->{if} // '', qr/github\.event_name\s*==\s*'pull_request'/,
   'the reusable macOS job runs during PR validation' );
 like( $macos_pr_job->{if} // '', qr/github\.event_name\s*==\s*'workflow_dispatch'/,
@@ -82,8 +92,8 @@ my $coverage_path = File::Spec->catfile( $dir, 'test-coverage.yml' );
 my $coverage = YAML::XS::LoadFile($coverage_path);
 my ($coverage_events) = grep { ref $_ eq 'HASH' }
   map { $coverage->{$_} } grep { /\A(?:on|true|1)\z/ } keys %$coverage;
-is_deeply( [ sort keys %{$coverage_events} ], ['workflow_run'],
-  'coverage cannot be independently triggered by push, PR or manual dispatch' );
+is_deeply( [ sort keys %{$coverage_events} ], ['workflow_call', 'workflow_run'],
+  'coverage supports ordered PR calls and post-unit master runs' );
 is_deeply( $coverage_events->{workflow_run}{workflows}, ['Unit Tests'],
   'coverage runs only after the named unit-test workflow' );
 is_deeply( $coverage_events->{workflow_run}{types}, ['completed'],
@@ -99,8 +109,8 @@ my @coverage_steps = @{ $coverage_job->{steps} || [] };
 my ($coverage_checkout) = grep { ($_->{name} // '') eq 'Checkout tested revision' } @coverage_steps;
 like( $coverage_checkout->{with}{ref} // '', qr/workflow_run\.head_sha/,
   'coverage checks out the revision from the upstream test run' );
-like( $coverage_checkout->{with}{repository} // '', qr/workflow_run\.head_repository\.full_name/,
-  'coverage resolves the original source repository, including forks' );
+like( $coverage_checkout->{with}{repository} // '', qr/github\.repository/,
+  'coverage checks out only the trusted base repository' );
 ok( !$coverage_checkout->{with}{'persist-credentials'},
   'coverage does not persist credentials in checked-out source' );
 my ($coverage_perl) = grep { ($_->{name} // '') eq 'Set up Perl' } @coverage_steps;
@@ -130,11 +140,11 @@ my ($macos_events) = grep { ref $_ eq 'HASH' }
 ok( ref($macos_events) eq 'HASH', 'macOS workflow has GitHub Actions triggers' );
 my $macos_trigger = ref($macos_events) eq 'HASH' ? $macos_events : {};
 is_deeply( [ sort keys %$macos_trigger ], ['workflow_call', 'workflow_run'],
-  'macOS supports ordered PR calls and post-unit master runs' );
+  'macOS supports ordered PR calls and post-coverage master runs' );
 my $macos_run = ref($macos_trigger->{workflow_run}) eq 'HASH'
   ? $macos_trigger->{workflow_run} : {};
-is_deeply( $macos_run->{workflows}, ['Unit Tests'],
-  'macOS waits for the existing Linux Unit Tests workflow' );
+is_deeply( $macos_run->{workflows}, ['Test Coverage'],
+  'macOS waits for the existing coverage workflow' );
 is_deeply( $macos_run->{branches}, ['master'],
   'post-unit macOS execution is restricted to master' );
 is_deeply( $macos_run->{types}, ['completed'],
@@ -146,11 +156,11 @@ is_deeply( [ sort keys %{ $macos->{jobs} || {} } ], ['macos-arm64'],
 my $macos_job = $macos->{jobs}{'macos-arm64'} || {};
 like( $macos_job->{if} // '',
   qr/workflow_run\.conclusion\s*==\s*'success'/,
-  'post-unit macOS run requires a successful Linux workflow' );
-like( $macos_job->{if} // '', qr/workflow_run\.event\s*==\s*'push'/,
-  'post-unit macOS run only follows master push workflows' );
+  'post-coverage macOS run requires successful coverage' );
+like( $macos_job->{if} // '', qr/workflow_run\.event\s*==\s*'workflow_run'/,
+  'post-coverage macOS run only follows the coverage workflow' );
 like( $macos_job->{if} // '', qr/workflow_run\.head_repository\.full_name\s*==\s*github\.repository/,
-  'post-unit macOS run never executes code from forked repositories' );
+  'post-coverage macOS run never executes code from forked repositories' );
 like( $macos_job->{if} // '', qr/github\.event_name\s*!=\s*'workflow_run'/,
   'reusable macOS PR runs are permitted by the job gate' );
 like( $macos_job->{if} // '',
@@ -187,7 +197,7 @@ my $macos_trust = find_macos_step( \@macos_steps, 'Verify trusted upstream' );
 like( $macos_trust->{run} // '', qr/UPSTREAM_REPOSITORY.*GITHUB_REPOSITORY/s,
   'post-unit macOS checkout rejects an untrusted upstream' );
 like( $macos_checkout->{with}{ref} // '', qr/workflow_run\.head_sha/,
-  'post-unit macOS runs check out the exact Linux-tested commit' );
+  'post-coverage macOS runs check out the exact upstream commit' );
 like( $macos_checkout->{with}{ref} // '', qr/github\.sha/,
   'reusable macOS PR runs check out the same revision as Linux' );
 ok( !$macos_checkout->{with}{'persist-credentials'},
@@ -239,26 +249,65 @@ like( $macos_test->{run} // '',
   qr/PERL5LIB=.*blib\/arch.*blib\/lib.*\$local_lib/s,
   'macOS test subprocesses see the XS build and local dependencies' );
 
+
+my $windows_path = File::Spec->catfile( $dir, 'windows-amd64-unit-tests.yml' );
+my $windows = YAML::XS::LoadFile($windows_path);
+my ($windows_events) = grep { ref $_ eq 'HASH' }
+  map { $windows->{$_} } grep { /\A(?:on|true|1)\z/ } keys %$windows;
+is_deeply( [ sort keys %{$windows_events || {}} ], ['workflow_call', 'workflow_run'],
+  'Windows supports reusable PR calls and post-macOS master runs' );
+is_deeply( $windows_events->{workflow_run}{workflows}, ['macOS arm64 Unit Tests'],
+  'Windows waits for successful macOS tests' );
+is_deeply( $windows_events->{workflow_run}{branches}, ['master'],
+  'Windows post-macOS trigger is master only' );
+is( $windows->{permissions}{contents}, 'read',
+  'Windows uses read-only repository permissions' );
+my $windows_job = $windows->{jobs}{'windows-amd64'} || {};
+is( $windows_job->{'runs-on'}, 'windows-latest', 'Windows uses amd64 host' );
+like( $windows_job->{if} // '', qr/workflow_run\.conclusion\s*==\s*'success'/,
+  'Windows requires successful macOS completion' );
+like( $windows_job->{if} // '', qr/workflow_run\.head_repository\.full_name/,
+  'Windows rejects forked upstreams' );
+my @windows_steps = @{ $windows_job->{steps} || [] };
+my ($arch_step) = grep { ($_->{name} // '') eq 'Verify Windows amd64 runner' }
+  @windows_steps;
+like( $arch_step->{run} // '', qr/RUNNER_ARCH.*X64/s,
+  'Windows asserts the real runner architecture' );
+my ($bootstrap_step) = grep { ($_->{name} // '') eq 'Install pinned Strawberry Perl' }
+  @windows_steps;
+like( $bootstrap_step->{run} // '', qr/Get-FileHash.*SHA256/s,
+  'Windows verifies its pinned Strawberry Perl archive' );
+my ($windows_build) = grep { ($_->{name} // '') eq 'Build native XS extension' }
+  @windows_steps;
+like( $windows_build->{run} // '', qr/perl Makefile\.PL.*gmake/s,
+  'Windows builds the native XS before testing' );
+my ($windows_suite) = grep { ($_->{name} // '') eq 'Run all unit tests (10 parallel workers)' }
+  @windows_steps;
+like( $windows_suite->{run} // '',
+  qr/App::Prove.*--\s+-j 10\b.*-Iblib\/arch -Iblib\/lib -lr t\b/s,
+  'Windows invokes the full prove suite with ten workers' );
+like( $windows_suite->{run} // '', qr/--rules=seq=t\/05-cli-smoke\.t/,
+  'Windows preserves serialised CLI smoke tests' );
+
 done_testing();
 
 __END__
 
 =head1 NAME
 
-t/227-skills-md-ci-triggers.t - enforce Linux, coverage and macOS CI workflows
+t/227-skills-md-ci-triggers.t - enforce all four ordered CI stages
 
 =head1 PURPOSE
 
-Protect the existing Linux unit-test and four-metric coverage contract.
-The macOS arm64 suite runs on PRs only after the Linux unit-test job passes.
-On master, a separate run begins once the Linux workflow completes successfully.
+Protect Linux tests and the existing 100% four-metric coverage gate.
+PRs run Linux, coverage, macOS arm64, then Windows amd64, in that order.
+Master runs follow the same sequence through workflow_run triggers.
 
 =head1 WHY IT EXISTS
 
-The active design permits exactly three workflows: Linux unit tests, coverage
-and macOS arm64 tests. PRs validate macOS through a job dependent on Linux;
-master pushes start macOS and coverage independently after Linux succeeds.
-No macOS test starts before the Linux unit-test job completes successfully.
+The four-stage design guards each platform job with its predecessor.
+Reusable calls enforce the PR sequence; workflow_run enforces master order.
+The two platform jobs cannot bypass the coverage gate.
 
 =head1 WHEN TO USE
 
@@ -272,7 +321,7 @@ and the streamlined, test-only workflow that the maintainer requested.
 From a source checkout that includes the tracked GitHub Actions YAML,
 install the declared Perl dependencies and run the test with C<prove>.
 The test reads the workflows from the repository rather than invoking remote
-GitHub APIs or running nested CI jobs. It parses all three YAML files and
+GitHub APIs or running nested CI jobs. It parses all four YAML files and
 checks triggers, permissions, revision selection and job commands, including
 upstream workflow ordering, macOS arm64 selection, ten-worker parallelism
 and XS library paths.

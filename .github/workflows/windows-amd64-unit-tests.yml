@@ -1,0 +1,151 @@
+name: Windows amd64 Unit Tests
+
+# Only the ordered PR chain or a successful master macOS run can start tests.
+on:
+  workflow_call:
+  workflow_run:
+    workflows:
+      - macOS arm64 Unit Tests
+    branches:
+      - master
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-amd64-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-amd64:
+    name: Perl unit tests (Windows amd64, prove -j 10)
+    if: ${{ github.repository == 'manif3station/developer-dashboard' && ((github.event_name != 'workflow_run' && startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/unit-tests.yml@')) || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)) }}
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      PERL_MM_USE_DEFAULT: '1'
+      NONINTERACTIVE_TESTING: '1'
+      PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
+    steps:
+      - name: Verify trusted upstream
+        if: ${{ github.event_name == 'workflow_run' }}
+        timeout-minutes: 2
+        shell: pwsh
+        env:
+          UPSTREAM_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          UPSTREAM_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          if ($env:UPSTREAM_REPOSITORY -ne $env:GITHUB_REPOSITORY) {
+            throw 'Refusing a different upstream repository'
+          }
+          if ($env:UPSTREAM_EVENT -ne 'workflow_run') {
+            throw 'Windows must follow macOS'
+          }
+
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify Windows amd64 runner
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ARCH -ne 'X64') {
+            throw "Expected Windows/X64, got $env:RUNNER_OS/$env:RUNNER_ARCH"
+          }
+
+      - name: Install pinned Strawberry Perl
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          $version = '5.42.3.1'
+          $archive = Join-Path $env:RUNNER_TEMP "strawberry-perl-$version-64bit-portable.zip"
+          $root = Join-Path $env:RUNNER_TEMP 'strawberry-perl-portable'
+          $url = 'https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_54231_64bit/strawberry-perl-5.42.3.1-64bit-portable.zip'
+          $expectedSha256 = '6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actualSha256 = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $expectedSha256) {
+            throw "Strawberry Perl SHA256 mismatch: $actualSha256"
+          }
+          Expand-Archive -Path $archive -DestinationPath $root -Force
+          $siteBin = Join-Path $root 'perl\site\bin'
+          $perlBin = Join-Path $root 'perl\bin'
+          $compilerBin = Join-Path $root 'c\bin'
+          if (-not (Test-Path (Join-Path $perlBin 'perl.exe'))) {
+            throw "Missing extracted Perl at $perlBin"
+          }
+          $env:PATH = "$siteBin;$perlBin;$compilerBin;$env:PATH"
+          "$siteBin" >> $env:GITHUB_PATH
+          "$perlBin" >> $env:GITHUB_PATH
+          "$compilerBin" >> $env:GITHUB_PATH
+          perl -e 'die "Perl 5.38 or newer required\n" if $] < 5.038; print "Perl $^V ready\n"'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Get-Command cpanm -ErrorAction SilentlyContinue)) {
+            cpan App::cpanminus
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Set up Node for test suite
+        timeout-minutes: 10
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Perl dependencies
+        timeout-minutes: 45
+        shell: pwsh
+        run: |
+          cpanm --installdeps --notest -L local .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cpanm --notest -L local Test::Harness~3.48
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build native XS extension
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          $localLib = Join-Path $env:GITHUB_WORKSPACE 'local/lib/perl5'
+          $pathSep = & perl -MConfig -e 'print $Config{path_sep}'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($env:PERL5LIB) {
+            $env:PERL5LIB = "$localLib$pathSep$env:PERL5LIB"
+          } else {
+            $env:PERL5LIB = $localLib
+          }
+          perl Makefile.PL
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run all unit tests (10 parallel workers)
+        timeout-minutes: 60
+        shell: pwsh
+        run: |
+          $localLib = Join-Path $env:GITHUB_WORKSPACE 'local/lib/perl5'
+          $arch = & perl -MConfig -e 'print $Config{archname}'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $pathSep = & perl -MConfig -e 'print $Config{path_sep}'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $perlPaths = @(
+            (Join-Path $env:GITHUB_WORKSPACE 'blib/arch'),
+            (Join-Path $env:GITHUB_WORKSPACE 'blib/lib'),
+            $localLib,
+            (Join-Path $localLib $arch)
+          )
+          if ($env:PERL5LIB) {
+            $perlPaths += $env:PERL5LIB -split [regex]::Escape($pathSep)
+          }
+          $env:PERL5LIB = $perlPaths -join $pathSep
+          $env:PATH = "$env:GITHUB_WORKSPACE/local/bin;$env:PATH"
+          # App::Prove invokes prove -j 10 t through the pinned Perl.
+          # Serialise the same fragile tests as Linux and macOS.
+          perl -MApp::Prove -e '$app = App::Prove->new; $app->process_args(@ARGV); exit $app->run' -- -j 10 --timer --rules=seq=t/05-cli-smoke.t --rules=seq=t/09-runtime-manager.t --rules=seq=t/15-release-metadata.t --rules=par=** -Iblib/arch -Iblib/lib -lr t
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
