@@ -34,3 +34,42 @@ like( $@, qr/Unable to close collector command pid file/,
     'record_command_pid reports the close failure with its pidfile context' );
 
 done_testing;
+
+__END__
+
+=head1 NAME
+
+t/806-commandrunner-close-coverage.t - command PID close error
+
+=head1 PURPOSE
+
+Exercise the failed output-handle close error path for C<CommandRunner::record_command_pid>.
+
+=head1 WHY IT EXISTS
+
+Uses a private child pipe that exits nonzero to cover the otherwise rare PID-file close failure. The strict cross-platform coverage gate requires that this
+failure be observed instead of assuming that a successful open guarantees
+a successful close.
+
+=head1 WHEN TO USE
+
+Run this regression when changing the command or file persistence path
+or its error-handling behavior.
+
+=head1 HOW TO USE
+
+  prove -lv t/806-commandrunner-close-coverage.t
+
+Run under the repository coverage gate for all-metric verification.
+
+=head1 WHAT USES IT
+
+The developer test suite and the CI coverage gate.
+
+=head1 EXAMPLES
+
+  prove -lv t/806-commandrunner-close-coverage.t
+
+Execute the failure-injection regression without touching real application files.
+
+=cut
