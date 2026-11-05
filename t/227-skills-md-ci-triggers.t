@@ -88,6 +88,10 @@ like( $unit->{run} // '', qr/--rules='seq=t\/15-release-metadata\.t'/,
   'the release metadata test runs outside concurrent test workers' );
 like( $unit->{run} // '', qr/--rules='par=\*\*'/,
   'the rest of the suite retains ten-way parallel scheduling' );
+like( $unit->{run} // '', qr/seq=t\/148-coverage-gate-entrypoint\.t/,
+  'Linux isolates the entrypoint fixture from parallel source mutations' );
+like( $unit->{run} // '', qr/seq=t\/149-coverage-gate-moving-target\.t/,
+  'Linux serialises the deliberately source-mutating test' );
 like( $unit->{run} // '', qr/PERL5LIB=.*blib\/arch.*blib\/lib.*\$local_lib/s,
   'test subprocesses see the native build and local dependencies' );
 
@@ -249,6 +253,8 @@ like( $macos_test->{run} // '', qr/printf '%q' "\$perl_bin"/,
   'the Perl bin directory is safely escaped in the Bash environment' );
 like( $macos_test->{run} // '', qr/--rules='par=\*\*'/,
   'macOS retains parallel scheduling for the remaining tests' );
+like( $macos_test->{run} // '', qr/seq=t\/149-coverage-gate-moving-target\.t/,
+  'macOS isolates the source-mutation regression' );
 like( $macos_test->{run} // '',
   qr/PERL5LIB=.*blib\/arch.*blib\/lib.*\$local_lib/s,
   'macOS test subprocesses see the XS build and local dependencies' );
@@ -296,6 +302,18 @@ like( $windows_suite->{run} // '',
   'Windows invokes the full prove suite with ten workers' );
 like( $windows_suite->{run} // '', qr/--rules=seq=t\/05-cli-smoke\.t/,
   'Windows preserves serialised CLI smoke tests' );
+like( $windows_suite->{run} // '', qr/--rules=seq=t\/149-coverage-gate-moving-target\.t/,
+  'Windows serialises the source-mutation regression' );
+
+my $coverage_gate_script = File::Spec->catfile( $root, 'script', 'coverage-gate' );
+open my $coverage_gate_fh, '<', $coverage_gate_script
+  or die "Unable to read $coverage_gate_script: $!";
+my $coverage_gate_text = do { local $/; <$coverage_gate_fh> };
+close $coverage_gate_fh or die "Unable to close $coverage_gate_script: $!";
+like( $coverage_gate_text, qr/--rules=seq=t\/148-coverage-gate-entrypoint\.t/,
+  'coverage serialises the test that fingerprints its own fixture' );
+like( $coverage_gate_text, qr/--rules=seq=t\/149-coverage-gate-moving-target\.t/,
+  'coverage serialises the test that intentionally changes t/' );
 
 done_testing();
 

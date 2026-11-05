@@ -66,6 +66,8 @@ jobs:
             --rules='seq=t/05-cli-smoke.t' \
             --rules='seq=t/09-runtime-manager.t' \
             --rules='seq=t/15-release-metadata.t' \
+            --rules='seq=t/148-coverage-gate-entrypoint.t' \
+            --rules='seq=t/149-coverage-gate-moving-target.t' \
             --rules='par=**' \
             -Iblib/arch -Iblib/lib -lr t
 

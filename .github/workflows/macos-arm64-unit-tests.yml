@@ -116,6 +116,7 @@ jobs:
           gtimeout --signal=TERM --kill-after=30s 900s prove -j 10 --timer \
             --rules='seq=t/03-web-app.t' \
             --rules='seq=t/148-coverage-gate-entrypoint.t' \
+            --rules='seq=t/149-coverage-gate-moving-target.t' \
             --rules='seq=t/05-cli-smoke.t' \
             --rules='seq=t/09-runtime-manager.t' \
             --rules='seq=t/15-release-metadata.t' \
