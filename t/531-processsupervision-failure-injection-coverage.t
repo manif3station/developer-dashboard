@@ -279,7 +279,7 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
     no warnings 'redefine';
     local *Developer::Dashboard::ProcessSupervision::_pid_namespace_id = sub {
         my ( undef, $pid ) = @_;
-        return 'ns:[self]' if $pid == $;
+        return 'ns:[self]' if $pid == $$;
         return 'ns:[self]' if $pid == 61001;
         return 'ns:[other]' if $pid == 61002;
         return '' if $pid == 61003;
@@ -291,7 +291,7 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
     is( $self->_same_pid_namespace(61004), 1, 'unreadable target namespace is conservatively accepted' );
     {
         local *Developer::Dashboard::ProcessSupervision::_pid_namespace_id = sub {
-            return undef if $_[1] == $;
+            return undef if $_[1] == $$;
             return 'ns:[other]';
         };
         is( $self->_same_pid_namespace(61002), 1,
@@ -299,7 +299,7 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
     }
     {
         local *Developer::Dashboard::ProcessSupervision::_pid_namespace_id = sub {
-            return '' if $_[1] == $;
+            return '' if $_[1] == $$;
             return 'ns:[other]';
         };
         is( $self->_same_pid_namespace(61002), 1,
