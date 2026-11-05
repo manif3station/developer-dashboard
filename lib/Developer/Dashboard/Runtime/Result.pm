@@ -307,7 +307,7 @@ sub _set_channel {
     }
 
     my ( $fh, $path ) = _open_channel_file();
-    print {$fh} $json;
+    print {$fh} $json or die "Unable to write $env_name file $path: $!";
     truncate( $fh, tell($fh) ) or die "Unable to truncate $env_name file $path: $!";
     seek( $fh, 0, SEEK_SET ) or die "Unable to rewind $env_name file $path: $!";
 

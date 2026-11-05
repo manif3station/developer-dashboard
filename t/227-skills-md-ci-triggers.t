@@ -154,6 +154,9 @@ like( $macos_job->{if} // '', qr/workflow_run\.head_repository\.full_name\s*==\s
 like( $macos_job->{if} // '', qr/github\.event_name\s*!=\s*'workflow_run'/,
   'reusable macOS PR runs are permitted by the job gate' );
 like( $macos_job->{if} // '',
+  qr/startsWith\(github\.workflow_ref,\s*'manif3station\/developer-dashboard\/\.github\/workflows\/unit-tests\.yml\@'/,
+  'macOS reusable calls require the exact Linux Unit Tests workflow file' );
+like( $macos_job->{if} // '',
   qr/github\.repository\s*==\s*'manif3station\/developer-dashboard'/,
   'macOS rejects fork repositories even for reusable calls' );
 is( $macos_job->{'runs-on'}, 'macos-15',

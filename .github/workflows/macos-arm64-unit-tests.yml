@@ -22,7 +22,7 @@ concurrency:
 jobs:
   macos-arm64:
     name: Perl unit tests (macOS arm64, prove -j 10)
-    if: ${{ github.repository == 'manif3station/developer-dashboard' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)) }}
+    if: ${{ github.repository == 'manif3station/developer-dashboard' && ((github.event_name != 'workflow_run' && startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/unit-tests.yml@')) || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)) }}
     runs-on: macos-15
     timeout-minutes: 180
     env:

@@ -41,7 +41,15 @@ BEGIN {
 {
     package ScriptedHandle;
     sub TIEHANDLE { my ( $class, %args ) = @_; return bless { content => '', read => 0, %args }, $class }
-    sub PRINT     { my $self = shift; $self->{content} .= join( '', @_ ); return 1 }
+    sub PRINT     {
+        my $self = shift;
+        if ( exists $self->{print_ok} && !$self->{print_ok} ) {
+            $! = 5;
+            return 0;
+        }
+        $self->{content} .= join( '', @_ );
+        return 1;
+    }
     sub TELL      { return length $_[0]{content} }
     sub SEEK      { $! = 29; return $_[0]{seek_ok} ? 1 : 0 }
     sub CLOSE     { $! = 9; return $_[0]{close_ok} ? 1 : 0 }
@@ -139,8 +147,12 @@ sub scripted {
     my $handle;
     local *Developer::Dashboard::Runtime::Result::_open_channel_file = sub { return ( $handle, '/virtual/fd/9' ) };
 
-    $handle = scripted( truncate_ok => 0, seek_ok => 1, close_ok => 1 );
+    $handle = scripted( print_ok => 0, truncate_ok => 1, seek_ok => 1, close_ok => 1 );
     my $err = eval { Developer::Dashboard::Runtime::Result::set_current( { a => 1 }, max_inline_bytes => 1 ); 1 } ? '' : $@;
+    like( $err, qr/Unable to write RESULT file/, 'set_current reports a failed channel write' );
+
+    $handle = scripted( truncate_ok => 0, seek_ok => 1, close_ok => 1 );
+    $err = eval { Developer::Dashboard::Runtime::Result::set_current( { a => 1 }, max_inline_bytes => 1 ); 1 } ? '' : $@;
     like( $err, qr/Unable to truncate RESULT file/, 'set_current reports a truncate failure' );
 
     $handle = scripted( truncate_ok => 1, seek_ok => 0, close_ok => 1 );
