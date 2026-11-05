@@ -588,10 +588,15 @@ sub _instrument_module {
 # Input:   none
 # Output:  the child's resolved path, or undef when the child cannot load it.
 sub _child_instrument_module {
-    my $path = qx{$^X -MDevel::Cover::DB::IO -e 'print \$INC{"Devel/Cover/DB/IO.pm"}' 2>/dev/null};
-    return undef if $? != 0 || !defined $path;
-    chomp $path;
-    return length $path ? $path : undef;
+    # Avoid shell quoting: cmd.exe does not interpret Unix single quotes.
+    # A list-form system uses the selected Perl on Windows and Unix.
+    my ( $stdout, $stderr, $status ) = capture {
+        system $^X, '-MDevel::Cover::DB::IO',
+            '-e', 'print $INC{"Devel/Cover/DB/IO.pm"}';
+    };
+    return undef if $status != 0 || !defined $stdout;
+    chomp $stdout;
+    return length $stdout ? $stdout : undef;
 }
 
 # Purpose: refuse to grade a database written by a different Devel::Cover than the

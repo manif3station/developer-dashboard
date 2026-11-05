@@ -1,55 +1,33 @@
-name: Windows amd64 Unit Tests
+name: Windows amd64 Test Coverage
 
-# Only the ordered PR chain or a successful master macOS run can start tests.
+# Reusable only: macOS coverage calls this after it passes.
 on:
   workflow_call:
-  workflow_run:
-    workflows:
-      - macOS arm64 Unit Tests
-    branches:
-      - master
-    types:
-      - completed
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-amd64-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.event.pull_request.number || github.ref }}
+  group: windows-amd64-coverage-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   windows-amd64:
-    name: Perl unit tests (Windows amd64, prove -j 10)
-    if: ${{ github.repository == 'manif3station/developer-dashboard' && ((github.event_name != 'workflow_run' && startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/unit-tests.yml@')) || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)) }}
+    name: Four-metric coverage 100% (Windows amd64, prove -j 10)
+    if: ${{ github.repository == 'manif3station/developer-dashboard' && startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@') }}
     runs-on: windows-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
       PERL_MM_USE_DEFAULT: '1'
       NONINTERACTIVE_TESTING: '1'
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
-      - name: Verify trusted upstream
-        if: ${{ github.event_name == 'workflow_run' }}
-        timeout-minutes: 2
-        shell: pwsh
-        env:
-          UPSTREAM_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
-          UPSTREAM_EVENT: ${{ github.event.workflow_run.event }}
-        run: |
-          if ($env:UPSTREAM_REPOSITORY -ne $env:GITHUB_REPOSITORY) {
-            throw 'Refusing a different upstream repository'
-          }
-          if ($env:UPSTREAM_EVENT -ne 'workflow_run') {
-            throw 'Windows must follow macOS'
-          }
-
       - name: Checkout
         timeout-minutes: 10
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ github.repository }}
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Verify Windows amd64 runner
@@ -117,6 +95,24 @@ jobs:
           cpanm --notest -L local Test::Harness~3.48
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Install Devel::Cover (required on Windows)
+        timeout-minutes: 40
+        shell: pwsh
+        run: |
+          # No skip or substitute ordinary test run if XS coverage fails.
+          $localLib = Join-Path $env:GITHUB_WORKSPACE 'local/lib/perl5'
+          $pathSep = & perl -MConfig -e 'print $Config{path_sep}'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:PERL5LIB = if ($env:PERL5LIB) {
+            "$localLib$pathSep$env:PERL5LIB"
+          } else {
+            $localLib
+          }
+          cpanm --notest -L local Devel::Cover
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          perl -MDevel::Cover::DB::IO -e 'print "Devel::Cover ready\n"'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build native XS extension
         timeout-minutes: 20
         shell: pwsh
@@ -134,8 +130,8 @@ jobs:
           gmake
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Run all unit tests (10 parallel workers)
-        timeout-minutes: 60
+      - name: Require 100% four-metric coverage (10 workers)
+        timeout-minutes: 120
         shell: pwsh
         run: |
           $localLib = Join-Path $env:GITHUB_WORKSPACE 'local/lib/perl5'
@@ -143,9 +139,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $pathSep = & perl -MConfig -e 'print $Config{path_sep}'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Instrument source from lib/, not the copied blib/lib modules.
           $perlPaths = @(
             (Join-Path $env:GITHUB_WORKSPACE 'blib/arch'),
-            (Join-Path $env:GITHUB_WORKSPACE 'blib/lib'),
             $localLib,
             (Join-Path $localLib $arch)
           )
@@ -154,7 +150,6 @@ jobs:
           }
           $env:PERL5LIB = $perlPaths -join $pathSep
           $env:PATH = "$env:GITHUB_WORKSPACE/local/bin;$env:PATH"
-          # App::Prove invokes prove -j 10 t through the pinned Perl.
-          # Serialise the same fragile tests as Linux and macOS.
-          perl -MApp::Prove -e '$app = App::Prove->new; $app->process_args(@ARGV); exit $app->run' -- -j 10 --timer --rules=seq=t/05-cli-smoke.t --rules=seq=t/09-runtime-manager.t --rules=seq=t/15-release-metadata.t --rules=seq=t/{148-coverage-gate-entrypoint,149-coverage-gate-moving-target}.t --rules=par=** -Iblib/arch -Iblib/lib -lr t
+          # Full prove -j 10 suite and all four 100% coverage gates.
+          perl script/coverage-gate --jobs 10
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
