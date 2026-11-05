@@ -5,6 +5,16 @@ use warnings;
 use utf8;
 
 use Test::More;
+
+# Emulate a successfully opened handle whose read returns undef on every OS.
+# A real null device reports either undef or '' depending on the Perl port.
+our $FORCE_UNDEF_READ = 0;
+BEGIN {
+    *CORE::GLOBAL::readline = sub (*) {
+        return undef if $FORCE_UNDEF_READ;
+        return CORE::readline( $_[0] );
+    };
+}
 use File::Temp qw(tempdir);
 use File::Spec;
 
@@ -57,10 +67,21 @@ is( slurp_file( $text_path, raw => 1 ), "hello\n", 'CLI/Ask.pm-shaped call: raw 
 # exercises the undef-read normalization on macOS and Windows as well as Linux,
 # without depending on Linux-only /proc/self/mem.
 my $devnull = File::Spec->devnull;
-is( slurp_file( $devnull, raw => 1 ), undef,
-    'a successfully opened, empty device returns undef without normalization' );
+my $null_data = slurp_file( $devnull, raw => 1 );
+ok( !defined $null_data || $null_data eq '',
+    'a successfully opened null device produces no payload on this Perl port' );
 is( slurp_file( $devnull, raw => 1, normalize_undef => 1 ), '',
     'normalize_undef converts an undef read to an empty string on every platform' );
+
+# The portable failure injection reaches both arms even when /proc/self/mem
+# does not exist (macOS/Windows) or the null device returns a defined ''.
+{
+    local $FORCE_UNDEF_READ = 1;
+    is( slurp_file( $text_path, raw => 1 ), undef,
+        'an injected undef read is preserved when normalization is disabled' );
+    is( slurp_file( $text_path, raw => 1, normalize_undef => 1 ), '',
+        'an injected undef read is normalized on all platforms' );
+}
 
 # normalize_undef: an I/O error on an already-open handle (not a missing file)
 # yields undef from <$fh>. Reproduced hermetically the same way as
