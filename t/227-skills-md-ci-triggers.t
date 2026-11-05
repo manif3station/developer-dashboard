@@ -126,7 +126,7 @@ like( $bootstrap->{run} // '', qr/cpanm\.Source\.StartsWith/,
     'Windows rejects cpanm from a different Perl installation' );
 my $win_deps =
   find_step( $win_steps, 'Install Devel::Cover (required on Windows)' );
-like( $win_deps->{run} // '', qr/cpanm --notest -L local Devel::Cover/,
+like( $win_deps->{run} // '', qr/cpanm[^\r\n]*--notest -L local Devel::Cover/,
     'Windows must install real Devel::Cover instrumentation' );
 like( $win_deps->{run} // '', qr/exit \$LASTEXITCODE/,
     'Windows does not silently skip failed coverage installation' );
