@@ -31,9 +31,15 @@ BEGIN {
     };
 
     *CORE::GLOBAL::readlink = sub (_) {
-        return undef if $FORCE_DEV_FD_LINK && $_[0] =~ m{\A/proc/self/fd/};
-        return 'anon_inode:[eventfd]'
-            if $FORCE_DEV_FD_LINK && $_[0] =~ m{\A/dev/fd/};
+        if ($FORCE_DEV_FD_LINK && $_[0] =~ m{\A/proc/self/fd/}) {
+            return 'anon_inode:[eventfd]' if $FORCE_DEV_FD_LINK == 2;
+            return undef;
+        }
+        if ($FORCE_DEV_FD_LINK && $_[0] =~ m{\A/dev/fd/}) {
+            return undef if $FORCE_DEV_FD_LINK == 3;
+            return 'ordinary-file' if $FORCE_DEV_FD_LINK == 4;
+            return 'anon_inode:[eventfd]';
+        }
         return CORE::readlink($_[0]);
     };
 }
@@ -71,6 +77,17 @@ my $self = bless {}, 'Developer::Dashboard::ProcessSupervision';
     my @fds = $self->_open_file_descriptors;
     ok( scalar( grep { $_ == 0 } @fds ), 'descriptor listing includes stdin' );
     ok( !scalar( grep { $_ !~ /^\d+$/ } @fds ), 'descriptor listing is numeric only' );
+}
+
+# Simulate procfs/devfs listing the same descriptor more than once. This
+# reaches the deduplication branch independent of host descriptor layout.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::ProcessSupervision::_fd_candidate_paths = sub {
+        return ('/proc/self/fd/3', '/dev/fd/3', '/dev/fd/7');
+    };
+    is_deeply( [ $self->_open_file_descriptors ], [3, 7],
+        '_open_file_descriptors removes duplicate procfs/devfs descriptor entries' );
 }
 
 # Child-library path filtering uses the current working directory when the
@@ -155,6 +172,23 @@ my $self = bless {}, 'Developer::Dashboard::ProcessSupervision';
         );
     }
 
+
+    {
+        local $FORCE_DEV_FD_LINK = 2;
+        is( Developer::Dashboard::ProcessSupervision::_fd_link_target($fd),
+            'anon_inode:[eventfd]',
+            'procfs descriptor link is preferred when available' );
+    }
+    {
+        local $FORCE_DEV_FD_LINK = 3;
+        is( Developer::Dashboard::ProcessSupervision::_fd_link_target($fd), undef,
+            'missing procfs and devfs descriptor links return undef' );
+    }
+    {
+        local $FORCE_DEV_FD_LINK = 4;
+        is( $self->_descriptor_is_inherited_pipe( $fd, close_ipc => 1 ), 0,
+            'a defined non-anonymous fd target is not an inherited pipe' );
+    }
     close $regular_fh or die "Unable to close $regular: $!";
 }
 
