@@ -16,11 +16,13 @@ anyone building or contributing to the distribution itself.
   pages/ajax), `CollectorRunner` (scheduled checks), `Housekeeper` (cleanup),
   `PathRegistry`/`Config` (the layered `.developer-dashboard/` directory stack).
 - `t/*.t` covers `lib/`; each carries POD naming what it covers.
-- `.github/workflows/` contains exactly **two** workflows. `unit-tests.yml`
-  builds the native XS extension with Perl 5.44 and runs the full test suite
-  using `prove -j 10`. After Unit Tests succeeds, `test-coverage.yml` runs
-  the four-metric 100% Devel::Cover gate using `--jobs 10` on that revision.
-  The previous platform matrix, Docker Hub and release workflows are retired.
+- `.github/workflows/` contains exactly **two** workflows.
+  `macos-arm64-unit-tests.yml` builds the native XS extension and runs
+  the full four-metric 100% Devel::Cover gate with ten parallel workers.
+  Only after macOS succeeds, it calls `windows-amd64-unit-tests.yml`,
+  which requires the same 100% gate on a Windows x64 runner.
+  The separate Linux unit-test, coverage, platform matrix, Docker Hub
+  and release workflows are retired.
 
 ## Running the tests
 
