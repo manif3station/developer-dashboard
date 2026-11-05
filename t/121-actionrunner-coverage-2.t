@@ -164,6 +164,11 @@ CHILD
     local $Developer::Dashboard::ActionRunner::PROCFS_ROOT = $proc_root;
     is( $runner->_read_process_state(424242), 'S',
         '_read_process_state parses a readable procfs stat fixture portably' );
+    open my $broken, '>', $stat or die "Unable to rewrite $stat: $!";
+    print {$broken} "not a procfs stat record\n";
+    close $broken or die "Unable to close $stat: $!";
+    is( $runner->_read_process_state(424242), undef,
+        '_read_process_state ignores a readable but malformed procfs stat' );
 }
 
 done_testing;
