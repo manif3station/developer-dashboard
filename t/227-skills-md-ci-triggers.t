@@ -135,6 +135,8 @@ my $macos_run = ref($macos_trigger->{workflow_run}) eq 'HASH'
   ? $macos_trigger->{workflow_run} : {};
 is_deeply( $macos_run->{workflows}, ['Unit Tests'],
   'macOS waits for the existing Linux Unit Tests workflow' );
+is_deeply( $macos_run->{branches}, ['master'],
+  'post-unit macOS execution is restricted to master' );
 is_deeply( $macos_run->{types}, ['completed'],
   'macOS only triggers after the Linux workflow completes' );
 is( $macos->{permissions}{contents}, 'read',
