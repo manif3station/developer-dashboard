@@ -3249,13 +3249,14 @@ is( $manager->_port_accepting_connections(undef), 0, '_port_accepting_connection
 is( $manager->_port_accepting_connections('x'),   0, '_port_accepting_connections rejects a non-numeric port' );
 is( $manager->_port_accepting_connections(0),     0, '_port_accepting_connections rejects a port below one' );
 {
-    my $listener = IO::Socket::INET->new(
-        LocalAddr => '127.0.0.1', LocalPort => 0, Listen => 1, Proto => 'tcp'
+    # Hold the port without listening so another test cannot claim it.
+    my $reserved = IO::Socket::INET->new(
+        LocalAddr => '127.0.0.1', LocalPort => 0, Proto => 'tcp'
     ) or die "Cannot reserve a test port: $!";
-    my $unused_port = $listener->sockport;
-    close $listener;
+    my $unused_port = $reserved->sockport;
     is( $manager->_port_accepting_connections($unused_port), 0,
         '_port_accepting_connections returns false for a closed port' );
+    close $reserved;
 }
 
 # _runtime_confirmation_polls: no override falls back to the default (line 3210)

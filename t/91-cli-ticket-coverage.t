@@ -56,6 +56,7 @@ $SIG{__WARN__} = sub { push @warnings, $_[0]; return; };
 # process into the temp home before exercising any path-aware code.
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME}                           = $home;
+local $ENV{TMUX_TMPDIR}                    = $home;
 local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = tempdir( CLEANUP => 1 );
 chdir $home or die "Unable to chdir to $home: $!";
 
@@ -542,7 +543,8 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
             args => ['probe'],
         );
         is( $tmpdir->{stdout}, '/dev/shm', 'tmux_command passes the selected writable socket directory to tmux' );
-        ok( !defined $ENV{TMUX_TMPDIR}, 'tmux_command restores TMUX_TMPDIR after the captured subprocess returns' );
+        is( $ENV{TMUX_TMPDIR}, $home,
+            'tmux_command restores the caller socket directory after the child returns' );
     }
 
     # DD-597: system() above mutates the caller's global $? as a side effect;
