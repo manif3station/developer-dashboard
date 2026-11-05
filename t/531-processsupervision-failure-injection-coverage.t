@@ -5,10 +5,17 @@ use warnings;
 
 # BEGIN-time CORE::GLOBAL::open override: it fails or redirects only for exact
 # registered paths, so these branches run the same for root and non-root users.
-our ( %OPEN_FAIL, %OPEN_REDIRECT );
+our ( %OPEN_FAIL, %OPEN_REDIRECT, %READ_DUP_FAIL, $FORCE_DEV_FD_LINK );
 
 BEGIN {
     *CORE::GLOBAL::open = sub (*;$@) {
+        # Force the first descriptor duplication to fail so the writable
+        # fallback branch is exercised on both Unix and Windows.
+        if ( @_ >= 3 && defined $_[1] && $_[1] eq '<&'
+             && defined $_[2] && $READ_DUP_FAIL{$_[2]} ) {
+            $! = 9;
+            return 0;
+        }
         if ( @_ >= 3 && defined $_[2] && !ref $_[2] ) {
             my $path = $_[2];
             if ( $OPEN_FAIL{$path} ) {
@@ -21,6 +28,13 @@ BEGIN {
         }
         return CORE::open( $_[0], $_[1] ) if @_ == 2;
         return CORE::open( $_[0], $_[1], @_[ 2 .. $#_ ] );
+    };
+
+    *CORE::GLOBAL::readlink = sub (_) {
+        return undef if $FORCE_DEV_FD_LINK && $_[0] =~ m{\A/proc/self/fd/};
+        return 'anon_inode:[eventfd]'
+            if $FORCE_DEV_FD_LINK && $_[0] =~ m{\A/dev/fd/};
+        return CORE::readlink($_[0]);
     };
 }
 
@@ -98,6 +112,52 @@ my $self = bless {}, 'Developer::Dashboard::ProcessSupervision';
     is_deeply( \@closed, [43], 'cleanup skips non-pipes and closes only inherited pipe descriptors' );
 }
 
+# Cover the descriptor fallbacks without changing real process descriptors.
+# The write-only file is never a pipe or socket, and can be closed normally.
+{
+    my $regular = File::Spec->catfile( $dir, 'descriptor-fallback' );
+    open my $regular_fh, '>', $regular or die "Unable to open $regular: $!";
+    my $fd = fileno($regular_fh);
+    ok( defined $fd, 'the descriptor fallback fixture has a file number' );
+
+    {
+        local $READ_DUP_FAIL{$fd} = 1;
+        is(
+            $self->_descriptor_is_inherited_pipe( $fd, close_ipc => 1 ),
+            0,
+            'a failed read duplication falls back to a writable descriptor',
+        );
+    }
+
+    {
+        local $FORCE_DEV_FD_LINK = 1;
+        is(
+            Developer::Dashboard::ProcessSupervision::_fd_link_target($fd),
+            'anon_inode:[eventfd]',
+            'the descriptor link falls back to devfs when procfs is unavailable',
+        );
+        is(
+            $self->_descriptor_is_inherited_pipe( $fd, close_ipc => 1 ),
+            1,
+            'an anonymous kernel descriptor is recognised through the fallback',
+        );
+    }
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::ProcessSupervision::_fd_link_target = sub {
+            return undef;
+        };
+        is(
+            $self->_descriptor_is_inherited_pipe( $fd, close_ipc => 1 ),
+            0,
+            'a descriptor without any link target is not an inherited pipe',
+        );
+    }
+
+    close $regular_fh or die "Unable to close $regular: $!";
+}
+
 # Inherited-pipe detection for an unknown descriptor.
 is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not an inherited pipe' );
 
@@ -166,7 +226,8 @@ t/531-processsupervision-failure-injection-coverage.t - failure-injection covera
 =head1 PURPOSE
 
 This regression test covers ProcessSupervision's in-place overwrite cleanup,
-descriptor enumeration and filtering, child Perl library-path construction,
+descriptor enumeration, fallback duplication and link-target handling,
+child Perl library-path construction,
 process-environment reads, and helper-file close failures. A BEGIN-time
 C<CORE::GLOBAL::open> override fails or redirects only exact registered paths,
 so failure branches are testable without depending on filesystem permissions
