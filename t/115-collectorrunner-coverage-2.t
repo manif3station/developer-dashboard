@@ -457,6 +457,20 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
     }
 }
 
+# When procfs supplies a nonempty command line, normalize NUL separators and
+# whitespace without depending on /proc (absent on macOS and Windows).
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub {
+        return "collector\\0worker\\0\\n";
+    };
+    is(
+        $runner->_read_process_title(424242),
+        'collector worker',
+        '_read_process_title decodes a procfs command line on every platform',
+    );
+}
+
 done_testing;
 
 __END__
