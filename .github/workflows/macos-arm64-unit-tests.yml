@@ -21,7 +21,7 @@ jobs:
     name: Four-metric coverage 100% (macOS arm64, prove -j 10)
     if: ${{ github.repository == 'manif3station/developer-dashboard' }}
     runs-on: macos-15
-    timeout-minutes: 240
+    timeout-minutes: 270
     env:
       PERL_MM_USE_DEFAULT: '1'
       NONINTERACTIVE_TESTING: '1'

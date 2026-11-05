@@ -12,7 +12,7 @@ jobs:
     name: Four-metric coverage 100% (Windows amd64, prove -j 10)
     if: ${{ github.repository == 'manif3station/developer-dashboard' && startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@') }}
     runs-on: windows-latest
-    timeout-minutes: 240
+    timeout-minutes: 300
     env:
       PERL_MM_USE_DEFAULT: '1'
       NONINTERACTIVE_TESTING: '1'

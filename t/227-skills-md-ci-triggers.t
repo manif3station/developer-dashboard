@@ -60,6 +60,10 @@ is( $mac_job->{'runs-on'}, 'macos-15', 'macOS uses hosted Apple Silicon' );
 like( $mac_job->{if} // '', qr/github\.repository/,
     'macOS checks the trusted repository' );
 my $mac_steps = $mac_job->{steps} || [];
+my $mac_step_budget = 0;
+$mac_step_budget += ($_->{'timeout-minutes'} // 0) for @{$mac_steps};
+cmp_ok( $mac_job->{'timeout-minutes'} // 0, '>=', $mac_step_budget,
+    'macOS job timeout accommodates all declared step budgets' );
 my $mac_arch = find_step( $mac_steps, 'Verify Apple Silicon runner' );
 like( $mac_arch->{run} // '', qr/uname -m.*arm64/s,
     'the macOS job checks the physical arm64 host' );
@@ -104,6 +108,10 @@ is( $win_job->{'runs-on'}, 'windows-latest',
 like( $win_job->{if} // '', qr/macos-arm64-unit-tests\.yml/,
     'Windows reusable call checks its macOS caller' );
 my $win_steps = $win_job->{steps} || [];
+my $win_step_budget = 0;
+$win_step_budget += ($_->{'timeout-minutes'} // 0) for @{$win_steps};
+cmp_ok( $win_job->{'timeout-minutes'} // 0, '>=', $win_step_budget,
+    'Windows job timeout accommodates all declared step budgets' );
 my $win_arch = find_step( $win_steps, 'Verify Windows amd64 runner' );
 like( $win_arch->{run} // '', qr/RUNNER_ARCH.*X64/s,
     'Windows asserts that it runs on a real amd64 host' );
@@ -181,5 +189,15 @@ coverage tooling, or the cross-platform ordering contract.
 =head1 WHAT USES IT
 
 The full suite on both coverage hosts invokes this test.
+
+=head1 EXAMPLES
+
+Check the ordered two-workflow contract:
+
+  prove -lv t/227-skills-md-ci-triggers.t
+
+Both platforms run the full coverage gate with ten workers:
+
+  perl script/coverage-gate --jobs 10
 
 =cut
