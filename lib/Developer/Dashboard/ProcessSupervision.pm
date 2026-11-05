@@ -186,13 +186,22 @@ sub _open_file_descriptors {
     my ($self) = @_;
     my %seen;
     my @fds;
-    for my $path ( glob('/proc/self/fd/*'), glob('/dev/fd/*') ) {
+    for my $path ( $self->_fd_candidate_paths ) {
         my ($fd) = $path =~ m{(\d+)\z};
         $fd += 0;
         next if $seen{$fd}++;
         push @fds, $fd;
     }
     return sort { $a <=> $b } @fds;
+}
+
+# _fd_candidate_paths()
+# Returns procfs and devfs descriptor paths; isolated as a method so tests can
+# supply duplicated directory entries on hosts without both descriptor trees.
+# Input: none.
+# Output: list of descriptor-path strings.
+sub _fd_candidate_paths {
+    return ( glob('/proc/self/fd/*'), glob('/dev/fd/*') );
 }
 
 # _descriptor_is_inherited_pipe($fd)
