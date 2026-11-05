@@ -7,7 +7,7 @@ use Symbol qw(gensym);
 {
     package DD::Test::EmptyProcRead;
     sub TIEHANDLE { return bless {}, shift }
-    sub READLINE { return '' }
+    sub READLINE { return undef if $main::FORCE_EMPTY_READ == 2; return '' }
     sub CLOSE { return 1 }
 }
 
@@ -336,6 +336,12 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
         local $EMPTY_READ_PATH = $path;
         is( $self->_read_process_env_marker(61005, 'DD_MARK'), undef,
             'defined but empty procfs environ payload has no marker' );
+    }
+    {
+        local $FORCE_EMPTY_READ = 2;
+        local $EMPTY_READ_PATH = $path;
+        is( $self->_read_process_env_marker(61005, 'DD_MARK'), undef,
+            'undefined procfs environ read is handled without dereferencing' );
     }
 }
 
