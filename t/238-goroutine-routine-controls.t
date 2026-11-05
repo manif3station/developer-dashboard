@@ -53,7 +53,10 @@ isa_ok($normal, 'Developer::Dashboard::GoRoutine::Routine',
         'routine age freezes when the routine completes');
 
     my $started = time;
-    my $killed = $^O eq 'MSWin32'
+    # Darwin can restart a native blocking sleep despite a thread signal.
+    # Exercise prompt cooperative cancellation at Perl opcode boundaries.
+    my $opcode_cancel = $^O eq 'MSWin32' || $^O eq 'darwin';
+    my $killed = $opcode_cancel
         ? go sub { 1 while 1 }
         : go sub { sleep 20 };
     ok($killed->kill, 'kill request is accepted for a running routine');
@@ -65,7 +68,7 @@ isa_ok($normal, 'Developer::Dashboard::GoRoutine::Routine',
     ok(!$killed->kill, 'kill after completion is a no-op');
 
     $started = time;
-    my $timed = $^O eq 'MSWin32'
+    my $timed = $opcode_cancel
         ? go sub { 1 while 1 }
         : go sub { sleep 20 };
     is($timed->timeout(0.15), $timed,
@@ -75,7 +78,7 @@ isa_ok($normal, 'Developer::Dashboard::GoRoutine::Routine',
     is($timed->status, 'timed_out', 'expired timeout reports timed_out');
     ok($timed->is_killed, 'is_killed recognises timeout status');
 
-    my $replaced = $^O eq 'MSWin32'
+    my $replaced = $opcode_cancel
         ? go sub { 1 while 1 }
         : go sub { sleep 20 };
     $replaced->timeout(10)->timeout(0.15);

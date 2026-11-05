@@ -205,13 +205,24 @@ sub _open_file_descriptors {
 sub _descriptor_is_inherited_pipe {
     my ( $self, $fd, %args ) = @_;
     return 0 if !defined $fd || $fd !~ /^\d+$/;
-    my $proc_target = readlink("/proc/self/fd/$fd");
-    my $dev_target  = readlink("/dev/fd/$fd");
-    my $target = defined $proc_target ? $proc_target : $dev_target;
-    return 0 if !defined $target;
-    return 1 if $target =~ /^pipe:/;
+    my $handle;
+    open( $handle, '<&', $fd ) or open( $handle, '>&', $fd ) or return 0;
+    my $pipe   = -p $handle ? 1 : 0;
+    my $socket = -S $handle ? 1 : 0;
+    close $handle;
+    return 1 if $pipe;
     return 0 if !$args{close_ipc};
-    return $target =~ /^(?:socket:|anon_inode:)/ ? 1 : 0;
+    return 1 if $socket;
+    my $target = _fd_link_target($fd);
+    return defined($target) && $target =~ /^anon_inode:/ ? 1 : 0;
+}
+
+# Linux anonymous kernel handles have no ordinary socket or pipe file type.
+# Keep their procfs identity check while using portable fstat for other FDs.
+sub _fd_link_target {
+    my ($fd) = @_;
+    my $target = readlink("/proc/self/fd/$fd");
+    return defined $target ? $target : readlink("/dev/fd/$fd");
 }
 
 # _current_perl_command()

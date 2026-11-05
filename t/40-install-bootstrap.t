@@ -830,7 +830,7 @@ SH
     my $env_prefix = join ' ',
       map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
         { key => 'HOME',                   value => $home },
-        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                   value => $fake_bin . ':' . _path_hiding_command('brew') },
         { key => 'SHELL',                  value => '/bin/zsh' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'darwin' },
         { key => 'DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR', value => $checkout },
@@ -1411,7 +1411,7 @@ printf 'export PATH="__HOME__/perl5/bin:\$PATH"; export PERL5LIB="__HOME__/perl5
 exit 0
 INNER
 perl_path="\$root/perls/\$2/bin/perl"
-sed -i "s|__LOG__|$log|g; s|__HOME__|\$HOME|g" "\$perl_path"
+sed "s|__LOG__|$log|g; s|__HOME__|\$HOME|g" "\$perl_path" > "\$perl_path.tmp" && mv "\$perl_path.tmp" "\$perl_path"
 chmod 0755 "\$perl_path"
 exit 0
 ;;
@@ -1423,14 +1423,14 @@ cat > "\$root/bin/cpanm" <<'INNER'
 printf '%s\\n' "cpanm \$*" >> "__LOG__"
 exit 0
 INNER
-sed -i "s|__LOG__|$log|g" "\$root/bin/cpanm"
+sed "s|__LOG__|$log|g" "\$root/bin/cpanm" > "\$root/bin/cpanm.tmp" && mv "\$root/bin/cpanm.tmp" "\$root/bin/cpanm"
 chmod 0755 "\$root/bin/cpanm"
 exit 0
 ;;
 esac
 exit 0
 EOS
-sed -i "s|__LOG__|$log|g; s|__HOME__|\$HOME|g" "\$HOME/perl5/bin/perlbrew"
+sed "s|__LOG__|$log|g; s|__HOME__|\$HOME|g" "\$HOME/perl5/bin/perlbrew" > "\$HOME/perl5/bin/perlbrew.tmp" && mv "\$HOME/perl5/bin/perlbrew.tmp" "\$HOME/perl5/bin/perlbrew"
 chmod 0755 "\$HOME/perl5/bin/perlbrew"
 cat > "\$HOME/perl5/bin/patchperl" <<'EOS'
 #!/bin/sh
@@ -1444,7 +1444,7 @@ case ":\${PERL5LIB:-}:" in
 esac
 exit 0
 EOS
-sed -i "s|__LOG__|$log|g; s|__HOME__|\$HOME|g" "\$HOME/perl5/bin/patchperl"
+sed "s|__LOG__|$log|g; s|__HOME__|\$HOME|g" "\$HOME/perl5/bin/patchperl" > "\$HOME/perl5/bin/patchperl.tmp" && mv "\$HOME/perl5/bin/patchperl.tmp" "\$HOME/perl5/bin/patchperl"
 chmod 0755 "\$HOME/perl5/bin/patchperl"
 cat > "\$HOME/perl5/lib/perl5/App/perlbrew.pm" <<'EOS'
 package App::perlbrew;
@@ -1603,7 +1603,7 @@ printf 'export PATH="__HOME__/perl5/bin:\$PATH"; export PERL5LIB="__HOME__/perl5
 exit 0
 EOS
 perl_path="\$root/perls/\$2/bin/perl"
-sed -i "s|__LOG__|$log|g; s|__HOME__|\$HOME|g" "\$perl_path"
+sed "s|__LOG__|$log|g; s|__HOME__|\$HOME|g" "\$perl_path" > "\$perl_path.tmp" && mv "\$perl_path.tmp" "\$perl_path"
 chmod 0755 "\$perl_path"
 exit 0
 ;;
@@ -1615,7 +1615,7 @@ cat > "\$root/bin/cpanm" <<'EOS'
 printf '%s\\n' "cpanm \$*" >> "__LOG__"
 exit 0
 EOS
-sed -i "s|__LOG__|$log|g" "\$root/bin/cpanm"
+sed "s|__LOG__|$log|g" "\$root/bin/cpanm" > "\$root/bin/cpanm.tmp" && mv "\$root/bin/cpanm.tmp" "\$root/bin/cpanm"
 chmod 0755 "\$root/bin/cpanm"
 exit 0
 ;;

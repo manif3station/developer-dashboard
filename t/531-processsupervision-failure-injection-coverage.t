@@ -113,7 +113,11 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
 
     {
         local $OPEN_REDIRECT{$real_proc} = [ '<', $envfile ];
-        is( $self->_read_process_env_marker( $real, 'DD_MARK' ), 'found', 'the marker is read from the process environment' );
+        SKIP: {
+            skip 'procfs permission precondition unavailable', 1 if !-r $real_proc;
+            is( $self->_read_process_env_marker( $real, 'DD_MARK' ), 'found',
+                'the marker is read from the process environment' );
+        }
         is( $self->_read_process_env_marker( $real, 'MISSING' ), undef, 'an absent marker reads as undef' );
     }
     {

@@ -2265,6 +2265,7 @@ END {
             port => 7919,
         };
     };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
         my ( undef, $port ) = @_;
         return () if $port != 7919;
@@ -2346,6 +2347,7 @@ END {
         };
     };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 0 };
     ok(
         !$manager->_web_runtime_ready( 8808, 7920 ),
         '_web_runtime_ready fails when the web pid survives but no listener appears on the configured port',

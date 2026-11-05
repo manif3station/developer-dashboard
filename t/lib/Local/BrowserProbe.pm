@@ -6,6 +6,7 @@ use utf8;
 
 use Exporter qw(import);
 use Capture::Tiny qw(capture);
+use Errno qw(EPIPE);
 use File::Temp qw(tempdir);
 use File::Spec;
 use IO::Socket::INET;
@@ -90,7 +91,11 @@ sub browser_can_fetch_loopback {
         if ($probe) {
             print {$probe} "GET /__ready HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
             my $response = do { local $/; <$probe> } // '';
-            close $probe or die "Unable to close the probe readiness socket: $!";
+            # Darwin can report EPIPE on close after the peer has shut down.
+            # The complete HTTP response was already read before this close.
+            my $closed = close $probe;
+            die "Unable to close the probe readiness socket: $!"
+              if !$closed && $! != EPIPE;
             if ( $response =~ /\r?\n\r?\nready\z/ ) {
                 $ready = 1;
                 last;

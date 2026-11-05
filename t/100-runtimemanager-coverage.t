@@ -690,11 +690,14 @@ is( $manager->_ensure_collector_pid_stopped( 'c', 0 ),     1, '_ensure_collector
 }
 
 # --- _procfs_available / _slurp_proc_file / _process_exists -----------------
-ok( $manager->_procfs_available, '_procfs_available true on a /proc host' );
+is( $manager->_procfs_available, -d '/proc' ? 1 : 0, '_procfs_available matches host procfs' );
 is( $manager->_slurp_proc_file(undef), undef, '_slurp_proc_file rejects an undef path' );
 is( $manager->_slurp_proc_file(''),    undef, '_slurp_proc_file rejects an empty path' );
 is( $manager->_slurp_proc_file('/proc/does-not-exist-xyz'), undef, '_slurp_proc_file returns undef for an unreadable path' );
-ok( defined $manager->_slurp_proc_file("/proc/$$/stat"), '_slurp_proc_file reads a real proc file' );
+SKIP: {
+    skip 'procfs not present', 1 if !-r "/proc/$$/stat";
+    ok( defined $manager->_slurp_proc_file("/proc/$$/stat"), '_slurp_proc_file reads a real proc file' );
+}
 
 # --- _same_pid_namespace -----------------------------------------------------
 is( $manager->_same_pid_namespace(undef), 0, '_same_pid_namespace rejects undef pid' );
@@ -728,7 +731,10 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
 # --- _read_process_env_marker ------------------------------------------------
 {
     my $home_value = $manager->_read_process_env_marker( $$, 'HOME' );
-    ok( defined $home_value, '_read_process_env_marker reads a matching environment key' );
+    SKIP: {
+        skip 'procfs process environment unavailable', 1 if !-r "/proc/$$/environ";
+        ok( defined $home_value, '_read_process_env_marker reads a matching environment key' );
+    }
     is( $manager->_read_process_env_marker( $$, 'DD_NO_SUCH_KEY_XYZ' ), undef, '_read_process_env_marker returns undef for an absent key' );
     is( $manager->_read_process_env_marker( 999999, 'HOME' ), undef, '_read_process_env_marker returns undef for an unreadable process' );
 }
@@ -1213,6 +1219,13 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
     my $file = File::Spec->catfile( $home, 'fd-regular-file' );
     open my $fh, '>', $file or die $!;
     is( $manager->_descriptor_is_inherited_pipe( fileno($fh), close_ipc => 1 ), 0, '_descriptor_is_inherited_pipe leaves a regular-file fd open even with close_ipc' );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::ProcessSupervision::_fd_link_target =
+            sub { return 'anon_inode:[eventfd]' };
+        is( $manager->_descriptor_is_inherited_pipe( fileno($fh), close_ipc => 1 ), 1,
+            '_descriptor_is_inherited_pipe also closes Linux anonymous kernel handles' );
+    }
     close $fh;
 }
 
@@ -3235,7 +3248,16 @@ is( Developer::Dashboard::RuntimeManager::_powershell_single_quote(undef), q{''}
 is( $manager->_port_accepting_connections(undef), 0, '_port_accepting_connections rejects an undef port' );
 is( $manager->_port_accepting_connections('x'),   0, '_port_accepting_connections rejects a non-numeric port' );
 is( $manager->_port_accepting_connections(0),     0, '_port_accepting_connections rejects a port below one' );
-is( $manager->_port_accepting_connections(1),     0, '_port_accepting_connections returns false for a closed port' );
+{
+    # Hold the port without listening so another test cannot claim it.
+    my $reserved = IO::Socket::INET->new(
+        LocalAddr => '127.0.0.1', LocalPort => 0, Proto => 'tcp'
+    ) or die "Cannot reserve a test port: $!";
+    my $unused_port = $reserved->sockport;
+    is( $manager->_port_accepting_connections($unused_port), 0,
+        '_port_accepting_connections returns false for a closed port' );
+    close $reserved;
+}
 
 # _runtime_confirmation_polls: no override falls back to the default (line 3210)
 {

@@ -13,6 +13,11 @@ use JSON::XS qw(decode_json);
 use Developer::Dashboard::Runtime::Result;
 use Test::More;
 
+# These dependency fixtures deliberately exercise Debian package installation.
+# Set the simulated host explicitly so macOS does not select Homebrew instead.
+local $ENV{DD_TEST_OS} = 'linux';
+local $ENV{DD_TEST_DEBIAN_LIKE} = 1;
+
 use lib 'lib';
 use Developer::Dashboard::Config;
 use Developer::Dashboard::EnvAudit;
@@ -810,6 +815,16 @@ PL
     ok( !$oversized_dispatch->{error}, 'skill dispatch survives oversized hook RESULT payloads by spilling to RESULT_FILE' )
       or diag $oversized_dispatch->{error};
     my $oversized_payload = decode_json( $oversized_dispatch->{stdout} );
+    if ( ( $oversized_payload->{hook_length} || 0 ) != 5000 ) {
+        for my $key ( sort keys %{ $oversized_dispatch->{hooks} || {} } ) {
+            my $hook = $oversized_dispatch->{hooks}{$key};
+            diag sprintf 'oversized hook %s: exit=%s stderr_bytes=%d stdout_bytes=%d',
+              $key, ( $hook->{exit_code} // 'undef' ),
+              length( $hook->{stderr} // '' ), length( $hook->{stdout} // '' );
+            diag 'oversized hook stderr: ' . substr( $hook->{stderr} // '', 0, 350 )
+              if length( $hook->{stderr} // '' ) < 1000;
+        }
+    }
     ok( $oversized_payload->{result_file}, 'skill command sees RESULT_FILE when hook RESULT exceeds the inline limit' );
     ok( !$oversized_payload->{result_env}, 'skill command does not rely on inline RESULT when the hook RESULT spills to a file' );
     is( $oversized_payload->{hook_length}, 5000, 'skill command can read the full oversized hook stdout through Runtime::Result' );

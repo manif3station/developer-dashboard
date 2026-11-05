@@ -1723,7 +1723,9 @@ my $repos = tempdir( CLEANUP => 1 );
         delete local $ENV{DD_TEST_DEBIAN_LIKE};
         delete local $ENV{DD_TEST_ALPINE};
         delete local $ENV{DD_TEST_FEDORA};
-        is_deeply( [ $manager->_host_progress_system_task_ids ], ['install_aptfile'], 'host progress detects Debian from the filesystem marker' );
+        is_deeply( [ $manager->_host_progress_system_task_ids ],
+            $^O eq 'darwin' ? ['install_brewfile'] : ['install_aptfile'],
+            'host progress detects the native package manager' );
     }
 }
 

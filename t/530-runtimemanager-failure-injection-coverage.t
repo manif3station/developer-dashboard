@@ -316,7 +316,7 @@ sub capture_failure {
     local $Developer::Dashboard::RuntimeManager::PROCFS_ROOT = File::Spec->catdir( $work, 'no-such-proc' );
     is( $manager->_procfs_available, 0, 'procfs is reported unavailable when the root does not exist' );
 }
-is( $manager->_procfs_available, 1, 'procfs is reported available on this host' );
+is( $manager->_procfs_available, -d '/proc' ? 1 : 0, 'procfs availability matches host' );
 
 chdir $cwd;
 done_testing;

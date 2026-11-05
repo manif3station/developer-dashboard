@@ -387,7 +387,7 @@ isa_ok( $auth, 'Developer::Dashboard::Auth', 'constructed auth manager' );
             { family => undef, addr => '' },
             { family => 2,     addr => $v4 },
             { family => 2,     addr => $v4 },
-            { family => 10,    addr => $v6 },
+            { family => AF_INET6, addr => $v6 },
             { family => 99,    addr => '' },
         );
     };
