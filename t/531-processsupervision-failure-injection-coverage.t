@@ -2,10 +2,18 @@
 
 use strict;
 use warnings;
+use Symbol qw(gensym);
+
+{
+    package DD::Test::EmptyProcRead;
+    sub TIEHANDLE { return bless {}, shift }
+    sub READLINE { return '' }
+    sub CLOSE { return 1 }
+}
 
 # BEGIN-time CORE::GLOBAL::open override: it fails or redirects only for exact
 # registered paths, so these branches run the same for root and non-root users.
-our ( %OPEN_FAIL, %OPEN_REDIRECT, %READ_DUP_FAIL, $FORCE_DEV_FD_LINK, $FORCE_EMPTY_READ );
+our ( %OPEN_FAIL, %OPEN_REDIRECT, %READ_DUP_FAIL, $FORCE_DEV_FD_LINK, $FORCE_EMPTY_READ, $EMPTY_READ_PATH );
 
 BEGIN {
     *CORE::GLOBAL::open = sub (*;$@) {
@@ -18,6 +26,11 @@ BEGIN {
         }
         if ( @_ >= 3 && defined $_[2] && !ref $_[2] ) {
             my $path = $_[2];
+            if ( $FORCE_EMPTY_READ && defined $EMPTY_READ_PATH && $path eq $EMPTY_READ_PATH ) {
+                $_[0] = gensym();
+                tie *{ $_[0] }, 'DD::Test::EmptyProcRead';
+                return 1;
+            }
             if ( $OPEN_FAIL{$path} ) {
                 $! = 13;
                 return 0;
@@ -28,11 +41,6 @@ BEGIN {
         }
         return CORE::open( $_[0], $_[1] ) if @_ == 2;
         return CORE::open( $_[0], $_[1], @_[ 2 .. $#_ ] );
-    };
-
-    *CORE::GLOBAL::readline = sub (*) {
-        return '' if $FORCE_EMPTY_READ;
-        return CORE::readline( $_[0] );
     };
 
     *CORE::GLOBAL::readlink = sub (_) {
@@ -325,6 +333,7 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
         'empty readable procfs environ file contains no marker' );
     {
         local $FORCE_EMPTY_READ = 1;
+        local $EMPTY_READ_PATH = $path;
         is( $self->_read_process_env_marker(61005, 'DD_MARK'), undef,
             'defined but empty procfs environ payload has no marker' );
     }
