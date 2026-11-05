@@ -3494,6 +3494,46 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
         '_read_process_title returns undef for an empty procfs entry' );
 }
 
+# Exercise the actual procfs state parser on all hosts rather than relying
+# on the Linux-only /proc/$pid/stat precondition.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub {
+        return "424242 (example worker) S 1 2 3\n";
+    };
+    is( $manager->_read_process_state(424242), 'S',
+        '_read_process_state parses a portable procfs stat fixture' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return undef };
+    is( $manager->_read_process_state(424242), undef,
+        '_read_process_state handles unreadable procfs stat data' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return 'invalid stat payload' };
+    is( $manager->_read_process_state(424242), undef,
+        '_read_process_state handles invalid procfs stat data' );
+}
+{
+    my $proc_fixture = File::Spec->catdir( $home, 'runtime-proc-fixture' );
+    mkdir $proc_fixture or die "Unable to create $proc_fixture: $!";
+    local $Developer::Dashboard::RuntimeManager::PROCFS_ROOT = $proc_fixture;
+    is( $manager->_procfs_available, 1, '_procfs_available detects an existing directory' );
+    my $stat = File::Spec->catfile( $proc_fixture, 'stat' );
+    open my $fh, '>', $stat or die "Unable to create $stat: $!";
+    print {$fh} "fixture text\n";
+    close $fh or die "Unable to close $stat: $!";
+    is( $manager->_slurp_proc_file($stat), "fixture text\n",
+        '_slurp_proc_file reads an existing fixture file' );
+    is( $manager->_slurp_proc_file( File::Spec->catfile( $proc_fixture, 'missing' ) ),
+        undef, '_slurp_proc_file rejects a missing fixture file' );
+}
+
 SKIP: {
     skip '_read_process_state direct procfs coverage requires /proc', 1 if !-r "/proc/$$/stat";
     like( $manager->_read_process_state($$), qr/^[A-Z]$/, '_read_process_state reads the direct procfs state code for the current process' );
