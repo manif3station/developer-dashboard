@@ -129,6 +129,8 @@ my $win_cover =
   find_step( $win_steps, 'Require 100% four-metric coverage (10 workers)' );
 like( $win_cover->{run} // '', qr/perl script\/coverage-gate --jobs 10/,
     'Windows invokes the full coverage gate with ten workers' );
+like( $win_cover->{run} // '', qr/DD_SUITE_LOCK.*RUNNER_TEMP/s,
+    'Windows uses a valid host-lock path under the runner temporary directory' );
 like( $win_cover->{run} // '', qr/exit \$LASTEXITCODE/,
     'Windows fails the job when the coverage gate fails' );
 unlike( $win_cover->{run} // '', qr/Join-Path.*blib\/lib/s,

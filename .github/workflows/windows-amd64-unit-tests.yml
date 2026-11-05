@@ -150,6 +150,8 @@ jobs:
           }
           $env:PERL5LIB = $perlPaths -join $pathSep
           $env:PATH = "$env:GITHUB_WORKSPACE/local/bin;$env:PATH"
+          # The gate's Unix default /tmp lock path does not exist on Windows.
+          $env:DD_SUITE_LOCK = Join-Path $env:RUNNER_TEMP 'dd-gate-host.lock'
           # Full prove -j 10 suite and all four 100% coverage gates.
           perl script/coverage-gate --jobs 10
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
