@@ -477,9 +477,9 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
 {
     require File::Path;
     my $root = File::Spec->catdir( $home, 'fake-collector-proc' );
-    my $self_pid = $;
+    my $self_pid = POSIX::getpid();
     my @pids = map { $self_pid + $_ } ( 10000, 10001, 10002, 10003 );
-    File::Path::make_path( $root, map { File::Spec->catdir( $root, $_ ) } ( $, @pids ) );
+    File::Path::make_path( $root, map { File::Spec->catdir( $root, $_ ) } ( $self_pid, @pids ) );
     no warnings 'redefine';
     local $Developer::Dashboard::CollectorRunner::PROCFS_ROOT = $root;
     local *Developer::Dashboard::CollectorRunner::_process_title = sub { 'collector-fixture' };
