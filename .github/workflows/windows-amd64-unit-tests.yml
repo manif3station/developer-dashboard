@@ -7,10 +7,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: windows-amd64-coverage-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   windows-amd64:
     name: Four-metric coverage 100% (Windows amd64, prove -j 10)
@@ -47,7 +43,7 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP 'strawberry-perl-portable'
           $url = 'https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_54231_64bit/strawberry-perl-5.42.3.1-64bit-portable.zip'
           $expectedSha256 = '6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690'
-          Invoke-WebRequest -Uri $url -OutFile $archive
+          Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
           $actualSha256 = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actualSha256 -ne $expectedSha256) {
             throw "Strawberry Perl SHA256 mismatch: $actualSha256"
