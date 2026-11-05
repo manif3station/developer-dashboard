@@ -1,24 +1,27 @@
 name: macOS arm64 Unit Tests
 
+# Only start after the existing Linux Unit Tests workflow has finished.
+# Coverage remains independent and keeps its own workflow_run dependency.
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Unit Tests
+    types:
+      - completed
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: macos-arm64-unit-tests-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
 
 jobs:
   macos-arm64:
     name: Perl unit tests (macOS arm64, prove -j 10)
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: macos-15
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       PERL_MM_USE_DEFAULT: '1'
       NONINTERACTIVE_TESTING: '1'
@@ -27,6 +30,10 @@ jobs:
       - name: Checkout
         timeout-minutes: 10
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.workflow_run.head_repository.full_name }}
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
 
       - name: Verify Apple Silicon runner
         timeout-minutes: 5
@@ -57,7 +64,6 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
-          cache: npm
 
       - name: Install Perl dependencies
         shell: bash
