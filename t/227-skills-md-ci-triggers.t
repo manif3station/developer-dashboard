@@ -133,7 +133,7 @@ like( $win_cover->{run} // '', qr/DD_SUITE_LOCK.*RUNNER_TEMP/s,
     'Windows uses a valid host-lock path under the runner temporary directory' );
 like( $win_cover->{run} // '', qr/exit \$LASTEXITCODE/,
     'Windows fails the job when the coverage gate fails' );
-unlike( $win_cover->{run} // '', qr/Join-Path.*blib\/lib/s,
+unlike( $win_cover->{run} // '', qr/Join-Path[^\n]*blib\/lib/,
     'Windows does not double-instrument compiled copies of lib/' );
 
 my $gate_path = File::Spec->catfile( $root, 'script', 'coverage-gate' );
