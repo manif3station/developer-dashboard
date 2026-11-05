@@ -239,6 +239,64 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
     }
 }
 
+# The namespace comparison accepts an unknown identity but distinguishes
+# a real matching namespace from a foreign one, irrespective of host procfs.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::ProcessSupervision::_pid_namespace_id = sub {
+        my ( undef, $pid ) = @_;
+        return 'ns:[self]' if $pid == $;
+        return 'ns:[self]' if $pid == 61001;
+        return 'ns:[other]' if $pid == 61002;
+        return '' if $pid == 61003;
+        return undef;
+    };
+    is( $self->_same_pid_namespace(61001), 1, 'matching namespace is accepted' );
+    is( $self->_same_pid_namespace(61002), 0, 'foreign namespace is rejected' );
+    is( $self->_same_pid_namespace(61003), 1, 'empty target namespace is conservatively accepted' );
+    is( $self->_same_pid_namespace(61004), 1, 'unreadable target namespace is conservatively accepted' );
+    {
+        local *Developer::Dashboard::ProcessSupervision::_pid_namespace_id = sub {
+            return undef if $_[1] == $;
+            return 'ns:[other]';
+        };
+        is( $self->_same_pid_namespace(61002), 1,
+            'unknown current namespace is conservatively accepted' );
+    }
+    {
+        local *Developer::Dashboard::ProcessSupervision::_pid_namespace_id = sub {
+            return '' if $_[1] == $;
+            return 'ns:[other]';
+        };
+        is( $self->_same_pid_namespace(61002), 1,
+            'empty current namespace is conservatively accepted' );
+    }
+}
+
+# Test the no-content procfs environment shapes without Linux-only devices.
+{
+    my $root = File::Spec->catdir( $dir, 'proc-empty-environ' );
+    my $pid_dir = File::Spec->catdir( $root, '61005' );
+    File::Path::make_path($pid_dir);
+    my $path = File::Spec->catfile( $pid_dir, 'environ' );
+    open my $fh, '>', $path or die "Unable to create $path: $!";
+    close $fh or die "Unable to close $path: $!";
+    local $Developer::Dashboard::ProcessSupervision::PROCFS_ROOT = $root;
+    is( $self->_read_process_env_marker(61005, 'DD_MARK'), undef,
+        'empty readable procfs environ file contains no marker' );
+}
+
+# A Windows SystemRoot value must be honoured before probing the PowerShell
+# default executable, even when neither PATH nor the fallback contains it.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { 1 };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { return '' };
+    local $ENV{SystemRoot} = File::Spec->catdir( $dir, 'nonexistent-winroot' );
+    is( Developer::Dashboard::ProcessSupervision::_powershell_command(), '',
+        'PowerShell fallback honours an explicit SystemRoot when executable is absent' );
+}
+
 # Helper file support: a read handle whose close reports failure.
 {
     my $helper = File::Spec->catfile( $dir, 'helper.pl' );
