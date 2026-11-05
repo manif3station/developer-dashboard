@@ -43,10 +43,12 @@ jobs:
           test "$(uname -s)" = Darwin
           test "$(uname -m)" = arm64
 
-      - name: Canonicalise temporary directory
+      - name: Use unaliased temporary directory
         timeout-minutes: 2
         shell: bash
-        run: echo "TMPDIR=$(cd "$TMPDIR" && pwd -P)/" >> "$GITHUB_ENV"
+        run: |
+          mkdir -p "$RUNNER_TEMP/perl-test-tmp"
+          echo "TMPDIR=$RUNNER_TEMP/perl-test-tmp" >> "$GITHUB_ENV"
 
       - name: Install native build dependencies
         timeout-minutes: 20
@@ -91,6 +93,10 @@ jobs:
           local_lib="$GITHUB_WORKSPACE/local/lib/perl5"
           arch="$(perl -MConfig -e 'print $Config{archname}')"
           export PERL5LIB="$GITHUB_WORKSPACE/blib/arch:$GITHUB_WORKSPACE/blib/lib:$local_lib:$local_lib/$arch${PERL5LIB:+:$PERL5LIB}"
+          # Nested login shells must use the Perl that compiled the native XS.
+          perl_bin="$(dirname "$(command -v perl)")"
+          printf 'export PATH="%s:$PATH"\n' "$perl_bin" > "$RUNNER_TEMP/perl-ci-bashenv"
+          export BASH_ENV="$RUNNER_TEMP/perl-ci-bashenv"
           prove -j 10 --timer \
             --rules='seq=t/05-cli-smoke.t' \
             --rules='seq=t/09-runtime-manager.t' \

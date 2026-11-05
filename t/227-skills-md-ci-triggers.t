@@ -179,6 +179,9 @@ like( $macos_checkout->{with}{ref} // '', qr/github\.sha/,
   'reusable macOS PR runs check out the same revision as Linux' );
 ok( !$macos_checkout->{with}{'persist-credentials'},
   'macOS checkout does not persist credentials from workflow_run' );
+my $macos_tmp = find_macos_step( \@macos_steps, 'Use unaliased temporary directory' );
+like( $macos_tmp->{run} // '', qr/RUNNER_TEMP\/perl-test-tmp/,
+  'macOS avoids the /var and /private/var temporary path alias' );
 my $macos_arch = find_macos_step( \@macos_steps, 'Verify Apple Silicon runner' );
 like( $macos_arch->{run} // '', qr/uname -m.*arm64/s,
   'macOS runner is checked for arm64 architecture' );
@@ -204,6 +207,8 @@ like( $macos_test->{run} // '', qr/--rules='seq=t\/09-runtime-manager\.t'/,
   'macOS preserves serial execution for the server lifecycle test' );
 like( $macos_test->{run} // '', qr/--rules='seq=t\/15-release-metadata\.t'/,
   'macOS preserves serial execution for the release metadata test' );
+like( $macos_test->{run} // '', qr/BASH_ENV.*perl-ci-bashenv/s,
+  'nested Bash shells inherit the same Perl used to compile XS' );
 like( $macos_test->{run} // '', qr/--rules='par=\*\*'/,
   'macOS retains parallel scheduling for the remaining tests' );
 like( $macos_test->{run} // '',
