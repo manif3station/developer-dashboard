@@ -3469,6 +3469,31 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
     like( $ps_title, qr/\S/, '_read_process_title can execute the ps fallback path directly when procfs is disabled' );
 }
 
+# Portable procfs title tests: test the actual parser on hosts without /proc.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub {
+        return "dashboard\\0worker\\0";
+    };
+    is( $manager->_read_process_title(424242), 'dashboard worker',
+        '_read_process_title decodes procfs NUL-delimited data on every platform' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return undef };
+    is( $manager->_read_process_title(424242), undef,
+        '_read_process_title returns undef for an unreadable procfs entry' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return '' };
+    is( $manager->_read_process_title(424242), undef,
+        '_read_process_title returns undef for an empty procfs entry' );
+}
+
 SKIP: {
     skip '_read_process_state direct procfs coverage requires /proc', 1 if !-r "/proc/$$/stat";
     like( $manager->_read_process_state($$), qr/^[A-Z]$/, '_read_process_state reads the direct procfs state code for the current process' );
