@@ -485,8 +485,8 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
     local *Developer::Dashboard::CollectorRunner::_process_title = sub { 'collector-fixture' };
     local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub {
         my ( undef, $path ) = @_;
-        return '' if $path =~ m{/\\Q$pids[0]\\E/cmdline\\z};
-        return 'command line' if $path =~ m{/\\Q$pids[1]\\E/cmdline\\z};
+        return '' if $path =~ m{/\Q$pids[0]\E/cmdline\z};
+        return 'command line' if $path =~ m{/\Q$pids[1]\E/cmdline\z};
         return undef;
     };
     local *Developer::Dashboard::CollectorRunner::_read_process_title = sub {
