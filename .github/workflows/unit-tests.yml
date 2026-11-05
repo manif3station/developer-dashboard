@@ -87,6 +87,7 @@ jobs:
 
   windows-amd64-pr:
     name: Windows amd64 tests after macOS
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     needs: macos-arm64-pr
     permissions:
       contents: read

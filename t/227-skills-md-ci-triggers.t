@@ -46,6 +46,10 @@ is( $coverage_pr->{uses}, './.github/workflows/test-coverage.yml',
 my $windows_pr = $workflow->{jobs}{'windows-amd64-pr'} || {};
 is( $windows_pr->{needs}, 'macos-arm64-pr',
   'Windows PR tests wait for macOS success' );
+like( $windows_pr->{if} // '', qr/github\.event_name\s*==\s*'pull_request'/,
+  'Windows PR job is restricted to pull requests' );
+like( $windows_pr->{if} // '', qr/github\.event_name\s*==\s*'workflow_dispatch'/,
+  'Windows PR job is available for manual ordered test runs' );
 is( $windows_pr->{uses}, './.github/workflows/windows-amd64-unit-tests.yml',
   'Windows PR job invokes the dedicated workflow' );
 like( $macos_pr_job->{if} // '', qr/github\.event_name\s*==\s*'pull_request'/,
@@ -277,6 +281,10 @@ my ($bootstrap_step) = grep { ($_->{name} // '') eq 'Install pinned Strawberry P
   @windows_steps;
 like( $bootstrap_step->{run} // '', qr/Get-FileHash.*SHA256/s,
   'Windows verifies its pinned Strawberry Perl archive' );
+my ($expected_sha) = ($bootstrap_step->{run} // '') =~
+  /\$expectedSha256 = '([0-9a-f]+)'/;
+is( length($expected_sha // ''), 64,
+  'Windows pinned SHA256 has exactly 64 hexadecimal digits' );
 my ($windows_build) = grep { ($_->{name} // '') eq 'Build native XS extension' }
   @windows_steps;
 like( $windows_build->{run} // '', qr/perl Makefile\.PL.*gmake/s,
