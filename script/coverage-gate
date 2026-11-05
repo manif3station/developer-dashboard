@@ -326,6 +326,7 @@ sub main {
         return _unusable(
             'a child process could not load Devel::Cover::DB::IO at all, though this process can. '
                 . 'The suite and the report run as children, so the chain would write or read nothing usable'
+                . ( length $CHILD_INSTRUMENT_ERROR ? "\n  child probe: $CHILD_INSTRUMENT_ERROR" : '' )
         );
     }
     if ( $child_instrument ne $instrument ) {
@@ -582,6 +583,8 @@ sub _instrument_module {
     return defined $loaded ? $loaded : $INC{'Devel/Cover/DB/IO.pm'};
 }
 
+our $CHILD_INSTRUMENT_ERROR = '';
+
 # Purpose: ask a child process which Devel::Cover serializer IT resolves, because
 #          the suite and the report are children and resolve it independently of
 #          this process.
@@ -592,9 +595,14 @@ sub _child_instrument_module {
     # A list-form system uses the selected Perl on Windows and Unix.
     my ( $stdout, $stderr, $status ) = capture {
         system $^X, '-MDevel::Cover::DB::IO',
-            '-e', 'print $INC{"Devel/Cover/DB/IO.pm"}';
+            '-e', 'print $INC{q(Devel/Cover/DB/IO.pm)}';
     };
-    return undef if $status != 0 || !defined $stdout;
+    if ( $status != 0 || !defined $stdout || $stdout eq '' ) {
+        $CHILD_INSTRUMENT_ERROR = "exit status $status";
+        $stderr =~ s/\s+\z// if defined $stderr;
+        $CHILD_INSTRUMENT_ERROR .= "; stderr: $stderr" if defined $stderr && length $stderr;
+        return undef;
+    }
     chomp $stdout;
     return length $stdout ? $stdout : undef;
 }
