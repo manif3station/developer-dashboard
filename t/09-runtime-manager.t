@@ -3474,7 +3474,7 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub {
-        return "dashboard\\0worker\\0";
+        return "dashboard\x00worker\x00";
     };
     is( $manager->_read_process_title(424242), 'dashboard worker',
         '_read_process_title decodes procfs NUL-delimited data on every platform' );
