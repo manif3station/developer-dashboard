@@ -18,6 +18,7 @@ use Developer::Dashboard::InternalCLI;
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::PathRegistry;
 use Encode qw(decode encode);
+use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -1459,7 +1460,7 @@ my $sh_bootstrap_file = File::Spec->catfile( $ENV{HOME}, 'dashboard-shell-posix.
 open my $sh_bootstrap_fh, '>', $sh_bootstrap_file or die "Unable to write $sh_bootstrap_file: $!";
 print {$sh_bootstrap_fh} $sh_bootstrap;
 close $sh_bootstrap_fh;
-my $sh_d2_version = _run("sh -lc 'PATH=\"$d2_bindir:\$PATH\"; . \"$sh_bootstrap_file\"; d2 version'");
+my $sh_d2_version = _run("sh -lc 'PATH=\"$d2_bindir:" . dirname($perl) . ":\$PATH\"; . \"$sh_bootstrap_file\"; d2 version'");
 is( $sh_d2_version, "$expected_version\n", 'd2 helper dispatches dashboard subcommands through the POSIX shell bootstrap' );
 my $sh_which_dir_bookmarks = _run("sh -lc '. \"$sh_bootstrap_file\"; which_dir bookmarks_root'");
 is_same_path_output( $sh_which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root through the POSIX shell helper' );

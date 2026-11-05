@@ -109,6 +109,8 @@ jobs:
           printf 'export PATH=%s:$PATH\n' "$(printf '%q' "$perl_bin")" > "$RUNNER_TEMP/perl-ci-bashenv"
           export BASH_ENV="$RUNNER_TEMP/perl-ci-bashenv"
           prove -j 10 --timer \
+            --rules='seq=t/03-web-app.t' \
+            --rules='seq=t/148-coverage-gate-entrypoint.t' \
             --rules='seq=t/05-cli-smoke.t' \
             --rules='seq=t/09-runtime-manager.t' \
             --rules='seq=t/15-release-metadata.t' \

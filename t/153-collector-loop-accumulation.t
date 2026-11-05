@@ -268,6 +268,7 @@ my $second = $runner->start_loop($job);
 
 my $liveness = supervisor_liveness( $first, $name );
 SKIP: {
+    skip 'supervisor discovery without pidfiles requires Linux procfs', 2 if !-d '/proc';
     skip "DD-543: first supervisor is gone before the assertion could run - $liveness->{reason}", 2
       if !$liveness->{alive};
 
@@ -589,8 +590,11 @@ sub _read_optional_file {
 
     is( $runner->_find_running_loop($vanished_like), undef,
         'a scan where every candidate looks vanished finds no managed loop' );
-    ok( $title_reader_calls > 0,
-        'an unreadable (undef) cmdline still reaches _read_process_title - the new guard only skips empty-string, not undef' );
+    SKIP: {
+        skip 'scanning procfs candidates requires Linux procfs', 1 if !-d '/proc';
+        ok( $title_reader_calls > 0,
+            'an unreadable cmdline reaches the process title reader' );
+    }
 
     local *Developer::Dashboard::CollectorRunner::_read_proc_file = $real_proc_reader;
 }
