@@ -3710,6 +3710,19 @@ sub _run {
         $cmd =~ s/(?<!['"])\Q$perl\E(?=\s)/$shell_perl/g;
     }
     my $child_perl5opt = join ' ', grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
+    # Windows argument quoting can strip nested drive-path quotes when
+    # the entire compound CLI command is passed as a shell -c argument.
+    # Let Bash read the exact text from a scratch script instead.
+    my $windows_shell_script;
+    if ( $^O eq 'MSWin32' ) {
+        my ( $shell_fh, $shell_path ) = File::Temp::tempfile(
+            'dashboard-cli-smoke-XXXXXX', DIR => '.', SUFFIX => '.sh', UNLINK => 1
+        );
+        print {$shell_fh} "$cmd\n" or die "Unable to write temporary CLI shell script: $!";
+        close $shell_fh or die "Unable to close temporary CLI shell script: $!";
+        $shell_path =~ s{\\}{/}g;
+        $windows_shell_script = $shell_path;
+    }
     my $runtime_command = (
         defined $dashboard
           && $cmd =~ /\Q'$dashboard'\E\s+(?:serve|restart|stop)\b/
@@ -3721,11 +3734,21 @@ sub _run {
         if ($runtime_command) {
             local $ENV{PERL5OPT};
             local $ENV{HARNESS_PERL_SWITCHES};
-            system 'sh', '-c', $cmd;
+            if ( defined $windows_shell_script ) {
+                system 'sh', $windows_shell_script;
+            }
+            else {
+                system 'sh', '-c', $cmd;
+            }
             return $? >> 8;
         }
         local $ENV{PERL5OPT} = $child_perl5opt if _coverage_requested();
-        system 'sh', '-c', $cmd;
+        if ( defined $windows_shell_script ) {
+            system 'sh', $windows_shell_script;
+        }
+        else {
+            system 'sh', '-c', $cmd;
+        }
         return $? >> 8;
     };
     is( $exit_code, 0, "command succeeded: $cmd" );
