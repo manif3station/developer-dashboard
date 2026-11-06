@@ -207,8 +207,11 @@ sub _write_local_lib_runner {
       # Restrict this change to MakeMaker's own test-harness invocation.
       "if (\$is_test_harness) {\n",
       "    require File::Basename;\n",
-      "    my \$perl_bin = File::Basename::dirname(\$^X);\n",
-      "    \$ENV{PATH} = join \$Config{path_sep}, grep { defined \$_ && \$_ ne '' } (\$perl_bin, \$ENV{PATH});\n",
+      "    require File::Spec;\n",
+      "    if (File::Spec->file_name_is_absolute(\$^X)) {\n",
+      "        my \$perl_bin = File::Basename::dirname(\$^X);\n",
+      "        \$ENV{PATH} = join \$Config{path_sep}, grep { defined \$_ && \$_ ne '' } (\$perl_bin, \$ENV{PATH});\n",
+      "    }\n",
       "}\n",
       "my \@prefix = \$is_test_harness ? \@test_lib_paths : ();\n",
       "\$ENV{PERL5LIB} = join \$Config{path_sep}, \@prefix, \@inherited, \@local_lib_paths;\n",

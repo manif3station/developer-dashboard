@@ -125,7 +125,8 @@ jobs:
           native_tmp="$(getconf DARWIN_USER_TEMP_DIR)"
           export TMPDIR="${native_tmp/#\/private\/var/\/var}"
           mkdir -p "$TMPDIR"
-          cpanm --test-only -v "$archive"
+          cpanm -v --reinstall -L local "$archive"
+          perl -MDeveloper::Dashboard -e 'print "Installed Developer::Dashboard $Developer::Dashboard::VERSION\\n"'
 
   windows-amd64:
     name: Windows amd64 coverage after macOS
