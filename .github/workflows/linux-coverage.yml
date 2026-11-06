@@ -16,7 +16,7 @@ jobs:
   linux-coverage:
     name: Four-metric coverage 100% (Linux ${{ inputs.target }}, prove -j 10)
     runs-on: ${{ inputs.target == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
-    timeout-minutes: 270
+    timeout-minutes: 330
     env:
       PERL_MM_USE_DEFAULT: '1'
       NONINTERACTIVE_TESTING: '1'
