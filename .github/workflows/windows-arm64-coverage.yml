@@ -21,6 +21,7 @@ jobs:
     steps:
       # Always execute validation; wrong callers fail rather than skip.
       - name: Verify coverage caller
+        timeout-minutes: 2
         shell: pwsh
         env:
           DD_COVERAGE_WORKFLOW_NAME: ${{ github.workflow }}

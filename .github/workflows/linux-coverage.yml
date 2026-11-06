@@ -27,6 +27,7 @@ jobs:
       # An unconditional check fails visibly on caller or input drift;
       # never skip the strict coverage job because of a job-level guard.
       - name: Verify coverage caller and target
+        timeout-minutes: 2
         shell: bash
         env:
           DD_COVERAGE_WORKFLOW_NAME: ${{ github.workflow }}
