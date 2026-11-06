@@ -146,6 +146,7 @@ dd_windows_init_children(PINIT_ONCE once, PVOID param, PVOID *context) {
     return TRUE;
 }
 
+/* Callers must release the lock before croak: XS croak uses longjmp. */
 static void dd_windows_lock_children(void) {
     if (!InitOnceExecuteOnce(&dd_windows_children_once, dd_windows_init_children, NULL, NULL))
         croak("unable to initialize GoRoutine Windows process registry");
@@ -168,17 +169,23 @@ static void dd_windows_register_child(DWORD pid, HANDLE handle) {
 
 static HANDLE dd_windows_open_child(DWORD pid, DWORD rights) {
     HANDLE duplicate = NULL;
+    DWORD duplicate_error = ERROR_SUCCESS;
     struct dd_windows_child *child;
     dd_windows_lock_children();
     for (child = dd_windows_children; child; child = child->next) {
         if (child->pid == pid) {
             if (!DuplicateHandle(GetCurrentProcess(), child->handle,
                                  GetCurrentProcess(), &duplicate, 0, FALSE,
-                                 DUPLICATE_SAME_ACCESS)) duplicate = NULL;
+                                 DUPLICATE_SAME_ACCESS))
+                duplicate_error = GetLastError();
             break;
         }
     }
     LeaveCriticalSection(&dd_windows_children_lock);
+    /* Never disguise an exhausted or invalid handle duplication as a dead PID. */
+    if (duplicate_error != ERROR_SUCCESS)
+        croak("unable to duplicate GoRoutine child process handle (Windows error %lu)",
+              (unsigned long)duplicate_error);
     return child ? duplicate : OpenProcess(rights, FALSE, pid);
 }
 
@@ -223,7 +230,7 @@ static char *dd_windows_child_environment(pTHX_ HV *options) {
 
     for (entry = inherited; *entry; entry += strlen(entry) + 1) {
         size_t n = strlen(entry) + 1;
-        if (capacity > SIZE_MAX - n) {
+        if (n > SIZE_MAX - capacity) {
             FreeEnvironmentStringsA(inherited);
             croak("GoRoutine child environment is too large");
         }
@@ -248,7 +255,9 @@ static char *dd_windows_child_environment(pTHX_ HV *options) {
             FreeEnvironmentStringsA(inherited);
             croak("GoRoutine child environment values must not contain NUL");
         }
-        if (capacity > SIZE_MAX - (size_t)key_len - (size_t)value_len - 2) {
+        if ((size_t)value_len > SIZE_MAX - 2 ||
+            (size_t)key_len > SIZE_MAX - (size_t)value_len - 2 ||
+            capacity > SIZE_MAX - (size_t)value_len - (size_t)key_len - 2) {
             FreeEnvironmentStringsA(inherited);
             croak("GoRoutine child environment is too large");
         }
