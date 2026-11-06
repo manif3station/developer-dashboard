@@ -50,6 +50,9 @@ process_exited(pid)
         HANDLE process = dd_windows_open_child((DWORD)pid, SYNCHRONIZE);
         if (process == NULL) {
             DWORD error = GetLastError();
+            /* Match POSIX ECHILD + ESRCH: absent positive PIDs are
+             * reported as exited, not as a registry-membership error.
+             * Registered unreaped children use retained handles instead. */
             if (error == ERROR_INVALID_PARAMETER) RETVAL = 1;
             else croak("unable to inspect GoRoutine child process (Windows error %lu)",
                        (unsigned long)error);
