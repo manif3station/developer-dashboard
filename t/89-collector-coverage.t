@@ -450,6 +450,18 @@ SKIP: {
     is( $collector->read_log($name), '', 'an unreadable artifact is not mistaken for log payload' );
 }
 
+# On macOS and Windows /proc/self/mem is unavailable, so exercise the same
+# undefined artifact guard with a method-level fixture on every platform.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::Collector::_first_existing_text_file = sub { return undef };
+    my $output = $collector->read_output('undefined-artifact-fixture');
+    ok( !defined $output->{last_run}, 'read_output preserves an undefined last_run' );
+    ok( !defined $output->{stdout}, 'read_output preserves an undefined stdout' );
+    is( $collector->_log_payload_present( {}, $output ), 0,
+        '_log_payload_present ignores undefined artifacts on every platform' );
+}
+
 # ---------------------------------------------------------------------------
 # append_log_entry formatting and log-file failures.
 # ---------------------------------------------------------------------------

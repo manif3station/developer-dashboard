@@ -35,8 +35,9 @@ for my $candidate (@local_lib_candidates) {
 $local_lib_root ||= '.perl5';
 
 # TEST_REQUIRES
-# Keeps Test::Harness available on every platform while avoiding Devel::Cover
-# on Windows, where the hosted toolchain cannot install that optional module.
+# Keep Test::Harness available on every platform. Windows CI installs
+# Devel::Cover explicitly and fails if coverage instrumentation is unavailable.
+# Ordinary Windows builds do not require coverage tools.
 # Input: the current Perl operating system name in $^O.
 # Output: a hashref of platform-supported test prerequisites for MakeMaker.
 my %test_requires = ( 'Test::Harness' => '3.48' );

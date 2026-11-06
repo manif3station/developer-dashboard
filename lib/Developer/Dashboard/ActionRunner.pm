@@ -321,6 +321,10 @@ sub _reap_child_process {
     return 1;
 }
 
+# The default is the real Linux procfs. Tests can point this at a temporary
+# fixture so its parser also runs under macOS coverage.
+our $PROCFS_ROOT = '/proc';
+
 # _read_process_state($pid)
 # Reads the current process state so zombie background action wrappers can be
 # treated as stopped even when signal 0 still succeeds.
@@ -333,7 +337,7 @@ sub _read_process_state {
     # unreadable for this pid; without this guard its raw $? stays set in the
     # caller's process after this sub returns.
     local $?;
-    my $proc = "/proc/$pid/stat";
+    my $proc = "$PROCFS_ROOT/$pid/stat";
     if ( -r $proc ) {
         open my $fh, '<', $proc or return;
         local $/;

@@ -3294,7 +3294,11 @@ TCP6
         ok( scalar $manager->_process_fd_paths, '_process_fd_paths returns proc fd entries on Linux hosts' );
     }
     else {
-        pass('_process_fd_paths is skipped on hosts without /proc');
+        is_deeply(
+            [ $manager->_process_fd_paths ],
+            [],
+            '_process_fd_paths returns no proc fd entries when procfs is absent',
+        );
     }
 }
 
@@ -3463,6 +3467,71 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
     my $ps_title = $manager->_read_process_title($$);
     like( $ps_title, qr/\S/, '_read_process_title can execute the ps fallback path directly when procfs is disabled' );
+}
+
+# Portable procfs title tests: test the actual parser on hosts without /proc.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub {
+        return "dashboard\x00worker\x00";
+    };
+    is( $manager->_read_process_title(424242), 'dashboard worker',
+        '_read_process_title decodes procfs NUL-delimited data on every platform' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return undef };
+    is( $manager->_read_process_title(424242), undef,
+        '_read_process_title returns undef for an unreadable procfs entry' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return '' };
+    is( $manager->_read_process_title(424242), undef,
+        '_read_process_title returns undef for an empty procfs entry' );
+}
+
+# Exercise the actual procfs state parser on all hosts rather than relying
+# on the Linux-only /proc/$pid/stat precondition.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub {
+        return "424242 (example worker) S 1 2 3\n";
+    };
+    is( $manager->_read_process_state(424242), 'S',
+        '_read_process_state parses a portable procfs stat fixture' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return undef };
+    is( $manager->_read_process_state(424242), undef,
+        '_read_process_state handles unreadable procfs stat data' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return 'invalid stat payload' };
+    is( $manager->_read_process_state(424242), undef,
+        '_read_process_state handles invalid procfs stat data' );
+}
+{
+    my $proc_fixture = File::Spec->catdir( $home, 'runtime-proc-fixture' );
+    mkdir $proc_fixture or die "Unable to create $proc_fixture: $!";
+    local $Developer::Dashboard::RuntimeManager::PROCFS_ROOT = $proc_fixture;
+    is( $manager->_procfs_available, 1, '_procfs_available detects an existing directory' );
+    my $stat = File::Spec->catfile( $proc_fixture, 'stat' );
+    open my $fh, '>', $stat or die "Unable to create $stat: $!";
+    print {$fh} "fixture text\n";
+    close $fh or die "Unable to close $stat: $!";
+    is( $manager->_slurp_proc_file($stat), "fixture text\n",
+        '_slurp_proc_file reads an existing fixture file' );
+    is( $manager->_slurp_proc_file( File::Spec->catfile( $proc_fixture, 'missing' ) ),
+        undef, '_slurp_proc_file rejects a missing fixture file' );
 }
 
 SKIP: {

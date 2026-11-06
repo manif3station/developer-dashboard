@@ -457,6 +457,95 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
     }
 }
 
+# When procfs supplies a nonempty command line, normalize NUL separators and
+# whitespace without depending on /proc (absent on macOS and Windows).
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub {
+        return "collector\x00worker\x00\n";
+    };
+    is(
+        $runner->_read_process_title(424242),
+        'collector worker',
+        '_read_process_title decodes a procfs command line on every platform',
+    );
+}
+
+# Enumerate real temporary directory entries instead of Linux /proc. The
+# reader and identity lookups are stubbed, but enumeration and filtering run
+# through the real method on every platform.
+{
+    require File::Path;
+    my $root = File::Spec->catdir( $home, 'fake-collector-proc' );
+    my $self_pid = POSIX::getpid();
+    my @pids = map { $self_pid + $_ } ( 10000, 10001, 10002, 10003 );
+    File::Path::make_path( $root, map { File::Spec->catdir( $root, $_ ) } ( $self_pid, @pids ) );
+    no warnings 'redefine';
+    local $Developer::Dashboard::CollectorRunner::PROCFS_ROOT = $root;
+    local *Developer::Dashboard::CollectorRunner::_process_title = sub { 'collector-fixture' };
+    local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub {
+        my ( undef, $path ) = @_;
+        return '' if $path =~ m{/\Q$pids[0]\E/cmdline\z};
+        return 'command line' if $path =~ m{/\Q$pids[1]\E/cmdline\z};
+        return undef;
+    };
+    local *Developer::Dashboard::CollectorRunner::_read_process_title = sub {
+        my ( undef, $pid ) = @_;
+        return 'other-title' if $pid == $pids[1];
+        return 'collector-fixture';
+    };
+    local *Developer::Dashboard::CollectorRunner::_same_pid_namespace = sub {
+        my ( undef, $pid ) = @_;
+        return $pid == $pids[3] ? 1 : 0;
+    };
+    is( $runner->_find_running_loop('fixture'), $pids[3],
+        '_find_running_loop filters empty command lines, titles and namespaces portably' );
+    is( $runner->_find_running_loop(''), undef,
+        '_find_running_loop rejects an empty collector name' );
+    {
+        local *Developer::Dashboard::CollectorRunner::_read_process_title = sub { return undef };
+        is( $runner->_find_running_loop('fixture'), undef,
+            '_find_running_loop rejects candidates whose process title is unavailable' );
+    }
+    {
+        local *Developer::Dashboard::CollectorRunner::_same_pid_namespace = sub { return 0 };
+        is( $runner->_find_running_loop('fixture'), undef,
+            '_find_running_loop returns undef after exhausting foreign-namespace candidates' );
+    }
+
+}
+
+# A missing pidfile and no discoverable supervisor must return cleanly.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_pidfile = sub {
+        return File::Spec->catfile( $home, 'absent-supervisor.pid' );
+    };
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return undef };
+    is( $runner->stop_loop('absent-loop'), undef,
+        'stop_loop returns undef when neither pidfile nor process table finds a loop' );
+}
+
+# Missing pidfile, but a process-table lookup found an already reaped pid:
+# finish persisted state cleanup without signalling a synthetic process.
+{
+    no warnings 'redefine';
+    my $pid = 424242;
+    my $cleaned = 0;
+    local *Developer::Dashboard::CollectorRunner::_pidfile = sub {
+        return File::Spec->catfile( $home, 'absent-supervisor-found.pid' );
+    };
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return $pid };
+    local *Developer::Dashboard::CollectorRunner::_state_active_worker_pids = sub { return () };
+    local *Developer::Dashboard::CollectorRunner::_reap_child_process = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_same_pid_namespace = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_cleanup_loop_files = sub { $cleaned++; return 1 };
+    local *Developer::Dashboard::Collector::mark_stopped = sub { return 1 };
+    is( $runner->stop_loop('already-reaped-fixture'), $pid,
+        'stop_loop accepts a discovered pid and handles a reaped supervisor safely' );
+    is( $cleaned, 1, 'discovered, reaped supervisor state is cleaned exactly once' );
+}
+
 done_testing;
 
 __END__

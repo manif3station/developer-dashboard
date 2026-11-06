@@ -41,58 +41,59 @@ like( $security, qr/Reporting A Vulnerability/i,
 like( $security, qr/security@/i,
     'SECURITY.md includes a private reporting contact' );
 
-my $unit_workflow_path = File::Spec->catfile( $WORKFLOWS, 'unit-tests.yml' );
-ok( -f $unit_workflow_path, 'the owner-approved unit-test workflow is present' );
-my $unit_workflow = _slurp($unit_workflow_path);
-like( $unit_workflow, qr/^permissions:\s*$/m,
-    'the unit-test workflow declares token permissions explicitly' );
-like( $unit_workflow, qr/^\s+contents:\s*read\s*$/m,
-    'the unit-test workflow only requests read access' );
-unlike( $unit_workflow, qr/^\s+\w[\w-]*:\s*write\s*$/m,
-    'the unit-test workflow requests no write permissions' );
-like( $unit_workflow, qr/^concurrency:\s*$/m,
-    'the unit-test workflow bounds concurrent runs' );
-like( $unit_workflow, qr/^\s+timeout-minutes:\s*\d+\s*$/m,
-    'the unit-test workflow has an explicit timeout' );
-unlike( $unit_workflow, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/,
-    'the unit-test workflow does not use floating action tags' );
+my $mac_workflow_path = File::Spec->catfile( $WORKFLOWS, 'macos-arm64-unit-tests.yml' );
+ok( -f $mac_workflow_path, 'the owner-approved macOS coverage workflow is present' );
+my $mac_workflow = _slurp($mac_workflow_path);
+like( $mac_workflow, qr/^permissions:\s*$/m,
+    'the macOS coverage workflow declares token permissions explicitly' );
+like( $mac_workflow, qr/^\s+contents:\s*read\s*$/m,
+    'the macOS coverage workflow only requests read access' );
+unlike( $mac_workflow, qr/^\s+\w[\w-]*:\s*write\s*$/m,
+    'the macOS coverage workflow requests no write permissions' );
+like( $mac_workflow, qr/^concurrency:\s*$/m,
+    'the macOS coverage workflow bounds concurrent runs' );
+like( $mac_workflow, qr/^\s+timeout-minutes:\s*\d+\s*$/m,
+    'the macOS coverage workflow has an explicit timeout' );
+unlike( $mac_workflow, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/,
+    'the macOS coverage workflow does not use floating action tags' );
 my @pins;
-while ( $unit_workflow =~ /uses:\s*(\S+)\@([^\s#]+)/g ) {
+while ( $mac_workflow =~ /uses:\s*(\S+)\@([^\s#]+)/g ) {
     my ( $action, $pin ) = ( $1, $2 );
     push @pins, $action;
     like( $pin, qr/\A[0-9a-f]{40}\z/,
-        "the unit-test workflow pins $action to a full commit SHA" );
+        "the macOS coverage workflow pins $action to a full commit SHA" );
 }
-cmp_ok( scalar(@pins), '>=', 2, 'the unit-test workflow has pinned dependencies' );
+cmp_ok( scalar(@pins), '>=', 2, 'the macOS coverage workflow has pinned dependencies' );
 
 for my $retired (qw(
   coverage.yml dockerhub-image.yml platform-compatibility.yml release-github.yml
   test.yml codeql.yml package-ghcr.yml fuzz-js.yml
+  unit-tests.yml test-coverage.yml
 )) {
     ok( !-e File::Spec->catfile( $WORKFLOWS, $retired ),
         "$retired stays absent from the active workflow set" );
 }
 
-like( $unit_workflow, qr/\bprove -j 10\b/,
-    'the full Perl test suite is run with ten parallel workers' );
+like( $mac_workflow, qr/perl script\/coverage-gate --jobs 10/,
+    'the full macOS coverage suite runs with ten workers' );
 
-my $coverage_workflow_path = File::Spec->catfile( $WORKFLOWS, 'test-coverage.yml' );
-ok( -f $coverage_workflow_path, 'the dependent coverage workflow is present' );
-my $coverage_workflow = _slurp($coverage_workflow_path);
-like( $coverage_workflow, qr/^permissions:\s*$/m,
+my $windows_workflow_path = File::Spec->catfile( $WORKFLOWS, 'windows-amd64-unit-tests.yml' );
+ok( -f $windows_workflow_path, 'the dependent Windows coverage workflow is present' );
+my $windows_workflow = _slurp($windows_workflow_path);
+like( $windows_workflow, qr/^permissions:\s*$/m,
     'coverage declares token permissions explicitly' );
-like( $coverage_workflow, qr/^\s+contents:\s*read\s*$/m,
+like( $windows_workflow, qr/^\s+contents:\s*read\s*$/m,
     'coverage requests read-only permission' );
-unlike( $coverage_workflow, qr/^\s+\w[\w-]*:\s*write\s*$/m,
+unlike( $windows_workflow, qr/^\s+\w[\w-]*:\s*write\s*$/m,
     'coverage requests no write permission' );
-like( $coverage_workflow, qr/^concurrency:\s*$/m,
-    'coverage bounds duplicated upstream runs' );
-like( $coverage_workflow, qr/^\s+timeout-minutes:\s*\d+\s*$/m,
+unlike( $windows_workflow, qr/^concurrency:\s*$/m,
+    'the macOS workflow owns concurrency for both platforms' );
+like( $windows_workflow, qr/^\s+timeout-minutes:\s*\d+\s*$/m,
     'coverage sets an explicit timeout' );
-unlike( $coverage_workflow, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/,
+unlike( $windows_workflow, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/,
     'coverage avoids floating action tags' );
 my @coverage_pins;
-while ( $coverage_workflow =~ /uses:\s*(\S+)\@([^\s#]+)/g ) {
+while ( $windows_workflow =~ /uses:\s*(\S+)\@([^\s#]+)/g ) {
     my ( $action, $pin ) = ( $1, $2 );
     push @coverage_pins, $action;
     like( $pin, qr/\A[0-9a-f]{40}\z/,
@@ -100,13 +101,15 @@ while ( $coverage_workflow =~ /uses:\s*(\S+)\@([^\s#]+)/g ) {
 }
 cmp_ok( scalar(@coverage_pins), '>=', 2,
     'coverage has SHA-pinned actions' );
-like( $coverage_workflow, qr/workflow_run\.conclusion == 'success'/,
-    'coverage only runs after passing unit tests' );
-like( $coverage_workflow, qr/perl script\/coverage-gate --jobs 10/,
-    'coverage enforces all metrics with ten workers' );
+like( $windows_workflow, qr/^\s*workflow_call:\s*$/m,
+    'Windows accepts only the reusable workflow trigger' );
+like( $mac_workflow, qr/^\s*needs:\s*macos-arm64\s*$/m,
+    'Windows waits for successful macOS coverage' );
+like( $windows_workflow, qr/perl script\/coverage-gate --jobs 10/,
+    'Windows coverage enforces all metrics with ten workers' );
 
-unlike( $unit_workflow, qr/gh\s+release\s+(?:create|upload)\b|docker\/build-push-action/,
-    'the unit-test workflow does not publish releases or Docker images' );
+unlike( $mac_workflow, qr/gh\s+release\s+(?:create|upload)\b|docker\/build-push-action/,
+    'the macOS coverage workflow does not publish releases or Docker images' );
 
 my $property_test = _slurp( File::Spec->catfile( $ROOT, 't', '35-js-fast-check.t' ) );
 like( $property_test, qr/'fuzz:scorecard'/,
@@ -122,9 +125,8 @@ __END__
 
 =head1 DESCRIPTION
 
-Checks security-policy files and the two active test workflows for pinned
-actions, explicit read-only permissions, timeouts and the four-metric
-100 percent coverage gate following successful unit tests.
+Checks security policy and both platform coverage workflows for pinned
+actions, read-only permissions, timeouts and mandatory 100 percent coverage.
 
 =head1 PURPOSE
 
@@ -135,8 +137,7 @@ fuzz workflow merely to satisfy historical Scorecard assumptions.
 =head1 WHY IT EXISTS
 
 Removing workflows changes which automated Scorecard signals exist, but the
-remaining test and coverage workflows still handle quality and repository
-identity. Their least-privilege and coverage properties must remain explicit.
+remaining macOS and Windows coverage workflows handle quality and identity. Their least-privilege and coverage properties must remain explicit.
 
 =head1 WHEN TO USE
 
@@ -150,7 +151,7 @@ automation disabled.
 
 =head1 WHAT USES IT
 
-The source-tree unit-test and coverage workflows use these assertions to
+The source-tree macOS and Windows coverage workflows use these assertions to
 guard the retained CI security surface.
 
 =head1 EXAMPLES

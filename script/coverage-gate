@@ -14,6 +14,9 @@
 use strict;
 use warnings;
 
+our $CHILD_INSTRUMENT_ERROR = '';
+
+
 use Config ();
 use Cwd ();
 use File::Spec ();
@@ -326,6 +329,7 @@ sub main {
         return _unusable(
             'a child process could not load Devel::Cover::DB::IO at all, though this process can. '
                 . 'The suite and the report run as children, so the chain would write or read nothing usable'
+                . ( length $CHILD_INSTRUMENT_ERROR ? "\n  child probe: $CHILD_INSTRUMENT_ERROR" : '' )
         );
     }
     if ( $child_instrument ne $instrument ) {
@@ -351,7 +355,30 @@ sub main {
     my $stamp_failure = _check_database_stamp( $database, $instrument );
     return $stamp_failure if defined $stamp_failure;
 
-    my @delete = ( 'cover', $database, '-delete' );
+    # Native Strawberry Perl can dispatch a bare cover command through
+    # Git Bash's MSYS shebang resolver. That changes how Windows drive-letter
+    # PERL5LIB entries are interpreted and makes Devel::Cover's JSON/Storable
+    # serializer unavailable even though the current interpreter loads it.
+    # Execute the configured installed script with this same Perl instead.
+    # Preserve the original command in dry-run output for contract tests.
+    my @cover_command = ('cover');
+    if ( $^O eq 'MSWin32' && !$dry_run && defined $ENV{DD_NATIVE_COVER_SCRIPT}
+        && length $ENV{DD_NATIVE_COVER_SCRIPT} ) {
+        my $script = $ENV{DD_NATIVE_COVER_SCRIPT};
+        return _unusable("the configured native cover script is missing: $script") if !-f $script;
+        @cover_command = ( $^X, $script );
+    }
+    # The extensionless prove launcher has the same MSYS shebang problem as
+    # cover on Windows. Keep the harness and its TAP modules under the pinned
+    # native Perl interpreter; preserve ordinary dry-run output for contracts.
+    my @prove_command = ('prove');
+    if ( $^O eq 'MSWin32' && !$dry_run && defined $ENV{DD_NATIVE_PROVE_SCRIPT}
+        && length $ENV{DD_NATIVE_PROVE_SCRIPT} ) {
+        my $script = $ENV{DD_NATIVE_PROVE_SCRIPT};
+        return _unusable("the configured native prove script is missing: $script") if !-f $script;
+        @prove_command = ( $^X, $script );
+    }
+    my @delete = ( @cover_command, $database, '-delete' );
     # Some integration-style tests own real ports or inspect transient source
     # files. Keep those test files isolated from other workers; the remaining
     # suite still has all requested parallel slots.
@@ -360,12 +387,15 @@ sub main {
         '--rules=seq=t/05-cli-smoke.t',
         '--rules=seq=t/09-runtime-manager.t',
         '--rules=seq=t/15-release-metadata.t',
+        # t/149 creates a temporary file under t/ as part of its own test.
+        # Running it beside t/148 can change the latter's grading fingerprint.
+        '--rules=seq=t/{148-coverage-gate-entrypoint,149-coverage-gate-moving-target}.t',
         '--rules=par=**',
     ) : ();
-    my @suite  = ( 'prove', @parallel, '-l', @instrumented_tests );
-    my @native_thread_suite = @native_thread_tests ? ( 'prove', @parallel, '-l', @native_thread_tests ) : ();
+    my @suite  = ( @prove_command, @parallel, '-l', @instrumented_tests );
+    my @native_thread_suite = @native_thread_tests ? ( @prove_command, @parallel, '-l', @native_thread_tests ) : ();
     my @report = (
-        'cover', $database, '-report', 'text', '-select_re', '^lib/', '-gcov', '0',
+        @cover_command, $database, '-report', 'text', '-select_re', '^lib/', '-gcov', '0',
         '-coverage', 'statement',
         '-coverage', 'branch',
         '-coverage', 'condition',
@@ -395,7 +425,30 @@ sub main {
     # -blib,0 also ensures the built copy does not shadow lib/ during coverage.
     local $ENV{HARNESS_PERL_SWITCHES}
         = "-MDevel::Cover=-db,$database,-blib,0,-select,^lib/,-ignore,^";
-    my $ran = _run( 'instrumented suite', @suite );
+    # cmd.exe rejects command lines longer than 8191 characters. The full
+    # instrumented test list grows beyond that limit on Windows; split only
+    # the invocation, not the coverage database or the selected test suite.
+    # Every batch still uses the requested prove -j worker count and contributes
+    # to the same Devel::Cover database before the single final report.
+    my $ran;
+    if ( $^O eq 'MSWin32' ) {
+        my @prefix = ( @prove_command, @parallel, '-l' );
+        my @batch;
+        for my $test (@instrumented_tests) {
+            push @batch, $test;
+            if ( @batch >= 40 ) {
+                $ran = _run( 'instrumented suite batch', @prefix, @batch );
+                last if $ran != EXIT_CLEAN;
+                @batch = ();
+            }
+        }
+        $ran = _run( 'instrumented suite final batch', @prefix, @batch )
+            if ( !defined($ran) || $ran == EXIT_CLEAN ) && @batch;
+        $ran = EXIT_CLEAN if !defined $ran;
+    }
+    else {
+        $ran = _run( 'instrumented suite', @suite );
+    }
 
     if ( $ran != EXIT_CLEAN ) {
         return _grading_identity() eq $before ? $ran : _tree_moved();
@@ -585,10 +638,20 @@ sub _instrument_module {
 # Input:   none
 # Output:  the child's resolved path, or undef when the child cannot load it.
 sub _child_instrument_module {
-    my $path = qx{$^X -MDevel::Cover::DB::IO -e 'print \$INC{"Devel/Cover/DB/IO.pm"}' 2>/dev/null};
-    return undef if $? != 0 || !defined $path;
-    chomp $path;
-    return length $path ? $path : undef;
+    # Avoid shell quoting: cmd.exe does not interpret Unix single quotes.
+    # A list-form system uses the selected Perl on Windows and Unix.
+    my ( $stdout, $stderr, $status ) = capture {
+        system $^X, '-MDevel::Cover::DB::IO',
+            '-e', 'print $INC{q(Devel/Cover/DB/IO.pm)}';
+    };
+    if ( $status != 0 || !defined $stdout || $stdout eq '' ) {
+        $CHILD_INSTRUMENT_ERROR = "exit status $status";
+        $stderr =~ s/\s+\z// if defined $stderr;
+        $CHILD_INSTRUMENT_ERROR .= "; stderr: $stderr" if defined $stderr && length $stderr;
+        return undef;
+    }
+    chomp $stdout;
+    return length $stdout ? $stdout : undef;
 }
 
 # Purpose: refuse to grade a database written by a different Devel::Cover than the

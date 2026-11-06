@@ -4,39 +4,41 @@ The repository contains exactly **two** active GitHub Actions workflows:
 
 | Workflow | Trigger | Runs when |
 |---|---|---|
-| `unit-tests.yml` | Push to `master`, pull request, or manual dispatch | The event occurs |
-| `test-coverage.yml` | `workflow_run` after `Unit Tests` completes | Only when the Unit Tests run concluded `success` |
+| `macos-arm64-unit-tests.yml` | Push to `master`, pull request, or manual dispatch | Runs full 100% code coverage on macOS arm64 |
+| `windows-amd64-unit-tests.yml` | Reusable `workflow_call` only | Called after the macOS coverage job succeeds |
 
-Both workflows run on Ubuntu with threaded Perl 5.44, install dependencies into
-an isolated `local/` tree, and compile the native XS extension. Unit Tests runs:
+Both platforms install their Perl dependencies, compile the native XS extension,
+install Devel::Cover and execute the same full coverage command:
 
-```bash
-prove -j 10 -Iblib/arch -Iblib/lib -lr t
-```
-
-The coverage workflow checks out the source SHA from the successful upstream
-unit-test run and then executes:
-
-```bash
+```shell
 perl script/coverage-gate --jobs 10
 ```
 
-Both workflows retain `-j 10` while scheduling process-owning tests
-(`t/05-cli-smoke.t`, `t/09-runtime-manager.t`) and the source-inventory
-regression (`t/15-release-metadata.t`) sequentially, away from other workers.
-All other eligible tests can use ten parallel workers. The coverage gate runs
-instrumentable tests under Devel::Cover and separately runs native-thread
-tests without unsupported instrumentation. The job fails unless all four covered
-`lib/` metrics — statement, branch, condition and subroutine — are exactly
-**100.0%**. Failed or cancelled upstream unit tests skip the coverage job.
-Coverage does not run directly from a push or a pull request.
+The coverage gate schedules its instrumentable Perl tests under Devel::Cover
+using ten TAP workers (`prove -j 10`). Tests requiring native threads are
+run separately without unsupported instrumentation; they must still pass.
+The gate rejects any total below **100.0%** in statement, branch, condition
+or subroutine coverage and fails if instrumentation is unavailable.
 
-The former platform, Docker Hub and release-publishing workflows remain
-removed at the owner's request.
+On macOS the workflow uses an Apple Silicon runner and threaded Perl 5.44.
+On Windows it uses the Windows x64 runner with checksum-verified portable
+Strawberry Perl and the same mandatory four-metric gate. The Windows job
+is a reusable workflow with `needs: macos-arm64` in the macOS caller.
+A failed or cancelled macOS run prevents Windows from starting.
+
+The gate retains serial scheduling for process-owning tests and the
+source-sensitive coverage fixture pair, while other eligible tests
+retain up to ten parallel workers.
+
+Permissions remain read-only and GitHub Actions dependencies are pinned
+to immutable commit identifiers. The macOS workflow owns concurrency
+for the entire two-stage run.
 
 ## Retired workflows
 
-- `coverage.yml` (replaced by dependent `test-coverage.yml`)
+- `unit-tests.yml` (superseded by macOS and Windows coverage)
+- `test-coverage.yml` (coverage is now platform-specific)
+- `coverage.yml`
 - `dockerhub-image.yml`
 - `platform-compatibility.yml`
 - `release-github.yml`
