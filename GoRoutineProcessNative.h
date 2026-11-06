@@ -146,7 +146,13 @@ dd_windows_init_children(PINIT_ONCE once, PVOID param, PVOID *context) {
     return TRUE;
 }
 
-/* Callers must release the lock before croak: XS croak uses longjmp. */
+/*
+ * INVARIANT: every caller MUST call LeaveCriticalSection before any croak,
+ * return, or other non-local exit.  XS croak uses longjmp, which leaves a
+ * held critical section locked.  MinGW/GCC does not support __try/__finally.
+ * The register/open/forget callers have no throwing operations inside their
+ * critical sections; keep all failure handling outside that region.
+ */
 static void dd_windows_lock_children(void) {
     if (!InitOnceExecuteOnce(&dd_windows_children_once, dd_windows_init_children, NULL, NULL))
         croak("unable to initialize GoRoutine Windows process registry");
