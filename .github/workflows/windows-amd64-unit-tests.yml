@@ -1,6 +1,6 @@
 name: Windows amd64 Test Coverage
 
-# Reusable only: macOS coverage calls this after it passes.
+# Reusable only: the five-platform chain calls this after Linux arm64 passes.
 on:
   workflow_call:
 
@@ -10,14 +10,28 @@ permissions:
 jobs:
   windows-amd64:
     name: Four-metric coverage 100% (Windows amd64, prove -j 10)
-    if: ${{ github.repository == 'manif3station/developer-dashboard' && startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@') }}
     runs-on: windows-latest
-    timeout-minutes: 300
+    timeout-minutes: 360
     env:
       PERL_MM_USE_DEFAULT: '1'
       NONINTERACTIVE_TESTING: '1'
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
+      # Always execute validation; wrong callers fail rather than skip.
+      - name: Verify coverage caller
+        timeout-minutes: 2
+        shell: pwsh
+        env:
+          DD_COVERAGE_WORKFLOW_NAME: ${{ github.workflow }}
+          DD_COVERAGE_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          $expectedCallerRef = 'manif3station/developer-dashboard/.github/workflows/five-platform-coverage.yml@'
+          if ($env:GITHUB_REPOSITORY -ne 'manif3station/developer-dashboard' -or
+              $env:DD_COVERAGE_WORKFLOW_NAME -ne 'Five-platform 100% Test Coverage' -or
+              -not $env:DD_COVERAGE_WORKFLOW_REF.StartsWith($expectedCallerRef)) {
+            throw 'Windows amd64 coverage must be called by the five-platform orchestrator'
+          }
+
       - name: Checkout
         timeout-minutes: 10
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,7 +56,11 @@ jobs:
           $archive = Join-Path $env:RUNNER_TEMP "strawberry-perl-$version-64bit-portable.zip"
           $root = Join-Path $env:RUNNER_TEMP 'strawberry-perl-portable'
           $url = 'https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_54231_64bit/strawberry-perl-5.42.3.1-64bit-portable.zip'
+          # Official release digest (64 hex chars); reject accidental truncation.
           $expectedSha256 = '6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690'
+          if ($expectedSha256.Length -ne 64 -or $expectedSha256 -cnotmatch '^[0-9a-f]{64}$') {
+            throw "Invalid pinned Strawberry Perl SHA256: length $($expectedSha256.Length), expected 64 hexadecimal characters"
+          }
           Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
           $actualSha256 = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actualSha256 -ne $expectedSha256) {
@@ -212,7 +230,7 @@ jobs:
           # Verify the serializer before starting the costly strict suite.
           perl -MJSON -MStorable -MDevel::Cover::DB::IO -e 'print "Native coverage serializer ready\n"'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          perl -MTAP::Harness::Env -e 'print "Native TAP harness ready\\n"'
+          perl -MTAP::Harness::Env -e 'print "Native TAP harness ready\n"'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Write-Host "Native coverage CLI wrapper: $coverWrapper"
           # The gate's Unix default /tmp lock path does not exist on Windows.

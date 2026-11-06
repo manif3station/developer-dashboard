@@ -1,0 +1,155 @@
+name: Windows arm64 Test Coverage
+
+# Native Windows-on-ARM coverage. Called only after Windows amd64 succeeds.
+# MSYS2 CLANGARM64 provides an ARM64 Perl and ARM64 Devel::Cover;
+# an x64 Strawberry Perl under emulation would not validate ARM64 XS.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-arm64:
+    name: Four-metric coverage 100% (Windows arm64, prove -j 10)
+    runs-on: windows-11-arm
+    timeout-minutes: 360
+    env:
+      PERL_MM_USE_DEFAULT: '1'
+      NONINTERACTIVE_TESTING: '1'
+      PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
+    steps:
+      # Always execute validation; wrong callers fail rather than skip.
+      - name: Verify coverage caller
+        timeout-minutes: 2
+        shell: pwsh
+        env:
+          DD_COVERAGE_WORKFLOW_NAME: ${{ github.workflow }}
+          DD_COVERAGE_WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          $expectedCallerRef = 'manif3station/developer-dashboard/.github/workflows/five-platform-coverage.yml@'
+          if ($env:GITHUB_REPOSITORY -ne 'manif3station/developer-dashboard' -or
+              $env:DD_COVERAGE_WORKFLOW_NAME -ne 'Five-platform 100% Test Coverage' -or
+              -not $env:DD_COVERAGE_WORKFLOW_REF.StartsWith($expectedCallerRef)) {
+            throw 'Windows arm64 coverage must be called by the five-platform orchestrator'
+          }
+
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify native Windows arm64 runner
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ARCH -ne 'ARM64') {
+            throw "Expected Windows/ARM64, got $env:RUNNER_OS/$env:RUNNER_ARCH"
+          }
+
+      - name: Set up Node for test suite
+        timeout-minutes: 10
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install native Windows ARM64 Perl, compiler, and coverage
+        timeout-minutes: 35
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: CLANGARM64
+          # setup-node runs in Windows before MSYS2; preserve its Node/npm PATH.
+          path-type: inherit
+          update: true
+          install: >-
+            mingw-w64-clang-aarch64-perl
+            mingw-w64-clang-aarch64-clang
+            mingw-w64-clang-aarch64-make
+            mingw-w64-clang-aarch64-expat
+            mingw-w64-clang-aarch64-openssl
+            mingw-w64-clang-aarch64-pkgconf
+            mingw-w64-clang-aarch64-perl-devel-cover
+
+      - name: Verify native Perl and Devel::Cover
+        timeout-minutes: 5
+        shell: msys2 {0}
+        run: |
+          set -e
+          perl -MConfig -e '
+            die "Expected Perl 5.38 or newer\n" if $] < 5.038;
+            my $arch = $Config{archname};
+            die "Expected ARM64 Perl, got $arch\n" unless $arch =~ /(?:aarch64|arm64)/i;
+            print "Native Perl $^V on $arch\n";
+          '
+          perl -MDevel::Cover::DB::IO -e 'print "ARM64 Devel::Cover ready\n"'
+          # Fail before CPAN installation if setup-node's Node/npm are hidden.
+          command -v node
+          command -v npm
+          node --version
+          npm --version
+
+      - name: Install Perl dependencies
+        timeout-minutes: 75
+        shell: msys2 {0}
+        run: |
+          set -e
+          # Use the native CLANGARM64 toolchain for CPAN XS builds.
+          command -v mingw32-make
+          # Bootstrap a fixed cpanminus release instead of executing mutable
+          # https://cpanmin.us content. The digest is the published SHA256
+          # for App-cpanminus 1.7049 (also recorded in FreeBSD ports distinfo).
+          # Abort before extraction or execution if the bytes differ.
+          version=1.7049
+          expected_sha256=b9ffb88e62a06aa91bd7d5a28ef6bdbb942608aea90e3969aa29b33640035214
+          bootstrap_dir="$(mktemp -d)"
+          trap 'rm -rf "$bootstrap_dir"' EXIT
+          archive="$bootstrap_dir/App-cpanminus-$version.tar.gz"
+          curl --fail --location --retry 3 --silent --show-error \
+            "https://www.cpan.org/authors/id/M/MI/MIYAGAWA/App-cpanminus-$version.tar.gz" \
+            -o "$archive"
+          echo "$expected_sha256  $archive" | sha256sum --check --status
+          tar -xzf "$archive" -C "$bootstrap_dir"
+          cpanm="$bootstrap_dir/App-cpanminus-$version/bin/cpanm"
+          test -f "$cpanm"
+          # Always run cpanm under the native CLANGARM64 Perl.
+          perl "$cpanm" --version
+          perl "$cpanm" --make mingw32-make --installdeps --notest -L local .
+          perl "$cpanm" --make mingw32-make --notest -L local 'Test::Harness~3.48'
+
+      - name: Build native XS extension
+        timeout-minutes: 30
+        shell: msys2 {0}
+        run: |
+          set -e
+          # Win32 Perl's PERL5LIB separator is semicolon, not Unix colon.
+          local_lib="$(pwd -W)/local/lib/perl5"
+          export PERL5LIB="$local_lib${PERL5LIB:+;$PERL5LIB}"
+          perl Makefile.PL
+          # Use the native MinGW make.exe from /clangarm64/bin rather than
+          # the MSYS POSIX make.exe in /usr/bin.
+          mingw32-make
+
+      - name: Require 100% four-metric coverage (10 workers)
+        timeout-minutes: 120
+        shell: msys2 {0}
+        run: |
+          set -e
+          root="$(pwd -W)"
+          local_lib="$root/local/lib/perl5"
+          arch="$(perl -MConfig -e 'print $Config{archname}')"
+          path_sep="$(perl -MConfig -e 'print $Config{path_sep}')"
+          export PERL5LIB="$root/blib/arch${path_sep}$local_lib${path_sep}$local_lib/$arch${PERL5LIB:+$path_sep$PERL5LIB}"
+          export PATH="$PWD/local/bin:$PATH"
+          # Ensure the strict gate's child processes use native Perl scripts.
+          export DD_NATIVE_COVER_SCRIPT="$(cygpath -m "$(command -v cover)")"
+          export DD_NATIVE_PROVE_SCRIPT="$(cygpath -m "$(command -v prove)")"
+          # Keep the host-wide lock outside the instrumented checkout.
+          export DD_SUITE_LOCK="$(cygpath -m "$RUNNER_TEMP")/dd-gate-host.lock"
+          perl -MDevel::Cover::DB::IO -e 'print "Native coverage serializer ready\n"'
+          # Full suite: prove -j 10 plus mandatory 100% statement,
+          # branch, condition, and subroutine coverage.
+          perl script/coverage-gate --jobs 10
