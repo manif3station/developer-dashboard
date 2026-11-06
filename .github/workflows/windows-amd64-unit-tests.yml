@@ -188,7 +188,7 @@ jobs:
           # space in Program Files and use forward slashes for the executable.
           $escapedBash = $gitBash.Replace('\', '/').Replace(' ', '\ ')
           $env:PERL5SHELL = "$escapedBash -c"
-          perl -e 'my $result = qx(printf first; printf second); die "POSIX command shell unavailable: $result\n" unless $result eq "firstsecond"; print "POSIX shell ready\n"'
+          perl -e 'my $result = qx(printf first | tr a-z A-Z); die "POSIX command shell unavailable: $result\n" unless $result eq "FIRST"; print "POSIX shell ready\n"'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The gate's Unix default /tmp lock path does not exist on Windows.
           $env:DD_SUITE_LOCK = Join-Path $env:RUNNER_TEMP 'dd-gate-host.lock'
