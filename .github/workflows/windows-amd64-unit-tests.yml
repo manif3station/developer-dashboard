@@ -194,6 +194,7 @@ jobs:
           # Otherwise an extensionless local/bin/cover can launch through
           # Git Bash shebang handling and corrupt native PERL5LIB drive paths.
           $coverScript = Join-Path $env:GITHUB_WORKSPACE 'local/bin/cover'
+          $env:DD_NATIVE_COVER_SCRIPT = $coverScript
           $nativePerl = (Get-Command perl -ErrorAction Stop).Source
           if (-not (Test-Path $coverScript)) { throw 'Missing installed Devel::Cover script' }
           $coverWrapperDir = Join-Path $env:RUNNER_TEMP 'native-cover-cli'
