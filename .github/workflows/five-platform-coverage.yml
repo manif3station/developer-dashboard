@@ -79,10 +79,13 @@ jobs:
         timeout-minutes: 30
         run: cpanm --installdeps --notest -L local .
 
-      - name: Install Devel::Cover
-        timeout-minutes: 30
+      - name: Install Test::Harness and Devel::Cover
+        timeout-minutes: 35
         shell: bash
-        run: cpanm --notest -L local Devel::Cover
+        run: |
+          # Align the parallel TAP harness with the Linux and Windows gates.
+          cpanm --notest -L local 'Test::Harness~3.48'
+          cpanm --notest -L local Devel::Cover
 
       - name: Build native XS extension
         timeout-minutes: 15

@@ -33,7 +33,7 @@ jobs:
           DD_COVERAGE_WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           # Validate both display name and exact caller file, and fail visibly.
-          expected_ref="manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@"
+          expected_ref="manif3station/developer-dashboard/.github/workflows/five-platform-coverage.yml@"
           if [[ "$GITHUB_REPOSITORY" != "manif3station/developer-dashboard" ||
                 "$DD_COVERAGE_WORKFLOW_NAME" != "Five-platform 100% Test Coverage" ||
                 "$DD_COVERAGE_WORKFLOW_REF" != "$expected_ref"* ]]; then
