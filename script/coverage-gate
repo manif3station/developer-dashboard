@@ -368,6 +368,16 @@ sub main {
         return _unusable("the configured native cover script is missing: $script") if !-f $script;
         @cover_command = ( $^X, $script );
     }
+    # The extensionless prove launcher has the same MSYS shebang problem as
+    # cover on Windows. Keep the harness and its TAP modules under the pinned
+    # native Perl interpreter; preserve ordinary dry-run output for contracts.
+    my @prove_command = ('prove');
+    if ( $^O eq 'MSWin32' && !$dry_run && defined $ENV{DD_NATIVE_PROVE_SCRIPT}
+        && length $ENV{DD_NATIVE_PROVE_SCRIPT} ) {
+        my $script = $ENV{DD_NATIVE_PROVE_SCRIPT};
+        return _unusable("the configured native prove script is missing: $script") if !-f $script;
+        @prove_command = ( $^X, $script );
+    }
     my @delete = ( @cover_command, $database, '-delete' );
     # Some integration-style tests own real ports or inspect transient source
     # files. Keep those test files isolated from other workers; the remaining
@@ -382,8 +392,8 @@ sub main {
         '--rules=seq=t/{148-coverage-gate-entrypoint,149-coverage-gate-moving-target}.t',
         '--rules=par=**',
     ) : ();
-    my @suite  = ( 'prove', @parallel, '-l', @instrumented_tests );
-    my @native_thread_suite = @native_thread_tests ? ( 'prove', @parallel, '-l', @native_thread_tests ) : ();
+    my @suite  = ( @prove_command, @parallel, '-l', @instrumented_tests );
+    my @native_thread_suite = @native_thread_tests ? ( @prove_command, @parallel, '-l', @native_thread_tests ) : ();
     my @report = (
         @cover_command, $database, '-report', 'text', '-select_re', '^lib/', '-gcov', '0',
         '-coverage', 'statement',
@@ -422,7 +432,7 @@ sub main {
     # to the same Devel::Cover database before the single final report.
     my $ran;
     if ( $^O eq 'MSWin32' ) {
-        my @prefix = ( 'prove', @parallel, '-l' );
+        my @prefix = ( @prove_command, @parallel, '-l' );
         my @batch;
         for my $test (@instrumented_tests) {
             push @batch, $test;
