@@ -56,6 +56,16 @@ is_deeply(
     'share/seeded-pages no longer ships extracted starter dashboard pages in core',
 );
 
+# Test native Perl entrypoints without routing backslash paths through Git Bash.
+sub _run_perl {
+    my (@args) = @_;
+    my ( $stdout, $stderr, $exit ) = capture {
+        system { $^X } $^X, @args;
+        return ${^CHILD_ERROR_NATIVE};
+    };
+    return ( $stdout . $stderr, $exit >> 8 );
+}
+
 my $lib = File::Spec->catdir( $repo_root, 'lib' );
 my $fake_lib = tempdir( CLEANUP => 1 );
 my $fake_web_dir = File::Spec->catdir( $fake_lib, 'Developer', 'Dashboard', 'Web' );
@@ -75,14 +85,12 @@ open my $jq_fh, '>', $jq_json or die "Unable to write $jq_json: $!";
 print {$jq_fh} qq|{"alpha":1}\n|;
 close $jq_fh;
 
-my $jq_output = qx{$^X -I$lib $dashboard jq .alpha "$jq_json" 2>&1};
-my $jq_exit = $? >> 8;
+my ( $jq_output, $jq_exit ) = _run_perl( "-I$lib", $dashboard, 'jq', '.alpha', $jq_json );
 is( $jq_exit, 0, 'dashboard jq stays on the lazy lightweight path without loading heavy web modules' )
   or diag $jq_output;
 like( $jq_output, qr/\b1\b/, 'dashboard jq still returns the requested value' );
 
-my $version_output = qx{$^X -I$lib $dashboard version 2>&1};
-my $version_exit = $? >> 8;
+my ( $version_output, $version_exit ) = _run_perl( "-I$lib", $dashboard, 'version' );
 is( $version_exit, 0, 'dashboard version also stays on the lightweight path without loading heavy web modules' )
   or diag $version_output;
 like( $version_output, qr/^\d+\.\d+\s*\z/, 'dashboard version still prints the package version' );
@@ -90,8 +98,7 @@ like( $version_output, qr/^\d+\.\d+\s*\z/, 'dashboard version still prints the p
 my $lazy_home = tempdir( CLEANUP => 1 );
 {
     local $ENV{HOME} = $lazy_home;
-    my $init_output = qx{$^X -I$lib $dashboard init 2>&1};
-    my $init_exit = $? >> 8;
+    my ( $init_output, $init_exit ) = _run_perl( "-I$lib", $dashboard, 'init' );
     is( $init_exit, 0, 'dashboard init stages private helpers before the prompt lazy-load check' )
       or diag $init_output;
 }
@@ -104,8 +111,7 @@ ok( !-e File::Spec->catfile( $private_cli_root, '_dashboard-core' ), 'dashboard 
 my $d2_home = tempdir( CLEANUP => 1 );
 {
     local $ENV{HOME} = $d2_home;
-    my $init_output = qx{$^X -I$lib $d2 init 2>&1};
-    my $init_exit = $? >> 8;
+    my ( $init_output, $init_exit ) = _run_perl( "-I$lib", $d2, 'init' );
     is( $init_exit, 0, 'd2 init stages private helpers before returning' )
       or diag $init_output;
 }
@@ -149,14 +155,12 @@ _write_perl_module(
     local $ENV{PERL5OPT} = '-I' . $lazy_lib;
     local $ENV{TMUX} = '';
     local $ENV{TICKET_REF} = undef;
-    my $ps1_output = qx{$^X -I$lib $dashboard ps1 --cwd "$lazy_home" --mode compact --no-indicators 2>&1};
-    my $ps1_exit = $? >> 8;
+    my ( $ps1_output, $ps1_exit ) = _run_perl( "-I$lib", $dashboard, 'ps1', '--cwd', $lazy_home, '--mode', 'compact', '--no-indicators' );
     is( $ps1_exit, 0, 'dashboard ps1 stays on the lightweight helper path once helpers are already staged' )
       or diag $ps1_output;
     unlike( $ps1_output, qr/lazy-loader-regression:/, 'dashboard ps1 does not load suggestion, skill, or helper-staging-only modules on the hot path' );
 
-    my $paths_output = qx{$^X -I$lib $dashboard paths -o json 2>&1};
-    my $paths_exit = $? >> 8;
+    my ( $paths_output, $paths_exit ) = _run_perl( "-I$lib", $dashboard, 'paths', '-o', 'json' );
     is( $paths_exit, 0, 'dashboard paths lists runtime paths without requiring FileRegistry' )
       or diag $paths_output;
     unlike( $paths_output, qr/lazy-loader-regression:/, 'dashboard paths does not load FileRegistry for path-only config access' );
@@ -166,8 +170,7 @@ _write_perl_module(
     my $compat_home = tempdir( CLEANUP => 1 );
     {
         local $ENV{HOME} = $compat_home;
-        my $init_output = qx{$^X -I$lib $dashboard init 2>&1};
-        my $init_exit = $? >> 8;
+        my ( $init_output, $init_exit ) = _run_perl( "-I$lib", $dashboard, 'init' );
         is( $init_exit, 0, 'dashboard init stages private helpers before the ps1 compatibility check' )
           or diag $init_output;
     }
@@ -223,8 +226,7 @@ PERL
     );
 
     my $compat_ps1 = File::Spec->catfile( $compat_home, '.developer-dashboard', 'cli', 'dd', 'ps1' );
-    my $compat_output = qx{$^X -I$compat_lib -I$lib $compat_ps1 --cwd "$compat_home" --mode compact --no-indicators 2>&1};
-    my $compat_exit = $? >> 8;
+    my ( $compat_output, $compat_exit ) = _run_perl( "-I$compat_lib", "-I$lib", $compat_ps1, '--cwd', $compat_home, '--mode', 'compact', '--no-indicators' );
     is( $compat_exit, 0, 'staged ps1 remains compatible when the installed IndicatorStore predates collectors_need_sync' )
       or diag $compat_output;
     is( $compat_output, "compat-ps1\n", 'staged ps1 falls back cleanly to an unconditional collector sync when collectors_need_sync is unavailable' );
