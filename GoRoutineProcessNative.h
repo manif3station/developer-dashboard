@@ -124,6 +124,81 @@ static void dd_child_environment_free(char **environment) {
 #endif
 
 #ifdef _WIN32
+/* Windows does not retain a zombie for PID-based wait: after the last
+ * process handle closes, a fast-exiting child becomes unavailable to OpenProcess
+ * and the caller loses its exit code. Keep our owned spawn handle until
+ * wait_process() reaps it. A duplicated handle lets concurrent inspections
+ * proceed without holding the lock across waits. */
+typedef struct dd_win_child {
+    DWORD pid;
+    HANDLE process;
+    struct dd_win_child *next;
+} dd_win_child;
+
+static SRWLOCK dd_win_children_lock = SRWLOCK_INIT;
+static dd_win_child *dd_win_children = NULL;
+
+static void dd_win_track_child(DWORD pid, HANDLE process) {
+    dd_win_child *node = (dd_win_child *)malloc(sizeof(*node));
+    if (node == NULL) {
+        TerminateProcess(process, 1);
+        CloseHandle(process);
+        croak("out of memory tracking GoRoutine Windows child process");
+    }
+    node->pid = pid;
+    node->process = process;
+    AcquireSRWLockExclusive(&dd_win_children_lock);
+    node->next = dd_win_children;
+    dd_win_children = node;
+    ReleaseSRWLockExclusive(&dd_win_children_lock);
+}
+
+static int dd_win_child_is_tracked(DWORD pid) {
+    int tracked = 0;
+    AcquireSRWLockShared(&dd_win_children_lock);
+    for (dd_win_child *node = dd_win_children; node != NULL; node = node->next) {
+        if (node->pid == pid) {
+            tracked = 1;
+            break;
+        }
+    }
+    ReleaseSRWLockShared(&dd_win_children_lock);
+    return tracked;
+}
+
+static HANDLE dd_win_open_child(DWORD pid, DWORD access) {
+    HANDLE copy = NULL;
+    AcquireSRWLockShared(&dd_win_children_lock);
+    for (dd_win_child *node = dd_win_children; node != NULL; node = node->next) {
+        if (node->pid == pid) {
+            DuplicateHandle(GetCurrentProcess(), node->process, GetCurrentProcess(),
+                            &copy, 0, FALSE, DUPLICATE_SAME_ACCESS);
+            break;
+        }
+    }
+    ReleaseSRWLockShared(&dd_win_children_lock);
+    return copy != NULL ? copy : OpenProcess(access, FALSE, pid);
+}
+
+static void dd_win_reap_child(DWORD pid) {
+    dd_win_child *removed = NULL;
+    AcquireSRWLockExclusive(&dd_win_children_lock);
+    dd_win_child **cursor = &dd_win_children;
+    while (*cursor != NULL) {
+        if ((*cursor)->pid == pid) {
+            removed = *cursor;
+            *cursor = removed->next;
+            break;
+        }
+        cursor = &(*cursor)->next;
+    }
+    ReleaseSRWLockExclusive(&dd_win_children_lock);
+    if (removed != NULL) {
+        CloseHandle(removed->process);
+        free(removed);
+    }
+}
+
 static char *dd_windows_command_line(pTHX_ char **argv, I32 argc) {
     size_t capacity = 1;
     for (I32 i = 0; i < argc; ++i) {
@@ -353,7 +428,8 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
         croak("unable to create GoRoutine child process (Windows error %lu)", (unsigned long)error);
     }
     CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
+    /* wait_process owns the process handle and releases it after collection. */
+    dd_win_track_child(process.dwProcessId, process.hProcess);
     if (stdin_path) CloseHandle(child_in);
     if (stdout_path) CloseHandle(child_out);
     if (stderr_path) CloseHandle(child_err);
