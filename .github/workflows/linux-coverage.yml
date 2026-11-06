@@ -22,14 +22,23 @@ jobs:
       NONINTERACTIVE_TESTING: '1'
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
-      # Fail rather than silently skip: a skipped reusable job can obscure
-      # whether the required coverage gate actually executed.
-      - name: Reject unexpected coverage caller or target
-        if: ${{ github.repository != 'manif3station/developer-dashboard' || !startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@') || (inputs.target != 'amd64' && inputs.target != 'arm64') }}
+      # An unconditional check fails visibly on caller or input drift;
+      # never skip the strict coverage job because of a job-level guard.
+      - name: Verify coverage caller and target
         shell: bash
+        env:
+          DD_COVERAGE_WORKFLOW_NAME: ${{ github.workflow }}
+          DD_COVERAGE_TARGET: ${{ inputs.target }}
         run: |
-          echo "::error::Linux coverage must be called by the five-platform orchestrator with an amd64 or arm64 target"
-          exit 1
+          if [[ "$GITHUB_REPOSITORY" != "manif3station/developer-dashboard" ||
+                "$DD_COVERAGE_WORKFLOW_NAME" != "Five-platform 100% Test Coverage" ]]; then
+            echo "::error::Linux coverage requires the five-platform orchestrator"
+            exit 1
+          fi
+          case "$DD_COVERAGE_TARGET" in
+            amd64|arm64) ;;
+            *) echo "::error::Unsupported Linux coverage target"; exit 1 ;;
+          esac
 
       - name: Checkout
         timeout-minutes: 10
