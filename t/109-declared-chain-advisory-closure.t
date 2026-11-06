@@ -210,7 +210,7 @@ sub _run_gate {
     # which strips the backslashes from C:\\... Strawberry Perl paths.
     my ( $stdout, $stderr, $status ) = capture {
         system { $^X } $^X, $GATE, @args;
-        return ${^CHILD_ERROR_NATIVE};
+        return $?;
     };
     return ( $status >> 8, $stdout . $stderr );
 }
