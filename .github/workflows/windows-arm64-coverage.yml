@@ -24,9 +24,12 @@ jobs:
         shell: pwsh
         env:
           DD_COVERAGE_WORKFLOW_NAME: ${{ github.workflow }}
+          DD_COVERAGE_WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
+          $expectedCallerRef = 'manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@'
           if ($env:GITHUB_REPOSITORY -ne 'manif3station/developer-dashboard' -or
-              $env:DD_COVERAGE_WORKFLOW_NAME -ne 'Five-platform 100% Test Coverage') {
+              $env:DD_COVERAGE_WORKFLOW_NAME -ne 'Five-platform 100% Test Coverage' -or
+              -not $env:DD_COVERAGE_WORKFLOW_REF.StartsWith($expectedCallerRef)) {
             throw 'Windows arm64 coverage must be called by the five-platform orchestrator'
           }
 
@@ -58,6 +61,8 @@ jobs:
         uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
         with:
           msystem: CLANGARM64
+          # setup-node runs in Windows before MSYS2; preserve its Node/npm PATH.
+          path-type: inherit
           update: true
           install: >-
             mingw-w64-clang-aarch64-perl
@@ -80,6 +85,11 @@ jobs:
             print "Native Perl $^V on $arch\n";
           '
           perl -MDevel::Cover::DB::IO -e 'print "ARM64 Devel::Cover ready\n"'
+          # Fail before CPAN installation if setup-node's Node/npm are hidden.
+          command -v node
+          command -v npm
+          node --version
+          npm --version
 
       - name: Install Perl dependencies
         timeout-minutes: 75
