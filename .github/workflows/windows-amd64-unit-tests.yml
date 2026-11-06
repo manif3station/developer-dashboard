@@ -173,6 +173,23 @@ jobs:
           }
           $env:PERL5LIB = $perlPaths -join $pathSep
           $env:PATH = "$env:GITHUB_WORKSPACE/local/bin;$env:PATH"
+          # Several integration tests execute POSIX shell recipes and require
+          # standard Unix tools. Native Strawberry Perl otherwise dispatches
+          # command strings through cmd.exe, which cannot parse those recipes.
+          # Git for Windows is installed on GitHub's Windows runner; retain the
+          # pinned Strawberry Perl first in PATH to avoid loading Git's Perl.
+          $gitUsrBin = Join-Path $env:ProgramFiles 'Git\usr\bin'
+          $gitBash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
+          if (-not (Test-Path $gitBash) -or -not (Test-Path (Join-Path $gitUsrBin 'sh.exe'))) {
+            throw 'Git Bash and POSIX utilities required for Windows integration tests'
+          }
+          $env:PATH = "$env:PATH;$gitUsrBin"
+          # perlrun documents PERL5SHELL as whitespace-delimited; escape the
+          # space in Program Files and use forward slashes for the executable.
+          $escapedBash = $gitBash.Replace('\', '/').Replace(' ', '\ ')
+          $env:PERL5SHELL = "$escapedBash -c"
+          perl -e 'my $result = qx(printf first; printf second); die "POSIX command shell unavailable: $result\n" unless $result eq "firstsecond"; print "POSIX shell ready\n"'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The gate's Unix default /tmp lock path does not exist on Windows.
           $env:DD_SUITE_LOCK = Join-Path $env:RUNNER_TEMP 'dd-gate-host.lock'
           # Full prove -j 10 suite and all four 100% coverage gates.
