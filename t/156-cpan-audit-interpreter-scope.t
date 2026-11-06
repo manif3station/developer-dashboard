@@ -3,6 +3,8 @@
 use strict;
 use warnings;
 
+use Capture::Tiny qw(capture);
+use Config ();
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -114,12 +116,25 @@ sub _seed {
 # _run($root, $shim_dir) - run the gate with the shim in front of PATH, reading
 # the exit status directly. A pipe would report the pipe's status, which has
 # already laundered a gate result on this project.
+sub _bash_path {
+    my ($path) = @_;
+    return $path if $^O ne 'MSWin32';
+    $path =~ tr{\\}{/};
+    $path =~ s{\A([A-Za-z]):/}{'/' . lc($1) . '/'}e;
+    return $path;
+}
+
 sub _run {
     my ( $root, $shim_dir ) = @_;
-    local $ENV{PATH}                             = "$shim_dir:$ENV{PATH}";
+    local $ENV{PATH} = join $Config::Config{path_sep}, $shim_dir, $ENV{PATH};
     local $ENV{DD_CPAN_AUDIT_ALLOW_EXTERNAL_ROOT} = 1;
-    my $out = `bash \Q$GATE\E \Q$root\E 2>&1`;
-    return ( ${^CHILD_ERROR_NATIVE} >> 8, $out );
+    # Do not interpolate native backslash paths into a PERL5SHELL command.
+    # Feed Git Bash its own /drive/path spelling as real argv instead.
+    my ( $out, $err, $wait ) = capture {
+        system { 'bash' } 'bash', _bash_path($GATE), _bash_path($root);
+        return $?;
+    };
+    return ( $wait >> 8, $out . $err );
 }
 
 my $tmp  = tempdir( CLEANUP => 1 );

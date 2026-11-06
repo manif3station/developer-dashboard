@@ -1,6 +1,7 @@
 use strict;
 use warnings;
 
+use Capture::Tiny qw(capture);
 use Cwd qw(abs_path);
 use File::Path qw(make_path);
 use File::Spec;
@@ -204,10 +205,14 @@ sub _run_gate {
     # for a reason none of them names. Freshness is owned by
     # t/172-cpan-audit-database-age.t, which shims the stamp and needs no host.
     local $ENV{CPAN_AUDIT_FRESH_DAYS} = 100_000;
-    my $command = join ' ', $^X, $GATE, @args;
-    my $out = `$command 2>&1`;
-    my $rc  = ${^CHILD_ERROR_NATIVE} >> 8;
-    return ( $rc, defined $out ? $out : '' );
+    # List-form system preserves native Windows executable and argument paths.
+    # A command string would be parsed by PERL5SHELL (Git Bash on CI),
+    # which strips the backslashes from C:\\... Strawberry Perl paths.
+    my ( $stdout, $stderr, $status ) = capture {
+        system { $^X } $^X, $GATE, @args;
+        return $?;
+    };
+    return ( $status >> 8, $stdout . $stderr );
 }
 
 # Purpose: build a synthetic library root whose metadata reproduces the DD-443

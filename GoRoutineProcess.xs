@@ -17,7 +17,7 @@ process_running(pid)
   CODE:
 #ifdef _WIN32
     {
-        HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)pid);
+        HANDLE process = dd_windows_open_child((DWORD)pid, SYNCHRONIZE);
         if (process == NULL) RETVAL = 0;
         else {
             DWORD result = WaitForSingleObject(process, 0);
@@ -47,9 +47,12 @@ process_exited(pid)
     if (pid > (UV)0xFFFFFFFFUL)
         croak("invalid GoRoutine child process identifier");
     {
-        HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)pid);
+        HANDLE process = dd_windows_open_child((DWORD)pid, SYNCHRONIZE);
         if (process == NULL) {
             DWORD error = GetLastError();
+            /* Match POSIX ECHILD + ESRCH: absent positive PIDs are
+             * reported as exited, not as a registry-membership error.
+             * Registered unreaped children use retained handles instead. */
             if (error == ERROR_INVALID_PARAMETER) RETVAL = 1;
             else croak("unable to inspect GoRoutine child process (Windows error %lu)",
                        (unsigned long)error);
@@ -92,8 +95,8 @@ wait_process(pid)
   CODE:
 #ifdef _WIN32
     {
-        HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
-                                     FALSE, (DWORD)pid);
+        HANDLE process = dd_windows_open_child((DWORD)pid,
+            SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION);
         DWORD wait_result, exit_code = 0;
         if (process == NULL)
             croak("unable to open GoRoutine child process (Windows error %lu)",
@@ -102,10 +105,12 @@ wait_process(pid)
         if (wait_result != WAIT_OBJECT_0 || !GetExitCodeProcess(process, &exit_code)) {
             DWORD error = GetLastError();
             CloseHandle(process);
+            dd_windows_forget_child((DWORD)pid);
             croak("unable to wait for GoRoutine child process (Windows error %lu)",
                   (unsigned long)error);
         }
         CloseHandle(process);
+        dd_windows_forget_child((DWORD)pid);
         RETVAL = (int)exit_code;
     }
 #else
@@ -137,7 +142,7 @@ terminate_process(pid, signal_name="TERM")
         if (strEQ(signal_name, "KILL")) code = 137;
         else if (strEQ(signal_name, "TERM")) code = 143;
         else croak("unsupported GoRoutine termination signal '%s'", signal_name);
-        process = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+        process = dd_windows_open_child((DWORD)pid, PROCESS_TERMINATE);
         if (process == NULL) RETVAL = 0;
         else {
             RETVAL = TerminateProcess(process, code) ? 1 : 0;
