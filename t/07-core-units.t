@@ -1447,7 +1447,14 @@ SH
     # directory is is_runnable_file/resolve_runnable_file's job via
     # _runnable_path_candidates, which is unrelated to command_in_path and
     # still works below unchanged.
-    ok( !command_in_path('tool'), 'command_in_path does not resolve a bare name against the cwd (DD-765)' );
+    {
+        # The caller's real PATH may explicitly contain "." or this directory.
+        # A bare-name lookup must not search cwd *implicitly*; isolate PATH so
+        # this test verifies that contract rather than the developer's dot-PATH.
+        my $isolated_path = tempdir( CLEANUP => 1 );
+        local $ENV{PATH} = $isolated_path;
+        ok( !command_in_path('tool'), 'command_in_path does not resolve a bare name against the cwd (DD-765)' );
+    }
     ok( is_runnable_file('tool'), 'is_runnable_file resolves PATHEXT-backed PowerShell scripts on Windows' );
     {
         open my $fh, '>', 'tool.cmd' or die $!;

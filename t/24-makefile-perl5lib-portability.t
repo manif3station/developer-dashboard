@@ -94,6 +94,8 @@ unlike( $generated, qr/^export\s+PERL5LIB\s*$/m,
     'BDD: generated Makefile avoids GNU-only export syntax' );
 
 my $runner_source = _slurp($runner);
+like( $runner_source, qr/Cwd::abs_path/, 'the MakeMaker test launcher resolves macOS temporary-directory aliases before running tests' );
+like( $runner_source, qr/File::Basename::dirname\(\$\^X\)/, 'the test launcher uses the active interpreter directory for child Perl shebangs' );
 like( $runner_source, qr/\Q$local_perl5\E/,
     'BDD: launcher preserves an absolute HOME local-lib base without a checkout prefix' );
 like( $runner_source, qr/\Q$active_arch\E/,
