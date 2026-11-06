@@ -1,7 +1,8 @@
-name: macOS arm64 Test Coverage
+name: Five-platform 100% Test Coverage
 
-# Run macOS coverage first, then Windows coverage after success.
-# Both pull requests and master pushes use the same ordered pipeline.
+# Single serial fail-fast chain: macOS arm64 -> Linux amd64 -> Linux arm64
+# -> Windows amd64 -> Windows arm64. A failed stage stops every later stage.
+# Pull requests, master pushes and manual runs use the same coverage gates.
 on:
   push:
     branches:
@@ -13,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: macos-windows-coverage-${{ github.ref }}
+  group: five-platform-coverage-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -108,10 +109,38 @@ jobs:
           # then requires 100% statement, branch, condition and subroutine.
           gtimeout --signal=TERM --kill-after=30s 5400s perl script/coverage-gate --jobs 10
 
-  windows-amd64:
-    name: Windows amd64 coverage after macOS
+  linux-amd64:
+    name: Linux amd64 coverage after macOS arm64
     needs: macos-arm64
-    if: ${{ github.repository == 'manif3station/developer-dashboard' }}
+    if: ${{ github.repository == 'manif3station/developer-dashboard' && needs.macos-arm64.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/linux-coverage.yml
+    with:
+      target: amd64
+
+  linux-arm64:
+    name: Linux arm64 coverage after Linux amd64
+    needs: linux-amd64
+    if: ${{ github.repository == 'manif3station/developer-dashboard' && needs.linux-amd64.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/linux-coverage.yml
+    with:
+      target: arm64
+
+  windows-amd64:
+    name: Windows amd64 coverage after Linux arm64
+    needs: linux-arm64
+    if: ${{ github.repository == 'manif3station/developer-dashboard' && needs.linux-arm64.result == 'success' }}
     permissions:
       contents: read
     uses: ./.github/workflows/windows-amd64-unit-tests.yml
+
+  windows-arm64:
+    name: Windows arm64 coverage after Windows amd64
+    needs: windows-amd64
+    if: ${{ github.repository == 'manif3station/developer-dashboard' && needs.windows-amd64.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/windows-arm64-coverage.yml
