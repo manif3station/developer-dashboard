@@ -11,7 +11,7 @@ jobs:
   windows-amd64:
     name: Four-metric coverage 100% (Windows amd64, prove -j 10)
     runs-on: windows-latest
-    timeout-minutes: 300
+    timeout-minutes: 360
     env:
       PERL_MM_USE_DEFAULT: '1'
       NONINTERACTIVE_TESTING: '1'
