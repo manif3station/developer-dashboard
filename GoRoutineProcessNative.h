@@ -124,6 +124,79 @@ static void dd_child_environment_free(char **environment) {
 #endif
 
 #ifdef _WIN32
+/*
+ * A PID alone is not a durable wait token on Windows.  Once the final handle
+ * to an exited process is closed, OpenProcess(pid) fails with error 87 and the
+ * exit code is irretrievable.  Keep the original process handle until the
+ * caller explicitly waits; duplicate it for concurrent status inspections.
+ */
+struct dd_windows_child {
+    DWORD pid;
+    HANDLE handle;
+    struct dd_windows_child *next;
+};
+static INIT_ONCE dd_windows_children_once = INIT_ONCE_STATIC_INIT;
+static CRITICAL_SECTION dd_windows_children_lock;
+static struct dd_windows_child *dd_windows_children = NULL;
+
+static BOOL CALLBACK
+dd_windows_init_children(PINIT_ONCE once, PVOID param, PVOID *context) {
+    (void)once; (void)param; (void)context;
+    InitializeCriticalSection(&dd_windows_children_lock);
+    return TRUE;
+}
+
+static void dd_windows_lock_children(void) {
+    if (!InitOnceExecuteOnce(&dd_windows_children_once, dd_windows_init_children, NULL, NULL))
+        croak("unable to initialize GoRoutine Windows process registry");
+    EnterCriticalSection(&dd_windows_children_lock);
+}
+
+static void dd_windows_register_child(DWORD pid, HANDLE handle) {
+    struct dd_windows_child *child = (struct dd_windows_child *)malloc(sizeof(*child));
+    if (!child) {
+        CloseHandle(handle);
+        croak("out of memory tracking GoRoutine child process");
+    }
+    child->pid = pid;
+    child->handle = handle;
+    dd_windows_lock_children();
+    child->next = dd_windows_children;
+    dd_windows_children = child;
+    LeaveCriticalSection(&dd_windows_children_lock);
+}
+
+static HANDLE dd_windows_open_child(DWORD pid, DWORD rights) {
+    HANDLE duplicate = NULL;
+    struct dd_windows_child *child;
+    dd_windows_lock_children();
+    for (child = dd_windows_children; child; child = child->next) {
+        if (child->pid == pid) {
+            if (!DuplicateHandle(GetCurrentProcess(), child->handle,
+                                 GetCurrentProcess(), &duplicate, 0, FALSE,
+                                 DUPLICATE_SAME_ACCESS)) duplicate = NULL;
+            break;
+        }
+    }
+    LeaveCriticalSection(&dd_windows_children_lock);
+    return child ? duplicate : OpenProcess(rights, FALSE, pid);
+}
+
+static void dd_windows_forget_child(DWORD pid) {
+    struct dd_windows_child **slot;
+    dd_windows_lock_children();
+    for (slot = &dd_windows_children; *slot; slot = &(*slot)->next) {
+        if ((*slot)->pid == pid) {
+            struct dd_windows_child *child = *slot;
+            *slot = child->next;
+            CloseHandle(child->handle);
+            free(child);
+            break;
+        }
+    }
+    LeaveCriticalSection(&dd_windows_children_lock);
+}
+
 static char *dd_windows_command_line(pTHX_ char **argv, I32 argc) {
     size_t capacity = 1;
     for (I32 i = 0; i < argc; ++i) {
@@ -168,9 +241,11 @@ static char *dd_windows_command_line(pTHX_ char **argv, I32 argc) {
 }
 
 static HANDLE dd_windows_redirect(const char *path, DWORD access) {
+    SECURITY_ATTRIBUTES inherit = {sizeof(inherit), NULL, TRUE};
     if (path == NULL) return INVALID_HANDLE_VALUE;
+    /* Without inheritable handles, STARTF_USESTDHANDLES cannot redirect children. */
     return CreateFileA(path, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                       NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                       &inherit, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 }
 
 static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
@@ -186,8 +261,8 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     HANDLE child_in = stdin_path ? CreateFileA(stdin_path, GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)
         : GetStdHandle(STD_INPUT_HANDLE);
-    HANDLE child_out = dd_windows_redirect(stdout_path, GENERIC_WRITE);
-    HANDLE child_err = dd_windows_redirect(stderr_path, GENERIC_WRITE);
+    HANDLE child_out = dd_windows_redirect(stdout_path, FILE_APPEND_DATA);
+    HANDLE child_err = dd_windows_redirect(stderr_path, FILE_APPEND_DATA);
     if (stdin_path && child_in == INVALID_HANDLE_VALUE) {
         DWORD error = GetLastError(); free(line); free(argv);
         croak("unable to open GoRoutine child stdin (Windows error %lu)", (unsigned long)error);
@@ -200,10 +275,7 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
         DWORD error = GetLastError(); free(line); free(argv);
         croak("unable to open GoRoutine child stderr (Windows error %lu)", (unsigned long)error);
     }
-    if (stdout_path && SetFilePointer(child_out, 0, NULL, FILE_END) == INVALID_SET_FILE_POINTER
-        && GetLastError() != NO_ERROR) croak("unable to seek GoRoutine child stdout");
-    if (stderr_path && SetFilePointer(child_err, 0, NULL, FILE_END) == INVALID_SET_FILE_POINTER
-        && GetLastError() != NO_ERROR) croak("unable to seek GoRoutine child stderr");
+    /* FILE_APPEND_DATA appends atomically, including when both streams share a log. */
     ZeroMemory(&startup, sizeof(startup));
     ZeroMemory(&process, sizeof(process));
     startup.cb = sizeof(startup);
@@ -221,7 +293,7 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
         croak("unable to create GoRoutine child process (Windows error %lu)", (unsigned long)error);
     }
     CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
+    dd_windows_register_child(process.dwProcessId, process.hProcess);
     if (stdin_path) CloseHandle(child_in);
     if (stdout_path) CloseHandle(child_out);
     if (stderr_path) CloseHandle(child_err);
