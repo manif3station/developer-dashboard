@@ -17,11 +17,16 @@ jobs:
       NONINTERACTIVE_TESTING: '1'
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
-      # Never let a mismatched caller silently skip the coverage job.
-      - name: Reject unexpected coverage caller
-        if: ${{ github.repository != 'manif3station/developer-dashboard' || !startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@') }}
+      # Always execute validation; wrong callers fail rather than skip.
+      - name: Verify coverage caller
         shell: pwsh
-        run: throw 'Windows amd64 coverage must be called by the five-platform orchestrator'
+        env:
+          DD_COVERAGE_WORKFLOW_NAME: ${{ github.workflow }}
+        run: |
+          if ($env:GITHUB_REPOSITORY -ne 'manif3station/developer-dashboard' -or
+              $env:DD_COVERAGE_WORKFLOW_NAME -ne 'Five-platform 100% Test Coverage') {
+            throw 'Windows amd64 coverage must be called by the five-platform orchestrator'
+          }
 
       - name: Checkout
         timeout-minutes: 10
