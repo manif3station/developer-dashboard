@@ -15,7 +15,6 @@ permissions:
 jobs:
   linux-coverage:
     name: Four-metric coverage 100% (Linux ${{ inputs.target }}, prove -j 10)
-    if: ${{ github.repository == 'manif3station/developer-dashboard' && (inputs.target == 'amd64' || inputs.target == 'arm64') && startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@') }}
     runs-on: ${{ inputs.target == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 270
     env:
@@ -23,6 +22,15 @@ jobs:
       NONINTERACTIVE_TESTING: '1'
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
+      # Fail rather than silently skip: a skipped reusable job can obscure
+      # whether the required coverage gate actually executed.
+      - name: Reject unexpected coverage caller or target
+        if: ${{ github.repository != 'manif3station/developer-dashboard' || !startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@') || (inputs.target != 'amd64' && inputs.target != 'arm64') }}
+        shell: bash
+        run: |
+          echo "::error::Linux coverage must be called by the five-platform orchestrator with an amd64 or arm64 target"
+          exit 1
+
       - name: Checkout
         timeout-minutes: 10
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
