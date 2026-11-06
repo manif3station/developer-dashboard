@@ -499,6 +499,14 @@ sub _normalize_install_source {
     my ( $self, $source ) = @_;
     return $source if !defined $source || $source eq '';
     return $source if -d $source;
+    # A Windows local path appended to file:// is not a valid Git URI:
+    # file://C:\dir\repo becomes file:///C:/dir/repo for git clone.
+    if ( $source =~ m{\Afile://[A-Za-z]:[\\/]} ) {
+        my $uri = $source;
+        $uri =~ s{\Afile://}{file:///};
+        $uri =~ s{\\}{/}g;
+        return $uri;
+    }
     return $source if $source =~ m{\A[A-Za-z][A-Za-z0-9+.-]*://};
     return $source if $source =~ /\Agit@/;
     return "https://github.com/$source"
