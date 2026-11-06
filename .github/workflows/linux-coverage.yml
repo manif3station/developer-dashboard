@@ -28,10 +28,14 @@ jobs:
         shell: bash
         env:
           DD_COVERAGE_WORKFLOW_NAME: ${{ github.workflow }}
+          DD_COVERAGE_WORKFLOW_REF: ${{ github.workflow_ref }}
           DD_COVERAGE_TARGET: ${{ inputs.target }}
         run: |
+          # Validate both display name and exact caller file, and fail visibly.
+          expected_ref="manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@"
           if [[ "$GITHUB_REPOSITORY" != "manif3station/developer-dashboard" ||
-                "$DD_COVERAGE_WORKFLOW_NAME" != "Five-platform 100% Test Coverage" ]]; then
+                "$DD_COVERAGE_WORKFLOW_NAME" != "Five-platform 100% Test Coverage" ||
+                "$DD_COVERAGE_WORKFLOW_REF" != "$expected_ref"* ]]; then
             echo "::error::Linux coverage requires the five-platform orchestrator"
             exit 1
           fi
@@ -80,10 +84,12 @@ jobs:
         shell: bash
         run: cpanm --installdeps --notest -L local .
 
-      - name: Install Devel::Cover
+      - name: Install pinned Test::Harness and Devel::Cover
         timeout-minutes: 35
         shell: bash
-        run: cpanm --notest -L local Devel::Cover
+        run: |
+          cpanm --notest -L local 'Test::Harness~3.48'
+          cpanm --notest -L local Devel::Cover
 
       - name: Build native XS extension
         timeout-minutes: 20
