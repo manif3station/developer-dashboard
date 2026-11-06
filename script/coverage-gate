@@ -402,7 +402,30 @@ sub main {
     # -blib,0 also ensures the built copy does not shadow lib/ during coverage.
     local $ENV{HARNESS_PERL_SWITCHES}
         = "-MDevel::Cover=-db,$database,-blib,0,-select,^lib/,-ignore,^";
-    my $ran = _run( 'instrumented suite', @suite );
+    # cmd.exe rejects command lines longer than 8191 characters. The full
+    # instrumented test list grows beyond that limit on Windows; split only
+    # the invocation, not the coverage database or the selected test suite.
+    # Every batch still uses the requested prove -j worker count and contributes
+    # to the same Devel::Cover database before the single final report.
+    my $ran;
+    if ( $^O eq 'MSWin32' ) {
+        my @prefix = ( 'prove', @parallel, '-l' );
+        my @batch;
+        for my $test (@instrumented_tests) {
+            push @batch, $test;
+            if ( @batch >= 40 ) {
+                $ran = _run( 'instrumented suite batch', @prefix, @batch );
+                last if $ran != EXIT_CLEAN;
+                @batch = ();
+            }
+        }
+        $ran = _run( 'instrumented suite final batch', @prefix, @batch )
+            if ( !defined($ran) || $ran == EXIT_CLEAN ) && @batch;
+        $ran = EXIT_CLEAN if !defined $ran;
+    }
+    else {
+        $ran = _run( 'instrumented suite', @suite );
+    }
 
     if ( $ran != EXIT_CLEAN ) {
         return _grading_identity() eq $before ? $ran : _tree_moved();
