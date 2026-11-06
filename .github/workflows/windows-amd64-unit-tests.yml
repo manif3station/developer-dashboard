@@ -10,7 +10,6 @@ permissions:
 jobs:
   windows-amd64:
     name: Four-metric coverage 100% (Windows amd64, prove -j 10)
-    if: ${{ github.repository == 'manif3station/developer-dashboard' && startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@') }}
     runs-on: windows-latest
     timeout-minutes: 300
     env:
@@ -18,6 +17,12 @@ jobs:
       NONINTERACTIVE_TESTING: '1'
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
+      # Never let a mismatched caller silently skip the coverage job.
+      - name: Reject unexpected coverage caller
+        if: ${{ github.repository != 'manif3station/developer-dashboard' || !startsWith(github.workflow_ref, 'manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@') }}
+        shell: pwsh
+        run: throw 'Windows amd64 coverage must be called by the five-platform orchestrator'
+
       - name: Checkout
         timeout-minutes: 10
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
