@@ -4355,8 +4355,8 @@ sub _serve_static_file_from_roots {
     my $file_path = '';
     for my $public_dir (@public_roots) {
         my $candidate = File::Spec->catfile( $public_dir, $filename );
-        my $real_path = File::Spec->rel2abs($candidate);
-        my $public_abs = File::Spec->rel2abs($public_dir);
+        my $real_path = File::Spec->rel2abs($candidate, $ORIG_CWD);
+        my $public_abs = File::Spec->rel2abs($public_dir, $ORIG_CWD);
         # Compare lexical absolute paths with the same separator style. On
         # Windows File::Spec returns backslashes, so matching only '/' here
         # rejects every legitimate layered public asset.
