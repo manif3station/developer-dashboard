@@ -1,6 +1,6 @@
 name: Windows amd64 Test Coverage
 
-# Reusable only: macOS coverage calls this after it passes.
+# Reusable only: the five-platform chain calls this after Linux arm64 passes.
 on:
   workflow_call:
 
