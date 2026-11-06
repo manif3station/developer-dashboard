@@ -188,11 +188,11 @@ sub _write_local_lib_runner {
       "my \$separator = quotemeta(\$Config{path_sep});\n",
       "my \@inherited = grep { length \$_ } split /\$separator/, \$ENV{PERL5LIB} // '';\n",
       "my \$is_test_harness = grep { \$_ eq '-MTest::Harness' } \@ARGV;\n",
-      # A package installer may inherit /var/... as TMPDIR even though
-      # getcwd/abs_path resolve the same macOS directory as /private/var/....
-      # File::Temp accepts both spellings, but tests compare paths returned
-      # by getcwd/abs_path, so normalize to physical /private/var consistently
-      # in MakeMaker's child harness. cpanm still receives /var as input.
+      # macOS /var/folders and /private/var/folders are aliases. The
+      # PathRegistry public display contract deliberately chooses /var, and
+      # test fixtures made via File::Temp must use the same spelling. Reconcile
+      # only inside the MakeMaker child harness; the cpanm environment and the
+      # product's user-facing path identity/display code remain untouched.
       "if (\$is_test_harness && \$^O eq 'darwin') {\n",
       "    require Cwd;\n",
       "    my \$tmp = \$ENV{TMPDIR};\n",
@@ -202,7 +202,12 @@ sub _write_local_lib_runner {
       "    }\n",
       "    if (defined \$tmp && \$tmp ne '') {\n",
       "        my \$physical = eval { Cwd::abs_path(\$tmp) };\n",
-      "        \$ENV{TMPDIR} = \$physical if defined \$physical && \$physical ne '';\n",
+      "        if (defined \$physical && \$physical ne '') {\n",
+      "            my \$display = \$physical;\n",
+      "            \$display =~ s{\\A/private(?=/var(?:/|\\z))}{};\n",
+      "            my \$verified = \$display ne \$physical ? eval { Cwd::abs_path(\$display) } : undef;\n",
+      "            \$ENV{TMPDIR} = (defined \$verified && \$verified eq \$physical && -d \$display) ? \$display : \$physical;\n",
+      "        }\n",
       "    }\n",
       "}\n",
       # Match /usr/bin/env perl shebangs to the Perl that built Dashboard XS.

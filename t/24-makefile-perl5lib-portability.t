@@ -94,7 +94,9 @@ unlike( $generated, qr/^export\s+PERL5LIB\s*$/m,
     'BDD: generated Makefile avoids GNU-only export syntax' );
 
 my $runner_source = _slurp($runner);
-like( $runner_source, qr/\$ENV\{TMPDIR\}\s*=\s*\$physical/, 'the MakeMaker test launcher normalizes macOS TMPDIR to its physical path before running tests' );
+like( $runner_source, qr/my \$physical = eval \{ Cwd::abs_path\(\$tmp\) \}/, 'MakeMaker test launcher identifies the physical macOS temporary directory' );
+like( $runner_source, qr/\$display =~ s\{\\A\/private/, 'MakeMaker test launcher maps physical /private/var to the public /var spelling' );
+like( $runner_source, qr/\$ENV\{TMPDIR\} = .*\$display : \$physical/, 'MakeMaker test launcher uses the verified /var alias only when it names the same directory' );
 like( $runner_source, qr/File::Basename::dirname\(\$\^X\)/, 'the test launcher uses the active interpreter directory for child Perl shebangs' );
 like( $runner_source, qr/\Q$local_perl5\E/,
     'BDD: launcher preserves an absolute HOME local-lib base without a checkout prefix' );

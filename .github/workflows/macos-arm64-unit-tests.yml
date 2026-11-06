@@ -122,8 +122,8 @@ jobs:
           archive="$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -name 'Developer-Dashboard-*.tar.gz' -print -quit)"
           test -n "$archive"
           # Feed cpanm a symlink-spelled /var/folders TMPDIR, as on the
-          # affected real Mac. MakeMaker's test launcher then deliberately
-          # resolves it to /private/var/folders for stable path comparisons.
+          # affected real Mac. MakeMaker's test launcher keeps the verified
+          # /var spelling so File::Temp fixtures match PathRegistry display paths.
           native_tmp="$(getconf DARWIN_USER_TEMP_DIR)"
           export TMPDIR="${native_tmp/#\/private\/var/\/var}"
           case "$TMPDIR" in
