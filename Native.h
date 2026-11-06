@@ -65,7 +65,11 @@ dd_load_crypto(void)
     {
         static const char *names[] = {
 #  ifdef __APPLE__
-            "libcrypto.3.dylib", "libcrypto.dylib",
+            /* Apple's unversioned system libcrypto is unsafe for Perl XS.
+             * Prefer an OpenSSL 3 keg and never fall back to that shim. */
+            "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib",
+            "/usr/local/opt/openssl@3/lib/libcrypto.3.dylib",
+            "libcrypto.3.dylib",
 #  else
             "libcrypto.so.3", "libcrypto.so.1.1", "libcrypto.so",
 #  endif
@@ -77,7 +81,7 @@ dd_load_crypto(void)
         if (prefix && *prefix) {
             char path[PATH_MAX];
 #  ifdef __APPLE__
-            snprintf(path, sizeof(path), "%s/lib/libcrypto.dylib", prefix);
+            snprintf(path, sizeof(path), "%s/lib/libcrypto.3.dylib", prefix);
 #  else
             snprintf(path, sizeof(path), "%s/lib/libcrypto.so", prefix);
 #  endif

@@ -108,6 +108,25 @@ jobs:
           # then requires 100% statement, branch, condition and subroutine.
           gtimeout --signal=TERM --kill-after=30s 5400s perl script/coverage-gate --jobs 10
 
+      - name: Reproduce CPAN tarball installation on macOS
+        timeout-minutes: 90
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Cover the release artifact, not only prove against the checkout.
+          export PATH="$GITHUB_WORKSPACE/local/bin:$PATH"
+          arch="$(perl -MConfig -e 'print $Config{archname}')"
+          export PERL5LIB="$GITHUB_WORKSPACE/local/lib/perl5:$GITHUB_WORKSPACE/local/lib/perl5/$arch"
+          cpanm --notest -L local Dist::Zilla Dist::Zilla::Plugin::MetaProvides::Package Dist::Zilla::Plugin::MakeMaker::Runner
+          dzil build
+          archive="$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -name 'Developer-Dashboard-*.tar.gz' -print -quit)"
+          test -n "$archive"
+          # Force the same /var -> /private/var alias found on real macOS.
+          native_tmp="$(getconf DARWIN_USER_TEMP_DIR)"
+          export TMPDIR="${native_tmp/#\/private\/var/\/var}"
+          mkdir -p "$TMPDIR"
+          cpanm --test-only -v "$archive"
+
   windows-amd64:
     name: Windows amd64 coverage after macOS
     needs: macos-arm64

@@ -694,6 +694,11 @@ PL
 {
     my $nested_home = tempdir( CLEANUP => 1 );
     local $ENV{HOME} = $nested_home;
+    # cpanm/MakeMaker may export distribution VERSION while testing a tarball.
+    # The fixture intentionally supplies its own nested skill VERSION values.
+    local $ENV{VERSION};
+    local $ENV{foo_VERSION};
+    local $ENV{foo_bar_VERSION};
     my $nested_root = File::Spec->catdir( $nested_home, 'nested-skill-app' );
     make_path(
         File::Spec->catdir( $nested_home, '.developer-dashboard', 'skills', 'foo', 'skills', 'bar', 'skills', 'zzz', 'cli' ),

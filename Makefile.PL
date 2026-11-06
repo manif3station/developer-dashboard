@@ -188,6 +188,24 @@ sub _write_local_lib_runner {
       "my \$separator = quotemeta(\$Config{path_sep});\n",
       "my \@inherited = grep { length \$_ } split /\$separator/, \$ENV{PERL5LIB} // '';\n",
       "my \$is_test_harness = grep { \$_ eq '-MTest::Harness' } \@ARGV;\n",
+      # A package installer may inherit /var/... as TMPDIR even though
+      # getcwd/abs_path resolve the same macOS directory as /private/var/....
+      # Normalize before File::Temp initializes in the test subprocesses.
+      "if (\$is_test_harness && \$^O eq 'darwin') {\n",
+      "    require Cwd;\n",
+      "    my \$tmp = \$ENV{TMPDIR};\n",
+      "    if (defined \$tmp && \$tmp ne '') {\n",
+      "        my \$physical = eval { Cwd::abs_path(\$tmp) };\n",
+      "        \$ENV{TMPDIR} = \$physical if defined \$physical && \$physical ne '';\n",
+      "    }\n",
+      "}\n",
+      # Match /usr/bin/env perl shebangs to the Perl that built Dashboard XS.
+      # Restrict this change to MakeMaker's own test-harness invocation.
+      "if (\$is_test_harness) {\n",
+      "    require File::Basename;\n",
+      "    my \$perl_bin = File::Basename::dirname(\$^X);\n",
+      "    \$ENV{PATH} = join \$Config{path_sep}, grep { defined \$_ && \$_ ne '' } (\$perl_bin, \$ENV{PATH});\n",
+      "}\n",
       "my \@prefix = \$is_test_harness ? \@test_lib_paths : ();\n",
       "\$ENV{PERL5LIB} = join \$Config{path_sep}, \@prefix, \@inherited, \@local_lib_paths;\n",
       "my \$perl = \$^X;\nexec { \$perl } \$perl, \@ARGV;\n",

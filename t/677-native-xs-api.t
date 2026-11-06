@@ -32,6 +32,16 @@ my $escape_xs = _slurp( File::Spec->catfile( $root, 'HtmlEscape.xs' ) );
 my $native_header = _slurp( File::Spec->catfile( $root, 'Native.h' ) );
 like( $makefile, qr/HtmlEscape\.xs/, 'Makefile.PL builds the shared XS extension source' );
 like( $escape_xs, qr/^INCLUDE:\s+Native\.xs\s*$/m, 'shared XS extension includes the native API definitions' );
+unlike(
+    $native_header,
+    qr/"libcrypto\.dylib"/,
+    'macOS PBKDF2 must not dlopen the unsafe unversioned Apple libcrypto'
+);
+like(
+    $native_header,
+    qr/libcrypto\.3\.dylib/,
+    'macOS PBKDF2 searches for OpenSSL 3 libraries'
+);
 like(
     $native_header,
     qr/LoadLibraryExA\(\s*names\[index\],\s*NULL,\s*LOAD_LIBRARY_SEARCH_DEFAULT_DIRS\)/,
