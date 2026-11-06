@@ -210,28 +210,46 @@ static void dd_windows_forget_child(DWORD pid) {
  * NULL silently loses GoRoutine's explicit env overrides; changing the
  * parent's environment around spawn is unsafe when other threads run.
  */
+struct dd_windows_env_override {
+    const char *key;
+    const char *value;
+    size_t key_len;
+    size_t value_len;
+};
+
 static char *dd_windows_child_environment(pTHX_ HV *options) {
     SV **slot = hv_fetch(options, "env", 3, 0);
     HV *overrides;
     LPCH inherited;
     const char *entry;
     HE *item;
-    size_t capacity = 2, used = 0;
+    struct dd_windows_env_override *values;
+    size_t limit, count = 0, capacity = 2, used = 0;
     char *block;
 
     if (!slot) return NULL;
     if (!SvROK(*slot) || SvTYPE(SvRV(*slot)) != SVt_PVHV)
         croak("GoRoutine process option 'env' must be a hash reference");
     overrides = (HV *)SvRV(*slot);
-    if (HvTOTALKEYS(overrides) == 0) return NULL;
+    limit = (size_t)HvTOTALKEYS(overrides);
+    if (!limit) return NULL;
+    if (limit > SIZE_MAX / sizeof(*values))
+        croak("GoRoutine child environment is too large");
+    values = (struct dd_windows_env_override *)calloc(limit, sizeof(*values));
+    if (!values) croak("out of memory tracking GoRoutine child environment");
     inherited = GetEnvironmentStringsA();
-    if (!inherited) croak("unable to read GoRoutine child environment (Windows error %lu)",
-                          (unsigned long)GetLastError());
+    if (!inherited) {
+        DWORD error = GetLastError();
+        free(values);
+        croak("unable to read GoRoutine child environment (Windows error %lu)",
+              (unsigned long)error);
+    }
 
     for (entry = inherited; *entry; entry += strlen(entry) + 1) {
         size_t n = strlen(entry) + 1;
         if (n > SIZE_MAX - capacity) {
             FreeEnvironmentStringsA(inherited);
+            free(values);
             croak("GoRoutine child environment is too large");
         }
         capacity += n;
@@ -242,43 +260,56 @@ static char *dd_windows_child_environment(pTHX_ HV *options) {
         const char *key = SvPVbyte(hv_iterkeysv(item), key_len);
         SV *value_sv = hv_iterval(overrides, item);
         const char *value;
-        if (!key_len || memchr(key, '=', key_len) || memchr(key, '\0', key_len)) {
+        if (count == limit || !key_len || memchr(key, '=', key_len) ||
+            memchr(key, '\0', key_len)) {
             FreeEnvironmentStringsA(inherited);
+            free(values);
             croak("GoRoutine child environment keys must be non-empty and contain no '=' or NUL");
         }
         if (!SvOK(value_sv) || SvROK(value_sv)) {
             FreeEnvironmentStringsA(inherited);
+            free(values);
             croak("GoRoutine child environment values must be defined scalars");
         }
         value = SvPVbyte(value_sv, value_len);
         if (memchr(value, '\0', value_len)) {
             FreeEnvironmentStringsA(inherited);
+            free(values);
             croak("GoRoutine child environment values must not contain NUL");
         }
         if ((size_t)value_len > SIZE_MAX - 2 ||
             (size_t)key_len > SIZE_MAX - (size_t)value_len - 2 ||
             capacity > SIZE_MAX - (size_t)value_len - (size_t)key_len - 2) {
             FreeEnvironmentStringsA(inherited);
+            free(values);
             croak("GoRoutine child environment is too large");
         }
+        values[count].key = key;
+        values[count].key_len = (size_t)key_len;
+        values[count].value = value;
+        values[count].value_len = (size_t)value_len;
+        ++count;
         capacity += (size_t)key_len + (size_t)value_len + 2;
     }
     block = (char *)malloc(capacity);
     if (!block) {
         FreeEnvironmentStringsA(inherited);
+        free(values);
         croak("out of memory building GoRoutine child environment");
     }
+
+    /*
+     * All Perl scalar coercions happened before allocating block.  No Perl
+     * operations that may croak occur between here and the cleanup below.
+     */
     for (entry = inherited; *entry; entry += strlen(entry) + 1) {
         const char *equals = strchr(entry + (entry[0] == '=' ? 1 : 0), '=');
         int replaced = 0;
         if (equals) {
             size_t existing_len = (size_t)(equals - entry);
-            hv_iterinit(overrides);
-            while ((item = hv_iternext(overrides)) != NULL) {
-                STRLEN key_len = 0;
-                const char *key = SvPVbyte(hv_iterkeysv(item), key_len);
-                if ((size_t)key_len == existing_len &&
-                    _strnicmp(key, entry, existing_len) == 0) {
+            for (size_t i = 0; i < count; ++i) {
+                if (values[i].key_len == existing_len &&
+                    _strnicmp(values[i].key, entry, existing_len) == 0) {
                     replaced = 1;
                     break;
                 }
@@ -290,21 +321,18 @@ static char *dd_windows_child_environment(pTHX_ HV *options) {
             used += n;
         }
     }
-    hv_iterinit(overrides);
-    while ((item = hv_iternext(overrides)) != NULL) {
-        STRLEN key_len = 0, value_len = 0;
-        const char *key = SvPVbyte(hv_iterkeysv(item), key_len);
-        const char *value = SvPVbyte(hv_iterval(overrides, item), value_len);
-        memcpy(block + used, key, key_len);
-        used += key_len;
+    for (size_t i = 0; i < count; ++i) {
+        memcpy(block + used, values[i].key, values[i].key_len);
+        used += values[i].key_len;
         block[used++] = '=';
-        memcpy(block + used, value, value_len);
-        used += value_len;
+        memcpy(block + used, values[i].value, values[i].value_len);
+        used += values[i].value_len;
         block[used++] = '\0';
     }
     block[used++] = '\0';
     if (used == 1) block[used++] = '\0';
     FreeEnvironmentStringsA(inherited);
+    free(values);
     return block;
 }
 
