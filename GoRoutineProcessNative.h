@@ -411,15 +411,24 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     HANDLE child_out = dd_windows_redirect(stdout_path, FILE_APPEND_DATA);
     HANDLE child_err = dd_windows_redirect(stderr_path, FILE_APPEND_DATA);
     if (stdin_path && child_in == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError();
+        if (stdout_path && child_out != INVALID_HANDLE_VALUE) CloseHandle(child_out);
+        if (stderr_path && child_err != INVALID_HANDLE_VALUE) CloseHandle(child_err);
+        free(line); free(argv); free(child_environment);
         croak("unable to open GoRoutine child stdin (Windows error %lu)", (unsigned long)error);
     }
     if (stdout_path && child_out == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError();
+        if (stdin_path) CloseHandle(child_in);
+        if (stderr_path && child_err != INVALID_HANDLE_VALUE) CloseHandle(child_err);
+        free(line); free(argv); free(child_environment);
         croak("unable to open GoRoutine child stdout (Windows error %lu)", (unsigned long)error);
     }
     if (stderr_path && child_err == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError();
+        if (stdin_path) CloseHandle(child_in);
+        if (stdout_path) CloseHandle(child_out);
+        free(line); free(argv); free(child_environment);
         croak("unable to open GoRoutine child stderr (Windows error %lu)", (unsigned long)error);
     }
     /* FILE_APPEND_DATA appends atomically, including when both streams share a log. */
