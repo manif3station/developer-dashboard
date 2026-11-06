@@ -188,6 +188,40 @@ sub _write_local_lib_runner {
       "my \$separator = quotemeta(\$Config{path_sep});\n",
       "my \@inherited = grep { length \$_ } split /\$separator/, \$ENV{PERL5LIB} // '';\n",
       "my \$is_test_harness = grep { \$_ eq '-MTest::Harness' } \@ARGV;\n",
+      # macOS /var/folders is symlinked to /private/var/folders, but the
+      # test suite contains both logical-display and physical-getcwd contracts.
+      # Neither global spelling satisfies both. Keep the caller's TMPDIR for
+      # cpanm, and give only MakeMaker's harness a neutral scratch directory
+      # under its writable build tree when the inherited temp root is aliased.
+      # The real tarball still builds and installs via cpanm with /var TMPDIR.
+      "if (\$is_test_harness && \$^O eq 'darwin') {\n",
+      "    require Cwd;\n",
+      "    require File::Spec;\n",
+      "    my \$tmp = \$ENV{TMPDIR};\n",
+      "    \$tmp = File::Spec->tmpdir if !defined \$tmp || \$tmp eq '';\n",
+      "    my \$physical = eval { Cwd::abs_path(\$tmp) };\n",
+      "    if (defined \$physical && \$physical =~ m{\\A/private/var/folders(?:/|\\z)}) {\n",
+      "        my \$build_root = Cwd::abs_path(Cwd::cwd());\n",
+      "        die \"Cannot locate physical build directory for macOS test TMPDIR\\n\" if !defined \$build_root;\n",
+      "        die \"Cannot isolate tests under an aliased macOS build directory: \$build_root\\n\"\n",
+      "            if \$build_root =~ m{\\A/private/(?:var|tmp)(?:/|\\z)};\n",
+      "        my \$scratch = File::Spec->catdir(\$build_root, 'blib', '.dd-test-tmp');\n",
+      "        require File::Path;\n",
+      "        File::Path::make_path(\$scratch);\n",
+      "        die \"Cannot create isolated macOS test TMPDIR \$scratch\\n\" if !-d \$scratch;\n",
+      "        \$ENV{TMPDIR} = \$scratch;\n",
+      "    }\n",
+      "}\n",
+      # Match /usr/bin/env perl shebangs to the Perl that built Dashboard XS.
+      # Restrict this change to MakeMaker's own test-harness invocation.
+      "if (\$is_test_harness) {\n",
+      "    require File::Basename;\n",
+      "    require File::Spec;\n",
+      "    if (File::Spec->file_name_is_absolute(\$^X)) {\n",
+      "        my \$perl_bin = File::Basename::dirname(\$^X);\n",
+      "        \$ENV{PATH} = join \$Config{path_sep}, grep { defined \$_ && \$_ ne '' } (\$perl_bin, \$ENV{PATH});\n",
+      "    }\n",
+      "}\n",
       "my \@prefix = \$is_test_harness ? \@test_lib_paths : ();\n",
       "\$ENV{PERL5LIB} = join \$Config{path_sep}, \@prefix, \@inherited, \@local_lib_paths;\n",
       "my \$perl = \$^X;\nexec { \$perl } \$perl, \@ARGV;\n",

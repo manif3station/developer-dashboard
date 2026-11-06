@@ -496,7 +496,7 @@ ok( length $root_from_inc, '_module_lib_root resolves via %INC' );
     like( $@, qr/Unable to exec go run/, 'go-run failure surfaced' );
 }
 
-# DD-825: go run must be launched with -C <the source file's own directory>,
+# DD-825: go must be launched with -C <the source file's own directory> before 'run',
 # not a bare `go run <path>` - a bare invocation lets go.mod discovery walk up
 # from the CALLER's cwd rather than the skill's own directory, so a skill's
 # go.mod is silently missed unless the caller happens to already be inside it.
@@ -509,8 +509,8 @@ ok( length $root_from_inc, '_module_lib_root resolves via %INC' );
     eval { Developer::Dashboard::Platform::_exec_go_source($go_path); 1 };
     is_deeply(
         \@seen_argv,
-        [ 'go', 'run', '-C', File::Spec->catdir( $work, 'skill', 'cli' ), $go_path ],
-        '_exec_go_source passes -C <source dir> so go.mod discovery starts at the skill layer, not the caller cwd'
+        [ 'go', '-C', File::Spec->catdir( $work, 'skill', 'cli' ), 'run', $go_path ],
+        '_exec_go_source passes go -C <source dir> run so go.mod discovery starts at the skill layer, not the caller cwd'
     );
     is( $ENV{GOMODCACHE}, 'sentinel-untouched-modcache', 'DD-951: no go.mod means GOMODCACHE is left exactly as the caller set it' );
     is( $ENV{GOCACHE},    'sentinel-untouched-gocache',  'DD-951: no go.mod means GOCACHE is left exactly as the caller set it' );

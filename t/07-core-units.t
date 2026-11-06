@@ -1290,8 +1290,8 @@ SH
         open my $go_log_fh, '<', $go_log or die $!;
         is(
             do { local $/; <$go_log_fh> },
-            "run\n-C\n.\nexec-hook.go\nalpha\nbeta\n",
-            '_exec_go_source delegates to go run -C <source dir> with passthrough argv',
+            "-C\n.\nrun\nexec-hook.go\nalpha\nbeta\n",
+            '_exec_go_source delegates to go -C <source dir> run with passthrough argv',
         );
         close $go_log_fh;
         unlink 'exec-hook.go' or die $!;
@@ -1306,7 +1306,7 @@ SH
         ok( eval { Developer::Dashboard::Platform::_exec_go_source( 'inline-hook.go', 'alpha', 'beta' ); 1 }, '_exec_go_source can be exercised inline through the launcher hook' );
         is_deeply(
             \@go_exec,
-            [ 'go', 'run', '-C', '.', 'inline-hook.go', 'alpha', 'beta' ],
+            [ 'go', '-C', '.', 'run', 'inline-hook.go', 'alpha', 'beta' ],
             '_exec_go_source uses the go launcher with -C <source dir> and passthrough argv in-process',
         );
         dies_like(
@@ -1447,7 +1447,14 @@ SH
     # directory is is_runnable_file/resolve_runnable_file's job via
     # _runnable_path_candidates, which is unrelated to command_in_path and
     # still works below unchanged.
-    ok( !command_in_path('tool'), 'command_in_path does not resolve a bare name against the cwd (DD-765)' );
+    {
+        # The caller's real PATH may explicitly contain "." or this directory.
+        # A bare-name lookup must not search cwd *implicitly*; isolate PATH so
+        # this test verifies that contract rather than the developer's dot-PATH.
+        my $isolated_path = tempdir( CLEANUP => 1 );
+        local $ENV{PATH} = $isolated_path;
+        ok( !command_in_path('tool'), 'command_in_path does not resolve a bare name against the cwd (DD-765)' );
+    }
     ok( is_runnable_file('tool'), 'is_runnable_file resolves PATHEXT-backed PowerShell scripts on Windows' );
     {
         open my $fh, '>', 'tool.cmd' or die $!;

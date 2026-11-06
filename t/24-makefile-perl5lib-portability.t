@@ -94,6 +94,10 @@ unlike( $generated, qr/^export\s+PERL5LIB\s*$/m,
     'BDD: generated Makefile avoids GNU-only export syntax' );
 
 my $runner_source = _slurp($runner);
+like( $runner_source, qr/Cwd::abs_path\(\$tmp\)/, 'MakeMaker test launcher detects physical path identity of the inherited macOS temp root' );
+like( $runner_source, qr/private\/var\/folders/, 'MakeMaker test launcher isolates the /var versus /private/var alias only for test harness invocations' );
+like( $runner_source, qr/\$ENV\{TMPDIR\}\s*=\s*\$scratch/, 'MakeMaker test launcher uses an unaliased build-local temp root for fixture tests' );
+like( $runner_source, qr/File::Basename::dirname\(\$\^X\)/, 'the test launcher uses the active interpreter directory for child Perl shebangs' );
 like( $runner_source, qr/\Q$local_perl5\E/,
     'BDD: launcher preserves an absolute HOME local-lib base without a checkout prefix' );
 like( $runner_source, qr/\Q$active_arch\E/,
@@ -141,6 +145,33 @@ is( $probe_stderr, '', 'BDD: launcher emits no errors for local modules' );
     is( $build_exit, 0, 'ATDD: MakeMaker test invocations give child Perl processes the active blib paths' );
     is( $build_stdout, "build\n", 'BDD: a child launched by the generated test runner loads its freshly built module' );
     is( $build_stderr, '', 'BDD: the build-library child probe emits no warning or error' );
+}
+
+# Distinguish a real-Mac aliased TMPDIR from normal unaliased test roots.
+# The runner isolates File::Temp fixture creation, without changing cpanm's
+# caller environment or the production PathRegistry display contract.
+{
+    my $before = getcwd();
+    my $parent_tmp = $ENV{TMPDIR};
+    my $probe_input = $^O eq 'darwin' ? '/var/folders' : $fixture;
+    my ( $out, $err, $exit_code );
+    {
+        local $ENV{TMPDIR} = $probe_input;
+        chdir $fixture or die "Unable to enter fixture for harness TMPDIR test: $!";
+        ( $out, $err, $exit_code ) = capture {
+            system( $^X, $runner, '-MTest::Harness', '-e', 'print $ENV{TMPDIR}, chr(10)' );
+        };
+        chdir $before or die "Unable to restore cwd after harness TMPDIR test: $!";
+    }
+    is( $exit_code, 0, 'generated harness launcher runs with the requested temporary root' );
+    my $expected_tmp = $^O eq 'darwin'
+      ? File::Spec->catdir( $fixture, 'blib', '.dd-test-tmp' )
+      : $fixture;
+    is( $out, "$expected_tmp\n",
+        'only Darwin harness invocations redirect aliased /var temporary fixtures into an unaliased build-local root' );
+    is( $err, '', 'test-only temporary-directory isolation emits no diagnostic' );
+    is( $ENV{TMPDIR}, $parent_tmp,
+        'harness probe does not mutate the parent process environment' );
 }
 
 my $source = _slurp($source_makefile_pl);

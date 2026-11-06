@@ -15,6 +15,8 @@ open my $helper_fh, '<', $helper_path or die "Unable to read browser-probe helpe
 my $helper_source = do { local $/; <$helper_fh> };
 close $helper_fh or die "Unable to close browser-probe helper '$helper_path': $!";
 unlike( $helper_source, qr/\bfork\s*\(/, 'browser probe starts its local server through GoRoutine, not Perl fork' );
+like( $helper_source, qr/local \$SIG\{PIPE\}\s*=\s*'IGNORE'/,
+    'probe readiness write ignores SIGPIPE only around the potentially closed socket' );
 
 my $browser = q{
     use IO::Socket::INET;

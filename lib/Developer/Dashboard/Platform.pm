@@ -403,7 +403,7 @@ sub _module_lib_root {
 
 # _exec_go_source($path, @args)
 # Re-execs one executable Go source file through go run so hook and command
-# launch code can treat it like any other runnable script. Passes -C <the
+# launch code can treat it like any other runnable script. Passes go -C <the
 # source file's own directory> (Go 1.20+) so go.mod discovery starts at the
 # file's own skill layer instead of walking up from the caller's cwd - a
 # bare `go run <path>` silently misses a skill's own go.mod unless the
@@ -428,7 +428,8 @@ sub _exec_go_source {
     }
     local $ENV{GOMODCACHE} = $mod_cache   if defined $mod_cache;
     local $ENV{GOCACHE}    = $build_cache if defined $build_cache;
-    $EXEC_LAUNCHER->( 'go', 'run', '-C', $dir, $path, @args ) or die "Unable to exec go run for $path: $!";
+    # -C is a global go flag, not a flag accepted by the "go run" subcommand.
+    $EXEC_LAUNCHER->( 'go', '-C', $dir, 'run', $path, @args ) or die "Unable to exec go run for $path: $!";
 }
 
 # _find_layer_go_mod($dir)
