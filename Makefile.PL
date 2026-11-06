@@ -188,26 +188,28 @@ sub _write_local_lib_runner {
       "my \$separator = quotemeta(\$Config{path_sep});\n",
       "my \@inherited = grep { length \$_ } split /\$separator/, \$ENV{PERL5LIB} // '';\n",
       "my \$is_test_harness = grep { \$_ eq '-MTest::Harness' } \@ARGV;\n",
-      # macOS /var/folders and /private/var/folders are aliases. The
-      # PathRegistry public display contract deliberately chooses /var, and
-      # test fixtures made via File::Temp must use the same spelling. Reconcile
-      # only inside the MakeMaker child harness; the cpanm environment and the
-      # product's user-facing path identity/display code remain untouched.
+      # macOS /var/folders is symlinked to /private/var/folders, but the
+      # test suite contains both logical-display and physical-getcwd contracts.
+      # Neither global spelling satisfies both. Keep the caller's TMPDIR for
+      # cpanm, and give only MakeMaker's harness a neutral scratch directory
+      # under its writable build tree when the inherited temp root is aliased.
+      # The real tarball still builds and installs via cpanm with /var TMPDIR.
       "if (\$is_test_harness && \$^O eq 'darwin') {\n",
       "    require Cwd;\n",
+      "    require File::Spec;\n",
       "    my \$tmp = \$ENV{TMPDIR};\n",
-      "    if (!defined \$tmp || \$tmp eq '') {\n",
-      "        require File::Spec;\n",
-      "        \$tmp = File::Spec->tmpdir;\n",
-      "    }\n",
-      "    if (defined \$tmp && \$tmp ne '') {\n",
-      "        my \$physical = eval { Cwd::abs_path(\$tmp) };\n",
-      "        if (defined \$physical && \$physical ne '') {\n",
-      "            my \$display = \$physical;\n",
-      "            \$display =~ s{\\A/private(?=/var(?:/|\\z))}{};\n",
-      "            my \$verified = \$display ne \$physical ? eval { Cwd::abs_path(\$display) } : undef;\n",
-      "            \$ENV{TMPDIR} = (defined \$verified && \$verified eq \$physical && -d \$display) ? \$display : \$physical;\n",
-      "        }\n",
+      "    \$tmp = File::Spec->tmpdir if !defined \$tmp || \$tmp eq '';\n",
+      "    my \$physical = eval { Cwd::abs_path(\$tmp) };\n",
+      "    if (defined \$physical && \$physical =~ m{\\A/private/var/folders(?:/|\\z)}) {\n",
+      "        my \$build_root = Cwd::abs_path(Cwd::cwd());\n",
+      "        die \"Cannot locate physical build directory for macOS test TMPDIR\\n\" if !defined \$build_root;\n",
+      "        die \"Cannot isolate tests under an aliased macOS build directory: \$build_root\\n\"\n",
+      "            if \$build_root =~ m{\\A/private/(?:var|tmp)(?:/|\\z)};\n",
+      "        my \$scratch = File::Spec->catdir(\$build_root, 'blib', '.dd-test-tmp');\n",
+      "        require File::Path;\n",
+      "        File::Path::make_path(\$scratch);\n",
+      "        die \"Cannot create isolated macOS test TMPDIR \$scratch\\n\" if !-d \$scratch;\n",
+      "        \$ENV{TMPDIR} = \$scratch;\n",
       "    }\n",
       "}\n",
       # Match /usr/bin/env perl shebangs to the Perl that built Dashboard XS.
