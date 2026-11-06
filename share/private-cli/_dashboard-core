@@ -1116,6 +1116,9 @@ elsif ( $cmd eq 'web-foreground' ) {
 
             my $available = eval { require Developer::Dashboard::SystemMenu::Runner; 1 };
             if ($available) {
+                # An installed runner that fails construction is broken:
+                # propagate its exception rather than silently starting
+                # without the operator's configured native integration.
                 $menu_runner = Developer::Dashboard::SystemMenu::Runner->new(
                     config   => $merged_config,
                     store    => $indicators,

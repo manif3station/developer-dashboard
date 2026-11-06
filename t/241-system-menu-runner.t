@@ -17,6 +17,9 @@ like( $core, qr/elsif\s*\(\s*\$cmd\s+eq\s+'web-foreground'/,
     'web foreground command remains available' );
 like( $core, qr/my \$available = eval \{ require Developer::Dashboard::SystemMenu::Runner; 1 \}/,
     'external runner is loaded through an optional eval' );
+like( $core,
+    qr/if\s*\(\$available\)\s*\{\s*(?:\#[^\n]*\n\s*)*\$menu_runner = Developer::Dashboard::SystemMenu::Runner->new\(/,
+    'installed runner constructor is deliberately outside the optional require eval; initialization failures remain fatal' );
 like( $core, qr/next unless \$entry->\{indicator\}\{\$menu_platform\}/,
     'only active platform flags trigger runner discovery' );
 like( $core, qr/\$menu_runner->run_with\(\$serve_web\)/,
