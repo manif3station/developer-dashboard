@@ -190,6 +190,22 @@ jobs:
           $env:PERL5SHELL = "$escapedBash -c"
           perl -e 'my $result = qx(printf first | tr a-z A-Z); die "POSIX command shell unavailable: $result\n" unless $result eq "FIRST"; print "POSIX shell ready\n"'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Force the Devel::Cover CLI to use pinned native Strawberry Perl.
+          # Otherwise an extensionless local/bin/cover can launch through
+          # Git Bash shebang handling and corrupt native PERL5LIB drive paths.
+          $coverScript = Join-Path $env:GITHUB_WORKSPACE 'local/bin/cover'
+          $nativePerl = (Get-Command perl -ErrorAction Stop).Source
+          if (-not (Test-Path $coverScript)) { throw 'Missing installed Devel::Cover script' }
+          $coverWrapperDir = Join-Path $env:RUNNER_TEMP 'native-cover-cli'
+          New-Item -ItemType Directory -Path $coverWrapperDir -Force | Out-Null
+          $coverWrapper = Join-Path $coverWrapperDir 'cover.cmd'
+          $wrapperBody = '@echo off' + [Environment]::NewLine + ('"' + $nativePerl + '" "' + $coverScript + '" %*') + [Environment]::NewLine
+          Set-Content -Path $coverWrapper -Value $wrapperBody -Encoding ascii -NoNewline
+          $env:PATH = "$coverWrapperDir;$env:PATH"
+          # Verify the serializer before starting the costly strict suite.
+          perl -MJSON -MStorable -MDevel::Cover::DB::IO -e 'print "Native coverage serializer ready\n"'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host "Native coverage CLI wrapper: $coverWrapper"
           # The gate's Unix default /tmp lock path does not exist on Windows.
           $env:DD_SUITE_LOCK = Join-Path $env:RUNNER_TEMP 'dd-gate-host.lock'
           # Full prove -j 10 suite and all four 100% coverage gates.
