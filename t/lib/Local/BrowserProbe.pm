@@ -89,7 +89,19 @@ sub browser_can_fetch_loopback {
             PeerAddr => '127.0.0.1', PeerPort => $port, Proto => 'tcp', Timeout => 0.1,
         );
         if ($probe) {
-            print {$probe} "GET /__ready HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+            # A listener can close between connect and write. On Darwin
+            # that race raises SIGPIPE by default, killing the entire test
+            # process instead of letting this readiness probe retry.
+            my $sent;
+            {
+                local $SIG{PIPE} = 'IGNORE';
+                $sent = print {$probe} "GET /__ready HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+            }
+            if (!$sent) {
+                close $probe;
+                Time::HiRes::sleep(0.05);
+                next;
+            }
             my $response = do { local $/; <$probe> } // '';
             # Darwin can report EPIPE on close after the peer has shut down.
             # The complete HTTP response was already read before this close.
