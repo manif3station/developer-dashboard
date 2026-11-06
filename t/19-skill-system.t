@@ -699,6 +699,9 @@ PL
     local $ENV{VERSION};
     local $ENV{foo_VERSION};
     local $ENV{foo_bar_VERSION};
+    # A localized undef may propagate as an exported empty value on macOS.
+    # Delete the keys so an inherited blank does not suppress skill .env files.
+    delete @ENV{qw(VERSION foo_VERSION foo_bar_VERSION)};
     my $nested_root = File::Spec->catdir( $nested_home, 'nested-skill-app' );
     make_path(
         File::Spec->catdir( $nested_home, '.developer-dashboard', 'skills', 'foo', 'skills', 'bar', 'skills', 'zzz', 'cli' ),

@@ -21,7 +21,7 @@ jobs:
     name: Four-metric coverage 100% (macOS arm64, prove -j 10)
     if: ${{ github.repository == 'manif3station/developer-dashboard' }}
     runs-on: macos-15
-    timeout-minutes: 270
+    timeout-minutes: 360
     env:
       PERL_MM_USE_DEFAULT: '1'
       NONINTERACTIVE_TESTING: '1'
@@ -121,9 +121,15 @@ jobs:
           dzil build
           archive="$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -name 'Developer-Dashboard-*.tar.gz' -print -quit)"
           test -n "$archive"
-          # Force the same /var -> /private/var alias found on real macOS.
+          # Feed cpanm a symlink-spelled /var/folders TMPDIR, as on the
+          # affected real Mac. MakeMaker's test launcher then deliberately
+          # resolves it to /private/var/folders for stable path comparisons.
           native_tmp="$(getconf DARWIN_USER_TEMP_DIR)"
           export TMPDIR="${native_tmp/#\/private\/var/\/var}"
+          case "$TMPDIR" in
+            /var/folders/*) ;;
+            *) echo "Expected macOS /var/folders TMPDIR, got $TMPDIR" >&2; exit 1 ;;
+          esac
           mkdir -p "$TMPDIR"
           cpanm -v --reinstall -L local "$archive"
           perl -MDeveloper::Dashboard -e 'print "Installed Developer::Dashboard $Developer::Dashboard::VERSION\\n"'

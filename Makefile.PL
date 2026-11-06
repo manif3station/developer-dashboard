@@ -190,7 +190,9 @@ sub _write_local_lib_runner {
       "my \$is_test_harness = grep { \$_ eq '-MTest::Harness' } \@ARGV;\n",
       # A package installer may inherit /var/... as TMPDIR even though
       # getcwd/abs_path resolve the same macOS directory as /private/var/....
-      # Normalize before File::Temp initializes in the test subprocesses.
+      # File::Temp accepts both spellings, but tests compare paths returned
+      # by getcwd/abs_path, so normalize to physical /private/var consistently
+      # in MakeMaker's child harness. cpanm still receives /var as input.
       "if (\$is_test_harness && \$^O eq 'darwin') {\n",
       "    require Cwd;\n",
       "    my \$tmp = \$ENV{TMPDIR};\n",
