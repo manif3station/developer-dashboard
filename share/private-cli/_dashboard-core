@@ -1100,17 +1100,37 @@ elsif ( $cmd eq 'web-foreground' ) {
         'ssl!'      => \$ssl,
     );
     die "Usage: dashboard web-foreground [--host HOST] [--port PORT] [--workers N] [--ssl|--no-ssl]\n" if @ARGV;
-    require Developer::Dashboard::SystemMenu::Runner;
+    # Native menu presentation belongs to an independently installed module.
+    # Platform preferences remain in the core config but do not require it.
     my $menu_platform = $^O eq 'darwin' ? 'macos'
       : $^O eq 'MSWin32' ? 'windows'
       : $^O eq 'linux' ? 'ubuntu'
       : 'unsupported';
-    my $menu_runner = Developer::Dashboard::SystemMenu::Runner->new(
-        config   => $config->merged,
-        store    => $indicators,
-        platform => $menu_platform,
-    );
-    $menu_runner->run_with( sub {
+    my $menu_runner;
+    if ( $menu_platform ne 'unsupported' ) {
+        my $merged_config = $config->merged;
+        for my $entry ( @{ $merged_config->{indicators} || [] } ) {
+            next unless ref($entry) eq 'HASH';
+            next unless ref($entry->{indicator}) eq 'HASH';
+            next unless $entry->{indicator}{$menu_platform};
+
+            my $available = eval { require Developer::Dashboard::SystemMenu::Runner; 1 };
+            if ($available) {
+                $menu_runner = Developer::Dashboard::SystemMenu::Runner->new(
+                    config   => $merged_config,
+                    store    => $indicators,
+                    platform => $menu_platform,
+                );
+            }
+            elsif ( $@ !~ /\ACan't locate Developer\/Dashboard\/SystemMenu\/Runner\.pm in \@INC/ ) {
+                # Absence is optional; a broken installed integration is not.
+                die $@;
+            }
+            last;
+        }
+    }
+
+    my $serve_web = sub {
         return $runtime->start_web(
             foreground => 1,
             host       => $host,
@@ -1118,7 +1138,13 @@ elsif ( $cmd eq 'web-foreground' ) {
             workers    => $workers,
             ssl        => $ssl,
         );
-    } );
+    };
+    if ($menu_runner) {
+        $menu_runner->run_with($serve_web);
+    }
+    else {
+        $serve_web->();
+    }
     exit 0;
 }
 elsif ( $cmd eq 'web-ssl-backend-foreground' ) {

@@ -1,5 +1,9 @@
 6.28  2026-11-03
 
+  - Extract the native System Menu distribution from core while retaining
+    macOS, Windows, and Ubuntu indicator preferences for optional integration.
+  - Load the external runner only for enabled platform flags, allow normal web
+    serving without it, and remove desktop menu XS, helpers and dependencies.
   - Replace an ineffective Scalar::Util monkeypatch in the GoRoutine coverage
     test with an unsupported regexp-reference contract assertion, and remove
     the unreachable reftype fallback so coverage remains behavior-driven.

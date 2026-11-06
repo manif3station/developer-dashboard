@@ -5,7 +5,6 @@ expat-devel
 gcc
 gcc-c++
 git
-libayatana-appindicator-gtk3-devel
 make
 nodejs
 openssl-devel

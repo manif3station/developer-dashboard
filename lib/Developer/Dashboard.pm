@@ -3141,38 +3141,25 @@ render failures are explicit collector errors: the collector C<stderr> records
 the template problem and the indicator stays red instead of silently falling
 back.
 
-=head3 System menu indicator configuration
+=head3 Optional system-menu indicator integration
 
-C<Developer::Dashboard::SystemMenu-E<gt>items_for_platform> projects
-configured indicator names and their current icons for the C<macos>,
-C<windows>, or C<ubuntu> selector. Each platform selector is opt-in; a missing
-or false value disables that item. Invalid values for any supported selector
-are rejected even when the current host is another platform. The projection
-preserves configuration order and does not start a native menu by itself. The
-private C<web-foreground> runtime supplies merged configuration and the shared
-indicator store to C<Developer::Dashboard::SystemMenu::Runner>. The runner
-starts the menu only when an indicator is enabled for the current host and
-keeps the helper active for the foreground web-service lifetime. It stops and
-joins the GoRoutine worker when the service returns or fails; disabled or
-unsupported platform settings do not load the native adapter. The existing
-C<dashboard ps1> output remains unchanged.
+Dashboard retains the C<macos>, C<windows>, and C<ubuntu> flags under each
+configured indicator. These flags are inert unless a separately installed
+system-menu integration supplies C<Developer::Dashboard::SystemMenu::Runner>
+and its associated native adapter. Core does not ship or depend on
+C<Developer::Dashboard::SystemMenu>, C<Developer::Dashboard::System::Menu>,
+their native XS code, or the operating-system menu helpers.
 
-The native System::Menu adapter starts the platform helper in a controlled
-GoRoutine worker. On Ubuntu, the helper uses Ayatana AppIndicator3 and a GTK
-menu; rendered status icons are kept in a private temporary icon-theme
-directory and removed when the helper shuts down. Building from source
-requires the Ayatana AppIndicator3 and GTK3 development packages; runtime
-requires a desktop session with AppIndicator support. The helper reports a
-clear error when no desktop session is available. Source and compile tests do
-not prove that a desktop shell visibly displayed the menu; hosted platform
-verification is required for each supported operating system. Linux CI and
-the published Docker image install those native development packages before
-building the helper. The macOS helper uses ARC and treats deprecated AppKit APIs
-as errors. The Windows full-suite job installs Test::Harness without
-Devel::Cover, which does not configure on its supported Windows runner; the
-four-metric coverage gate remains on Linux.
+When a platform flag is enabled, C<dashboard serve> checks for the external
+runner and, when available, supplies the merged configuration and shared
+indicator store. It wraps the foreground web server with the runner's
+C<run_with> lifecycle. When the runner is not installed, the web server
+starts normally without a desktop menu. Failure while loading an installed
+runner is still reported; it is not silently treated as an absent integration.
+The existing C<dashboard ps1> and browser indicators remain unchanged.
 
-
+The optional system-menu distribution owns its own installation, platform
+dependencies, native helper, tests, releases, and desktop-session verification.
 
 
 

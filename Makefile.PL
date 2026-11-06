@@ -50,8 +50,8 @@ WriteMakefile(
     XS           => { 'HtmlEscape.xs' => 'HtmlEscape.c' },
     OBJECT       => 'HtmlEscape$(OBJ_EXT)',
     depend       => {
-        'HtmlEscape.c' => 'GoRoutine012.xs GoRoutineProcess.xs GoRoutine012Native.h GoRoutineProcessNative.h Native.xs SystemMenu.xs SystemMenuNative.h',
-        'HtmlEscape$(OBJ_EXT)' => 'GoRoutineNative.h GoRoutineShared.h SystemMenuNative.h',
+        'HtmlEscape.c' => 'GoRoutine012.xs GoRoutineProcess.xs GoRoutine012Native.h GoRoutineProcessNative.h Native.xs',
+        'HtmlEscape$(OBJ_EXT)' => 'GoRoutineNative.h GoRoutineShared.h',
     },
     LIBS         => [ $^O eq 'linux' ? '-ldl' : q{} ],
     CCFLAGS      => $Config{ccflags} . ( $^O eq 'MSWin32' ? q{} : ' -pthread' ),
@@ -211,41 +211,8 @@ sub postamble {
     my $self = shift;
     my $share_postamble = File::ShareDir::Install::postamble($self);
     my $runner = _write_local_lib_runner( _local_lib_perl5_paths() );
-    my $helper_name = $^O eq 'MSWin32'
-      ? 'system_menu_helper.exe'
-      : 'system_menu_helper';
-    my ( $helper_source, $helper_compile );
-    if ( $^O eq 'linux' ) {
-        $helper_source = 'native/system_menu_helper_linux.c';
-        $helper_compile = q{$(CC) $(CCFLAGS) -Werror=deprecated-declarations -o "$@" native/system_menu_helper_linux.c `pkg-config --cflags --libs ayatana-appindicator3-0.1 gtk+-3.0`};
-    }
-    elsif ( $^O eq 'darwin' ) {
-        $helper_source = 'native/system_menu_helper_mac.m';
-        $helper_compile = q{$(CC) $(CCFLAGS) -fobjc-arc -Werror=deprecated-declarations -o "$@" native/system_menu_helper_mac.m -framework AppKit -framework Foundation};
-    }
-    elsif ( $^O eq 'MSWin32' ) {
-        $helper_source = 'native/system_menu_helper_win.c';
-        $helper_compile = q{$(CC) $(CCFLAGS) -o "$@" native/system_menu_helper_win.c -lshell32 -luser32 -lgdi32};
-    }
-    else {
-        die "System Menu native helper is unsupported on $^O\n";
-    }
-    my $helper_target = '$(INST_ARCHAUTODIR)/' . $helper_name;
-    my $helper_rules = join "\n",
-      '.PHONY: build-system-menu-helper clean-system-menu-helper',
-      'all :: build-system-menu-helper',
-      "build-system-menu-helper: $helper_target",
-      "$helper_target: $helper_source",
-      "\t\$(MKPATH) \$(INST_ARCHAUTODIR)",
-      "\t$helper_compile",
-      'clean :: clean-system-menu-helper',
-      'clean-system-menu-helper:',
-      "\t\$(RM_F) $helper_target",
-      q{};
-
     return "FULLPERL = \$(PERL) $runner\n\n"
       . $share_postamble
-      . $helper_rules
       . <<'END_POSTAMBLE';
 .PHONY: clean-local-perl5lib-runner
 clean :: clean-local-perl5lib-runner
