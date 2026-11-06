@@ -61,7 +61,7 @@ sub _run_perl {
     my (@args) = @_;
     my ( $stdout, $stderr, $exit ) = capture {
         system { $^X } $^X, @args;
-        return ${^CHILD_ERROR_NATIVE};
+        return $?;
     };
     return ( $stdout . $stderr, $exit >> 8 );
 }
