@@ -4356,8 +4356,13 @@ sub _serve_static_file_from_roots {
     for my $public_dir (@public_roots) {
         my $candidate = File::Spec->catfile( $public_dir, $filename );
         my $real_path = File::Spec->rel2abs($candidate);
-        my $quoted_public = quotemeta($public_dir);
-        next if $real_path !~ /^$quoted_public(?:\/|\z)/;
+        my $public_abs = File::Spec->rel2abs($public_dir);
+        # Compare lexical absolute paths with the same separator style. On
+        # Windows File::Spec returns backslashes, so matching only '/' here
+        # rejects every legitimate layered public asset.
+        $real_path =~ s{\\}{/}g;
+        $public_abs =~ s{\\}{/}g;
+        next if index( $real_path, $public_abs . '/' ) != 0;
         next if !-f $candidate || !_file_is_readable($candidate);
         $file_path = $candidate;
         last;
@@ -4500,7 +4505,7 @@ sub _serve_static_file_at_path {
 # Output: filehandle and zero on success, or undef and numeric errno on failure.
 sub _open_static_file {
     my ($path) = @_;
-    open my $fh, '<', $path or return ( undef, 0 + $! );
+    open my $fh, '<:raw', $path or return ( undef, 0 + $! );
     return ( $fh, 0 );
 }
 
