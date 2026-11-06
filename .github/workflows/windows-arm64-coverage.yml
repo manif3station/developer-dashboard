@@ -75,10 +75,26 @@ jobs:
         timeout-minutes: 75
         shell: msys2 {0}
         run: |
-          # Use the CLANGARM64 Perl for the installer and native XS builds.
-          curl --fail --location --silent --show-error https://cpanmin.us -o .ci-cpanm
-          perl .ci-cpanm --installdeps --notest -L local .
-          perl .ci-cpanm --notest -L local 'Test::Harness~3.48'
+          # Bootstrap a fixed cpanminus release instead of executing mutable
+          # https://cpanmin.us content. The digest is the published SHA256
+          # for App-cpanminus 1.7049 (also recorded in FreeBSD ports distinfo).
+          # Abort before extraction or execution if the bytes differ.
+          version=1.7049
+          expected_sha256=b9ffb88e62a06aa91bd7d5a28ef6bdbb942608aea90e3969aa29b33640035214
+          bootstrap_dir="$(mktemp -d)"
+          trap 'rm -rf "$bootstrap_dir"' EXIT
+          archive="$bootstrap_dir/App-cpanminus-$version.tar.gz"
+          curl --fail --location --retry 3 --silent --show-error \
+            "https://www.cpan.org/authors/id/M/MI/MIYAGAWA/App-cpanminus-$version.tar.gz" \
+            -o "$archive"
+          echo "$expected_sha256  $archive" | sha256sum --check --status
+          tar -xzf "$archive" -C "$bootstrap_dir"
+          cpanm="$bootstrap_dir/App-cpanminus-$version/bin/cpanm"
+          test -f "$cpanm"
+          # Always run cpanm under the native CLANGARM64 Perl.
+          perl "$cpanm" --version
+          perl "$cpanm" --installdeps --notest -L local .
+          perl "$cpanm" --notest -L local 'Test::Harness~3.48'
 
       - name: Build native XS extension
         timeout-minutes: 30
