@@ -13,7 +13,7 @@ jobs:
   windows-arm64:
     name: Four-metric coverage 100% (Windows arm64, prove -j 10)
     runs-on: windows-11-arm
-    timeout-minutes: 300
+    timeout-minutes: 360
     env:
       PERL_MM_USE_DEFAULT: '1'
       NONINTERACTIVE_TESTING: '1'
