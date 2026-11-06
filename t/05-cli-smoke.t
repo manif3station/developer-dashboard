@@ -3718,6 +3718,7 @@ sub _run {
         my ( $shell_fh, $shell_path ) = File::Temp::tempfile(
             'dashboard-cli-smoke-XXXXXX', DIR => '.', SUFFIX => '.sh', UNLINK => 1
         );
+        binmode $shell_fh or die "Unable to set temporary CLI shell script to raw mode: $!";
         print {$shell_fh} "$cmd\n" or die "Unable to write temporary CLI shell script: $!";
         close $shell_fh or die "Unable to close temporary CLI shell script: $!";
         $shell_path =~ s{\\}{/}g;
