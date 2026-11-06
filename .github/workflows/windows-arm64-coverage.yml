@@ -50,7 +50,6 @@ jobs:
           msystem: CLANGARM64
           update: true
           install: >-
-            make
             mingw-w64-clang-aarch64-perl
             mingw-w64-clang-aarch64-clang
             mingw-w64-clang-aarch64-make
@@ -75,6 +74,8 @@ jobs:
         timeout-minutes: 75
         shell: msys2 {0}
         run: |
+          # Use the native CLANGARM64 toolchain for CPAN XS builds.
+          command -v mingw32-make
           # Bootstrap a fixed cpanminus release instead of executing mutable
           # https://cpanmin.us content. The digest is the published SHA256
           # for App-cpanminus 1.7049 (also recorded in FreeBSD ports distinfo).
@@ -93,8 +94,8 @@ jobs:
           test -f "$cpanm"
           # Always run cpanm under the native CLANGARM64 Perl.
           perl "$cpanm" --version
-          perl "$cpanm" --installdeps --notest -L local .
-          perl "$cpanm" --notest -L local 'Test::Harness~3.48'
+          perl "$cpanm" --make mingw32-make --installdeps --notest -L local .
+          perl "$cpanm" --make mingw32-make --notest -L local 'Test::Harness~3.48'
 
       - name: Build native XS extension
         timeout-minutes: 30
@@ -104,7 +105,9 @@ jobs:
           local_lib="$(pwd -W)/local/lib/perl5"
           export PERL5LIB="$local_lib${PERL5LIB:+;$PERL5LIB}"
           perl Makefile.PL
-          make
+          # Use the native MinGW make.exe from /clangarm64/bin rather than
+          # the MSYS POSIX make.exe in /usr/bin.
+          mingw32-make
 
       - name: Require 100% four-metric coverage (10 workers)
         timeout-minutes: 120
@@ -119,7 +122,8 @@ jobs:
           # Ensure the strict gate's child processes use native Perl scripts.
           export DD_NATIVE_COVER_SCRIPT="$(cygpath -m "$(command -v cover)")"
           export DD_NATIVE_PROVE_SCRIPT="$(cygpath -m "$(command -v prove)")"
-          export DD_SUITE_LOCK="$root/.dd-coverage-host.lock"
+          # Keep the host-wide lock outside the instrumented checkout.
+          export DD_SUITE_LOCK="$(cygpath -m "$RUNNER_TEMP")/dd-gate-host.lock"
           perl -MDevel::Cover::DB::IO -e 'print "Native coverage serializer ready\n"'
           # Full suite: prove -j 10 plus mandatory 100% statement,
           # branch, condition, and subroutine coverage.
