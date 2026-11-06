@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 6.29
+
+- Fix Linux amd64 coverage XS compilation by installing the GTK 3 and Ayatana
+  AppIndicator development packages required by the native System Menu helper.
+- Update workflow contracts to match the active five-platform coverage chain.
+
 ## 6.28
 
 - Correct GoRoutine coverage by testing unsupported regexp references through

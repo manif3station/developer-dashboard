@@ -1,3 +1,10 @@
+6.29  2026-11-06
+
+  - Install the GTK and Ayatana development packages required by the Linux
+    coverage workflow before building the native System Menu helper.
+  - Refresh workflow regression contracts for the five-platform coverage
+    chain and document its Linux native build dependencies.
+
 6.28  2026-11-03
 
   - Replace an ineffective Scalar::Util monkeypatch in the GoRoutine coverage

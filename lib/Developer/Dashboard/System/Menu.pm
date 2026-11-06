@@ -8,7 +8,7 @@ use Encode ();
 use JSON::XS ();
 use Developer::Dashboard::Version ();
 
-our $VERSION = '6.28';
+our $VERSION = '6.29';
 our @EXPORT  = qw(menu);
 
 require Developer::Dashboard::HtmlEscape;

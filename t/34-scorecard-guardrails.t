@@ -41,8 +41,8 @@ like( $security, qr/Reporting A Vulnerability/i,
 like( $security, qr/security@/i,
     'SECURITY.md includes a private reporting contact' );
 
-my $mac_workflow_path = File::Spec->catfile( $WORKFLOWS, 'macos-arm64-unit-tests.yml' );
-ok( -f $mac_workflow_path, 'the owner-approved macOS coverage workflow is present' );
+my $mac_workflow_path = File::Spec->catfile( $WORKFLOWS, 'five-platform-coverage.yml' );
+ok( -f $mac_workflow_path, 'the five-platform coverage orchestrator is present' );
 my $mac_workflow = _slurp($mac_workflow_path);
 like( $mac_workflow, qr/^permissions:\s*$/m,
     'the macOS coverage workflow declares token permissions explicitly' );
@@ -125,7 +125,7 @@ __END__
 
 =head1 DESCRIPTION
 
-Checks security policy and both platform coverage workflows for pinned
+Checks security policy and the five-platform coverage orchestrator for pinned
 actions, read-only permissions, timeouts and mandatory 100 percent coverage.
 
 =head1 PURPOSE
@@ -137,7 +137,8 @@ fuzz workflow merely to satisfy historical Scorecard assumptions.
 =head1 WHY IT EXISTS
 
 Removing workflows changes which automated Scorecard signals exist, but the
-remaining macOS and Windows coverage workflows handle quality and identity. Their least-privilege and coverage properties must remain explicit.
+five-platform coverage chain handles quality and identity. Its least-privilege
+and coverage properties must remain explicit.
 
 =head1 WHEN TO USE
 
@@ -151,8 +152,8 @@ automation disabled.
 
 =head1 WHAT USES IT
 
-The source-tree macOS and Windows coverage workflows use these assertions to
-guard the retained CI security surface.
+The source-tree coverage orchestrator and reusable Windows workflow use these
+assertions to guard the retained CI security surface.
 
 =head1 EXAMPLES
 

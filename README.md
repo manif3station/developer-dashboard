@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.28
+6.29
 
 # INTRODUCTION
 
@@ -3498,10 +3498,12 @@ The init process reaps orphaned child processes so process-group cleanup tests
 observe the expected exit behavior. This option does not skip tests or change
 their assertions.
 
-The cross-platform compatibility workflow installs `Devel::Cover` into its
-local dependency tree and exports that tree through `PERL5LIB` before running
-the complete suite. Coverage-gate regression tests launch child Perl processes,
-so those processes must resolve the same coverage serializer and project
+The five-platform coverage workflow runs the full suite serially on macOS arm64,
+Linux amd64, Linux arm64, Windows amd64, and Windows arm64. Each stage must pass
+before the next begins. Linux and macOS install `Devel::Cover` into the local
+dependency tree and export that tree through `PERL5LIB` before running the
+complete suite. Coverage-gate regression tests launch child Perl processes, so
+those processes must resolve the same coverage serializer and project
 dependencies as the parent test process.
 
 When a MakeMaker build has created `blib/arch`, dashboard-managed Perl
@@ -3524,42 +3526,27 @@ OpenSSL selection explicit for the native TLS dependency used by
 `IO::Socket::SSL` and `LWP::Protocol::https`. The runner log now includes
 verbose diagnostics from this focused `Net::SSLeay` build if it fails.
 
-The platform workflow builds the Dashboard XS extension before running the
-suite on each supported platform. Unix build and coverage-tool steps use Bash;
-Windows x64 uses PowerShell so those steps invoke the Perl installed by the
-workflow rather than Git Bash's unrelated Perl. Windows ARM64 first verifies
-the runner architecture and checks Perl's configured architecture. If the
-runner is ARM64 but the hosted image supplies only x64 Perl, the workflow emits
-a visible warning and skips Perl-dependent native watcher steps; it does not
-claim that Windows ARM64 XS code was tested. When native ARM64 Perl is
-available, the job builds the extension and runs the watcher contract test.
-The Windows x64 job compiles the same extension and runs the complete suite.
+Each platform stage builds the Dashboard XS extension before running the
+coverage suite. Unix build and coverage steps use Bash; Windows amd64 uses
+PowerShell, and Windows arm64 uses the native CLANGARM64 Perl and toolchain. The
+Windows jobs check their runner architectures and fail if the native target is
+not available; they do not report skipped native tests as a pass.
 
-Checkout dependencies are installed into `local/lib/perl5`. The Linux Test
-and platform workflows add that directory to `PERL5LIB` before invoking
-`perl Makefile.PL`, because the configure-time `File::ShareDir::Install`
-dependency is needed before MakeMaker can create `blib`. The Windows build
-uses Perl's configured path separator when assembling the same local library
-path. A workflow regression test checks all three build paths.
+Checkout dependencies are installed into `local/lib/perl5`. The Linux
+workflow adds that directory to `PERL5LIB` before invoking `perl Makefile.PL`,
+because the configure-time `File::ShareDir::Install` dependency is needed
+before MakeMaker can create `blib`. Linux also installs
+`libayatana-appindicator3-dev` and `libgtk-3-dev` before building the native
+System Menu helper; these provide the pkg-config libraries and headers required
+by `native/system_menu_helper_linux.c`. The Windows builds use Perl's
+configured path separator when assembling the same local library path. Workflow
+regression tests check these setup requirements.
 
-The Linux Test workflow also builds the XS extension before running its test
-suite. It passes `blib/arch` and `blib/lib` to `prove` and exports those
-paths together with the local dependency library through `PERL5LIB`. This is
-necessary because tests and the coverage gate launch child Perl processes;
-those processes must load the extension built by the current checkout rather
-than an older or absent installed copy.
-
-The Linux Test workflow installs `CPAN::Audit` outside the project's scanned
-dependency tree. Its installer runs with `always()` so the declared-chain
-audit can report its own result even when an earlier build gate fails, rather
-than failing only because `CPAN::Audit::DB` was never installed. A workflow
-regression test verifies this ordering and condition.
-
-The GitHub Release workflow follows the same rule: it builds the extension
-before running the complete test suite and invokes `prove` with `blib/arch`
-and `blib/lib`. Without those paths, source-tree tests could select a Perl
-fallback or an unrelated installed binary, leaving the release verification
-without evidence that the release checkout's native extension works.
+The Linux coverage gate passes `blib/arch` and the local dependency library
+through `PERL5LIB` after compiling the extension. It instruments `lib/` rather
+than copied `blib/lib` sources. This ensures child Perl processes load the
+native extension built by the current checkout and keeps coverage from counting
+duplicate source copies.
 
 ### Library coverage
 

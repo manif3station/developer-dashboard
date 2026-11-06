@@ -28,6 +28,13 @@ falls back to USERPROFILE, and safely uses only `.perl5` if neither is set. The
 Docker regression covers all three cases. Hosted verification of this fix is
 pending.
 
+The active Linux coverage job builds the Linux System Menu helper as part of
+the native XS extension. Before `make`, it installs both
+`libayatana-appindicator3-dev` and `libgtk-3-dev`; these packages provide the
+`ayatana-appindicator3-0.1` and `gtk+-3.0` pkg-config metadata and headers used
+by `native/system_menu_helper_linux.c`. The static workflow contract test
+`t/811-linux-coverage-workflow-dependencies.t` guards this package list.
+
 macOS continues to install Mac::FSEvents as its platform-specific event
 backend. Linux inotify and Windows directory notifications are provided by
 the shared XS extension. No workflow job installs or requires

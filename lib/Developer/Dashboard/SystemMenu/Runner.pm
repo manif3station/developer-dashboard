@@ -3,7 +3,7 @@ package Developer::Dashboard::SystemMenu::Runner;
 use strict;
 use warnings;
 
-our $VERSION = '6.28';
+our $VERSION = '6.29';
 
 use Developer::Dashboard::GoRoutine qw(go);
 use Developer::Dashboard::SystemMenu;

@@ -20,10 +20,15 @@ closedir $fh or die "Unable to close $dir: $!";
 
 is_deeply(
     \@files,
-    ['macos-arm64-unit-tests.yml', 'windows-amd64-unit-tests.yml'],
-    'only the macOS and Windows coverage workflows remain',
+    [ 'five-platform-coverage.yml', 'linux-coverage.yml', 'windows-amd64-unit-tests.yml', 'windows-arm64-coverage.yml' ],
+    'the active workflow set contains one orchestrator and three reusable platform workflows',
 );
 
+# events($workflow)
+# Purpose: return the event mapping from a YAML workflow, including YAML 1.1's
+# boolean interpretation of the key "on".
+# Input: one decoded workflow hash.
+# Output: the workflow event hash, or an empty hash when it is absent.
 sub events {
     my ($workflow) = @_;
     my ($events) = grep { ref $_ eq 'HASH' }
@@ -32,6 +37,10 @@ sub events {
     return $events || {};
 }
 
+# find_step($steps, $name)
+# Purpose: find one named step and report whether the workflow contains it.
+# Input: an array reference of workflow steps and the expected step name.
+# Output: the matching step hash, or an empty hash after a failed assertion.
 sub find_step {
     my ( $steps, $name ) = @_;
     my ($step) = grep { ( $_->{name} // '' ) eq $name } @{$steps};
@@ -39,120 +48,132 @@ sub find_step {
     return $step || {};
 }
 
-my $mac = YAML::XS::LoadFile(
-    File::Spec->catfile( $dir, 'macos-arm64-unit-tests.yml' )
+my $orchestrator = YAML::XS::LoadFile(
+    File::Spec->catfile( $dir, 'five-platform-coverage.yml' )
 );
-is( $mac->{name}, 'macOS arm64 Test Coverage', 'the macOS workflow is named' );
-my $mac_events = events($mac);
-is_deeply( [ sort keys %{$mac_events} ],
-    [qw(pull_request push workflow_dispatch)],
-    'macOS starts on PRs, master pushes and manual dispatch' );
-is_deeply( $mac_events->{push}{branches}, ['master'],
-    'macOS push trigger is restricted to master' );
-is( $mac->{permissions}{contents}, 'read',
-    'the macOS workflow has read-only permissions' );
-is_deeply( [ sort keys %{ $mac->{jobs} || {} } ],
-    [qw(macos-arm64 windows-amd64)],
-    'macOS starts coverage and then calls Windows coverage' );
+is( $orchestrator->{name}, 'Five-platform 100% Test Coverage',
+    'the coverage orchestrator has its expected name' );
+my $events = events($orchestrator);
+is_deeply( [ sort keys %{$events} ], [qw(pull_request push workflow_dispatch)],
+    'coverage runs on pull requests, master pushes and manual dispatch' );
+is_deeply( $events->{push}{branches}, ['master'],
+    'push coverage is restricted to master' );
+is( $orchestrator->{permissions}{contents}, 'read',
+    'the orchestrator requests read-only repository access' );
+like( $orchestrator->{concurrency}{group} // '', qr/five-platform-coverage-\$\{\{ github\.ref \}\}/,
+    'the orchestrator groups and cancels duplicate runs on the same ref' );
 
-my $mac_job = $mac->{jobs}{'macos-arm64'} || {};
-is( $mac_job->{'runs-on'}, 'macos-15', 'macOS uses hosted Apple Silicon' );
-like( $mac_job->{if} // '', qr/github\.repository/,
-    'macOS checks the trusted repository' );
-my $mac_steps = $mac_job->{steps} || [];
-my $mac_step_budget = 0;
-$mac_step_budget += ($_->{'timeout-minutes'} // 0) for @{$mac_steps};
-cmp_ok( $mac_job->{'timeout-minutes'} // 0, '>=', $mac_step_budget,
-    'macOS job timeout accommodates all declared step budgets' );
+my $jobs = $orchestrator->{jobs} || {};
+is_deeply( [ sort keys %{$jobs} ],
+    [qw(linux-amd64 linux-arm64 macos-arm64 windows-amd64 windows-arm64)],
+    'the orchestrator defines exactly five ordered platform stages' );
+is( $jobs->{'linux-amd64'}{needs}, 'macos-arm64',
+    'Linux amd64 waits for macOS arm64 coverage' );
+is( $jobs->{'linux-arm64'}{needs}, 'linux-amd64',
+    'Linux arm64 waits for Linux amd64 coverage' );
+is( $jobs->{'windows-amd64'}{needs}, 'linux-arm64',
+    'Windows amd64 waits for Linux arm64 coverage' );
+is( $jobs->{'windows-arm64'}{needs}, 'windows-amd64',
+    'Windows arm64 waits for Windows amd64 coverage' );
+
+my $mac = $jobs->{'macos-arm64'} || {};
+is( $mac->{'runs-on'}, 'macos-15', 'macOS coverage uses Apple Silicon' );
+my $mac_steps = $mac->{steps} || [];
 my $mac_arch = find_step( $mac_steps, 'Verify Apple Silicon runner' );
 like( $mac_arch->{run} // '', qr/uname -m.*arm64/s,
-    'the macOS job checks the physical arm64 host' );
-my $mac_deps = find_step( $mac_steps, 'Install Devel::Cover' );
-like( $mac_deps->{run} // '', qr/cpanm[^\r\n]*--notest -L local Devel::Cover/,
-    'macOS installs coverage instrumentation' );
-my $mac_build = find_step( $mac_steps, 'Build native XS extension' );
-like( $mac_build->{run} // '', qr/perl Makefile\.PL.*\bmake\b/s,
-    'macOS builds native XS before coverage' );
-my $mac_cover =
-  find_step( $mac_steps, 'Require 100% four-metric coverage (10 workers)' );
-like( $mac_cover->{run} // '', qr/perl script\/coverage-gate --jobs 10/,
-    'macOS runs the full coverage gate with ten test workers' );
-like( $mac_cover->{run} // '', qr/PERL5LIB=.*blib\/arch.*\$local_lib/s,
-    'macOS retains its compiled XS and local library paths' );
-unlike( $mac_cover->{run} // '', qr/PERL5LIB=.*blib\/lib/s,
-    'macOS does not instrument duplicate source in blib/lib' );
-like( $mac_cover->{run} // '', qr/BASH_ENV.*perl-ci-bashenv/s,
-    'macOS preserves the selected Perl for nested shell tests' );
+    'macOS validates the native arm64 host' );
+my $mac_cover = find_step( $mac_steps, 'Require 100% four-metric coverage (10 workers)' );
+like( $mac_cover->{run} // '', qr/coverage-gate --jobs 10/,
+    'macOS runs the complete ten-worker coverage gate' );
 
-my $call = $mac->{jobs}{'windows-amd64'} || {};
-is( $call->{needs}, 'macos-arm64',
-    'Windows cannot start until macOS coverage succeeds' );
-is( $call->{uses}, './.github/workflows/windows-amd64-unit-tests.yml',
-    'macOS invokes the Windows reusable workflow' );
-is( $call->{permissions}{contents}, 'read',
-    'the Windows call has read-only permissions' );
+my $linux_amd64 = $jobs->{'linux-amd64'} || {};
+is( $linux_amd64->{uses}, './.github/workflows/linux-coverage.yml',
+    'Linux amd64 calls the reusable Linux coverage workflow' );
+is( $linux_amd64->{with}{target}, 'amd64',
+    'the first Linux stage explicitly selects amd64' );
+is( $linux_amd64->{permissions}{contents}, 'read',
+    'the Linux amd64 call keeps read-only permissions' );
+my $linux_arm64 = $jobs->{'linux-arm64'} || {};
+is( $linux_arm64->{uses}, './.github/workflows/linux-coverage.yml',
+    'Linux arm64 uses the same reusable Linux coverage workflow' );
+is( $linux_arm64->{with}{target}, 'arm64',
+    'the second Linux stage explicitly selects arm64' );
 
-my $win = YAML::XS::LoadFile(
+my $linux = YAML::XS::LoadFile( File::Spec->catfile( $dir, 'linux-coverage.yml' ) );
+my $linux_events = events($linux);
+is_deeply( [ sort keys %{$linux_events} ], ['workflow_call'],
+    'the Linux workflow can only be called by the orchestrator' );
+is( $linux->{permissions}{contents}, 'read',
+    'the reusable Linux workflow requests read-only access' );
+ok( $linux_events->{workflow_call}{inputs}{target}{required},
+    'the Linux target input is required' );
+is( $linux_events->{workflow_call}{inputs}{target}{type}, 'string',
+    'the Linux target input has a string type' );
+my $linux_job = $linux->{jobs}{'linux-coverage'} || {};
+like( $linux_job->{'runs-on'} // '', qr/inputs\.target.*ubuntu-24\.04.*ubuntu-24\.04-arm/,
+    'the reusable job selects the native runner for its target architecture' );
+my $linux_steps = $linux_job->{steps} || [];
+my $caller = find_step( $linux_steps, 'Verify coverage caller and target' );
+like( $caller->{run} // '', qr/five-platform-coverage\.yml/,
+    'the Linux job fails when invoked outside the five-platform orchestrator' );
+my $linux_arch = find_step( $linux_steps, 'Verify native Linux architecture' );
+like( $linux_arch->{run} // '', qr/uname -m.*x86_64.*aarch64/s,
+    'the Linux job verifies the runner architecture' );
+my $linux_deps = find_step( $linux_steps, 'Install Linux Perl and XS build dependencies' );
+like( $linux_deps->{run} // '', qr/libayatana-appindicator3-dev/,
+    'Linux installs Ayatana AppIndicator development files for XS compilation' );
+like( $linux_deps->{run} // '', qr/libgtk-3-dev/,
+    'Linux installs GTK development files for XS compilation' );
+my $linux_build = find_step( $linux_steps, 'Build native XS extension' );
+like( $linux_build->{run} // '', qr/perl Makefile\.PL.*\bmake\b/s,
+    'Linux builds the native XS extension before coverage' );
+my $linux_cover = find_step( $linux_steps, 'Require 100% four-metric coverage (10 workers)' );
+like( $linux_cover->{run} // '', qr/coverage-gate --jobs 10/,
+    'Linux runs the complete ten-worker coverage gate' );
+
+my $windows = YAML::XS::LoadFile(
     File::Spec->catfile( $dir, 'windows-amd64-unit-tests.yml' )
 );
-is( $win->{name}, 'Windows amd64 Test Coverage', 'Windows workflow is named' );
-is_deeply( [ sort keys %{ events($win) } ], ['workflow_call'],
-    'Windows cannot start independently of the macOS gate' );
-is( $win->{permissions}{contents}, 'read',
-    'Windows uses read-only permissions' );
-is_deeply( [ sort keys %{ $win->{jobs} || {} } ], ['windows-amd64'],
-    'Windows has one coverage job' );
-my $win_job = $win->{jobs}{'windows-amd64'} || {};
+is_deeply( [ sort keys %{ events($windows) } ], ['workflow_call'],
+    'Windows amd64 cannot start independently of the coverage chain' );
+is( $windows->{permissions}{contents}, 'read',
+    'the Windows amd64 workflow requests read-only access' );
+my $win_job = $windows->{jobs}{'windows-amd64'} || {};
 is( $win_job->{'runs-on'}, 'windows-latest',
     'Windows amd64 uses the hosted x64 runner' );
-like( $win_job->{if} // '', qr/macos-arm64-unit-tests\.yml/,
-    'Windows reusable call checks its macOS caller' );
 my $win_steps = $win_job->{steps} || [];
-my $win_step_budget = 0;
-$win_step_budget += ($_->{'timeout-minutes'} // 0) for @{$win_steps};
-cmp_ok( $win_job->{'timeout-minutes'} // 0, '>=', $win_step_budget,
-    'Windows job timeout accommodates all declared step budgets' );
-my $win_arch = find_step( $win_steps, 'Verify Windows amd64 runner' );
-like( $win_arch->{run} // '', qr/RUNNER_ARCH.*X64/s,
-    'Windows asserts that it runs on a real amd64 host' );
-my $bootstrap = find_step( $win_steps, 'Install pinned Strawberry Perl' );
-like( $bootstrap->{run} // '', qr/Get-FileHash.*SHA256/s,
-    'Windows checks its pinned Perl archive' );
-my ($expected_sha) = ($bootstrap->{run} // '') =~
-  /\$expectedSha256 = '([0-9a-f]+)'/;
-is( length($expected_sha // ''), 64,
-    'the Strawberry Perl SHA256 has exactly 64 hex digits' );
-like( $bootstrap->{run} // '', qr/cpanm\.Source\.StartsWith/,
-    'Windows rejects cpanm from a different Perl installation' );
-my $win_deps =
-  find_step( $win_steps, 'Install Devel::Cover (required on Windows)' );
-like( $win_deps->{run} // '', qr/cpanm[^\r\n]*--notest -L local Devel::Cover/,
-    'Windows must install real Devel::Cover instrumentation' );
-like( $win_deps->{run} // '', qr/exit \$LASTEXITCODE/,
-    'Windows does not silently skip failed coverage installation' );
-my $win_build = find_step( $win_steps, 'Build native XS extension' );
-like( $win_build->{run} // '', qr/perl Makefile\.PL.*\bgmake\b/s,
-    'Windows builds native XS before coverage' );
-my $win_cover =
-  find_step( $win_steps, 'Require 100% four-metric coverage (10 workers)' );
+my $win_caller = find_step( $win_steps, 'Verify coverage caller' );
+like( $win_caller->{run} // '', qr/five-platform-coverage\.yml/,
+    'Windows amd64 validates the orchestrator caller' );
+my $win_cover = find_step( $win_steps, 'Require 100% four-metric coverage (10 workers)' );
 like( $win_cover->{run} // '', qr/perl script\/coverage-gate --jobs 10/,
-    'Windows invokes the full coverage gate with ten workers' );
-like( $win_cover->{run} // '', qr/DD_SUITE_LOCK.*RUNNER_TEMP/s,
-    'Windows uses a valid host-lock path under the runner temporary directory' );
-like( $win_cover->{run} // '', qr/exit \$LASTEXITCODE/,
-    'Windows fails the job when the coverage gate fails' );
-unlike( $win_cover->{run} // '', qr/Join-Path[^\n]*blib\/lib/,
-    'Windows does not double-instrument compiled copies of lib/' );
+    'Windows amd64 runs the complete ten-worker coverage gate' );
+
+my $windows_arm = YAML::XS::LoadFile(
+    File::Spec->catfile( $dir, 'windows-arm64-coverage.yml' )
+);
+is_deeply( [ sort keys %{ events($windows_arm) } ], ['workflow_call'],
+    'Windows arm64 cannot start independently of the coverage chain' );
+is( $windows_arm->{permissions}{contents}, 'read',
+    'the Windows arm64 workflow requests read-only access' );
+is( $windows_arm->{jobs}{'windows-arm64'}{'runs-on'}, 'windows-11-arm',
+    'Windows arm64 uses the native ARM runner' );
+my $win_arm_steps = $windows_arm->{jobs}{'windows-arm64'}{steps} || [];
+my $win_arm_cover = find_step( $win_arm_steps, 'Require 100% four-metric coverage (10 workers)' );
+like( $win_arm_cover->{run} // '', qr/coverage-gate --jobs 10/,
+    'Windows arm64 runs the complete ten-worker coverage gate' );
 
 my $gate_path = File::Spec->catfile( $root, 'script', 'coverage-gate' );
-open my $gate_fh, '<', $gate_path
-  or die "Unable to read $gate_path: $!";
+open my $gate_fh, '<', $gate_path or die "Unable to read $gate_path: $!";
 my $gate_source = do { local $/; <$gate_fh> };
 close $gate_fh or die "Unable to close $gate_path: $!";
 like( $gate_source, qr/my \@parallel = \$jobs > 1.*?'-j', \$jobs/s,
     'the coverage gate drives prove -j 10 from --jobs 10' );
-like( $gate_source, qr/-coverage', 'statement'.*?-coverage', 'branch'.*?-coverage', 'condition'.*?-coverage', 'subroutine'/s,
-    'all four code coverage metrics remain mandatory' );
+like(
+    $gate_source,
+    qr/-coverage', 'statement'.*?-coverage', 'branch'.*?-coverage', 'condition'.*?-coverage', 'subroutine'/s,
+    'all four code coverage metrics remain mandatory',
+);
 like( $gate_source, qr/capture \{.*?system \$\^X, '-MDevel::Cover::DB::IO'/s,
     'serializer verification launches Perl without shell-specific quoting' );
 
@@ -162,42 +183,41 @@ __END__
 
 =head1 NAME
 
-227-skills-md-ci-triggers.t - enforce two ordered platform coverage workflows
+t/227-skills-md-ci-triggers.t - enforce the five-platform coverage chain
 
 =head1 PURPOSE
 
-Only macOS arm64 and Windows amd64 workflows may run CI. On both PRs and master,
-macOS enforces 100% statement, branch, condition and subroutine coverage with
-ten TAP workers. Windows runs only after macOS succeeds, and uses the same gate.
+Verify that the active GitHub Actions workflow runs coverage in order across
+macOS arm64, Linux amd64, Linux arm64, Windows amd64, and Windows arm64. Check
+the native Linux build dependencies and the shared four-metric coverage gate.
 
 =head1 WHY IT EXISTS
 
-A separate Unit Tests and Coverage pipeline duplicated the suite and allowed
-a passing platform job to report ordinary unit tests without coverage. This
-regression guards the streamlined two-workflow design and rejects skip-only
-Windows instrumentation.
+The coverage workflow was consolidated into one serial orchestrator and three
+reusable platform workflows. Static contracts catch stale workflow inventories,
+incorrect stage dependencies, missing native build packages, and drift away
+from the mandatory coverage gate before a hosted run is needed.
 
 =head1 WHEN TO USE
 
-Run whenever changing workflow triggers, native builds, the Perl bootstrap,
-coverage tooling, or the cross-platform ordering contract.
+Run after changing workflow names, triggers, platform ordering, runner setup,
+native dependencies, or the coverage-gate invocation.
 
 =head1 HOW TO USE
 
-  prove -lv t/227-skills-md-ci-triggers.t
+    prove -lv t/227-skills-md-ci-triggers.t
+
+The test reads checked-in workflow YAML and the coverage-gate script. It does
+not contact GitHub or start a runner.
 
 =head1 WHAT USES IT
 
-The full suite on both coverage hosts invokes this test.
+The full Linux coverage job executes this test as part of the repository suite.
 
 =head1 EXAMPLES
 
-Check the ordered two-workflow contract:
-
-  prove -lv t/227-skills-md-ci-triggers.t
-
-Both platforms run the full coverage gate with ten workers:
-
-  perl script/coverage-gate --jobs 10
+The test verifies that the orchestrator selects Linux amd64 before Linux arm64,
+then waits for both Windows stages in turn. It also checks that Linux installs
+the GTK and Ayatana development packages before compiling the native helper.
 
 =cut

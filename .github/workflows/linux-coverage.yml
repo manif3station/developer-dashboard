@@ -72,7 +72,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             perl libperl-dev cpanminus build-essential pkg-config \
-            libexpat1-dev libssl-dev libxml2-dev zlib1g-dev
+            libexpat1-dev libssl-dev libxml2-dev zlib1g-dev \
+            libayatana-appindicator3-dev libgtk-3-dev
 
       - name: Set up Node for test suite
         timeout-minutes: 10
