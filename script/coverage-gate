@@ -355,7 +355,20 @@ sub main {
     my $stamp_failure = _check_database_stamp( $database, $instrument );
     return $stamp_failure if defined $stamp_failure;
 
-    my @delete = ( 'cover', $database, '-delete' );
+    # Native Strawberry Perl can dispatch a bare cover command through
+    # Git Bash's MSYS shebang resolver. That changes how Windows drive-letter
+    # PERL5LIB entries are interpreted and makes Devel::Cover's JSON/Storable
+    # serializer unavailable even though the current interpreter loads it.
+    # Execute the configured installed script with this same Perl instead.
+    # Preserve the original command in dry-run output for contract tests.
+    my @cover_command = ('cover');
+    if ( $^O eq 'MSWin32' && !$dry_run && defined $ENV{DD_NATIVE_COVER_SCRIPT}
+        && length $ENV{DD_NATIVE_COVER_SCRIPT} ) {
+        my $script = $ENV{DD_NATIVE_COVER_SCRIPT};
+        return _unusable("the configured native cover script is missing: $script") if !-f $script;
+        @cover_command = ( $^X, $script );
+    }
+    my @delete = ( @cover_command, $database, '-delete' );
     # Some integration-style tests own real ports or inspect transient source
     # files. Keep those test files isolated from other workers; the remaining
     # suite still has all requested parallel slots.
@@ -372,7 +385,7 @@ sub main {
     my @suite  = ( 'prove', @parallel, '-l', @instrumented_tests );
     my @native_thread_suite = @native_thread_tests ? ( 'prove', @parallel, '-l', @native_thread_tests ) : ();
     my @report = (
-        'cover', $database, '-report', 'text', '-select_re', '^lib/', '-gcov', '0',
+        @cover_command, $database, '-report', 'text', '-select_re', '^lib/', '-gcov', '0',
         '-coverage', 'statement',
         '-coverage', 'branch',
         '-coverage', 'condition',
