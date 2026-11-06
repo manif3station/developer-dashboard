@@ -177,7 +177,7 @@ if ($has_integration_assets) {
     close $router_test_fh;
     like( $router_test, qr/perl:5\.44-threaded/, 'post-build guard pins a threaded Perl image for the GoRoutine XS extension' );
     like( $router_test, qr/Config\{useithreads\}/, 'post-build guard rejects a Perl image without ithreads' );
-    like( $router_test, qr/libayatana-appindicator3-dev.*libgtk-3-dev/s, 'post-build guard installs native menu build headers before cpanm' );
+    unlike( $router_test, qr/libayatana-appindicator3-dev|libgtk-3-dev/, 'post-build guard does not add native desktop-menu build dependencies to core' );
 
     open my $docker_fh, '<', 'integration/blank-env/Dockerfile' or die $!;
     my $dockerfile = do { local $/; <$docker_fh> };
@@ -187,8 +187,8 @@ if ($has_integration_assets) {
     like( $dockerfile, qr/\bchromium\b/, 'integration Dockerfile installs Chromium for browser verification' );
     like( $dockerfile, qr/\blibexpat1-dev\b/, 'integration Dockerfile installs libexpat1-dev for XML::Parser during host-built tarball installs' );
     like( $dockerfile, qr/\blibssl-dev\b/, 'integration Dockerfile installs libssl-dev for Net::SSLeay during host-built tarball installs' );
-    like( $dockerfile, qr/\blibgtk-3-dev\b/, 'integration Dockerfile installs GTK headers for the native menu helper during tarball builds' );
-    like( $dockerfile, qr/\blibayatana-appindicator3-dev\b/, 'integration Dockerfile installs Ayatana headers for the native menu helper during tarball builds' );
+    unlike( $dockerfile, qr/\blibgtk-3-dev\b/, 'integration Dockerfile does not install GTK headers for an extracted optional menu helper' );
+    unlike( $dockerfile, qr/\blibayatana-appindicator3-dev\b/, 'integration Dockerfile does not install Ayatana headers for an extracted optional menu helper' );
     like( $dockerfile, qr/\bpkg-config\b/, 'integration Dockerfile installs pkg-config for native CPAN prerequisite discovery' );
     like( $dockerfile, qr/\bzlib1g-dev\b/, 'integration Dockerfile installs zlib1g-dev for native CPAN prerequisite builds' );
     unlike( $dockerfile, qr/\bDist::Zilla\b/, 'integration Dockerfile no longer installs Dist::Zilla because host builds the tarball' );

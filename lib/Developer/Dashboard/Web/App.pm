@@ -3156,6 +3156,23 @@ sub _nav_ids_for_roots {
         my @stat = Time::HiRes::stat($nav_root);
         die "Unable to inspect saved navigation directory '$nav_root': $!\n" if !@stat;
         push @signature, $nav_root, @stat[ 0, 1, 2, 4, 5, 7, 9, 10 ];
+        # Windows filesystem directory timestamps may not distinguish quick
+        # consecutive creates/removes. Include actual nav filenames in the
+        # cache identity so a newly saved fragment is visible immediately.
+        if ( is_windows() ) {
+            my $dh = $self->_open_nav_directory($nav_root);
+            if ( !$dh ) {
+                push @signature, 'unreadable';
+                next;
+            }
+            $! = 0;
+            my @entries = sort grep {
+                $_ ne '.' && $_ ne '..' && /\.tt\z/
+                  && -f File::Spec->catfile( $nav_root, $_ )
+            } $self->_read_nav_directory_entries( $dh, $nav_root );
+            $self->_close_nav_directory( $dh, $nav_root );
+            push @signature, scalar(@entries), @entries;
+        }
     }
     my $signature = join "\0", @signature;
     my $cached = $self->{_nav_ids_cache};
@@ -4355,9 +4372,14 @@ sub _serve_static_file_from_roots {
     my $file_path = '';
     for my $public_dir (@public_roots) {
         my $candidate = File::Spec->catfile( $public_dir, $filename );
-        my $real_path = File::Spec->rel2abs($candidate);
-        my $quoted_public = quotemeta($public_dir);
-        next if $real_path !~ /^$quoted_public(?:\/|\z)/;
+        my $real_path = File::Spec->rel2abs($candidate, $ORIG_CWD);
+        my $public_abs = File::Spec->rel2abs($public_dir, $ORIG_CWD);
+        # Compare lexical absolute paths with the same separator style. On
+        # Windows File::Spec returns backslashes, so matching only '/' here
+        # rejects every legitimate layered public asset.
+        $real_path =~ s{\\}{/}g;
+        $public_abs =~ s{\\}{/}g;
+        next if index( $real_path, $public_abs . '/' ) != 0;
         next if !-f $candidate || !_file_is_readable($candidate);
         $file_path = $candidate;
         last;
@@ -4500,7 +4522,7 @@ sub _serve_static_file_at_path {
 # Output: filehandle and zero on success, or undef and numeric errno on failure.
 sub _open_static_file {
     my ($path) = @_;
-    open my $fh, '<', $path or return ( undef, 0 + $! );
+    open my $fh, '<:raw', $path or return ( undef, 0 + $! );
     return ( $fh, 0 );
 }
 

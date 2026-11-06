@@ -1,62 +1,39 @@
-# System menu indicator configuration
+# Optional system-menu indicator configuration
 
-`Developer::Dashboard::SystemMenu->items_for_platform` is a deterministic
-configuration projection. The private `web-foreground` runtime passes its
-merged configuration and shared indicator store to
-`Developer::Dashboard::SystemMenu::Runner`; the runner starts the menu only
-when at least one current indicator is enabled for the host platform.
+Developer Dashboard core preserves per-indicator `macos`, `windows` and
+`ubuntu` selectors as configuration data. They do not add a core dependency.
+Without the independently installed system-menu integration, they have no
+effect on the native operating-system menu; `dashboard serve` still works.
 
-The method accepts the merged dashboard configuration, an array of current
-indicator records, and a platform key. For each configured indicator it reads
-the matching opt-in selector from `indicator`:
-
-1. `macos`
-2. `windows`
-3. `ubuntu`
-
-Only JSON booleans or scalar `0` and `1` are accepted when a selector is
-defined. Missing and false selectors disable the entry. Invalid supported
-selectors fail visibly, including selectors for platforms other than the
-requested platform. The result keeps configuration order and includes only
-enabled indicators that have a current state, represented by their name and
-icon. Other platform names return an empty list.
-
-Example configuration:
+Example `config.json`:
 
 ```json
 {
   "indicators": [
-    { "name": "build", "indicator": { "macos": true, "windows": true } },
-    { "name": "tests", "indicator": { "ubuntu": true } }
+    { "name": "build", "indicator": { "macos": 1, "windows": 1, "ubuntu": 1 } },
+    { "name": "tests", "indicator": { "macos": 0, "windows": 0, "ubuntu": 1 } }
   ]
 }
 ```
 
-The projection is independent of AppKit, Windows notification-area APIs, and
-GTK. It does not launch the native UI by itself. `dashboard serve` launches its
-foreground web-service process, which owns the menu worker for the service's
-lifetime and stops and joins that worker on normal server exit or error. A
-disabled or unsupported host selection does not load the native adapter, and
-the existing `dashboard ps1` output is unchanged. The native System::Menu
-adapter starts the platform helper in a controlled GoRoutine worker and
-forwards the projected entries while owning helper shutdown. On Ubuntu,
-the helper uses Ayatana AppIndicator3 and a GTK menu; rendered status icons are
-kept in a private temporary icon-theme directory and removed when the helper
-shuts down. Building from source requires the Ayatana AppIndicator3 and GTK3
-development packages, and runtime requires a desktop session with AppIndicator
-support. The helper reports a clear error when no desktop session is available.
-Source-contract and compile tests do not prove that a desktop shell visibly
-displayed the menu.
+Named indicator preferences continue to merge across configuration layers.
+The browser indicator strip and `dashboard ps1` are independent of these flags.
 
-The focused test runs inside the project development container:
+## Independently installed integration
 
-```sh
-  d2 docker compose exec --workdir /work dev prove -lv t/239-system-menu-config.t t/241-system-menu-runner.t t/242-system-menu-bundle.t t/243-system-menu-linux-indicator-api.t
-```
+The external distribution should supply
+`Developer::Dashboard::SystemMenu::Runner`, the menu projection,
+`Developer::Dashboard::System::Menu` adapter and its native implementation.
+Core no longer bundles any of these modules, native sources, executables,
+or their platform build dependencies.
 
-The development image, Linux GitHub workflows, and the published Docker image
-install `libayatana-appindicator3-dev` and `libgtk-3-dev` before building the
-native helper. The macOS helper is compiled with Objective-C ARC and deprecated
-AppKit API diagnostics treated as errors. Windows runs its full test suite with
-Test::Harness but omits Devel::Cover because that instrumentation distribution
-does not configure on the supported Windows runner.
+For an enabled selector, the private `web-foreground` runtime attempts to
+load the external runner. When available, it constructs the runner with
+the merged configuration, shared indicator store, and current platform,
+then calls `run_with` around the foreground web server. A missing runner
+is a supported no-op: only the desktop menu is absent. A runner that is
+installed but fails to load is an error, not an absent integration.
+
+Native rendering and macOS, Windows and Ubuntu build requirements belong
+to the separate system-menu distribution's independent SDLC and tests.
+Core installation does not require AppKit, GTK, Ayatana, or menu helpers.

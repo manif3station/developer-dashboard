@@ -153,6 +153,18 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     is( $manager->_normalize_install_source(''), '', 'normalize passes an empty string straight through' );
     is( $manager->_normalize_install_source($home), $home, 'normalize passes an existing directory straight through' );
     is( $manager->_normalize_install_source('https://example.com/x.git'), 'https://example.com/x.git', 'normalize keeps explicit URLs' );
+    is(
+        $manager->_normalize_install_source(q{file://C:\\work\\example-skill}),
+        'file:///C:/work/example-skill',
+        'normalize turns a Windows file URL with backslash paths into a valid local Git URI',
+    );
+    is(
+        Developer::Dashboard::SkillManager::_extract_repo_name(
+            $manager->_normalize_install_source(q{file://C:\\work\\example-skill})
+        ),
+        'example-skill',
+        'normalized Windows file URL preserves a safe repository basename',
+    );
     is( $manager->_normalize_install_source('git@github.com:u/r.git'), 'git@github.com:u/r.git', 'normalize keeps scp-style git URLs' );
     is( $manager->_normalize_install_source('owner/repo'), 'https://github.com/owner/repo', 'normalize expands owner/repo shorthand' );
     is( $manager->_normalize_install_source('bareskill'), 'https://github.com/manif3station/bareskill', 'normalize expands bare skill names' );

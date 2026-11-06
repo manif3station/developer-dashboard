@@ -7,6 +7,7 @@ use File::Path qw(make_path remove_tree);
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
+use Capture::Tiny qw(capture_merged);
 use Test::More;
 
 my $ROOT = File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir ) );
@@ -25,8 +26,13 @@ sub _run_gate {
     my ( $root, %env ) = @_;
 
     local @ENV{ keys %env } = values %env;
-    my $out = `bash \Q$GATE\E \Q$root\E 2>&1`;
-    return ( ${^CHILD_ERROR_NATIVE} >> 8, $out );
+    my $rc;
+    # Regex quotemeta is not shell quoting: Bash strips Windows backslashes.
+    my $out = capture_merged {
+        system { 'bash' } 'bash', $GATE, $root;
+        $rc = $? >> 8;
+    };
+    return ( $rc, $out );
 }
 
 # _seed_root($dir)

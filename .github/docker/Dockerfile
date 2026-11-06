@@ -16,12 +16,6 @@ ENV PERL_LOCAL_LIB_ROOT=/root/perl5 \
 WORKDIR /workspace
 COPY . /workspace
 
-# The distribution builds an opt-in Linux tray-menu helper as part of its XS
-# bundle; these headers are also runtime libraries used when the menu is enabled.
-RUN apt-get update \
-    && apt-get install --no-install-recommends -y libayatana-appindicator3-dev libgtk-3-dev pkg-config \
-    && rm -rf /var/lib/apt/lists/*
-
 # Run the repository installer against the checked-out master tree, install
 # Dist::Zilla and the plugins used by dist.ini, build that tree's tarball, and
 # install the exact archive into the runtime image. This avoids a stale

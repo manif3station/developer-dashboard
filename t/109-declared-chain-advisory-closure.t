@@ -6,6 +6,7 @@ use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin qw($RealBin);
+use Capture::Tiny qw(capture_merged);
 use Test::More;
 
 my $ROOT  = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
@@ -15,7 +16,8 @@ my $SOURCE = _slurp($GATE);
 # Source contracts. These hold whether or not the advisory database is
 # installed on this host, so they are checked before anything is executed.
 ok( -f $GATE, 'the declared-chain audit gate is tracked in script/' );
-ok( -x $GATE, 'the declared-chain audit gate is executable' );
+ok( $^O eq 'MSWin32' ? -f $GATE : -x $GATE,
+    'the declared-chain audit gate is available and executable on this platform' );
 like( $SOURCE, qr{\A#!/usr/bin/env perl\n}, 'the gate uses the portable env shebang' );
 like( $SOURCE, qr/^use strict;$/m,   'the gate runs under strict' );
 like( $SOURCE, qr/^use warnings;$/m, 'the gate runs under warnings' );
@@ -204,9 +206,13 @@ sub _run_gate {
     # for a reason none of them names. Freshness is owned by
     # t/172-cpan-audit-database-age.t, which shims the stamp and needs no host.
     local $ENV{CPAN_AUDIT_FRESH_DAYS} = 100_000;
-    my $command = join ' ', $^X, $GATE, @args;
-    my $out = `$command 2>&1`;
-    my $rc  = ${^CHILD_ERROR_NATIVE} >> 8;
+    my $rc;
+    # Argument-list execution avoids shell interpolation corrupting Windows
+    # drive paths and reports the audit gate's actual process exit status.
+    my $out = capture_merged {
+        system { $^X } $^X, $GATE, @args;
+        $rc = $? >> 8;
+    };
     return ( $rc, defined $out ? $out : '' );
 }
 

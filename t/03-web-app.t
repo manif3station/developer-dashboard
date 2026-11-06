@@ -30,6 +30,11 @@ use Developer::Dashboard::Prompt;
 use Developer::Dashboard::SessionStore;
 use Developer::Dashboard::Web::App;
 
+sub normalized_path_list {
+    my ($paths) = @_;
+    return [ map { my $path = $_; $path =~ s{\\}{/}g; $path } @{$paths} ];
+}
+
 sub drain_stream_body {
     my ($body) = @_;
     return $body if ref($body) ne 'HASH' || ref( $body->{stream} ) ne 'CODE';
@@ -1116,7 +1121,8 @@ for my $unstable_mode (qw(path_changed watcher_changed portable_changed watcher_
     }, 'Local::Problem48SkillEntryPaths';
     my $entries_app = bless { pages => $entries_paths }, 'Developer::Dashboard::Web::App';
     my $watch_paths = $entries_app->_config_snapshot_watch_paths;
-    ok( ( grep { $_ eq '/tmp' } @{$watch_paths} ), 'watch-path discovery includes valid installed and nested skill roots' );
+    ok( ( grep { my $path = $_; $path =~ s{\\}{/}g; $path eq '/tmp' } @{$watch_paths} ),
+        'watch-path discovery includes valid installed and nested skill roots' );
     ok( !( grep { ref($_) } @{$watch_paths} ), 'watch-path discovery ignores malformed skill entry and path values' );
 }
 
@@ -1187,7 +1193,9 @@ for my $unstable_mode (qw(path_changed watcher_changed portable_changed watcher_
         project_root => '/problem48/project',
     }, 'Local::Problem48NoSamePaths';
     my $no_same_app = bless { pages => $no_same_paths }, 'Developer::Dashboard::Web::App';
-    is_deeply( $no_same_app->_config_snapshot_watch_paths, [ File::Spec->rootdir ], 'watch-path discovery skips boundary checks when the path provider has no comparison method' );
+    is_deeply( normalized_path_list($no_same_app->_config_snapshot_watch_paths),
+        normalized_path_list([ File::Spec->rootdir ]),
+        'watch-path discovery skips boundary checks when the path provider has no comparison method' );
 }
 
 {
@@ -1206,7 +1214,9 @@ for my $unstable_mode (qw(path_changed watcher_changed portable_changed watcher_
         cwd => $outside_cwd, home => '/problem48/home', project_root => '/problem48/project',
     }, 'Local::Problem48OutsidePaths';
     my $outside_app = bless { pages => $outside_paths }, 'Developer::Dashboard::Web::App';
-    is_deeply( $outside_app->_config_snapshot_watch_paths, [ File::Spec->rootdir ], 'watch-path discovery does not climb when cwd lies outside home and project roots' );
+    is_deeply( normalized_path_list($outside_app->_config_snapshot_watch_paths),
+        normalized_path_list([ File::Spec->rootdir ]),
+        'watch-path discovery does not climb when cwd lies outside home and project roots' );
 }
 
 {
@@ -1861,6 +1871,60 @@ my ( $nav_cache_removed_code, undef, $nav_cache_removed_body ) = @{ $app->handle
 ) };
 is( $nav_cache_removed_code, 200, 'saved page still renders after a nav removal' );
 unlike( $nav_cache_removed_body, qr/nav-inventory-(?:added|updated)/, 'a removed nav fragment disappears immediately' );
+
+# The Windows nav inventory includes filenames in its cache signature because
+# directory timestamps can remain unchanged after a quick create or remove.
+# Exercise that branch on every CI host, including macOS, so the strict
+# four-metric coverage gate validates the Windows-specific implementation.
+{
+    my $windows_fixture_root = tempdir( CLEANUP => 1 );
+    my $windows_nav_dir = File::Spec->catdir( $windows_fixture_root, 'nav' );
+    make_path( $windows_nav_dir, File::Spec->catdir( $windows_nav_dir, 'ignored-dir.tt' ) );
+    my $one_nav = File::Spec->catfile( $windows_nav_dir, 'one.tt' );
+    my $ignored_extension = File::Spec->catfile( $windows_nav_dir, 'ignored.txt' );
+    for my $path ( $one_nav, $ignored_extension ) {
+        open my $fh, '>:raw', $path or die "Unable to create Windows nav fixture '$path': $!";
+        print {$fh} 'nav fixture' or die "Unable to write Windows nav fixture '$path': $!";
+        close $fh or die "Unable to close Windows nav fixture '$path': $!";
+    }
+
+    my $windows_nav_app = bless {}, 'Developer::Dashboard::Web::App';
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Web::App::is_windows = sub { 1 };
+
+        is_deeply( $windows_nav_app->_nav_ids_for_roots( [$windows_fixture_root] ),
+            ['nav/one.tt'],
+            'Windows nav signature enumerates only regular .tt files and excludes other entries' );
+        is_deeply( $windows_nav_app->_nav_ids_for_roots( [$windows_fixture_root] ),
+            ['nav/one.tt'],
+            'unchanged Windows nav filenames preserve the cached inventory' );
+
+        my $two_nav = File::Spec->catfile( $windows_nav_dir, 'two.tt' );
+        open my $second_fh, '>:raw', $two_nav
+            or die "Unable to create second Windows nav fixture '$two_nav': $!";
+        print {$second_fh} 'new nav fixture'
+            or die "Unable to write second Windows nav fixture '$two_nav': $!";
+        close $second_fh or die "Unable to close second Windows nav fixture '$two_nav': $!";
+        is_deeply( $windows_nav_app->_nav_ids_for_roots( [$windows_fixture_root] ),
+            [ 'nav/one.tt', 'nav/two.tt' ],
+            'Windows nav signature detects newly added filenames' );
+
+        unlink $two_nav or die "Unable to remove Windows nav fixture '$two_nav': $!";
+        is_deeply( $windows_nav_app->_nav_ids_for_roots( [$windows_fixture_root] ),
+            ['nav/one.tt'],
+            'Windows nav signature detects removed filenames' );
+
+        {
+            no warnings 'redefine';
+            local *Developer::Dashboard::Web::App::_open_nav_directory = sub { return; };
+            $windows_nav_app->{_nav_ids_cache} = undef;
+            is_deeply( $windows_nav_app->_nav_ids_for_roots( [$windows_fixture_root] ),
+                [],
+                'Windows nav signature and scan handle an unreadable directory without caching stale entries' );
+        }
+    }
+}
 
 {
     my $nav_fixture_root = tempdir( CLEANUP => 1 );

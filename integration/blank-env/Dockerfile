@@ -16,9 +16,7 @@ RUN apt-get update \
         fonts-liberation \
         git \
         iproute2 \
-        libayatana-appindicator3-dev \
         libexpat1-dev \
-        libgtk-3-dev \
         libssl-dev \
         pkg-config \
         procps \

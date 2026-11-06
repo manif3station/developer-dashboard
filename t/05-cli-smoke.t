@@ -131,10 +131,10 @@ my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
 for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq, $runtime_of, $runtime_open_file, $runtime_workspace, $runtime_path, $runtime_paths, $runtime_ps1, $runtime_api ) {
     ok( -f $helper, "dashboard init seeds private helper $helper" );
-    ok( -x $helper, "dashboard init marks private helper $helper executable" );
+    ok( ($^O eq 'MSWin32' ? -f $helper : -x $helper), "dashboard init stages private helper $helper for its platform" );
 }
 ok( -f $runtime_dashboard_core, 'dashboard init seeds the private built-in core helper runtime' );
-ok( -x $runtime_dashboard_core, 'dashboard init marks the private built-in core helper runtime executable' );
+ok( ($^O eq 'MSWin32' ? -f $runtime_dashboard_core : -x $runtime_dashboard_core), 'dashboard init stages the private built-in core helper runtime for its platform' );
 ok( !-e File::Spec->catfile( $runtime_cli_root, 'jq' ), 'dashboard init does not mix built-in helpers into the user CLI root' );
 my $global_config_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'config.json' );
 open my $bootstrapped_config_fh, '<:raw', $global_config_file or die "Unable to read $global_config_file: $!";
@@ -146,7 +146,11 @@ my $home_only_init_project = File::Spec->catdir( $ENV{HOME}, 'projects', 'home-o
 my $home_only_local_cli = File::Spec->catdir( $home_only_init_project, '.developer-dashboard', 'cli' );
 make_path( File::Spec->catdir( $home_only_init_project, '.git' ), $home_only_local_cli );
 my $home_only_init = _run("cd '$home_only_init_project' && $perl -I'$lib' '$dashboard' init");
-like( $home_only_init, qr/"runtime_root"\s*:\s*"\Q$home_only_init_project\/.developer-dashboard\E"/, 'dashboard init still reports the local runtime root when run inside a project layer' );
+my $home_only_runtime_root = eval { json_decode($home_only_init)->{runtime_root} };
+my $expected_local_runtime_root = File::Spec->catdir( $home_only_init_project, '.developer-dashboard' );
+$home_only_runtime_root =~ s{\\}{/}g if defined $home_only_runtime_root;
+$expected_local_runtime_root =~ s{\\}{/}g;
+is( $home_only_runtime_root, $expected_local_runtime_root, 'dashboard init still reports the local runtime root when run inside a project layer' );
 ok( !-e File::Spec->catfile( $home_only_local_cli, 'jq' ), 'dashboard init does not offload built-in helpers into the local project CLI layer' );
 ok( !-d File::Spec->catdir( $home_only_local_cli, 'dd' ), 'dashboard init does not create a dd helper namespace in child CLI layers' );
 ok( -f $runtime_jq, 'dashboard init keeps the built-in helper staged at the home runtime dd helper root' );
@@ -3706,6 +3710,20 @@ sub _run {
         $cmd =~ s/(?<!['"])\Q$perl\E(?=\s)/$shell_perl/g;
     }
     my $child_perl5opt = join ' ', grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
+    # Windows argument quoting can strip nested drive-path quotes when
+    # the entire compound CLI command is passed as a shell -c argument.
+    # Let Bash read the exact text from a scratch script instead.
+    my $windows_shell_script;
+    if ( $^O eq 'MSWin32' ) {
+        my ( $shell_fh, $shell_path ) = File::Temp::tempfile(
+            'dashboard-cli-smoke-XXXXXX', DIR => '.', SUFFIX => '.sh', UNLINK => 1
+        );
+        binmode $shell_fh or die "Unable to set temporary CLI shell script to raw mode: $!";
+        print {$shell_fh} "$cmd\n" or die "Unable to write temporary CLI shell script: $!";
+        close $shell_fh or die "Unable to close temporary CLI shell script: $!";
+        $shell_path =~ s{\\}{/}g;
+        $windows_shell_script = $shell_path;
+    }
     my $runtime_command = (
         defined $dashboard
           && $cmd =~ /\Q'$dashboard'\E\s+(?:serve|restart|stop)\b/
@@ -3717,11 +3735,21 @@ sub _run {
         if ($runtime_command) {
             local $ENV{PERL5OPT};
             local $ENV{HARNESS_PERL_SWITCHES};
-            system 'sh', '-c', $cmd;
+            if ( defined $windows_shell_script ) {
+                system 'sh', $windows_shell_script;
+            }
+            else {
+                system 'sh', '-c', $cmd;
+            }
             return $? >> 8;
         }
         local $ENV{PERL5OPT} = $child_perl5opt if _coverage_requested();
-        system 'sh', '-c', $cmd;
+        if ( defined $windows_shell_script ) {
+            system 'sh', $windows_shell_script;
+        }
+        else {
+            system 'sh', '-c', $cmd;
+        }
         return $? >> 8;
     };
     is( $exit_code, 0, "command succeeded: $cmd" );

@@ -63,6 +63,17 @@ sub _mode_octal {
     return sprintf '%04o', $stat[2] & 07777;
 }
 
+# Windows stat() exposes synthetic Unix-style mode bits, not NTFS ACLs.
+# Assert POSIX chmod permissions only where those bits are meaningful.
+sub is_posix_mode {
+    my ( $actual, $expected, $label ) = @_;
+    SKIP: {
+        skip 'POSIX mode bits are not reliable for Windows filesystem ACLs', 1
+          if $^O eq 'MSWin32';
+        is( $actual, $expected, $label );
+    }
+}
+
 sub dies_like {
     my ( $code, $pattern, $label ) = @_;
     my $error = eval { $code->(); 1 } ? '' : $@;
@@ -154,15 +165,15 @@ ok( -d $paths->config_root, 'config root created' );
 ok( -d $paths->auth_root, 'auth root created' );
 ok( -d $paths->users_root, 'users root created' );
 ok( !defined $paths->project_root_for( File::Spec->catdir( $home, 'not-a-repo' ) ), 'project_root_for returns undef outside repos' );
-is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard' ) ), '0700', 'home runtime root is owner-only' );
+is_posix_mode( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard' ) ), '0700', 'home runtime root is owner-only' );
 ok( index( $paths->state_root, $state_root_base ) == 0, 'state root is under the configured temporary state base' );
-is( _mode_octal( $paths->state_root ), '0700', 'state root is owner-only' );
+is_posix_mode( _mode_octal( $paths->state_root ), '0700', 'state root is owner-only' );
 ok( !-e File::Spec->catdir( $home, '.developer-dashboard', 'state' ), 'state is not created under home runtime root by default' );
-is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'logs' ) ), '0700', 'home runtime logs root is owner-only' );
-is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'dashboards' ) ), '0700', 'home runtime dashboards root is owner-only' );
-is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config' ) ), '0700', 'home runtime config root is owner-only' );
-is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'auth' ) ), '0700', 'home runtime auth root is owner-only' );
-is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'auth', 'users' ) ), '0700', 'home runtime users root is owner-only' );
+is_posix_mode( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'logs' ) ), '0700', 'home runtime logs root is owner-only' );
+is_posix_mode( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'dashboards' ) ), '0700', 'home runtime dashboards root is owner-only' );
+is_posix_mode( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config' ) ), '0700', 'home runtime config root is owner-only' );
+is_posix_mode( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'auth' ) ), '0700', 'home runtime auth root is owner-only' );
+is_posix_mode( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'auth', 'users' ) ), '0700', 'home runtime users root is owner-only' );
 
 {
     local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT};
@@ -183,7 +194,7 @@ is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'a
     );
     is( index( $fallback_paths->state_root, File::Spec->tmpdir ) == 0, 1, 'state root defaults to the temp runtime directory when state root override is missing' );
     like( $fallback_paths->state_root, qr/\Q$state_user\E/, 'state root is namespaced by current username by default' );
-    is( _mode_octal( $fallback_paths->state_root ), '0700', 'defaulted state root remains owner-only' );
+    is_posix_mode( _mode_octal( $fallback_paths->state_root ), '0700', 'defaulted state root remains owner-only' );
 }
 
 {
@@ -246,18 +257,18 @@ is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'a
     my $secure_files = Developer::Dashboard::FileRegistry->new( paths => $secure_paths );
 
     my $written_prompt_log = $secure_files->write( 'prompt_log', "owner only\n" );
-    is( _mode_octal($written_prompt_log), '0600', 'home runtime file registry writes owner-only files' );
+    is_posix_mode( _mode_octal($written_prompt_log), '0600', 'home runtime file registry writes owner-only files' );
     $secure_files->append( 'prompt_log', "append\n" );
-    is( _mode_octal($written_prompt_log), '0600', 'home runtime file registry appends keep owner-only file mode' );
+    is_posix_mode( _mode_octal($written_prompt_log), '0600', 'home runtime file registry appends keep owner-only file mode' );
     my $touched_auth_log = $secure_files->touch('auth_log');
-    is( _mode_octal($touched_auth_log), '0600', 'home runtime file registry touch creates owner-only files' );
+    is_posix_mode( _mode_octal($touched_auth_log), '0600', 'home runtime file registry touch creates owner-only files' );
 
     my $secure_config = Developer::Dashboard::Config->new(
         files => $secure_files,
         paths => $secure_paths,
     );
     my $saved_secure_global = $secure_config->save_global( { owner_only => 1 } );
-    is( _mode_octal($saved_secure_global), '0600', 'global config file is owner-only' );
+    is_posix_mode( _mode_octal($saved_secure_global), '0600', 'global config file is owner-only' );
 
     my $secure_page_store = Developer::Dashboard::PageStore->new( paths => $secure_paths );
     my $saved_secure_page = $secure_page_store->save_page(
@@ -269,20 +280,19 @@ is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'a
             }
         )
     );
-    is( _mode_octal($saved_secure_page), '0600', 'saved home-runtime bookmark file is owner-only' );
+    is_posix_mode( _mode_octal($saved_secure_page), '0600', 'saved home-runtime bookmark file is owner-only' );
 
     my $secure_indicator_store = Developer::Dashboard::IndicatorStore->new( paths => $secure_paths );
     my $saved_secure_indicator = $secure_indicator_store->set_indicator( permissions => ( status => 'ok', label => 'Permissions' ) );
     ok( $saved_secure_indicator, 'indicator write succeeds for permission test' );
-    is(
-        _mode_octal( File::Spec->catfile( $secure_paths->indicator_dir('permissions'), 'status.json' ) ),
+    is_posix_mode( _mode_octal( File::Spec->catfile( $secure_paths->indicator_dir('permissions'), 'status.json' ) ),
         '0600',
         'indicator status file is owner-only',
     );
 
     my $secure_collector = Developer::Dashboard::Collector->new( paths => $secure_paths );
     my $collector_job_file = $secure_collector->write_job( sample => { name => 'sample', command => 'true' } );
-    is( _mode_octal($collector_job_file), '0600', 'collector job file is owner-only' );
+    is_posix_mode( _mode_octal($collector_job_file), '0600', 'collector job file is owner-only' );
     my $collector_status_file = $secure_collector->write_result(
         sample =>
           (
@@ -292,24 +302,20 @@ is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'a
             output_format => 'text',
           )
     );
-    is( _mode_octal($collector_status_file), '0600', 'collector status file is owner-only' );
-    is(
-        _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'stdout' ) ),
+    is_posix_mode( _mode_octal($collector_status_file), '0600', 'collector status file is owner-only' );
+    is_posix_mode( _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'stdout' ) ),
         '0600',
         'collector stdout file is owner-only',
     );
-    is(
-        _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'stderr' ) ),
+    is_posix_mode( _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'stderr' ) ),
         '0600',
         'collector stderr file is owner-only',
     );
-    is(
-        _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'combined' ) ),
+    is_posix_mode( _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'combined' ) ),
         '0600',
         'collector combined file is owner-only',
     );
-    is(
-        _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'last_run' ) ),
+    is_posix_mode( _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'last_run' ) ),
         '0600',
         'collector last_run file is owner-only',
     );
@@ -372,8 +378,8 @@ is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'a
 
     my $fixed_doctor_report = $doctor->run( fix => 1 );
     ok( !$fixed_doctor_report->{ok}, 'doctor fix report still records the repaired findings from this run' );
-    is( _mode_octal($legacy_bookmarks), '0700', 'doctor --fix tightens legacy bookmark directory permissions' );
-    is( _mode_octal($legacy_file), '0600', 'doctor --fix tightens legacy bookmark file permissions' );
+    is_posix_mode( _mode_octal($legacy_bookmarks), '0700', 'doctor --fix tightens legacy bookmark directory permissions' );
+    is_posix_mode( _mode_octal($legacy_file), '0600', 'doctor --fix tightens legacy bookmark file permissions' );
     my $post_fix_report = $doctor->run;
     ok( $post_fix_report->{ok}, 'doctor reports success after fixes are applied' );
 

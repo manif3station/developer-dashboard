@@ -16,10 +16,8 @@ ca-certificates
 cpanminus
 curl
 git
-libayatana-appindicator3-dev
 libcrypt-dev
 libexpat1-dev
-libgtk-3-dev
 libssl-dev
 npm
 nodejs
@@ -48,7 +46,6 @@ ca-certificates
 curl
 expat-dev
 git
-libayatana-appindicator-dev
 nodejs
 npm
 openssl-dev
@@ -67,7 +64,6 @@ expat-devel
 gcc
 gcc-c++
 git
-libayatana-appindicator-gtk3-devel
 make
 nodejs
 openssl-devel

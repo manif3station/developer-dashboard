@@ -66,15 +66,6 @@ like( $arch_check->{run} // q{}, qr/\$ENV\{RUNNER_ARCH\}/,
 like( $arch_check->{run} // q{}, qr/Perl \$Config\{archname\}/,
     'architecture diagnostics still report the emulated Perl architecture' );
 
-my ($linux_native_deps) = grep {
-    ( $_->{name} // q{} ) eq 'Install native Linux system-menu build dependencies'
-} @{$steps};
-ok( ref($linux_native_deps) eq 'HASH',
-    'Linux platform jobs install native System Menu build dependencies' );
-like( $linux_native_deps->{run} // q{},
-    qr/libayatana-appindicator3-dev.*libgtk-3-dev.*pkg-config/s,
-    'Linux platform jobs install both pkg-config libraries required by the native menu helper' );
-
 my ($unix_build) = grep {
     ( $_->{name} // q{} ) eq 'Build the Dashboard XS extension (Unix)'
 } @{$steps};
@@ -185,8 +176,8 @@ my $makefile_path = File::Spec->catfile( $root, 'Makefile.PL' );
 open my $makefile_fh, '<:raw', $makefile_path or die "Unable to read $makefile_path: $!";
 my $makefile_text = do { local $/; <$makefile_fh> };
 close $makefile_fh or die "Unable to close $makefile_path: $!";
-like( $makefile_text, qr/-fobjc-arc/,
-    'the macOS System Menu helper compiles with ARC for weak Objective-C references' );
+unlike( $makefile_text, qr/system_menu_helper|SystemMenu\.xs|ayatana-appindicator/,
+    'core MakeMaker no longer builds native system-menu helpers' );
 like( $makefile_text, qr/test_requires\{'Devel::Cover'\}\s*=\s*0\s*if\s*\$\^O\s+ne\s+'MSWin32'/,
     'MakeMaker does not require unsupported Devel::Cover on Windows' );
 
@@ -199,23 +190,32 @@ like( $cpanfile_text,
     'the cpanfile omits unsupported Devel::Cover on Windows' );
 
 my $release_workflow_path = File::Spec->catfile( $root, '.github', 'workflows', 'release-github.yml' );
-my $release_workflow = LoadFile($release_workflow_path);
-my $release_job = $release_workflow->{jobs}{release};
-ok( ref($release_job) eq 'HASH', 'the release workflow declares its release job' );
-my $release_steps = $release_job->{steps} || [];
-my ($release_build_index) = grep {
-    ( $release_steps->[$_]{name} // q{} ) eq 'Build the Dashboard XS extension'
-} 0 .. $#{$release_steps};
-my ($release_test_index) = grep {
-    ( $release_steps->[$_]{name} // q{} ) eq 'Run tests'
-} 0 .. $#{$release_steps};
-ok( defined $release_build_index && defined $release_test_index,
-    'the release workflow builds XS and runs the complete suite' );
-cmp_ok( $release_build_index, '<', $release_test_index,
-    'the release workflow builds XS before running tests' );
-like( $release_steps->[$release_test_index]{run} // q{},
-    qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
-    'the release test suite loads the freshly built XS extension from blib' );
+SKIP: {
+    # In a source tarball both workflow files are normally absent, and the
+    # top-level plan already skips the suite. An incomplete checkout can have
+    # platform-compatibility.yml but not release-github.yml: keep platform
+    # assertions running rather than crashing on an absent release asset.
+    skip 'GitHub Release workflow source is not available', 4
+      if !-f $release_workflow_path;
+
+    my $release_workflow = LoadFile($release_workflow_path);
+    my $release_job = $release_workflow->{jobs}{release};
+    ok( ref($release_job) eq 'HASH', 'the release workflow declares its release job' );
+    my $release_steps = $release_job->{steps} || [];
+    my ($release_build_index) = grep {
+        ( $release_steps->[$_]{name} // q{} ) eq 'Build the Dashboard XS extension'
+    } 0 .. $#{$release_steps};
+    my ($release_test_index) = grep {
+        ( $release_steps->[$_]{name} // q{} ) eq 'Run tests'
+    } 0 .. $#{$release_steps};
+    ok( defined $release_build_index && defined $release_test_index,
+        'the release workflow builds XS and runs the complete suite' );
+    cmp_ok( $release_build_index, '<', $release_test_index,
+        'the release workflow builds XS before running tests' );
+    like( $release_steps->[$release_test_index]{run} // q{},
+        qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
+        'the release test suite loads the freshly built XS extension from blib' );
+}
 
 done_testing();
 
