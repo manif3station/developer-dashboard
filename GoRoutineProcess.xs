@@ -105,6 +105,7 @@ wait_process(pid)
         if (wait_result != WAIT_OBJECT_0 || !GetExitCodeProcess(process, &exit_code)) {
             DWORD error = GetLastError();
             CloseHandle(process);
+            dd_windows_forget_child((DWORD)pid);
             croak("unable to wait for GoRoutine child process (Windows error %lu)",
                   (unsigned long)error);
         }
