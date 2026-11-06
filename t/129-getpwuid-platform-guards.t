@@ -32,7 +32,9 @@ my $windows = 'MSWin32';
 
 # A uid that cannot own a passwd record on the test host, used to exercise the
 # "no record" outcome with the real getpwuid instead of a stub.
-my $absent_uid = 4294967294;
+my ($absent_uid) = grep { !defined scalar getpwuid($_) }
+      (4294967293, 4294967292, 2147483647, 999999999);
+die 'Unable to select an absent uid' if !defined $absent_uid;
 
 # ---------------------------------------------------------------------------
 # Feature: the guarded passwd accessors never die.

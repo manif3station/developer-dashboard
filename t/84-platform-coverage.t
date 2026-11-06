@@ -868,7 +868,9 @@ is(
 {
     # A uid that owns no passwd record on the test host, so the "no record"
     # outcome is exercised with the real lookup instead of a stub.
-    my $absent_uid = 4294967294;
+    my ($absent_uid) = grep { !defined scalar getpwuid($_) }
+      (4294967293, 4294967292, 2147483647, 999999999);
+    die 'Unable to select an absent uid' if !defined $absent_uid;
 
     my @real = getpwuid($<);
     is( passwd_user_name($<),      $real[0], 'passwd_user_name resolves the account name' );

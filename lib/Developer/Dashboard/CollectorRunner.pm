@@ -1108,6 +1108,10 @@ sub _is_managed_loop {
     return $title eq $self->_process_title($name) ? 1 : 0;
 }
 
+# Default Linux procfs root. A test may use a private directory to exercise
+# process enumeration on macOS and Windows without touching real processes.
+our $PROCFS_ROOT = '/proc';
+
 # _find_running_loop($name)
 # Finds a supervisor loop already running for one collector by asking the
 # process table, for use when no pidfile records it.
@@ -1128,7 +1132,7 @@ sub _find_running_loop {
     my ( $self, $name ) = @_;
     return if !defined $name || $name eq '';
 
-    opendir my $dh, '/proc' or return;
+    opendir my $dh, $PROCFS_ROOT or return;
     my @candidates = sort { $a <=> $b } grep { /\A[0-9]+\z/ } readdir $dh;
     closedir $dh;
 
@@ -1157,7 +1161,7 @@ sub _find_running_loop {
         # genuinely UNREADABLE cmdline (undef - the process vanished between
         # readdir and this read) still falls through to the ps fallback below,
         # which is the race _read_process_title's own fallback exists for.
-        my $cmdline = $self->_read_proc_file("/proc/$pid/cmdline");
+        my $cmdline = $self->_read_proc_file("$PROCFS_ROOT/$pid/cmdline");
         next if defined $cmdline && $cmdline eq '';
 
         my $running = $self->_read_process_title($pid);

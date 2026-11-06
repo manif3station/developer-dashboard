@@ -16,20 +16,18 @@ anyone building or contributing to the distribution itself.
   pages/ajax), `CollectorRunner` (scheduled checks), `Housekeeper` (cleanup),
   `PathRegistry`/`Config` (the layered `.developer-dashboard/` directory stack).
 - `t/*.t` covers `lib/`; each carries POD naming what it covers.
-- `.github/workflows/` contains exactly four workflows. **Platform
-  compatibility** runs the full Perl suite across Linux x64/arm64, macOS
-  Intel/arm64, Windows x64, and Windows arm64; Linux x64 also owns the
-  dependency-audit, action-pin, and JavaScript property-test gates. **Coverage**
-  runs three independent 100% gates: all four Devel::Cover metrics across
-  `lib/`, POD file coverage, and Markdown file coverage. **GitHub Release**
-  builds signed, provenance-attested releases from `v*` tags and supports manual
-  recovery dispatch. **Publish Docker Hub Image** publishes the
-  multi-architecture Docker Hub image on `master` pushes and manual dispatch.
+- `.github/workflows/` contains exactly **two** workflows.
+  `macos-arm64-unit-tests.yml` builds the native XS extension and runs
+  the full four-metric 100% Devel::Cover gate with ten parallel workers.
+  Only after macOS succeeds, it calls `windows-amd64-unit-tests.yml`,
+  which requires the same 100% gate on a Windows x64 runner.
+  The separate Linux unit-test, coverage, platform matrix, Docker Hub
+  and release workflows are retired.
 
 ## Running the tests
 
 ```
-PERL5LIB="$HOME/perl5/lib/perl5" prove -lr t
+PERL5LIB="$HOME/perl5/lib/perl5" prove -j 10 -lr t
 ```
 
 `PERL5LIB` must be inline on every invocation - this project's dependencies
@@ -42,7 +40,7 @@ tree, and it is not exported by non-interactive shells.
 condition, subroutine):
 
 ```
-perl script/coverage-gate
+perl script/coverage-gate --jobs 10
 ```
 
 Every tracked Perl module/test/script in the POD coverage surface must also
@@ -75,7 +73,7 @@ list - never via `.gitignore`, which `dzil` does not consult.
 Version is `X.XX` (two decimals, never reused, read from the newest `git tag`).
 A version bump touches every `lib/**` `$VERSION`, `dist.ini`, the main POD, and
 `t/15-release-metadata.t`'s expected value in one atomic change, then tags
-`vX.XX` and pushes it - the tag push fires a signed GitHub Release.
+`vX.XX` and pushes it. Releases must now be published manually.
 CPAN upload is a separate, manual step.
 
 ## Two entrypoints, one CLI

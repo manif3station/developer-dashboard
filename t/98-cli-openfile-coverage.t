@@ -52,9 +52,11 @@ is_deeply(
     my $exit_child = Developer::Dashboard::GoRoutine::spawn(
         [
             $^X,
-            '-Iblib/lib',
-            '-Iblib/arch',
+            # Load the source modules once: using blib/lib ahead of lib
+            # creates duplicate Devel::Cover structures and an unreadable
+            # merge warning in the strict 100% report.
             '-Ilib',
+            '-Iblib/arch',
             @coverage_switch,
             '-MDeveloper::Dashboard::CLI::OpenFile',
             '-e',

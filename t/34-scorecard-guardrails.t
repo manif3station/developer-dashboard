@@ -11,7 +11,7 @@ my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 my $WORKFLOWS = File::Spec->catdir( $ROOT, '.github', 'workflows' );
 
 plan skip_all => 'Scorecard guardrails are source-tree-only checks'
-  if !-f File::Spec->catfile( $WORKFLOWS, 'platform-compatibility.yml' );
+  if !-e File::Spec->catfile( $ROOT, '.git' );
 
 sub _slurp {
     my ($path) = @_;
@@ -41,105 +41,79 @@ like( $security, qr/Reporting A Vulnerability/i,
 like( $security, qr/security@/i,
     'SECURITY.md includes a private reporting contact' );
 
-my @workflow_files = qw(
-  coverage.yml
-  platform-compatibility.yml
-  release-github.yml
-  dockerhub-image.yml
-);
+my $mac_workflow_path = File::Spec->catfile( $WORKFLOWS, 'macos-arm64-unit-tests.yml' );
+ok( -f $mac_workflow_path, 'the owner-approved macOS coverage workflow is present' );
+my $mac_workflow = _slurp($mac_workflow_path);
+like( $mac_workflow, qr/^permissions:\s*$/m,
+    'the macOS coverage workflow declares token permissions explicitly' );
+like( $mac_workflow, qr/^\s+contents:\s*read\s*$/m,
+    'the macOS coverage workflow only requests read access' );
+unlike( $mac_workflow, qr/^\s+\w[\w-]*:\s*write\s*$/m,
+    'the macOS coverage workflow requests no write permissions' );
+like( $mac_workflow, qr/^concurrency:\s*$/m,
+    'the macOS coverage workflow bounds concurrent runs' );
+like( $mac_workflow, qr/^\s+timeout-minutes:\s*\d+\s*$/m,
+    'the macOS coverage workflow has an explicit timeout' );
+unlike( $mac_workflow, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/,
+    'the macOS coverage workflow does not use floating action tags' );
+my @pins;
+while ( $mac_workflow =~ /uses:\s*(\S+)\@([^\s#]+)/g ) {
+    my ( $action, $pin ) = ( $1, $2 );
+    push @pins, $action;
+    like( $pin, qr/\A[0-9a-f]{40}\z/,
+        "the macOS coverage workflow pins $action to a full commit SHA" );
+}
+cmp_ok( scalar(@pins), '>=', 2, 'the macOS coverage workflow has pinned dependencies' );
 
-for my $workflow (@workflow_files) {
-    my $path = File::Spec->catfile( $WORKFLOWS, $workflow );
-    ok( -f $path, "$workflow is present" );
-    my $text = _slurp($path);
-    like( $text, qr/^permissions:\s*$/m,
-        "$workflow declares an explicit permissions block" );
-    like( $text, qr/^concurrency:\s*$/m,
-        "$workflow declares an explicit concurrency block" );
-    like( $text, qr/^\s*timeout-minutes:\s*\d+\s*$/m,
-        "$workflow sets an explicit job timeout" );
-    unlike( $text, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/,
-        "$workflow does not use floating action tags" );
-    while ( $text =~ /uses:\s*(\S+)\@([^\s#]+)/g ) {
-        my ( $action, $pin ) = ( $1, $2 );
-        like( $pin, qr/\A[0-9a-f]{40}\z/,
-            "$workflow pins $action by full commit SHA" );
-    }
+for my $retired (qw(
+  coverage.yml dockerhub-image.yml platform-compatibility.yml release-github.yml
+  test.yml codeql.yml package-ghcr.yml fuzz-js.yml
+  unit-tests.yml test-coverage.yml
+)) {
+    ok( !-e File::Spec->catfile( $WORKFLOWS, $retired ),
+        "$retired stays absent from the active workflow set" );
 }
 
-for my $removed (qw(test.yml codeql.yml package-ghcr.yml fuzz-js.yml)) {
-    ok( !-e File::Spec->catfile( $WORKFLOWS, $removed ),
-        "$removed remains absent from the active workflow set" );
-}
+like( $mac_workflow, qr/perl script\/coverage-gate --jobs 10/,
+    'the full macOS coverage suite runs with ten workers' );
 
-my $platform_text = _slurp(
-    File::Spec->catfile( $WORKFLOWS, 'platform-compatibility.yml' ) );
-like( $platform_text, qr/script\/audit-action-pins/,
-    'Platform compatibility audits the provenance of every retained action pin' );
-like( $platform_text, qr/name:\s*Set up Node for property tests/,
-    'Platform compatibility prepares Node for the in-suite property test' );
-unlike( $platform_text, qr/name:\s*Run fast-check property tests/,
-    'Platform compatibility does not duplicate the in-suite property test' );
+my $windows_workflow_path = File::Spec->catfile( $WORKFLOWS, 'windows-amd64-unit-tests.yml' );
+ok( -f $windows_workflow_path, 'the dependent Windows coverage workflow is present' );
+my $windows_workflow = _slurp($windows_workflow_path);
+like( $windows_workflow, qr/^permissions:\s*$/m,
+    'coverage declares token permissions explicitly' );
+like( $windows_workflow, qr/^\s+contents:\s*read\s*$/m,
+    'coverage requests read-only permission' );
+unlike( $windows_workflow, qr/^\s+\w[\w-]*:\s*write\s*$/m,
+    'coverage requests no write permission' );
+unlike( $windows_workflow, qr/^concurrency:\s*$/m,
+    'the macOS workflow owns concurrency for both platforms' );
+like( $windows_workflow, qr/^\s+timeout-minutes:\s*\d+\s*$/m,
+    'coverage sets an explicit timeout' );
+unlike( $windows_workflow, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/,
+    'coverage avoids floating action tags' );
+my @coverage_pins;
+while ( $windows_workflow =~ /uses:\s*(\S+)\@([^\s#]+)/g ) {
+    my ( $action, $pin ) = ( $1, $2 );
+    push @coverage_pins, $action;
+    like( $pin, qr/\A[0-9a-f]{40}\z/,
+        "coverage pins $action by full SHA" );
+}
+cmp_ok( scalar(@coverage_pins), '>=', 2,
+    'coverage has SHA-pinned actions' );
+like( $windows_workflow, qr/^\s*workflow_call:\s*$/m,
+    'Windows accepts only the reusable workflow trigger' );
+like( $mac_workflow, qr/^\s*needs:\s*macos-arm64\s*$/m,
+    'Windows waits for successful macOS coverage' );
+like( $windows_workflow, qr/perl script\/coverage-gate --jobs 10/,
+    'Windows coverage enforces all metrics with ten workers' );
+
+unlike( $mac_workflow, qr/gh\s+release\s+(?:create|upload)\b|docker\/build-push-action/,
+    'the macOS coverage workflow does not publish releases or Docker images' );
+
 my $property_test = _slurp( File::Spec->catfile( $ROOT, 't', '35-js-fast-check.t' ) );
 like( $property_test, qr/'fuzz:scorecard'/,
-    'the complete suite retains the property-based JavaScript scorecard tests' );
-like( $platform_text, qr/label:\s*Windows arm64.*?runner:\s*windows-11-arm/s,
-    'Platform compatibility includes Windows ARM64 in the full test matrix' );
-unlike( $platform_text, qr/name:\s*Verify all-metric lib coverage/,
-    'Platform compatibility does not duplicate the dedicated Coverage workflow' );
-unlike( $platform_text, qr/^\s*permissions:\s*\n(?:\s+.*:\s*write\s*\n)+/m,
-    'Platform compatibility has no workflow-level write permission' );
-
-my $coverage_text = _slurp(
-    File::Spec->catfile( $WORKFLOWS, 'coverage.yml' ) );
-like( $coverage_text, qr/perl\s+script\/coverage-gate/,
-    'Coverage workflow runs the canonical all-metric test coverage gate' );
-like( $coverage_text, qr/perl\s+script\/pod-coverage-gate/,
-    'Coverage workflow requires repository-wide POD coverage' );
-like( $coverage_text, qr/perl\s+script\/markdown-coverage-gate/,
-    'Coverage workflow requires repository-wide Markdown coverage' );
-
-my $docker_text = _slurp(
-    File::Spec->catfile( $WORKFLOWS, 'dockerhub-image.yml' ) );
-like( $docker_text, qr/registry:\s*docker\.io/,
-    'Docker publishing targets Docker Hub' );
-like( $docker_text, qr/docker\/login-action\@[0-9a-f]{40}/,
-    'Docker Hub login action is SHA pinned' );
-like( $docker_text, qr/docker\/build-push-action\@[0-9a-f]{40}/,
-    'Docker Hub build/push action is SHA pinned' );
-unlike( $docker_text, qr/ghcr\.io/i,
-    'the retained Docker publishing workflow does not publish to GHCR' );
-
-my $release_path = File::Spec->catfile( $WORKFLOWS, 'release-github.yml' );
-my $release_text = _slurp($release_path);
-like( $release_text, qr/gh\s+release\s+create\b/,
-    'GitHub Release creates releases' );
-like( $release_text, qr/gh\s+release\s+upload\b/,
-    'GitHub Release updates release assets when needed' );
-like( $release_text, qr/actions\/attest-build-provenance\@[0-9a-f]{40}/,
-    'GitHub Release generates provenance with a SHA-pinned first-party action' );
-like( $release_text, qr/\.intoto\.jsonl\b/,
-    'GitHub Release attaches an in-toto provenance asset' );
-like( $release_text, qr/\.asc\b/,
-    'GitHub Release attaches a detached signature asset' );
-
-my $release_yaml = YAML::XS::LoadFile($release_path);
-my $release_job = $release_yaml->{jobs}{release} // {};
-my $provenance_job = $release_yaml->{jobs}{provenance} // {};
-is( $release_job->{permissions}{'id-token'}, undef,
-    'the release job that executes project code cannot mint OIDC tokens' );
-is( $provenance_job->{permissions}{'id-token'}, 'write',
-    'the dedicated provenance job alone receives OIDC token permission' );
-is( $provenance_job->{permissions}{'attestations'}, 'write',
-    'the dedicated provenance job can write attestations' );
-is( $provenance_job->{needs}, 'release',
-    'provenance runs only after the release artifact is published' );
-
-my $provenance_steps = join "\n", map { $_->{run} // '' } @{ $provenance_job->{steps} || [] };
-like( $provenance_steps, qr/sha256sum\s+(?:--check|-c)\b/,
-    'provenance verifies the published checksum before attesting the artifact' );
-unlike( $provenance_steps, qr/\bprove\b|\bdzil\b|\bcpanm\b/,
-    'the OIDC-enabled provenance job runs no repository project code' );
+    'the complete test suite retains the JavaScript property-based tests' );
 
 done_testing();
 
@@ -151,10 +125,8 @@ __END__
 
 =head1 DESCRIPTION
 
-Checks the security-policy files and the four owner-approved GitHub Actions
-workflows for pinned actions, explicit permissions, timeouts, dedicated
-100-percent coverage gates, Docker Hub-only publishing, consolidated platform
-verification, and isolated release provenance.
+Checks security policy and both platform coverage workflows for pinned
+actions, read-only permissions, timeouts and mandatory 100 percent coverage.
 
 =head1 PURPOSE
 
@@ -165,15 +137,13 @@ fuzz workflow merely to satisfy historical Scorecard assumptions.
 =head1 WHY IT EXISTS
 
 Removing workflows changes which automated Scorecard signals exist, but the
-remaining verification, release, and publishing paths still handle project
-quality, credentials, and repository identity. Their least-privilege and
-coverage properties must remain explicit.
+remaining macOS and Windows coverage workflows handle quality and identity. Their least-privilege and coverage properties must remain explicit.
 
 =head1 WHEN TO USE
 
-Run this test whenever changing F<.github/workflows/>, release provenance,
-Docker Hub publishing, workflow permissions, action pins, coverage gates, or
-the decision to keep Dependabot automation disabled.
+Run this test whenever changing F<.github/workflows/>, test or coverage
+permissions, action pins, coverage gates or the decision to keep Dependabot
+automation disabled.
 
 =head1 HOW TO USE
 
@@ -181,8 +151,8 @@ the decision to keep Dependabot automation disabled.
 
 =head1 WHAT USES IT
 
-The source-tree test suite and Platform compatibility workflow use these
-assertions to guard the retained CI security surface.
+The source-tree macOS and Windows coverage workflows use these assertions to
+guard the retained CI security surface.
 
 =head1 EXAMPLES
 

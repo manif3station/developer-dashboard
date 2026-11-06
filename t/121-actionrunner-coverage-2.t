@@ -150,6 +150,27 @@ CHILD
     ok( !$runner->_pid_is_running( $result->{pid} ), 'no supervisor survives the terminated command action' );
 }
 
+# Read the Linux procfs process-state format from a portable local fixture.
+# This reaches the real state parser under macOS and Windows, where /proc is absent.
+{
+    require File::Path;
+    my $proc_root = File::Spec->catdir( $home, 'fake-proc' );
+    my $pid_dir = File::Spec->catdir( $proc_root, '424242' );
+    File::Path::make_path($pid_dir);
+    my $stat = File::Spec->catfile( $pid_dir, 'stat' );
+    open my $fh, '>', $stat or die "Unable to write $stat: $!";
+    print {$fh} "424242 (example worker) S 1 2 3\n";
+    close $fh or die "Unable to close $stat: $!";
+    local $Developer::Dashboard::ActionRunner::PROCFS_ROOT = $proc_root;
+    is( $runner->_read_process_state(424242), 'S',
+        '_read_process_state parses a readable procfs stat fixture portably' );
+    open my $broken, '>', $stat or die "Unable to rewrite $stat: $!";
+    print {$broken} "not a procfs stat record\n";
+    close $broken or die "Unable to close $stat: $!";
+    is( $runner->_read_process_state(424242), undef,
+        '_read_process_state ignores a readable but malformed procfs stat' );
+}
+
 done_testing;
 
 __END__

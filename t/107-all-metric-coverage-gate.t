@@ -270,9 +270,12 @@ for my $workflow_name (qw(test.yml release-github.yml)) {
     like( $body, qr/'-gcov',\s*'0'/,
         'the Perl lib report excludes unrelated gcov file headers from compiled XS artefacts' );
     like( $body, qr/check-all-metric-coverage/,   'the canonical entrypoint enforces the report through the checker' );
-    like( $body, qr/\+ignore,\^\/tmp\//, 'coverage instrumentation excludes disposable temporary source files' );
-    like( $body, qr/\+ignore[^\n]*\\\.developer-dashboard\//, 'coverage instrumentation excludes staged runtime helper files' );
-    like( $body, qr/\+ignore[^\n]*\/t\//, 'coverage instrumentation excludes test files outside the lib-only coverage target' );
+    like( $body, qr/-select,\^lib\//,
+        'coverage instrumentation explicitly selects repository library sources' );
+    like( $body, qr/-ignore,\^/,
+        'coverage instrumentation excludes non-library dynamic test fixtures' );
+    like( $body, qr/-blib,0/,
+        'coverage instrumentation never shadows the library source with the build tree' );
 }
 
 # Scenario: the documented gate is the executed gate.

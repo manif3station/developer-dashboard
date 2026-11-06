@@ -18,6 +18,7 @@ use Developer::Dashboard::InternalCLI;
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::PathRegistry;
 use Encode qw(decode encode);
+use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -1435,7 +1436,7 @@ like( $shell_bootstrap, qr/tmux set-option -q status-position bottom/, 'dashboar
 like( $shell_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell bash bootstrap enables a two-line tmux status block for ticket sessions' );
 like( $shell_bootstrap, qr/tmux set-option -q status-interval 15/, 'dashboard shell bash bootstrap refreshes the tmux status block automatically for ticket sessions without hot-looping' );
 like( $shell_bootstrap, qr/tmux set-option -q 'status-format\[0\]'.*tmux-status-top --width #\{client_width\}/s, 'dashboard shell bash bootstrap renders the indicator strip into the first tmux status row' );
-like( $shell_bootstrap, qr/status-format\[0\]' "#\('[^']+'(?: '-I[^']+')? '\Q$dashboard\E' ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'dashboard shell bash bootstrap renders the tmux ticket indicator row through the explicit dashboard entrypoint path' );
+like( $shell_bootstrap, qr/status-format\[0\]' "#\((?:'[^']+'\s+)*'\Q$dashboard\E' ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'dashboard shell bash bootstrap renders the tmux ticket indicator row through the explicit dashboard entrypoint path' );
 unlike( $shell_bootstrap, qr/status-format\[0\]'? "#\(dashboard ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'dashboard shell bash bootstrap does not depend on a bare dashboard PATH lookup for tmux ticket status rendering' );
 like( $shell_bootstrap, qr/tmux set-option -q 'status-format\[1\]' "\$_dd_default_status"/, 'dashboard shell bash bootstrap restores the normal tmux status row beneath the indicators' );
 like( $shell_bootstrap, qr/_dd_update_prompt\(\)/, 'dashboard shell bash bootstrap centralizes prompt refresh through one helper so later distro PS1 assignments cannot permanently override it' );
@@ -1481,7 +1482,7 @@ my $sh_bootstrap_file = File::Spec->catfile( $ENV{HOME}, 'dashboard-shell-posix.
 open my $sh_bootstrap_fh, '>', $sh_bootstrap_file or die "Unable to write $sh_bootstrap_file: $!";
 print {$sh_bootstrap_fh} $sh_bootstrap;
 close $sh_bootstrap_fh;
-my $sh_d2_version = _run("sh -lc 'PATH=\"$d2_bindir:\$PATH\"; . \"$sh_bootstrap_file\"; d2 version'");
+my $sh_d2_version = _run("sh -lc 'PATH=\"$d2_bindir:" . dirname($perl) . ":\$PATH\"; . \"$sh_bootstrap_file\"; d2 version'");
 is( $sh_d2_version, "$expected_version\n", 'd2 helper dispatches dashboard subcommands through the POSIX shell bootstrap' );
 my $sh_which_dir_bookmarks = _run("sh -lc '. \"$sh_bootstrap_file\"; which_dir bookmarks_root'");
 is_same_path_output( $sh_which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root through the POSIX shell helper' );
@@ -2040,6 +2041,8 @@ close $failing_skill_apt_fh;
 }
 my ( $failed_skill_stdout, $failed_skill_stderr, $failed_skill_exit ) = capture {
     local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
+    local $ENV{DD_TEST_OS} = 'linux';
+    local $ENV{DD_TEST_DEBIAN_LIKE} = 1;
     system 'sh', '-c', "PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install 'file://$failing_skill_repo'";
 };
 is( $failed_skill_exit >> 8, 1, 'dashboard skills install exits non-zero when aptfile installation fails' );

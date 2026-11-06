@@ -4090,7 +4090,9 @@ close $stale_pid;
             );
         }
         ok( $pid, 'start_loop also returns a pid for failing jobs' );
-        my $log_deadline = Time::HiRes::time() + 5;
+        # On a busy ten-worker CI runner, the detached child may take longer
+        # than five seconds to start and emit its error log.
+        my $log_deadline = Time::HiRes::time() + 20;
         while ( ( $files->read('collector_log') || '' ) !~ /broken-loop/
             && Time::HiRes::time() < $log_deadline )
         {

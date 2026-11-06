@@ -1323,17 +1323,38 @@ is( $manager->web_log, '', 'web_log returns an empty string when the dashboard l
     $files->write( 'dashboard_log', "signal\n" );
     open my $fh, '>', $signal_follow or die $!;
     close $fh;
+    my $signal_ready = "$home/signal-follow-ready";
+    unlink $signal_ready if -f $signal_ready;
+    my $signal_script = _runtime_fixture_script($repo_lib, q{
+        no warnings 'redefine';
+        my $original_sleep = \&Time::HiRes::sleep;
+        local *Developer::Dashboard::RuntimeManager::sleep = sub {
+            open my $ready, '>', $ENV{DASHBOARD_FOLLOW_READY}
+                or die "Unable to open follow-ready marker: $!";
+            print {$ready} "ready\n" or die "Unable to write follow-ready marker: $!";
+            close $ready or die "Unable to close follow-ready marker: $!";
+            return $original_sleep->(@_);
+        };
+        $manager->_follow_log_file(file => $ENV{DASHBOARD_FOLLOW_FILE}, interval => 0.05);
+    });
     my $signal_pid = _spawn_perl_fixture(
-        _runtime_fixture_script($repo_lib, q{$manager->_follow_log_file(file => $ENV{DASHBOARD_FOLLOW_FILE}, interval => 0.05);}),
+        $signal_script,
         {
             env => {
                 HOME => $home,
                 DEVELOPER_DASHBOARD_STATE_ROOT => $ENV{DEVELOPER_DASHBOARD_STATE_ROOT},
                 DASHBOARD_FOLLOW_FILE => $signal_follow,
+                DASHBOARD_FOLLOW_READY => $signal_ready,
             },
         },
     );
-    sleep 0.2;
+    my $follow_ready = 0;
+    for ( 1 .. 200 ) {
+        $follow_ready = -f $signal_ready;
+        last if $follow_ready;
+        sleep 0.01;
+    }
+    ok( $follow_ready, '_follow_log_file has installed its signal handlers before INT is sent' );
     ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, 'INT' ),
         '_follow_log_file child receives INT through GoRoutine' );
     is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), 0,
@@ -2244,6 +2265,7 @@ END {
             port => 7919,
         };
     };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
         my ( undef, $port ) = @_;
         return () if $port != 7919;
@@ -2325,6 +2347,7 @@ END {
         };
     };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 0 };
     ok(
         !$manager->_web_runtime_ready( 8808, 7920 ),
         '_web_runtime_ready fails when the web pid survives but no listener appears on the configured port',
@@ -3271,7 +3294,11 @@ TCP6
         ok( scalar $manager->_process_fd_paths, '_process_fd_paths returns proc fd entries on Linux hosts' );
     }
     else {
-        pass('_process_fd_paths is skipped on hosts without /proc');
+        is_deeply(
+            [ $manager->_process_fd_paths ],
+            [],
+            '_process_fd_paths returns no proc fd entries when procfs is absent',
+        );
     }
 }
 
@@ -3365,6 +3392,9 @@ TCP6
         my ( undef, $pid ) = @_;
         return $pid == 333_333 ? 'starman master' : undef;
     };
+    # Keep this fake-listener fixture independent of any real web service
+    # launched by other tests earlier in the same test file.
+    local *Developer::Dashboard::RuntimeManager::_find_web_processes = sub { return () };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { die "_cleanup_web_files should not run while a saved listener still exists\n" };
     my $running = $manager->running_web;
     is( $running->{pid}, 333_333, 'running_web falls back to the saved listener pid when the real listener no longer keeps the dashboard wrapper title' );
@@ -3437,6 +3467,71 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
     my $ps_title = $manager->_read_process_title($$);
     like( $ps_title, qr/\S/, '_read_process_title can execute the ps fallback path directly when procfs is disabled' );
+}
+
+# Portable procfs title tests: test the actual parser on hosts without /proc.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub {
+        return "dashboard\x00worker\x00";
+    };
+    is( $manager->_read_process_title(424242), 'dashboard worker',
+        '_read_process_title decodes procfs NUL-delimited data on every platform' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return undef };
+    is( $manager->_read_process_title(424242), undef,
+        '_read_process_title returns undef for an unreadable procfs entry' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return '' };
+    is( $manager->_read_process_title(424242), undef,
+        '_read_process_title returns undef for an empty procfs entry' );
+}
+
+# Exercise the actual procfs state parser on all hosts rather than relying
+# on the Linux-only /proc/$pid/stat precondition.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub {
+        return "424242 (example worker) S 1 2 3\n";
+    };
+    is( $manager->_read_process_state(424242), 'S',
+        '_read_process_state parses a portable procfs stat fixture' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return undef };
+    is( $manager->_read_process_state(424242), undef,
+        '_read_process_state handles unreadable procfs stat data' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return 'invalid stat payload' };
+    is( $manager->_read_process_state(424242), undef,
+        '_read_process_state handles invalid procfs stat data' );
+}
+{
+    my $proc_fixture = File::Spec->catdir( $home, 'runtime-proc-fixture' );
+    mkdir $proc_fixture or die "Unable to create $proc_fixture: $!";
+    local $Developer::Dashboard::RuntimeManager::PROCFS_ROOT = $proc_fixture;
+    is( $manager->_procfs_available, 1, '_procfs_available detects an existing directory' );
+    my $stat = File::Spec->catfile( $proc_fixture, 'stat' );
+    open my $fh, '>', $stat or die "Unable to create $stat: $!";
+    print {$fh} "fixture text\n";
+    close $fh or die "Unable to close $stat: $!";
+    is( $manager->_slurp_proc_file($stat), "fixture text\n",
+        '_slurp_proc_file reads an existing fixture file' );
+    is( $manager->_slurp_proc_file( File::Spec->catfile( $proc_fixture, 'missing' ) ),
+        undef, '_slurp_proc_file rejects a missing fixture file' );
 }
 
 SKIP: {

@@ -1,61 +1,48 @@
-# What actually triggers each core CI workflow
+# GitHub Actions workflow triggers
 
-`.github/workflows/` contains exactly four active workflows. Platform-aware
-testing stays consolidated in one matrix workflow, while coverage has its own
-three-verdict workflow so test, POD, and Markdown coverage are visible
-independently.
+The repository contains exactly **two** active GitHub Actions workflows:
 
-## The active trigger set
+| Workflow | Trigger | Runs when |
+|---|---|---|
+| `macos-arm64-unit-tests.yml` | Push to `master`, pull request, or manual dispatch | Runs full 100% code coverage on macOS arm64 |
+| `windows-amd64-unit-tests.yml` | Reusable `workflow_call` only | Called after the macOS coverage job succeeds |
 
-| Workflow | push | pull_request | tags | schedule | workflow_dispatch |
-|---|---|---|---|---|---|
-| `platform-compatibility.yml` | `master` only | yes | no | no | no |
-| `coverage.yml` | `master` only | yes | no | no | no |
-| `release-github.yml` | no branch push | no | `v*` | no | yes |
-| `dockerhub-image.yml` | `master` only | no | no | no | yes |
+Both platforms install their Perl dependencies, compile the native XS extension,
+install Devel::Cover and execute the same full coverage command:
 
-`platform-compatibility.yml` runs the complete Perl suite on Linux x64/arm64,
-macOS Intel/arm64, Windows x64, and Windows arm64. The Windows ARM64 host uses a
-current supported x64 Strawberry Perl under Windows-on-ARM emulation because the
-hosted image does not provide a native ARM64 Perl runtime. Linux x64 additionally
-owns the dependency audits, action-pin provenance audit, and JavaScript
-fast-check property tests.
+```shell
+perl script/coverage-gate --jobs 10
+```
 
-`coverage.yml` has three independent jobs. Test coverage requires 100.0% for
-statement, branch, condition, and subroutine coverage through
-`script/coverage-gate`. POD coverage discovers the tracked Perl documentation
-surface and requires every file to contain valid POD. Markdown coverage
-discovers every tracked `.md` file and requires every file to pass the structural
-Markdown checks. Any result below 100.0% fails its job.
+The coverage gate schedules its instrumentable Perl tests under Devel::Cover
+using ten TAP workers (`prove -j 10`). Tests requiring native threads are
+run separately without unsupported instrumentation; they must still pass.
+The gate rejects any total below **100.0%** in statement, branch, condition
+or subroutine coverage and fails if instrumentation is unavailable.
 
-`release-github.yml` is a publishing workflow, not a routine branch test. A
-`v*` tag push builds and publishes the signed GitHub Release; manual dispatch is
-the recovery path for an existing tag.
+On macOS the workflow uses an Apple Silicon runner and threaded Perl 5.44.
+On Windows it uses the Windows x64 runner with checksum-verified portable
+Strawberry Perl and the same mandatory four-metric gate. The Windows job
+is a reusable workflow with `needs: macos-arm64` in the macOS caller.
+A failed or cancelled macOS run prevents Windows from starting.
 
-`dockerhub-image.yml` publishes the multi-architecture Docker Hub image from
-`master` and also supports manual dispatch.
+The gate retains serial scheduling for process-owning tests and the
+source-sensitive coverage fixture pair, while other eligible tests
+retain up to ten parallel workers.
 
-## Removed workflows
+Permissions remain read-only and GitHub Actions dependencies are pinned
+to immutable commit identifiers. The macOS workflow owns concurrency
+for the entire two-stage run.
 
-The following files are deliberately not part of the active Actions surface:
+## Retired workflows
 
+- `unit-tests.yml` (superseded by macOS and Windows coverage)
+- `test-coverage.yml` (coverage is now platform-specific)
+- `coverage.yml`
+- `dockerhub-image.yml`
+- `platform-compatibility.yml`
+- `release-github.yml`
 - `test.yml`
-- `fuzz-js.yml`
 - `codeql.yml`
 - `package-ghcr.yml`
-
-Their useful routine verification responsibilities were either consolidated into
-Platform compatibility or moved into Coverage. Re-adding one of these files
-would create another GitHub Actions workflow and violates the current
-four-workflow contract.
-
-## Keeping the description aligned
-
-`t/227-skills-md-ci-triggers.t` reads the live workflow directory and each
-workflow's real `on:` block. It asserts both the exact four-file set and the
-trigger table above, so a workflow cannot be silently added, removed, or widened
-without updating the repository contract in the same change.
-
-When reviewing CI changes, read the YAML itself rather than reconstructing the
-trigger set from historical Actions runs. Old runs remain visible in GitHub even
-after their workflow file has been deleted.
+- `fuzz-js.yml`

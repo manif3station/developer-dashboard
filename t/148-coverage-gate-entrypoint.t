@@ -169,6 +169,24 @@ sub invocations {
     return @rows;
 }
 
+# Scenario: selecting ten parallel workers applies to both test groups.
+# The fully instrumented group and the native-thread group must both use
+# the requested worker count without altering the coverage verdict.
+{
+    my $stub = build_stub_path();
+    my ( $exit, $stdout, $stderr ) = run_entry( $stub, '--jobs', '10' );
+    is( $exit, 0, 'the 100 percent coverage gate accepts ten workers' );
+    my @ran = invocations($stub);
+    is( scalar @ran, 4, 'parallel coverage still runs both groups and the report' );
+    is( $ran[1]{name}, 'prove', 'instrumented group uses prove' );
+    is( $ran[2]{name}, 'prove', 'native-thread group uses prove' );
+    like( $ran[1]{arguments}, qr/\A-j 10 --rules=seq=t\/05-cli-smoke\.t.*--rules=par=\*\* -l\b/,
+        'instrumented test group uses ten workers' );
+    like( $ran[2]{arguments}, qr/\A-j 10 --rules=seq=t\/05-cli-smoke\.t.*--rules=par=\*\* -l\b/,
+        'native-thread group also uses ten workers' );
+    is( $stderr, '', 'passing parallel coverage emits no error' );
+}
+
 # Feature: one canonical entrypoint runs the whole coverage chain.
 # Scenario: the entrypoint is a real, executable repository script.
 # Given the repository, when the canonical coverage gate is looked for, then it
@@ -216,6 +234,10 @@ sub invocations {
         'the native-thread suite runs every excluded test without coverage instrumentation',
     );
     like( $ran[1]{harness_switches}, qr/Devel::Cover/, 'the ordinary suite is instrumented' );
+    like( $ran[1]{harness_switches}, qr/-select,\^lib\//,
+        'the instrumented suite collects repository lib/ source only' );
+    like( $ran[1]{harness_switches}, qr/-ignore,\^/,
+        'non-library dynamic test source never contaminates the library report' );
     like( $ran[1]{harness_switches}, qr/-db,\Q$stub->{dir}\E\/cover_db(?:,|\s)/, 'the instrumented suite uses the shared database that GoRoutine children inherit' );
     is( $ran[2]{harness_switches}, '(unset)', 'thread tests run without the unsupported coverage hook' );
 

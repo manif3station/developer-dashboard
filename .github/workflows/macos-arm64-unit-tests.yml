@@ -1,0 +1,117 @@
+name: macOS arm64 Test Coverage
+
+# Run macOS coverage first, then Windows coverage after success.
+# Both pull requests and master pushes use the same ordered pipeline.
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-windows-coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-arm64:
+    name: Four-metric coverage 100% (macOS arm64, prove -j 10)
+    if: ${{ github.repository == 'manif3station/developer-dashboard' }}
+    runs-on: macos-15
+    timeout-minutes: 270
+    env:
+      PERL_MM_USE_DEFAULT: '1'
+      NONINTERACTIVE_TESTING: '1'
+      PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify Apple Silicon runner
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+
+      - name: Use unaliased temporary directory
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/perl-test-tmp"
+          echo "TMPDIR=$RUNNER_TEMP/perl-test-tmp" >> "$GITHUB_ENV"
+
+      - name: Install native build dependencies
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          brew install coreutils expat openssl@3 pkgconf
+          echo "CPATH=$(brew --prefix expat)/include:$(brew --prefix openssl@3)/include" >> "$GITHUB_ENV"
+          echo "LIBRARY_PATH=$(brew --prefix expat)/lib:$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$(brew --prefix expat)/lib/pkgconfig:$(brew --prefix openssl@3)/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "OPENSSL_PREFIX=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+
+      - name: Set up Perl
+        timeout-minutes: 15
+        uses: shogo82148/actions-setup-perl@53e33bb27be492a926eee378e8a5f7ff6618b061 # v1.43.1
+        with:
+          perl-version: '5.44'
+          multi-thread: true
+
+      - name: Set up Node for test suite
+        timeout-minutes: 10
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Perl dependencies
+        shell: bash
+        timeout-minutes: 30
+        run: cpanm --installdeps --notest -L local .
+
+      - name: Install Devel::Cover
+        timeout-minutes: 30
+        shell: bash
+        run: cpanm --notest -L local Devel::Cover
+
+      - name: Build native XS extension
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          export PERL5LIB="$GITHUB_WORKSPACE/local/lib/perl5${PERL5LIB:+:$PERL5LIB}"
+          perl Makefile.PL
+          make
+
+      - name: Require 100% four-metric coverage (10 workers)
+        shell: bash
+        timeout-minutes: 105
+        run: |
+          local_lib="$GITHUB_WORKSPACE/local/lib/perl5"
+          arch="$(perl -MConfig -e 'print $Config{archname}')"
+          # Instrument lib/, never the copied blib/lib source.
+          export PERL5LIB="$GITHUB_WORKSPACE/blib/arch:$local_lib:$local_lib/$arch${PERL5LIB:+:$PERL5LIB}"
+          export PATH="$GITHUB_WORKSPACE/local/bin:$PATH"
+          # Ensure nested Bash shells use the Perl used to build XS.
+          perl_bin="$(dirname "$(command -v perl)")"
+          printf 'export PATH=%s:$PATH\n' "$(printf '%q' "$perl_bin")" > "$RUNNER_TEMP/perl-ci-bashenv"
+          export BASH_ENV="$RUNNER_TEMP/perl-ci-bashenv"
+          # script/coverage-gate runs the full suite via prove -j 10,
+          # then requires 100% statement, branch, condition and subroutine.
+          gtimeout --signal=TERM --kill-after=30s 5400s perl script/coverage-gate --jobs 10
+
+  windows-amd64:
+    name: Windows amd64 coverage after macOS
+    needs: macos-arm64
+    if: ${{ github.repository == 'manif3station/developer-dashboard' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/windows-amd64-unit-tests.yml

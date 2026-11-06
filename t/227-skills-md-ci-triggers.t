@@ -7,149 +7,154 @@ use FindBin qw($RealBin);
 use Test::More;
 use YAML::XS ();
 
-my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
-my $WORKFLOWS = File::Spec->catdir( $ROOT, '.github', 'workflows' );
+my $root = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
+my $dir = File::Spec->catdir( $root, '.github', 'workflows' );
 
-plan skip_all => 'workflow YAML files are excluded from the built distribution'
-  if !-d $WORKFLOWS;
+plan skip_all => 'workflow YAML files are excluded from built distributions'
+  if !-d $dir;
 
-sub _slurp {
-    my ($path) = @_;
-    open my $fh, '<', $path or die "Unable to read $path: $!";
-    my $content = do { local $/; <$fh> };
-    close $fh or die "Unable to close $path: $!";
-    return $content // '';
-}
-
-sub trigger_block {
-    my ($workflow_file) = @_;
-    my $doc = YAML::XS::LoadFile( File::Spec->catfile( $WORKFLOWS, $workflow_file ) );
-    my ($block) = grep { ref $_ eq 'HASH' }
-      map { $doc->{$_} } grep { m/\A(?:on|true|1)\z/ } keys %$doc;
-    return $block // {};
-}
-
-opendir my $workflow_dir, $WORKFLOWS
-  or die "Unable to read workflow directory $WORKFLOWS: $!";
-my @workflow_files = sort grep { /\.ya?ml\z/ && -f File::Spec->catfile( $WORKFLOWS, $_ ) }
-  readdir $workflow_dir;
-closedir $workflow_dir or die "Unable to close workflow directory $WORKFLOWS: $!";
+opendir my $fh, $dir or die "Unable to read $dir: $!";
+my @files = sort grep { /\.ya?ml\z/ && -f File::Spec->catfile( $dir, $_ ) }
+  readdir $fh;
+closedir $fh or die "Unable to close $dir: $!";
 
 is_deeply(
-    \@workflow_files,
-    [ qw(coverage.yml dockerhub-image.yml platform-compatibility.yml release-github.yml) ],
-    'the repository exposes exactly the four owner-approved GitHub Actions workflows',
+    \@files,
+    ['macos-arm64-unit-tests.yml', 'windows-amd64-unit-tests.yml'],
+    'only the macOS and Windows coverage workflows remain',
 );
 
-for my $removed (qw(test.yml codeql.yml package-ghcr.yml fuzz-js.yml)) {
-    ok( !-e File::Spec->catfile( $WORKFLOWS, $removed ),
-        "$removed is removed from the active workflow directory" );
+sub events {
+    my ($workflow) = @_;
+    my ($events) = grep { ref $_ eq 'HASH' }
+      map { $workflow->{$_} }
+      grep { /\A(?:on|true|1)\z/ } keys %{$workflow};
+    return $events || {};
 }
 
-my %triggers = map { $_ => trigger_block($_) } @workflow_files;
-
-for my $workflow (qw(platform-compatibility.yml coverage.yml)) {
-    ok( exists $triggers{$workflow}{push},
-        "$workflow runs on push" );
-    is_deeply(
-        $triggers{$workflow}{push}{branches},
-        ['master'],
-        "$workflow push runs are scoped to master",
-    );
-    ok( exists $triggers{$workflow}{pull_request},
-        "$workflow also runs on pull requests" );
-    ok( !exists $triggers{$workflow}{workflow_dispatch},
-        "$workflow has no duplicate manual verification path" );
+sub find_step {
+    my ( $steps, $name ) = @_;
+    my ($step) = grep { ( $_->{name} // '' ) eq $name } @{$steps};
+    ok( defined $step, "$name is present" );
+    return $step || {};
 }
 
-ok( exists $triggers{'release-github.yml'}{push},
-    'GitHub Release runs on tag pushes' );
-is_deeply(
-    $triggers{'release-github.yml'}{push}{tags},
-    ['v*'],
-    'GitHub Release is scoped to version tags',
+my $mac = YAML::XS::LoadFile(
+    File::Spec->catfile( $dir, 'macos-arm64-unit-tests.yml' )
 );
-ok( exists $triggers{'release-github.yml'}{workflow_dispatch},
-    'GitHub Release keeps its recovery dispatch path' );
-ok( !exists $triggers{'release-github.yml'}{pull_request},
-    'GitHub Release does not run on pull requests' );
+is( $mac->{name}, 'macOS arm64 Test Coverage', 'the macOS workflow is named' );
+my $mac_events = events($mac);
+is_deeply( [ sort keys %{$mac_events} ],
+    [qw(pull_request push workflow_dispatch)],
+    'macOS starts on PRs, master pushes and manual dispatch' );
+is_deeply( $mac_events->{push}{branches}, ['master'],
+    'macOS push trigger is restricted to master' );
+is( $mac->{permissions}{contents}, 'read',
+    'the macOS workflow has read-only permissions' );
+is_deeply( [ sort keys %{ $mac->{jobs} || {} } ],
+    [qw(macos-arm64 windows-amd64)],
+    'macOS starts coverage and then calls Windows coverage' );
 
-ok( exists $triggers{'dockerhub-image.yml'}{push},
-    'Docker Hub publishing runs on push' );
-is_deeply(
-    $triggers{'dockerhub-image.yml'}{push}{branches},
-    ['master'],
-    'Docker Hub publishing is scoped to master pushes',
+my $mac_job = $mac->{jobs}{'macos-arm64'} || {};
+is( $mac_job->{'runs-on'}, 'macos-15', 'macOS uses hosted Apple Silicon' );
+like( $mac_job->{if} // '', qr/github\.repository/,
+    'macOS checks the trusted repository' );
+my $mac_steps = $mac_job->{steps} || [];
+my $mac_step_budget = 0;
+$mac_step_budget += ($_->{'timeout-minutes'} // 0) for @{$mac_steps};
+cmp_ok( $mac_job->{'timeout-minutes'} // 0, '>=', $mac_step_budget,
+    'macOS job timeout accommodates all declared step budgets' );
+my $mac_arch = find_step( $mac_steps, 'Verify Apple Silicon runner' );
+like( $mac_arch->{run} // '', qr/uname -m.*arm64/s,
+    'the macOS job checks the physical arm64 host' );
+my $mac_deps = find_step( $mac_steps, 'Install Devel::Cover' );
+like( $mac_deps->{run} // '', qr/cpanm[^\r\n]*--notest -L local Devel::Cover/,
+    'macOS installs coverage instrumentation' );
+my $mac_build = find_step( $mac_steps, 'Build native XS extension' );
+like( $mac_build->{run} // '', qr/perl Makefile\.PL.*\bmake\b/s,
+    'macOS builds native XS before coverage' );
+my $mac_cover =
+  find_step( $mac_steps, 'Require 100% four-metric coverage (10 workers)' );
+like( $mac_cover->{run} // '', qr/perl script\/coverage-gate --jobs 10/,
+    'macOS runs the full coverage gate with ten test workers' );
+like( $mac_cover->{run} // '', qr/PERL5LIB=.*blib\/arch.*\$local_lib/s,
+    'macOS retains its compiled XS and local library paths' );
+unlike( $mac_cover->{run} // '', qr/PERL5LIB=.*blib\/lib/s,
+    'macOS does not instrument duplicate source in blib/lib' );
+like( $mac_cover->{run} // '', qr/BASH_ENV.*perl-ci-bashenv/s,
+    'macOS preserves the selected Perl for nested shell tests' );
+
+my $call = $mac->{jobs}{'windows-amd64'} || {};
+is( $call->{needs}, 'macos-arm64',
+    'Windows cannot start until macOS coverage succeeds' );
+is( $call->{uses}, './.github/workflows/windows-amd64-unit-tests.yml',
+    'macOS invokes the Windows reusable workflow' );
+is( $call->{permissions}{contents}, 'read',
+    'the Windows call has read-only permissions' );
+
+my $win = YAML::XS::LoadFile(
+    File::Spec->catfile( $dir, 'windows-amd64-unit-tests.yml' )
 );
-ok( exists $triggers{'dockerhub-image.yml'}{workflow_dispatch},
-    'Docker Hub publishing keeps manual dispatch' );
-ok( !exists $triggers{'dockerhub-image.yml'}{pull_request},
-    'Docker Hub publishing does not run on pull requests' );
+is( $win->{name}, 'Windows amd64 Test Coverage', 'Windows workflow is named' );
+is_deeply( [ sort keys %{ events($win) } ], ['workflow_call'],
+    'Windows cannot start independently of the macOS gate' );
+is( $win->{permissions}{contents}, 'read',
+    'Windows uses read-only permissions' );
+is_deeply( [ sort keys %{ $win->{jobs} || {} } ], ['windows-amd64'],
+    'Windows has one coverage job' );
+my $win_job = $win->{jobs}{'windows-amd64'} || {};
+is( $win_job->{'runs-on'}, 'windows-latest',
+    'Windows amd64 uses the hosted x64 runner' );
+like( $win_job->{if} // '', qr/macos-arm64-unit-tests\.yml/,
+    'Windows reusable call checks its macOS caller' );
+my $win_steps = $win_job->{steps} || [];
+my $win_step_budget = 0;
+$win_step_budget += ($_->{'timeout-minutes'} // 0) for @{$win_steps};
+cmp_ok( $win_job->{'timeout-minutes'} // 0, '>=', $win_step_budget,
+    'Windows job timeout accommodates all declared step budgets' );
+my $win_arch = find_step( $win_steps, 'Verify Windows amd64 runner' );
+like( $win_arch->{run} // '', qr/RUNNER_ARCH.*X64/s,
+    'Windows asserts that it runs on a real amd64 host' );
+my $bootstrap = find_step( $win_steps, 'Install pinned Strawberry Perl' );
+like( $bootstrap->{run} // '', qr/Get-FileHash.*SHA256/s,
+    'Windows checks its pinned Perl archive' );
+my ($expected_sha) = ($bootstrap->{run} // '') =~
+  /\$expectedSha256 = '([0-9a-f]+)'/;
+is( length($expected_sha // ''), 64,
+    'the Strawberry Perl SHA256 has exactly 64 hex digits' );
+like( $bootstrap->{run} // '', qr/cpanm\.Source\.StartsWith/,
+    'Windows rejects cpanm from a different Perl installation' );
+my $win_deps =
+  find_step( $win_steps, 'Install Devel::Cover (required on Windows)' );
+like( $win_deps->{run} // '', qr/cpanm[^\r\n]*--notest -L local Devel::Cover/,
+    'Windows must install real Devel::Cover instrumentation' );
+like( $win_deps->{run} // '', qr/exit \$LASTEXITCODE/,
+    'Windows does not silently skip failed coverage installation' );
+my $win_build = find_step( $win_steps, 'Build native XS extension' );
+like( $win_build->{run} // '', qr/perl Makefile\.PL.*\bgmake\b/s,
+    'Windows builds native XS before coverage' );
+my $win_cover =
+  find_step( $win_steps, 'Require 100% four-metric coverage (10 workers)' );
+like( $win_cover->{run} // '', qr/perl script\/coverage-gate --jobs 10/,
+    'Windows invokes the full coverage gate with ten workers' );
+like( $win_cover->{run} // '', qr/DD_SUITE_LOCK.*RUNNER_TEMP/s,
+    'Windows uses a valid host-lock path under the runner temporary directory' );
+like( $win_cover->{run} // '', qr/exit \$LASTEXITCODE/,
+    'Windows fails the job when the coverage gate fails' );
+unlike( $win_cover->{run} // '', qr/Join-Path[^\n]*blib\/lib/,
+    'Windows does not double-instrument compiled copies of lib/' );
 
-my $platform = YAML::XS::LoadFile(
-    File::Spec->catfile( $WORKFLOWS, 'platform-compatibility.yml' ) );
-my @setup_perl_steps = map { @{ $_->{steps} || [] } }
-  grep { ref $_ eq 'HASH' } values %{ $platform->{jobs} || {} };
-@setup_perl_steps = grep { ($_->{uses} // '') =~ /actions-setup-perl\@/ } @setup_perl_steps;
-ok( @setup_perl_steps, 'Platform compatibility configures Perl explicitly' );
-ok(
-    !( scalar grep { !$_->{with}{'multi-thread'} } @setup_perl_steps ),
-    'every Platform compatibility setup-perl step enables ithreads for GoRoutine XS',
-);
-
-my $platform_text = _slurp(
-    File::Spec->catfile( $WORKFLOWS, 'platform-compatibility.yml' ) );
-like( $platform_text, qr/libayatana-appindicator3-dev/,
-    'Platform compatibility installs Ayatana development headers on Linux' );
-like( $platform_text, qr/libgtk-3-dev/,
-    'Platform compatibility installs GTK development headers on Linux' );
-like( $platform_text, qr/label:\s*Windows arm64.*?runner:\s*windows-11-arm/s,
-    'Platform compatibility runs the full suite on the Windows ARM64 host' );
-like( $platform_text, qr/strawberry-perl-5\.42\.3\.1-64bit-portable\.zip/,
-    'Windows ARM64 receives supported portable Strawberry Perl' );
-like( $platform_text, qr/6a081a811781c30aca51dbc036afd93092af91e3297901f02c17043795a10690/,
-    'Windows ARM64 verifies the portable Strawberry Perl SHA256' );
-like( $platform_text, qr/\$ENV\{RUNNER_ARCH\}/,
-    'Platform compatibility distinguishes host architecture from emulated Perl architecture' );
-unlike( $platform_text, qr/native_perl=false|native_perl == 'true'/,
-    'Windows ARM64 no longer skips work behind a native-Perl availability flag' );
-unlike( $platform_text, qr/name:\s*Run fast-check property tests/,
-    'Platform compatibility does not repeat the property test after the full suite' );
-my $property_test = _slurp( File::Spec->catfile( $ROOT, 't', '35-js-fast-check.t' ) );
-like( $property_test, qr/'fuzz:scorecard'/,
-    'the full suite still owns the fast-check property-test gate' );
-like( $platform_text, qr/name:\s*Audit declared dependency chain \(RELEASE GATE\)/,
-    'Platform compatibility owns the declared dependency audit release gate' );
-unlike( $platform_text, qr/name:\s*Verify all-metric lib coverage/,
-    'Platform compatibility leaves coverage to the dedicated Coverage workflow' );
-
-my $coverage_text = _slurp(
-    File::Spec->catfile( $WORKFLOWS, 'coverage.yml' ) );
-like( $coverage_text, qr/name:\s*Test coverage 100%/,
-    'Coverage workflow exposes the 100 percent test coverage verdict' );
-like( $coverage_text, qr/name:\s*POD coverage 100%/,
-    'Coverage workflow exposes the 100 percent POD coverage verdict' );
-like( $coverage_text, qr/name:\s*Markdown coverage 100%/,
-    'Coverage workflow exposes the 100 percent Markdown coverage verdict' );
-
-my $skills = _slurp( File::Spec->catfile( $ROOT, 'SKILLS.md' ) );
-for my $name ( 'Platform compatibility', 'Coverage', 'GitHub Release', 'Publish Docker Hub Image' ) {
-    my $name_pattern = join '\\s+', map { quotemeta($_) } split /\s+/, $name;
-    like( $skills, qr/$name_pattern/i, "SKILLS.md names the retained $name workflow" );
-}
-unlike( $skills, qr/\b(?:CodeQL|Package GHCR|JS Fuzz)\b/,
-    'SKILLS.md no longer advertises removed workflows as current CI' );
-
-my $trigger_doc = _slurp( File::Spec->catfile( $ROOT, 'docs', 'ci-workflow-triggers.md' ) );
-for my $file (qw(coverage.yml platform-compatibility.yml release-github.yml dockerhub-image.yml)) {
-    like( $trigger_doc, qr/\Q$file\E/, "workflow trigger documentation includes $file" );
-}
-like( $trigger_doc, qr/^## Removed workflows\s*$/m,
-    'workflow trigger documentation explicitly separates retired workflow names from the active set' );
-for my $file (qw(test.yml codeql.yml package-ghcr.yml fuzz-js.yml)) {
-    like( $trigger_doc, qr/^- `\Q$file\E`\s*$/m,
-        "workflow trigger documentation records $file as deliberately removed" );
-}
+my $gate_path = File::Spec->catfile( $root, 'script', 'coverage-gate' );
+open my $gate_fh, '<', $gate_path
+  or die "Unable to read $gate_path: $!";
+my $gate_source = do { local $/; <$gate_fh> };
+close $gate_fh or die "Unable to close $gate_path: $!";
+like( $gate_source, qr/my \@parallel = \$jobs > 1.*?'-j', \$jobs/s,
+    'the coverage gate drives prove -j 10 from --jobs 10' );
+like( $gate_source, qr/-coverage', 'statement'.*?-coverage', 'branch'.*?-coverage', 'condition'.*?-coverage', 'subroutine'/s,
+    'all four code coverage metrics remain mandatory' );
+like( $gate_source, qr/capture \{.*?system \$\^X, '-MDevel::Cover::DB::IO'/s,
+    'serializer verification launches Perl without shell-specific quoting' );
 
 done_testing();
 
@@ -157,30 +162,25 @@ __END__
 
 =head1 NAME
 
-227-skills-md-ci-triggers.t - protect the four-workflow GitHub Actions contract
-
-=head1 DESCRIPTION
-
-Checks the active workflow directory, trigger sets, platform compatibility
-matrix, dedicated coverage gates, and public CI documentation.
+227-skills-md-ci-triggers.t - enforce two ordered platform coverage workflows
 
 =head1 PURPOSE
 
-Keep the repository from silently reintroducing duplicate Test, CodeQL, GHCR, or
-standalone JavaScript fuzz workflows while preserving the explicitly requested
-Coverage workflow alongside platform testing and publishing.
+Only macOS arm64 and Windows amd64 workflows may run CI. On both PRs and master,
+macOS enforces 100% statement, branch, condition and subroutine coverage with
+ten TAP workers. Windows runs only after macOS succeeds, and uses the same gate.
 
 =head1 WHY IT EXISTS
 
-Workflow files are executable configuration. Removing or adding a YAML file in
-one place is not enough if tests or documentation still describe a different
-Actions surface.
+A separate Unit Tests and Coverage pipeline duplicated the suite and allowed
+a passing platform job to report ordinary unit tests without coverage. This
+regression guards the streamlined two-workflow design and rejects skip-only
+Windows instrumentation.
 
 =head1 WHEN TO USE
 
-Run this test whenever adding, deleting, renaming, or changing triggers in the
-GitHub Actions workflow directory, or when changing the public CI description or
-the workflow trigger reference.
+Run whenever changing workflow triggers, native builds, the Perl bootstrap,
+coverage tooling, or the cross-platform ordering contract.
 
 =head1 HOW TO USE
 
@@ -188,17 +188,16 @@ the workflow trigger reference.
 
 =head1 WHAT USES IT
 
-The repository test suite and Platform compatibility workflow use this test to
-enforce the owner-approved four-workflow layout.
+The full suite on both coverage hosts invokes this test.
 
 =head1 EXAMPLES
 
-Check just the workflow contract:
+Check the ordered two-workflow contract:
 
   prove -lv t/227-skills-md-ci-triggers.t
 
-Check it as part of the full platform suite:
+Both platforms run the full coverage gate with ten workers:
 
-  prove -lr t
+  perl script/coverage-gate --jobs 10
 
 =cut

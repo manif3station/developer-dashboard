@@ -42,7 +42,7 @@ my $dist = _slurp_optional( _repo_path('dist.ini') );
 my $meta = _slurp_optional( _repo_path('META.json') );
 my $cpanfile = _slurp( _repo_path('cpanfile') );
 my $makefile = _slurp( _repo_path('Makefile.PL') );
-my $platform_workflow = _slurp( _repo_path( '.github', 'workflows', 'platform-compatibility.yml' ) );
+my $mac_coverage_workflow = _slurp( _repo_path( '.github', 'workflows', 'macos-arm64-unit-tests.yml' ) );
 my $pbkdf2_module = _slurp( _repo_path( 'lib', 'Developer', 'Dashboard', 'Crypto', 'PBKDF2.pm' ) );
 my $watch_module = _slurp( _repo_path( 'lib', 'Developer', 'Dashboard', 'IndicatorStore', 'Watch.pm' ) );
 my $agents_override = _slurp_optional( _repo_path('AGENTS.override.md') );
@@ -349,7 +349,7 @@ unlike( $dist // q{}, qr/FFI::(?:Platypus|CheckLib)/, 'dist.ini has no FFI recom
 unlike( $cpanfile, qr/FFI::(?:Platypus|CheckLib)/, 'cpanfile has no FFI dependency or recommendation' );
 unlike( $pbkdf2_module, qr/FFI::(?:Platypus|CheckLib)/, 'PBKDF2 runtime module does not load an FFI package' );
 unlike( $watch_module, qr/FFI::(?:Platypus|CheckLib)/, 'watch runtime module does not load an FFI package' );
-unlike( $platform_workflow, qr/FFI::(?:Platypus|CheckLib)/, 'platform workflow does not install an FFI package' );
+unlike( $mac_coverage_workflow, qr/FFI::(?:Platypus|CheckLib)/, 'macOS coverage workflow does not install an FFI package' );
 my %runtime_prereq_minimum = (
     'JSON::XS'               => '4.04',
     'YAML::XS'               => '0.903.0',
@@ -1048,7 +1048,7 @@ done_testing();
 
 sub _slurp {
     my ($path) = @_;
-    open my $fh, '<', $path or die $!;
+    open my $fh, '<', $path or die "Unable to read $path: $!";
     my $content = do { local $/; <$fh> };
     close $fh;
     return $content;
@@ -1116,6 +1116,9 @@ sub _perl_doc_paths {
                 no_chdir => 1,
                 wanted   => sub {
                     return if !-f $_;
+                    # Concurrent tests create and remove transient Perl fixtures.
+                    # A release metadata sweep must read tracked sources only.
+                    return if !$tracked_repo_paths{ File::Spec->abs2rel( $File::Find::name, $ROOT ) };
                     return if $_ =~ m{/OLD_CODE/};
                     return if $_ !~ /\.(?:pm|pl|t)\z/ && $_ !~ m{/share/private-cli/[^/]+\z};
                     push @paths, $File::Find::name;
@@ -1141,6 +1144,7 @@ sub _test_citation_population {
                 no_chdir => 1,
                 wanted   => sub {
                     return if !-f $_;
+                    return if !$tracked_repo_paths{ File::Spec->abs2rel( $File::Find::name, $ROOT ) };
                     return if $_ !~ /\.md\z/;
                     # This locally ignored coverage work log is intentionally
                     # outside the shipped/repository documentation set while
@@ -1260,7 +1264,7 @@ sub _repo_search_without_self {
     my %seen;
     my @matches;
     FILE:
-    for my $path ( sort grep { !$seen{$_}++ } @files ) {
+    for my $path ( sort grep { !$seen{$_}++ && $tracked_repo_paths{ File::Spec->abs2rel( $_, $ROOT ) } } @files ) {
         next if $path eq $self;
         next if $path =~ m{/t/fixtures/};
         my $content = _slurp($path);

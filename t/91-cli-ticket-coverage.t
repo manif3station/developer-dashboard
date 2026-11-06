@@ -56,6 +56,7 @@ $SIG{__WARN__} = sub { push @warnings, $_[0]; return; };
 # process into the temp home before exercising any path-aware code.
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME}                           = $home;
+local $ENV{TMUX_TMPDIR}                    = $home;
 local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = tempdir( CLEANUP => 1 );
 chdir $home or die "Unable to chdir to $home: $!";
 
@@ -459,11 +460,11 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
     is(
         Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
             tmpdir      => '/tmp',
-            fallback    => '/dev/shm',
-            is_writable => sub { return $_[0] eq '/dev/shm' },
+            fallback    => $home,
+            is_writable => sub { return $_[0] eq $home },
         ),
-        '/dev/shm',
-        '_tmux_socket_directory selects shared memory when the default temporary directory is not writable',
+        $home,
+        '_tmux_socket_directory selects a writable fallback when the default temp directory is unavailable',
     );
     is(
         Developer::Dashboard::CLI::Ticket::_tmux_socket_directory(
@@ -518,6 +519,9 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
 }
 
 {
+    # The test simulates tmux with a private socket directory. Darwin has
+    # no /dev/shm fallback when the default /tmp probe reports unwritable.
+    local $ENV{TMUX_TMPDIR} = $home;
     like( error_from( sub { tmux_command( args => 'nope' ) } ), qr/tmux args must be an array reference/, 'tmux_command rejects a non-array argv container' );
 
     local $ENV{PATH} = $fake_bin;
@@ -542,7 +546,8 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
             args => ['probe'],
         );
         is( $tmpdir->{stdout}, '/dev/shm', 'tmux_command passes the selected writable socket directory to tmux' );
-        ok( !defined $ENV{TMUX_TMPDIR}, 'tmux_command restores TMUX_TMPDIR after the captured subprocess returns' );
+        is( $ENV{TMUX_TMPDIR}, $home,
+            'tmux_command restores the caller socket directory after the child returns' );
     }
 
     # DD-597: system() above mutates the caller's global $? as a side effect;
@@ -557,6 +562,7 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
 # --- _tmux_stdout -----------------------------------------------------------
 
 {
+    local $ENV{TMUX_TMPDIR} = $home;
     local $ENV{PATH} = $fake_bin;
     is( scalar Developer::Dashboard::CLI::Ticket::_tmux_stdout(), '', '_tmux_stdout defaults to the real tmux runner and an empty argv' );
 }

@@ -22,10 +22,11 @@ BEGIN {
                 }
             }
             if ( my $redirect = $OPEN_REDIRECT{ $_[2] } ) {
-                if ( $redirect->[0] eq 'TIED_CLOSE_FAIL' ) {
+                if ( $redirect->[0] eq 'TIED_CLOSE_FAIL' || $redirect->[0] eq 'TIED_PRINT_FAIL' ) {
                     $TIED_OPENED++;
                     $_[0] = Symbol::gensym() if !defined $_[0];
-                    tie *{ $_[0] }, 'Local::PidfileCloseFailure';
+                    tie *{ $_[0] }, $redirect->[0] eq 'TIED_PRINT_FAIL'
+                        ? 'Local::PidfilePrintFailure' : 'Local::PidfileCloseFailure';
                     return 1;
                 }
                 my $opened = CORE::open( $_[0], $redirect->[0], @{$redirect}[ 1 .. $#{$redirect} ] );
@@ -85,6 +86,13 @@ BEGIN {
     sub TIEHANDLE { return bless {}, shift }
     sub PRINT      { return 1 }
     sub CLOSE      { $! = 5; return 0 }
+}
+
+{
+    package Local::PidfilePrintFailure;
+    sub TIEHANDLE { return bless {}, shift }
+    sub PRINT { $! = 5; return 0 }
+    sub CLOSE { return 1 }
 }
 
 use Cwd qw(getcwd);
@@ -206,6 +214,29 @@ sub capture_failure {
     }
 }
 
+# Portable replacements for the Linux /dev/full-only pidfile checks.
+# The test callback supplies a real tied handle to the unmodified production
+# print and CORE::close operations, with the watched loop process stubbed.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
+    local *Developer::Dashboard::GoRoutine::spawn = sub { return 5153 };
+    $manager->_write_collector_supervisor_state( { watched_names => ['alpha'] } );
+    my $pidfile = $manager->_collector_supervisor_pidfile;
+    {
+        local $OPEN_REDIRECT{$pidfile} = ['TIED_PRINT_FAIL'];
+        my $error = capture_failure(sub { $manager->_start_collector_supervisor });
+        like( $error, qr/Unable to write collector supervisor pid to/,
+            'supervisor reports immediate pidfile print failure on all hosts' );
+    }
+    {
+        local $OPEN_REDIRECT{$pidfile} = ['TIED_CLOSE_FAIL'];
+        my $error = capture_failure(sub { $manager->_start_collector_supervisor });
+        like( $error, qr/Unable to close collector supervisor pidfile/,
+            'supervisor reports pidfile close failure on all hosts' );
+    }
+}
+
 # stdio redirection failures in the supervisor and web children.
 {
     my $null    = File::Spec->devnull;
@@ -316,7 +347,7 @@ sub capture_failure {
     local $Developer::Dashboard::RuntimeManager::PROCFS_ROOT = File::Spec->catdir( $work, 'no-such-proc' );
     is( $manager->_procfs_available, 0, 'procfs is reported unavailable when the root does not exist' );
 }
-is( $manager->_procfs_available, 1, 'procfs is reported available on this host' );
+is( $manager->_procfs_available, -d '/proc' ? 1 : 0, 'procfs availability matches host' );
 
 chdir $cwd;
 done_testing;

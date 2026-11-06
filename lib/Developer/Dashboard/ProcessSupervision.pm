@@ -186,13 +186,23 @@ sub _open_file_descriptors {
     my ($self) = @_;
     my %seen;
     my @fds;
-    for my $path ( glob('/proc/self/fd/*'), glob('/dev/fd/*') ) {
+    for my $path ( Developer::Dashboard::ProcessSupervision::_fd_candidate_paths($self) ) {
         my ($fd) = $path =~ m{(\d+)\z};
         $fd += 0;
         next if $seen{$fd}++;
         push @fds, $fd;
     }
     return sort { $a <=> $b } @fds;
+}
+
+# _fd_candidate_paths()
+# Returns procfs and devfs descriptor paths; isolated as a method so tests can
+# supply duplicated directory entries on hosts without both descriptor trees.
+# Input: none.
+# Output: list of descriptor-path strings.
+sub _fd_candidate_paths {
+    my ($self) = @_;
+    return ( glob('/proc/self/fd/*'), glob('/dev/fd/*') );
 }
 
 # _descriptor_is_inherited_pipe($fd)
@@ -205,13 +215,24 @@ sub _open_file_descriptors {
 sub _descriptor_is_inherited_pipe {
     my ( $self, $fd, %args ) = @_;
     return 0 if !defined $fd || $fd !~ /^\d+$/;
-    my $proc_target = readlink("/proc/self/fd/$fd");
-    my $dev_target  = readlink("/dev/fd/$fd");
-    my $target = defined $proc_target ? $proc_target : $dev_target;
-    return 0 if !defined $target;
-    return 1 if $target =~ /^pipe:/;
+    my $handle;
+    open( $handle, '<&', $fd ) or open( $handle, '>&', $fd ) or return 0;
+    my $pipe   = -p $handle ? 1 : 0;
+    my $socket = -S $handle ? 1 : 0;
+    close $handle;
+    return 1 if $pipe;
     return 0 if !$args{close_ipc};
-    return $target =~ /^(?:socket:|anon_inode:)/ ? 1 : 0;
+    return 1 if $socket;
+    my $target = _fd_link_target($fd);
+    return defined($target) && $target =~ /^anon_inode:/ ? 1 : 0;
+}
+
+# Linux anonymous kernel handles have no ordinary socket or pipe file type.
+# Keep their procfs identity check while using portable fstat for other FDs.
+sub _fd_link_target {
+    my ($fd) = @_;
+    my $target = readlink("/proc/self/fd/$fd");
+    return defined $target ? $target : readlink("/dev/fd/$fd");
 }
 
 # _current_perl_command()
@@ -284,13 +305,17 @@ sub _powershell_single_quote {
     return "'$value'";
 }
 
+# Default procfs root; tests may use a private fixture directory so process
+# metadata parsing is exercised on systems without Linux procfs.
+our $PROCFS_ROOT = '/proc';
+
 # _read_process_env_marker($pid, $key)
 # Reads a specific environment variable from a running process when possible.
 # Input: process id integer and env key string.
 # Output: env value string or undef.
 sub _read_process_env_marker {
     my ( $self, $pid, $key ) = @_;
-    my $proc = "/proc/$pid/environ";
+    my $proc = "$PROCFS_ROOT/$pid/environ";
     return if !-r $proc;
     open my $fh, '<', $proc or return;
     local $/;
@@ -309,7 +334,7 @@ sub _read_process_env_marker {
 # Output: namespace identity string or undef.
 sub _pid_namespace_id {
     my ( $self, $pid ) = @_;
-    my $path = "/proc/$pid/ns/pid";
+    my $path = "$PROCFS_ROOT/$pid/ns/pid";
     return if !-l $path;
     return readlink $path;
 }

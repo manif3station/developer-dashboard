@@ -41,7 +41,15 @@ BEGIN {
 {
     package ScriptedHandle;
     sub TIEHANDLE { my ( $class, %args ) = @_; return bless { content => '', read => 0, %args }, $class }
-    sub PRINT     { my $self = shift; $self->{content} .= join( '', @_ ); return 1 }
+    sub PRINT     {
+        my $self = shift;
+        if ( exists $self->{print_ok} && !$self->{print_ok} ) {
+            $! = 5;
+            return 0;
+        }
+        $self->{content} .= join( '', @_ );
+        return 1;
+    }
     sub TELL      { return length $_[0]{content} }
     sub SEEK      { $! = 29; return $_[0]{seek_ok} ? 1 : 0 }
     sub CLOSE     { $! = 9; return $_[0]{close_ok} ? 1 : 0 }
@@ -104,8 +112,9 @@ sub scripted {
         like( $err, $re, "_open_channel_file reports a $flag failure" );
     }
 
+    local $Developer::Dashboard::Runtime::Result::CHANNEL_USE_NAMED_PATH = 0;
     my ( $fh, $path ) = Developer::Dashboard::Runtime::Result::_open_channel_file();
-    like( $path, qr{\A/(?:dev|proc/self)/fd/\d+\z}, 'the default channel path is fd-backed' );
+    like( $path, qr{\A/(?:dev|proc/self)/fd/\d+\z}, 'the fd channel path is available on Linux' );
     close $fh;
 
     local $Developer::Dashboard::Runtime::Result::DEV_FD_DIR = '/nonexistent-dev-fd';
@@ -114,14 +123,36 @@ sub scripted {
     close $fh;
 }
 
+{
+    local $Developer::Dashboard::Runtime::Result::CHANNEL_USE_NAMED_PATH = 1;
+    delete local $ENV{RESULT};
+    delete local $ENV{RESULT_FILE};
+    my $payload = { big => 'x' x 80 };
+    is( Developer::Dashboard::Runtime::Result::set_current( $payload, max_inline_bytes => 0 ),
+        'file', 'Darwin mode spills RESULT into a named mode-0600 tempfile' );
+    my $path = $ENV{RESULT_FILE};
+    like( $path, qr/dashboard-result-[A-Za-z0-9]+\z/,
+        'Darwin mode exposes a named tempfile rather than an inherited fd' );
+    is_deeply( Developer::Dashboard::Runtime::Result::current(), $payload,
+        'Darwin named channel is readable by the parent' );
+    is( system( $^X, '-Ilib', '-MDeveloper::Dashboard::Runtime::Result',
+        '-e', 'my $x = Developer::Dashboard::Runtime::Result::current(); exit(length($x->{big} // "") == 80 ? 0 : 1)' ),
+        0, 'Darwin named channel is readable independently after exec' );
+    Developer::Dashboard::Runtime::Result::clear_current();
+}
+
 # Truncate, rewind, and close failures on the file-backed channel.
 {
     no warnings 'redefine';
     my $handle;
     local *Developer::Dashboard::Runtime::Result::_open_channel_file = sub { return ( $handle, '/virtual/fd/9' ) };
 
-    $handle = scripted( truncate_ok => 0, seek_ok => 1, close_ok => 1 );
+    $handle = scripted( print_ok => 0, truncate_ok => 1, seek_ok => 1, close_ok => 1 );
     my $err = eval { Developer::Dashboard::Runtime::Result::set_current( { a => 1 }, max_inline_bytes => 1 ); 1 } ? '' : $@;
+    like( $err, qr/Unable to write RESULT file/, 'set_current reports a failed channel write' );
+
+    $handle = scripted( truncate_ok => 0, seek_ok => 1, close_ok => 1 );
+    $err = eval { Developer::Dashboard::Runtime::Result::set_current( { a => 1 }, max_inline_bytes => 1 ); 1 } ? '' : $@;
     like( $err, qr/Unable to truncate RESULT file/, 'set_current reports a truncate failure' );
 
     $handle = scripted( truncate_ok => 1, seek_ok => 0, close_ok => 1 );

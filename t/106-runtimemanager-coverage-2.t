@@ -337,7 +337,11 @@ for my $case (@env_int_cases) {
     # assert a well-formed pair was parsed rather than the value of a variable
     # mutated after startup.
     my $home_value = $manager->_read_process_env_marker( $$, 'HOME' );
-    ok( defined $home_value && $home_value ne '', '_read_process_env_marker reads a well-formed KEY=VALUE pair from the current process' );
+    SKIP: {
+        skip 'current process environment requires procfs', 1 if !-r "/proc/$$/environ";
+        ok( defined $home_value && $home_value ne '',
+            '_read_process_env_marker reads a well-formed KEY=VALUE pair from the current process' );
+    }
     is( $manager->_read_process_env_marker( $$, 'DD_ABSENT_KEY_XYZ' ), undef, '_read_process_env_marker returns undef for an absent key' );
 
     my $worker_title = 'dashboard collector coverage worker ' . ( 'z' x 512 );

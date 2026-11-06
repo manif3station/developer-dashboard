@@ -328,6 +328,13 @@ is( scalar Developer::Dashboard::CLI::Which::_resolve_directory_runner( File::Sp
         [ $^X, $entrypoint ],
         'which --edit re-enters a non-executable Perl switchboard through Perl',
     );
+
+    chmod 0755, $entrypoint or die "Unable to mark fixture entrypoint executable: $!";
+    is_deeply(
+        [ Developer::Dashboard::CLI::Which::_dashboard_entry_command() ],
+        [$entrypoint],
+        'which --edit executes an existing executable dashboard entrypoint directly',
+    );
 }
 
 # --- main-gate hook discovery (DD-810) ---------------------------------------
