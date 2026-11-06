@@ -49,8 +49,11 @@ while ( !Developer::Dashboard::GoRoutine::process_exited($completed_child)
 }
 ok( Developer::Dashboard::GoRoutine::process_exited($completed_child),
   'process_exited observes a completed child without reaping it' );
-is( Developer::Dashboard::GoRoutine::process_running($completed_child), 1,
-  'completed unreaped child retains process existence until wait_process' );
+# Win32 wait handles preserve exit status but an exited process is not
+# running; POSIX zombies remain addressable by kill(pid, 0) until reaped.
+is( Developer::Dashboard::GoRoutine::process_running($completed_child),
+  $^O eq 'MSWin32' ? 0 : 1,
+  'completed child liveness follows native OS semantics until wait_process' );
 is( Developer::Dashboard::GoRoutine::wait_process($completed_child), 9,
   'completed child remains available for wait_process after liveness inspection' );
 
