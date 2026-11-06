@@ -3156,6 +3156,23 @@ sub _nav_ids_for_roots {
         my @stat = Time::HiRes::stat($nav_root);
         die "Unable to inspect saved navigation directory '$nav_root': $!\n" if !@stat;
         push @signature, $nav_root, @stat[ 0, 1, 2, 4, 5, 7, 9, 10 ];
+        # Windows filesystem directory timestamps may not distinguish quick
+        # consecutive creates/removes. Include actual nav filenames in the
+        # cache identity so a newly saved fragment is visible immediately.
+        if ( is_windows() ) {
+            my $dh = $self->_open_nav_directory($nav_root);
+            if ( !$dh ) {
+                push @signature, 'unreadable';
+                next;
+            }
+            $! = 0;
+            my @entries = sort grep {
+                $_ ne '.' && $_ ne '..' && /\.tt\z/
+                  && -f File::Spec->catfile( $nav_root, $_ )
+            } $self->_read_nav_directory_entries( $dh, $nav_root );
+            $self->_close_nav_directory( $dh, $nav_root );
+            push @signature, scalar(@entries), @entries;
+        }
     }
     my $signature = join "\0", @signature;
     my $cached = $self->{_nav_ids_cache};
