@@ -23,8 +23,28 @@ like( $core, qr/\$menu_runner->run_with\(\$serve_web\)/,
     'installed runner wraps the foreground web service' );
 like( $core, qr/else \{\s*\$serve_web->\(\);\s*\}/,
     'web server still starts without a menu runner' );
-like( $core, qr/Can't locate Developer/,
-    'only a missing optional module is treated as an ordinary no-op' );
+like( $core, qr{Can't locate Developer\\/Dashboard\\/SystemMenu\\/Runner\\\.pm\\b},
+    'only the exact optional runner module path is treated as an ordinary no-op' );
+
+# Compile the *actual* guard used in the launcher and verify both Perl error
+# variants. A source-string check alone would miss a guard tightened to
+# depend on a particular trailing "in @INC" message.
+my ($source_guard) = $core =~ /^\s*elsif\s*\(\s*\$\@\s*!~\s*\/([^\n]+)\/\s*\)\s*\{/m;
+ok( defined $source_guard, 'the optional-load exception guard can be inspected' );
+if ( defined $source_guard ) {
+    my $missing_runner = eval { qr/$source_guard/ };
+    ok( $missing_runner && !$@, 'the optional-module guard is a valid regular expression' );
+    if ($missing_runner) {
+        like( "Can't locate Developer/Dashboard/SystemMenu/Runner.pm", $missing_runner,
+            'absent optional module without an @INC suffix is ignored' );
+        like( "Can't locate Developer/Dashboard/SystemMenu/Runner.pm in \@INC", $missing_runner,
+            'normal Perl missing-module diagnostics are ignored' );
+        unlike( "Can't locate Developer/Dashboard/SystemMenu/Other.pm in \@INC", $missing_runner,
+            'missing dependency in installed menu integration is not ignored' );
+        unlike( "Can't locate Developer/Dashboard/SystemMenu/Runner.pm_extra in \@INC", $missing_runner,
+            'a different path sharing the runner prefix is not ignored' );
+    }
+}
 like( $core, qr/\bdie \$@;/,
     'errors in installed integrations are not hidden' );
 

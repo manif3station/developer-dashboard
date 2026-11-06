@@ -1122,7 +1122,7 @@ elsif ( $cmd eq 'web-foreground' ) {
                     platform => $menu_platform,
                 );
             }
-            elsif ( $@ !~ /\ACan't locate Developer\/Dashboard\/SystemMenu\/Runner\.pm in \@INC/ ) {
+            elsif ( $@ !~ /\ACan't locate Developer\/Dashboard\/SystemMenu\/Runner\.pm\b/ ) {
                 # Absence is optional; a broken installed integration is not.
                 die $@;
             }
