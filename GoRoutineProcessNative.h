@@ -167,10 +167,140 @@ static char *dd_windows_command_line(pTHX_ char **argv, I32 argc) {
     return line;
 }
 
+/* A private Windows environment block is required for child-only env overrides.
+ * Do not mutate the parent's process environment: spawn may run concurrently
+ * with another request or a GoRoutine thread. */
+static int dd_windows_environment_entry_cmp(const void *left, const void *right) {
+    const char *a = *(const char * const *)left;
+    const char *b = *(const char * const *)right;
+    return _stricmp(a, b);
+}
+
+static char *dd_windows_child_environment(pTHX_ HV *options) {
+    SV **slot = hv_fetch(options, "env", 3, 0);
+    if (slot == NULL) return NULL; /* inherit without constructing a block */
+    if (!SvROK(*slot) || SvTYPE(SvRV(*slot)) != SVt_PVHV)
+        croak("GoRoutine process option 'env' must be a hash reference");
+    HV *overrides = (HV *)SvRV(*slot);
+    LPCH inherited = GetEnvironmentStringsA();
+    if (inherited == NULL)
+        croak("unable to read GoRoutine parent environment (Windows error %lu)",
+              (unsigned long)GetLastError());
+
+    size_t count = 0, capacity = 2;
+    const char *entry;
+    for (entry = inherited; *entry; entry += strlen(entry) + 1) {
+        size_t len = strlen(entry) + 1;
+        if (len > SIZE_MAX - capacity) {
+            FreeEnvironmentStringsA(inherited);
+            croak("GoRoutine child environment is too large");
+        }
+        capacity += len;
+        ++count;
+    }
+    hv_iterinit(overrides);
+    HE *item;
+    while ((item = hv_iternext(overrides)) != NULL) {
+        SV *key_sv = hv_iterkeysv(item);
+        SV *value_sv = hv_iterval(overrides, item);
+        STRLEN key_len = 0, value_len = 0;
+        const char *key = SvPVbyte(key_sv, key_len);
+        if (key_len == 0 || memchr(key, '=', key_len) || memchr(key, '\0', key_len)) {
+            FreeEnvironmentStringsA(inherited);
+            croak("GoRoutine child environment keys must be non-empty and contain no '=' or NUL");
+        }
+        if (!SvOK(value_sv) || SvROK(value_sv)) {
+            FreeEnvironmentStringsA(inherited);
+            croak("GoRoutine child environment values must be defined scalars");
+        }
+        const char *value = SvPVbyte(value_sv, value_len);
+        if (memchr(value, '\0', value_len)) {
+            FreeEnvironmentStringsA(inherited);
+            croak("GoRoutine child environment values must not contain NUL");
+        }
+        if ((size_t)key_len > SIZE_MAX - capacity - 2
+            || (size_t)value_len > SIZE_MAX - capacity - (size_t)key_len - 2) {
+            FreeEnvironmentStringsA(inherited);
+            croak("GoRoutine child environment is too large");
+        }
+        capacity += (size_t)key_len + (size_t)value_len + 2;
+        ++count;
+    }
+    if (count > SIZE_MAX / sizeof(char *)) {
+        FreeEnvironmentStringsA(inherited);
+        croak("GoRoutine child environment has too many entries");
+    }
+    char *strings = (char *)malloc(capacity);
+    char **entries = (char **)calloc(count ? count : 1, sizeof(char *));
+    char *block = (char *)malloc(capacity);
+    if (strings == NULL || entries == NULL || block == NULL) {
+        free(strings); free(entries); free(block);
+        FreeEnvironmentStringsA(inherited);
+        croak("out of memory preparing GoRoutine child environment");
+    }
+
+    size_t used = 0;
+    char *write = strings;
+    for (entry = inherited; *entry; entry += strlen(entry) + 1) {
+        const char *separator = strchr(entry, '=');
+        int overridden = 0;
+        /* Windows environment keys are case-insensitive. Preserve inherited
+         * special drive entries such as =C:=C:\... as they are not overrides. */
+        if (separator != NULL && separator != entry) {
+            size_t original_key_len = (size_t)(separator - entry);
+            hv_iterinit(overrides);
+            while ((item = hv_iternext(overrides)) != NULL) {
+                SV *key_sv = hv_iterkeysv(item);
+                STRLEN key_len = 0;
+                const char *key = SvPVbyte(key_sv, key_len);
+                if ((size_t)key_len == original_key_len
+                    && _strnicmp(entry, key, original_key_len) == 0) {
+                    overridden = 1;
+                    break;
+                }
+            }
+        }
+        if (overridden) continue;
+        size_t len = strlen(entry) + 1;
+        entries[used++] = write;
+        memcpy(write, entry, len);
+        write += len;
+    }
+    hv_iterinit(overrides);
+    while ((item = hv_iternext(overrides)) != NULL) {
+        SV *key_sv = hv_iterkeysv(item);
+        SV *value_sv = hv_iterval(overrides, item);
+        STRLEN key_len = 0, value_len = 0;
+        const char *key = SvPVbyte(key_sv, key_len);
+        const char *value = SvPVbyte(value_sv, value_len);
+        entries[used++] = write;
+        memcpy(write, key, key_len); write += key_len;
+        *write++ = '=';
+        memcpy(write, value, value_len); write += value_len;
+        *write++ = '\0';
+    }
+    FreeEnvironmentStringsA(inherited);
+
+    /* A CreateProcess environment block must be sorted and double-NUL ended. */
+    qsort(entries, used, sizeof(char *), dd_windows_environment_entry_cmp);
+    write = block;
+    for (size_t i = 0; i < used; ++i) {
+        size_t len = strlen(entries[i]) + 1;
+        memcpy(write, entries[i], len);
+        write += len;
+    }
+    if (used == 0) *write++ = '\0';
+    *write = '\0';
+    free(entries);
+    free(strings);
+    return block;
+}
+
 static HANDLE dd_windows_redirect(const char *path, DWORD access) {
     if (path == NULL) return INVALID_HANDLE_VALUE;
+    SECURITY_ATTRIBUTES inheritable = { sizeof(inheritable), NULL, TRUE };
     return CreateFileA(path, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                       NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                       &inheritable, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 }
 
 static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
@@ -183,21 +313,23 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     const char *stdin_path = dd_option_text(aTHX_ options, "stdin");
     STARTUPINFOA startup;
     PROCESS_INFORMATION process;
+    SECURITY_ATTRIBUTES inheritable = { sizeof(inheritable), NULL, TRUE };
+    char *child_environment = dd_windows_child_environment(aTHX_ options);
     HANDLE child_in = stdin_path ? CreateFileA(stdin_path, GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)
+        FILE_SHARE_READ | FILE_SHARE_WRITE, &inheritable, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)
         : GetStdHandle(STD_INPUT_HANDLE);
     HANDLE child_out = dd_windows_redirect(stdout_path, GENERIC_WRITE);
     HANDLE child_err = dd_windows_redirect(stderr_path, GENERIC_WRITE);
     if (stdin_path && child_in == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError(); free(line); free(argv); free(child_environment);
         croak("unable to open GoRoutine child stdin (Windows error %lu)", (unsigned long)error);
     }
     if (stdout_path && child_out == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError(); free(line); free(argv); free(child_environment);
         croak("unable to open GoRoutine child stdout (Windows error %lu)", (unsigned long)error);
     }
     if (stderr_path && child_err == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError(); free(line); free(argv); free(child_environment);
         croak("unable to open GoRoutine child stderr (Windows error %lu)", (unsigned long)error);
     }
     if (stdout_path && SetFilePointer(child_out, 0, NULL, FILE_END) == INVALID_SET_FILE_POINTER
@@ -212,12 +344,12 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     startup.hStdOutput = stdout_path ? child_out : GetStdHandle(STD_OUTPUT_HANDLE);
     startup.hStdError = stderr_path ? child_err : GetStdHandle(STD_ERROR_HANDLE);
     if (!CreateProcessA(NULL, line, NULL, NULL, TRUE, CREATE_NO_WINDOW,
-                        NULL, cwd, &startup, &process)) {
+                        child_environment, cwd, &startup, &process)) {
         DWORD error = GetLastError();
         if (stdin_path) CloseHandle(child_in);
         if (stdout_path) CloseHandle(child_out);
         if (stderr_path) CloseHandle(child_err);
-        free(line); free(argv);
+        free(line); free(argv); free(child_environment);
         croak("unable to create GoRoutine child process (Windows error %lu)", (unsigned long)error);
     }
     CloseHandle(process.hThread);
@@ -225,7 +357,7 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     if (stdin_path) CloseHandle(child_in);
     if (stdout_path) CloseHandle(child_out);
     if (stderr_path) CloseHandle(child_err);
-    free(line); free(argv);
+    free(line); free(argv); free(child_environment);
     return (UV)process.dwProcessId;
 }
 #else
