@@ -190,23 +190,32 @@ like( $cpanfile_text,
     'the cpanfile omits unsupported Devel::Cover on Windows' );
 
 my $release_workflow_path = File::Spec->catfile( $root, '.github', 'workflows', 'release-github.yml' );
-my $release_workflow = LoadFile($release_workflow_path);
-my $release_job = $release_workflow->{jobs}{release};
-ok( ref($release_job) eq 'HASH', 'the release workflow declares its release job' );
-my $release_steps = $release_job->{steps} || [];
-my ($release_build_index) = grep {
-    ( $release_steps->[$_]{name} // q{} ) eq 'Build the Dashboard XS extension'
-} 0 .. $#{$release_steps};
-my ($release_test_index) = grep {
-    ( $release_steps->[$_]{name} // q{} ) eq 'Run tests'
-} 0 .. $#{$release_steps};
-ok( defined $release_build_index && defined $release_test_index,
-    'the release workflow builds XS and runs the complete suite' );
-cmp_ok( $release_build_index, '<', $release_test_index,
-    'the release workflow builds XS before running tests' );
-like( $release_steps->[$release_test_index]{run} // q{},
-    qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
-    'the release test suite loads the freshly built XS extension from blib' );
+SKIP: {
+    # In a source tarball both workflow files are normally absent, and the
+    # top-level plan already skips the suite. An incomplete checkout can have
+    # platform-compatibility.yml but not release-github.yml: keep platform
+    # assertions running rather than crashing on an absent release asset.
+    skip 'GitHub Release workflow source is not available', 4
+      if !-f $release_workflow_path;
+
+    my $release_workflow = LoadFile($release_workflow_path);
+    my $release_job = $release_workflow->{jobs}{release};
+    ok( ref($release_job) eq 'HASH', 'the release workflow declares its release job' );
+    my $release_steps = $release_job->{steps} || [];
+    my ($release_build_index) = grep {
+        ( $release_steps->[$_]{name} // q{} ) eq 'Build the Dashboard XS extension'
+    } 0 .. $#{$release_steps};
+    my ($release_test_index) = grep {
+        ( $release_steps->[$_]{name} // q{} ) eq 'Run tests'
+    } 0 .. $#{$release_steps};
+    ok( defined $release_build_index && defined $release_test_index,
+        'the release workflow builds XS and runs the complete suite' );
+    cmp_ok( $release_build_index, '<', $release_test_index,
+        'the release workflow builds XS before running tests' );
+    like( $release_steps->[$release_test_index]{run} // q{},
+        qr/prove\s+-Iblib\/arch\s+-Iblib\/lib\s+-lr\s+t/,
+        'the release test suite loads the freshly built XS extension from blib' );
+}
 
 done_testing();
 
