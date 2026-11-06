@@ -86,14 +86,30 @@ jobs:
         timeout-minutes: 45
         shell: pwsh
         run: |
-          # The default CPAN index can point at new dist archives before its
-          # download endpoint has synchronized them. Use a mirrored HTTPS
-          # index/archive pair to avoid transient CPAN::Audit fetch failures.
-          $cpanMirror = 'https://mirror.ossplanet.net/CPAN'
-          cpanm --mirror $cpanMirror --mirror-only --installdeps --notest -L local .
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cpanm --mirror $cpanMirror --mirror-only --notest -L local Test::Harness~3.48
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Keep the index and archives on the same endpoint. The previous
+          # mirror intermittently failed to serve Test::TCP and other Plack
+          # prerequisites even when its index listed them. Retry with the
+          # official CPAN CDN if MetaCPAN fails, never bypass dependencies.
+          $cpanMirrors = @('https://cpan.metacpan.org/', 'https://www.cpan.org/')
+          $depsInstalled = $false
+          foreach ($mirror in $cpanMirrors) {
+            cpanm --from $mirror --installdeps --notest -L local .
+            if ($LASTEXITCODE -eq 0) {
+              $depsInstalled = $true
+              break
+            }
+            Write-Warning "Dependency install from $mirror failed; retrying another CPAN endpoint"
+          }
+          if (-not $depsInstalled) { throw 'Perl dependencies failed on all CPAN endpoints' }
+          $harnessInstalled = $false
+          foreach ($mirror in $cpanMirrors) {
+            cpanm --from $mirror --notest -L local Test::Harness~3.48
+            if ($LASTEXITCODE -eq 0) {
+              $harnessInstalled = $true
+              break
+            }
+          }
+          if (-not $harnessInstalled) { throw 'Test::Harness install failed on all CPAN endpoints' }
 
       - name: Install Devel::Cover (required on Windows)
         timeout-minutes: 40
@@ -108,8 +124,15 @@ jobs:
           } else {
             $localLib
           }
-          cpanm --mirror https://mirror.ossplanet.net/CPAN --mirror-only --notest -L local Devel::Cover
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $coverInstalled = $false
+          foreach ($mirror in @('https://cpan.metacpan.org/', 'https://www.cpan.org/')) {
+            cpanm --from $mirror --notest -L local Devel::Cover
+            if ($LASTEXITCODE -eq 0) {
+              $coverInstalled = $true
+              break
+            }
+          }
+          if (-not $coverInstalled) { throw 'Devel::Cover installation failed on all CPAN endpoints' }
           perl -MDevel::Cover::DB::IO -e 'print "Devel::Cover ready\n"'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
