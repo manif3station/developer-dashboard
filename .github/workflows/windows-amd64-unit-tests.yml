@@ -22,9 +22,12 @@ jobs:
         shell: pwsh
         env:
           DD_COVERAGE_WORKFLOW_NAME: ${{ github.workflow }}
+          DD_COVERAGE_WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
+          $expectedCallerRef = 'manif3station/developer-dashboard/.github/workflows/macos-arm64-unit-tests.yml@'
           if ($env:GITHUB_REPOSITORY -ne 'manif3station/developer-dashboard' -or
-              $env:DD_COVERAGE_WORKFLOW_NAME -ne 'Five-platform 100% Test Coverage') {
+              $env:DD_COVERAGE_WORKFLOW_NAME -ne 'Five-platform 100% Test Coverage' -or
+              -not $env:DD_COVERAGE_WORKFLOW_REF.StartsWith($expectedCallerRef)) {
             throw 'Windows amd64 coverage must be called by the five-platform orchestrator'
           }
 
