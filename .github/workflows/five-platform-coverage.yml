@@ -59,7 +59,8 @@ jobs:
         run: |
           # Git tag names are refs, not strings in a commit message.
           # Only tags whose peeled target is the checked-out HEAD are selected.
-          git tag --points-at HEAD > "$RUNNER_TEMP/dd-platform-git-tags"
+          git tag --points-at HEAD > "$RUNNER_TEMP/dd-platform-git-tags" \
+            || { echo "::error::git tag --points-at HEAD failed"; exit 1; }
           # Publish outputs only after parsing succeeds; fail closed otherwise.
           if ! perl script/select-ci-platforms "$RUNNER_TEMP/dd-platform-git-tags" > "$RUNNER_TEMP/dd-platform-outputs"; then
             echo "::error::Platform selection failed; fix the commit tags"
