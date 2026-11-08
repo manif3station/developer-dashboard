@@ -23,6 +23,16 @@ jobs:
           EXPECTED_TREE: a77b0f3a7571126f0c9f146b052b039785d344b3
         run: |
           set -euo pipefail
+          # This investigation is Windows-only. Each intermediate PR push has
+          # no platform tag yet, and may auto-start the full platform chain.
+          # Cancel those stale PR runs; never cancel the win-amd64 tag run.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=test/windows-amd64-only-20261108&per_page=100" \
+            | jq -r '.workflow_runs[] | select(.name == "Five-platform 100% Test Coverage" and (.status == "in_progress" or .status == "queued" or .status == "waiting")) | .id' \
+            | while read -r run_id; do
+                [[ -n "$run_id" ]] || continue
+                echo "::notice::Cancelling stale untagged PR run $run_id"
+                gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/cancel" >/dev/null || true
+              done
           actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/test/windows-amd64-only-20261108" --jq '.object.sha')"
           if [[ "$actual" != "$TARGET_SHA" ]]; then
             echo "::error::Windows test branch moved to $actual; refusing stale dispatch $TARGET_SHA"
@@ -58,6 +68,13 @@ jobs:
             exit 1
           fi
           # GITHUB_TOKEN tag pushes do not dispatch another workflow automatically.
-          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/five-platform-coverage.yml/dispatches" \
-            -f ref=win-amd64 >/dev/null
-          echo "::notice::Dispatched ONLY Windows amd64 coverage for $TARGET_SHA"
+          # Re-running this helper for stale-PR cleanup must not cancel
+          # an already-running Windows-only dispatch for the same SHA.
+          if gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=win-amd64&per_page=50" \
+            | jq -e --arg sha "$TARGET_SHA" '[.workflow_runs[] | select(.event == "workflow_dispatch" and .head_sha == $sha and .status != "completed")] | length > 0' >/dev/null; then
+            echo "::notice::Windows-only coverage is already running for $TARGET_SHA"
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/five-platform-coverage.yml/dispatches" \
+              -f ref=win-amd64 >/dev/null
+            echo "::notice::Dispatched ONLY Windows amd64 coverage for $TARGET_SHA"
+          fi
