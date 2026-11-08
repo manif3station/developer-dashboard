@@ -53,7 +53,7 @@ if ($valid_footer) {
 my $run_all = !%selected;
 for my $platform (@platforms) {
     ( my $output = $platform ) =~ tr/-/_/;
-    my $enabled = $run_all || $selected{$platform} ? 'true' : 'false';
+    my $enabled = ( $run_all || $selected{$platform} ) ? 'true' : 'false';
     print "$output=$enabled\n";
 }
 
