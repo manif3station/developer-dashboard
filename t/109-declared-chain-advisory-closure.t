@@ -1,6 +1,7 @@
 use strict;
 use warnings;
 
+use Capture::Tiny qw(capture_merged);
 use Cwd qw(abs_path);
 use File::Path qw(make_path);
 use File::Spec;
@@ -204,9 +205,14 @@ sub _run_gate {
     # for a reason none of them names. Freshness is owned by
     # t/172-cpan-audit-database-age.t, which shims the stamp and needs no host.
     local $ENV{CPAN_AUDIT_FRESH_DAYS} = 100_000;
-    my $command = join ' ', $^X, $GATE, @args;
-    my $out = `$command 2>&1`;
-    my $rc  = ${^CHILD_ERROR_NATIVE} >> 8;
+    # Execute Perl directly in list form. A command string is passed through
+    # PERL5SHELL on Windows, where Git Bash strips backslashes from D:\\... paths.
+    my $status;
+    my $out = capture_merged {
+        system { $^X } $^X, $GATE, @args;
+        $status = $?;
+    };
+    my $rc = $status < 0 ? 255 : ( $status >> 8 );
     return ( $rc, defined $out ? $out : '' );
 }
 
