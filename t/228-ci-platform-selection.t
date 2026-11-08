@@ -64,6 +64,11 @@ is( $status, 0, 'the two tag formats can be combined' );
 is_deeply( $outputs, expected(qw(ubuntu_amd64 win_amd64)),
     'combined formats produce the union of selected stages' );
 
+( $status, $outputs ) = select_for("fix: multi-platform mix\n\n[win-amd64] [mac]\nCI-Platforms: ubuntu-arm64\n");
+is( $status, 0, 'two bracket tags may share a footer line with a trailer' );
+is_deeply( $outputs, expected(qw(mac ubuntu_arm64 win_amd64)),
+    'multiple bracket and trailer tags preserve the complete union' );
+
 ( $status, $outputs ) = select_for("docs: macOS and Windows updates\n");
 is( $status, 0, 'prose platform names are not mistaken for tags' );
 is_deeply( $outputs, expected(@platforms), 'plain words do not turn off coverage' );
