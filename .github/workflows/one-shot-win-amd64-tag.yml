@@ -19,8 +19,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: b1c96c6184404bd30f2b4df575c8bd0fa5c06377
-          EXPECTED_TREE: db0a5df7ce5a1d8d46c58da9862ba8fb837f7917
+          TARGET_SHA: b4efa0dc07d611344c1131b5fd1480730d5b2713
+          EXPECTED_TREE: 830d5fb7f15a86a64c508c983a2e8d6bbd56727a
         run: |
           set -euo pipefail
           actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/test/windows-amd64-only-20261108" --jq '.object.sha')"
@@ -44,7 +44,7 @@ jobs:
           # Compare-and-update only the Windows test tag created by this job.
           # Never force-move an unexpectedly changed or unrelated tag.
           current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/win-amd64" --jq '.object.sha')"
-          if [[ "$current" != "6af0d0b5a6c1371e8fb4cf3da51e6791a6958c14" && "$current" != "$TARGET_SHA" ]]; then
+          if [[ "$current" != "b1c96c6184404bd30f2b4df575c8bd0fa5c06377" && "$current" != "$TARGET_SHA" ]]; then
             echo "::error::win-amd64 unexpectedly moved to $current; refusing overwrite"
             exit 1
           fi
