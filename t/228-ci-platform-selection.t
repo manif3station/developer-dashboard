@@ -86,6 +86,12 @@ __END__
 Exercise the actual CI selection script so that single-platform, nonadjacent
 multi-platform, and untagged defaults cannot silently change.
 
+=head1 WHY IT EXISTS
+
+A targeted coverage run must not be blocked by skipped earlier platforms, and
+a typo in an explicit selector must not silently switch back to the full chain.
+This test checks the tag parser without requiring hosted runner minutes.
+
 =head1 WHEN TO USE
 
 Run after changing platform selectors or the commit-message tag grammar.
@@ -93,6 +99,11 @@ Run after changing platform selectors or the commit-message tag grammar.
 =head1 HOW TO USE
 
     prove -lv t/228-ci-platform-selection.t
+
+=head1 WHAT USES IT
+
+Developers, the complete repository test suite and the five-platform coverage
+jobs use this regression to keep commit-message platform selection stable.
 
 =head1 EXAMPLES
 
