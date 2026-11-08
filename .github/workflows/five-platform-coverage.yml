@@ -1,8 +1,9 @@
 name: Five-platform 100% Test Coverage
 
-# Single serial fail-fast chain: macOS arm64 -> Linux amd64 -> Linux arm64
-# -> Windows amd64 -> Windows arm64. A failed stage stops every later stage.
-# Pull requests, master pushes and manual runs use the same coverage gates.
+# Default serial fail-fast chain: macOS arm64 -> Linux amd64 -> Linux arm64
+# -> Windows amd64 -> Windows arm64. Explicit tags on the latest commit may
+# select any subset; skipped stages do not block later selected platforms.
+# Any failed selected stage stops every later stage. Untagged commits run all.
 on:
   push:
     branches:
@@ -18,9 +19,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  select-platforms:
+    name: Select platforms from latest commit
+    if: ${{ github.repository == 'manif3station/developer-dashboard' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      mac: ${{ steps.select.outputs.mac }}
+      ubuntu_amd64: ${{ steps.select.outputs.ubuntu_amd64 }}
+      ubuntu_arm64: ${{ steps.select.outputs.ubuntu_arm64 }}
+      win_amd64: ${{ steps.select.outputs.win_amd64 }}
+      win_arm64: ${{ steps.select.outputs.win_arm64 }}
+    steps:
+      - name: Checkout latest source commit for tag selection
+        timeout-minutes: 5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          # PR: use the actual latest source commit, not the synthetic merge.
+          # Push/dispatch: use the triggering branch's last commit.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Read last commit platform tags
+        id: select
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          git log -1 --format=%B > "$RUNNER_TEMP/dd-platform-commit-message"
+          perl script/select-ci-platforms "$RUNNER_TEMP/dd-platform-commit-message" >> "$GITHUB_OUTPUT"
+
   macos-arm64:
     name: Four-metric coverage 100% (macOS arm64, prove -j 10)
-    if: ${{ github.repository == 'manif3station/developer-dashboard' }}
+    needs: select-platforms
+    if: ${{ !cancelled() && !failure() && github.repository == 'manif3station/developer-dashboard' && needs.select-platforms.result == 'success' && needs.select-platforms.outputs.mac == 'true' }}
     runs-on: macos-15
     timeout-minutes: 270
     env:
@@ -113,9 +145,9 @@ jobs:
           gtimeout --signal=TERM --kill-after=30s 5400s perl script/coverage-gate --jobs 10
 
   linux-amd64:
-    name: Linux amd64 coverage after macOS arm64
-    needs: macos-arm64
-    if: ${{ github.repository == 'manif3station/developer-dashboard' && needs.macos-arm64.result == 'success' }}
+    name: Linux amd64 100% coverage (selected after macOS)
+    needs: [select-platforms, macos-arm64]
+    if: ${{ !cancelled() && !failure() && github.repository == 'manif3station/developer-dashboard' && needs.select-platforms.result == 'success' && needs.select-platforms.outputs.ubuntu_amd64 == 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/linux-coverage.yml
@@ -123,9 +155,9 @@ jobs:
       target: amd64
 
   linux-arm64:
-    name: Linux arm64 coverage after Linux amd64
-    needs: linux-amd64
-    if: ${{ github.repository == 'manif3station/developer-dashboard' && needs.linux-amd64.result == 'success' }}
+    name: Linux arm64 100% coverage (selected after Linux amd64)
+    needs: [select-platforms, linux-amd64]
+    if: ${{ !cancelled() && !failure() && github.repository == 'manif3station/developer-dashboard' && needs.select-platforms.result == 'success' && needs.select-platforms.outputs.ubuntu_arm64 == 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/linux-coverage.yml
@@ -133,17 +165,17 @@ jobs:
       target: arm64
 
   windows-amd64:
-    name: Windows amd64 coverage after Linux arm64
-    needs: linux-arm64
-    if: ${{ github.repository == 'manif3station/developer-dashboard' && needs.linux-arm64.result == 'success' }}
+    name: Windows amd64 100% coverage (selected after Linux arm64)
+    needs: [select-platforms, linux-arm64]
+    if: ${{ !cancelled() && !failure() && github.repository == 'manif3station/developer-dashboard' && needs.select-platforms.result == 'success' && needs.select-platforms.outputs.win_amd64 == 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/windows-amd64-unit-tests.yml
 
   windows-arm64:
-    name: Windows arm64 coverage after Windows amd64
-    needs: windows-amd64
-    if: ${{ github.repository == 'manif3station/developer-dashboard' && needs.windows-amd64.result == 'success' }}
+    name: Windows arm64 100% coverage (selected after Windows amd64)
+    needs: [select-platforms, windows-amd64]
+    if: ${{ !cancelled() && !failure() && github.repository == 'manif3station/developer-dashboard' && needs.select-platforms.result == 'success' && needs.select-platforms.outputs.win_arm64 == 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/windows-arm64-coverage.yml
