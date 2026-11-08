@@ -82,7 +82,13 @@ sub _slurp {
         qr/cpan-audit-declared-chain/,
         'gate names the instrument that does answer the question for a shared tree'
     );
-    like( $out, qr/\Q$outside\E/, 'gate states the subject it was pointed at' );
+    my $display_root = $outside;
+    if ( $^O eq 'MSWin32' ) {
+        # The audited Bash gate reports the MSYS path it actually receives.
+        $display_root =~ s{\\}{/}g;
+        $display_root =~ s{\A([A-Za-z]):}{'/' . lc($1)}e;
+    }
+    like( $out, qr/\Q$display_root\E/, 'gate states the subject it was pointed at' );
 }
 
 # The escape hatch exists so a genuinely isolated root built outside the
