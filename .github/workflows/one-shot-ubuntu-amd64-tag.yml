@@ -18,7 +18,7 @@ jobs:
       - name: Checkout exact test fix commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 267b17f4c3690057a897fea93a6bb2dca8cfb7b0
+          ref: 4d1c4a8b4f3000505723103e80298091d03ac284
           persist-credentials: false
       - name: Run focused tmux shell regression before expensive coverage
         shell: bash
@@ -33,8 +33,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: 267b17f4c3690057a897fea93a6bb2dca8cfb7b0
-          PREVIOUS_TAG_SHA: afe4328b96dec877732a9fcdf74e5e455d71a08b
+          TARGET_SHA: 4d1c4a8b4f3000505723103e80298091d03ac284
+          PREVIOUS_TAG_SHA: 267b17f4c3690057a897fea93a6bb2dca8cfb7b0
         run: |
           set -euo pipefail
           # The tag must point at this exact pushed fix branch, not stale master.
