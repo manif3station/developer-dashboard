@@ -34,7 +34,9 @@ jobs:
               exit 1
             fi
           done
-          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/ubuntu-amd64" --jq '.object.sha' 2>/dev/null || true)"
+          if ! existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/ubuntu-amd64" --jq '.object.sha' 2>/dev/null)"; then
+            existing=""
+          fi
           if [[ -n "$existing" && "$existing" != "$TARGET_SHA" ]]; then
             echo "::error::ubuntu-amd64 exists on a different commit: $existing"
             exit 1
