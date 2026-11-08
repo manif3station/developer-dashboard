@@ -26,8 +26,15 @@ while ( $message =~ /\[\s*(mac|ubuntu-amd64|ubuntu-arm64|win-amd64|win-arm64)\s*
 my @paragraphs = split /\n[ \t]*\n+/, $message;
 my $footer = @paragraphs > 1 ? $paragraphs[-1] : '';
 my @footer_lines = grep { /\S/ } split /\n/, $footer;
+# A footer may also contain standalone bracket tag lines. Those tags were
+# already collected globally, but they must not invalidate a real trailer.
+my $tag_names = join '|', map { quotemeta $_ } @platforms;
+my $bracket_tag_line = qr/^(?:\[\s*(?:$tag_names)\s*\]\s*)+\r?\z/i;
 my $valid_footer = @footer_lines
-  && !grep { !/^[A-Za-z][A-Za-z0-9-]*:[ \t]*.*\r?\z/ } @footer_lines;
+  && !grep {
+      !/^[A-Za-z][A-Za-z0-9-]*:[ \t]*.*\r?\z/
+        && !/$bracket_tag_line/
+  } @footer_lines;
 
 if ($valid_footer) {
     for my $line (@footer_lines) {
