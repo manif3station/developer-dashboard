@@ -18,7 +18,7 @@ ok( -f $selector, 'the platform selection script is present' );
 # Output: its exit status, output mapping, and raw output.
 sub select_for {
     my ($message) = @_;
-    my ( $fh, $filename ) = tempfile( UNLINK => 0 );
+    my ( $fh, $filename ) = tempfile( UNLINK => 1 );
     print {$fh} $message or die "Could not write commit message: $!";
     close $fh or die "Could not close commit message: $!";
 
@@ -27,7 +27,6 @@ sub select_for {
     my $output = do { local $/; <$pipe> };
     close $pipe;
     my $exit_code = $? >> 8;
-    unlink $filename or die "Could not remove commit message: $!";
     my %values = map { split /=/, $_, 2 }
       grep { length $_ } split /\n/, $output;
     return ( $exit_code, \%values, $output );
