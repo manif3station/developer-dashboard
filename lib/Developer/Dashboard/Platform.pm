@@ -207,6 +207,25 @@ sub command_argv_for_path {
         return ($resolved);
     }
 
+    # On Windows, extensionless POSIX skill scripts cannot be executed by
+    # CreateProcess using their Unix shebang. Only route recognized shell
+    # interpreters through an installed POSIX shell; keep Perl shebangs on
+    # native Strawberry Perl and never execute arbitrary shebang commands.
+    if ( is_windows() && _has_shebang($resolved) ) {
+        return ( $^X, $resolved ) if _shebang_uses_perl($resolved);
+        open my $shebang_fh, '<', $resolved
+          or die "Unable to read $resolved: $!";
+        my $first_line = <$shebang_fh> // '';
+        close $shebang_fh or die "Unable to close $resolved: $!";
+        if ( $first_line =~ m{\A\#!\s*(?:/usr/bin/env\s+|/bin/)(sh|bash)(?:\s|\z)} ) {
+            my $shell = $1;
+            my $shell_path = $resolved;
+            $shell_path =~ s{\\}{/}g;
+            $shell_path =~ s{\A([A-Za-z]):}{'/' . lc($1)}e;
+            return ( _posix_shell_binary($shell), $shell_path );
+        }
+    }
+
     return ( $^X, '-I', _module_lib_root(), $resolved ) if $lower =~ /\.pl\z/;
     if ( $lower =~ /\.py\z/ ) {
         my $venv_python = _find_layer_venv_python($resolved);
