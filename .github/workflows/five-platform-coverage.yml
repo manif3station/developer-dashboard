@@ -1,13 +1,20 @@
 name: Five-platform 100% Test Coverage
 
 # Default serial fail-fast chain: macOS arm64 -> Linux amd64 -> Linux arm64
-# -> Windows amd64 -> Windows arm64. Explicit tags on the latest commit may
-# select any subset; skipped stages do not block later selected platforms.
-# Any failed selected stage stops every later stage. Untagged commits run all.
+# -> Windows amd64 -> Windows arm64. Real Git tags pointing at the latest
+# source commit select any subset. Unselected stages do not block later selected
+# stages; failed selected stages do. Untagged commits always run all five.
 on:
   push:
     branches:
       - master
+    # A tag push can start targeted CI without requiring a branch push.
+    tags:
+      - mac
+      - win-amd64
+      - win-arm64
+      - ubuntu-amd64
+      - ubuntu-arm64
   pull_request:
   workflow_dispatch:
 
@@ -15,12 +22,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: five-platform-coverage-${{ github.ref }}
+  # Deduplicate pushes of several platform tags pointing at the same commit.
+  group: five-platform-coverage-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
   select-platforms:
-    name: Select platforms from latest commit
+    name: Select platforms from Git tags on latest commit
     if: ${{ github.repository == 'manif3station/developer-dashboard' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -37,19 +45,23 @@ jobs:
         with:
           repository: ${{ github.repository }}
           # PR: use the actual latest source commit, not the synthetic merge.
-          # Push/dispatch: use the triggering branch's last commit.
+          # Push/dispatch: use the triggering commit (branch or Git tag).
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Fetch tag refs even when the workflow is triggered by a PR.
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
 
-      - name: Read last commit platform tags
+      - name: Read Git tags pointing at last commit
         id: select
         timeout-minutes: 2
         shell: bash
         run: |
-          git log -1 --format=%B > "$RUNNER_TEMP/dd-platform-commit-message"
-          # Publish outputs only after parsing succeeds: errors must fail CI,
-          # never turn into an apparently successful all-skipped workflow.
-          if ! perl script/select-ci-platforms "$RUNNER_TEMP/dd-platform-commit-message" > "$RUNNER_TEMP/dd-platform-outputs"; then
+          # Git tag names are refs, not strings in a commit message.
+          # Only tags whose peeled target is the checked-out HEAD are selected.
+          git tag --points-at HEAD > "$RUNNER_TEMP/dd-platform-git-tags"
+          # Publish outputs only after parsing succeeds; fail closed otherwise.
+          if ! perl script/select-ci-platforms "$RUNNER_TEMP/dd-platform-git-tags" > "$RUNNER_TEMP/dd-platform-outputs"; then
             echo "::error::Platform selection failed; fix the commit tags"
             exit 1
           fi
