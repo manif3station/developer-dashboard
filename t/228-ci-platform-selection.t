@@ -3,97 +3,121 @@ use warnings FATAL => 'all';
 
 use Cwd qw(abs_path);
 use File::Spec;
-use File::Temp qw(tempfile);
+use File::Temp qw(tempfile tempdir);
 use FindBin qw($RealBin);
 use Test::More;
 
 my $root = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 my $selector = File::Spec->catfile( $root, 'script', 'select-ci-platforms' );
 
-ok( -f $selector, 'the platform selection script is present' );
+ok( -f $selector, 'the platform selector is present' );
 
-# select_for($message)
-# Purpose: execute the exact script used by the GitHub Actions selector.
-# Input: a complete single-commit message.
-# Output: its exit status, output mapping, and raw output.
+# select_for(@tags)
+# Purpose: execute the same tag-list parser used by the GitHub workflow.
+# Input: zero or more exact Git tag names, one per line.
+# Output: child exit status and the exact GitHub Actions output assignments.
 sub select_for {
-    my ($message) = @_;
+    my (@tags) = @_;
     my ( $fh, $filename ) = tempfile( UNLINK => 1 );
-    print {$fh} $message or die "Could not write commit message: $!";
-    close $fh or die "Could not close commit message: $!";
+    print {$fh} join( "\n", @tags ), "\n" if @tags;
+    close $fh or die "Cannot close temporary tag list: $!";
 
     open my $pipe, '-|', $^X, $selector, $filename
-      or die "Could not launch the selector: $!";
+      or die "Cannot start platform selector: $!";
     my $output = do { local $/; <$pipe> };
-    # A nonzero child exit makes close return false, but still stores its
-    # wait status in $?. Expected rejection cases must inspect that status.
     close $pipe;
-    my $exit_code = $? >> 8;
+    my $status = $? >> 8;
     my %values = map { split /=/, $_, 2 }
       grep { length $_ } split /\n/, $output;
-    return ( $exit_code, \%values, $output );
+    return ( $status, \%values );
 }
 
-my @platforms = qw(mac ubuntu_amd64 ubuntu_arm64 win_amd64 win_arm64);
+my @outputs = qw(mac ubuntu_amd64 ubuntu_arm64 win_amd64 win_arm64);
+
+# expected(@selected)
+# Purpose: express the exact boolean stage mapping for an intended selection.
+# Input: platform output names in canonical underscore form.
+# Output: a hash reference containing every stage's true/false assignment.
 sub expected {
     my (@selected) = @_;
     my %wanted = map { $_ => 1 } @selected;
-    return { map { $_ => ( $wanted{$_} ? 'true' : 'false' ) } @platforms };
+    return { map { $_ => ( $wanted{$_} ? 'true' : 'false' ) } @outputs };
 }
 
-my ( $status, $outputs ) = select_for("fix: an ordinary change\n\nNo CI tags.\n");
-is( $status, 0, 'untagged messages are accepted' );
-is_deeply( $outputs, expected(@platforms), 'untagged commits run all five stages' );
+my ( $status, $result ) = select_for();
+is( $status, 0, 'an empty tag list is valid' );
+is_deeply( $result, expected(@outputs), 'no tags triggers all five coverage stages' );
 
-( $status, $outputs ) = select_for("fix: Mac integration [win-amd64]\n");
-is( $status, 0, 'one tag is accepted' );
-is_deeply( $outputs, expected('win_amd64'), 'a middle-stage tag skips its prerequisites' );
+( $status, $result ) = select_for(qw(v6.29 release-2026 feature/abc));
+is( $status, 0, 'unrelated Git tags are valid' );
+is_deeply( $result, expected(@outputs),
+    'unrelated Git tags do not disable normal coverage' );
 
-( $status, $outputs ) = select_for("test: only ARM [ubuntu-arm64] [win-arm64]\n");
-is( $status, 0, 'multiple bracket tags are accepted' );
-is_deeply( $outputs, expected(qw(ubuntu_arm64 win_arm64)),
-    'nonadjacent stages can be selected without intermediate stages' );
+( $status, $result ) = select_for('win-amd64');
+is( $status, 0, 'one exact tag is valid' );
+is_deeply( $result, expected('win_amd64'),
+    'a single middle platform bypasses earlier stages' );
 
-( $status, $outputs ) = select_for("fix: local macOS\n\nCI-Platforms: MAC, win-arm64\n");
-is( $status, 0, 'comma-separated trailer is accepted' );
-is_deeply( $outputs, expected(qw(mac win_arm64)),
-    'explicit CI-Platforms trailer selects just its listed stages' );
+( $status, $result ) = select_for(qw(win-arm64 ubuntu-arm64));
+is( $status, 0, 'multiple Git tags can point to one commit' );
+is_deeply( $result, expected(qw(ubuntu_arm64 win_arm64)),
+    'nonadjacent selected stages preserve their order' );
 
-( $status, $outputs ) = select_for("fix: Windows package\n\n[win-amd64]\nCI-Platforms: ubuntu-amd64\n");
-is( $status, 0, 'the two tag formats can be combined' );
-is_deeply( $outputs, expected(qw(ubuntu_amd64 win_amd64)),
-    'combined formats produce the union of selected stages' );
+( $status, $result ) = select_for(qw(mac win-amd64 ubuntu-amd64 win-arm64 ubuntu-arm64));
+is( $status, 0, 'all five platform Git tags are valid' );
+is_deeply( $result, expected(@outputs), 'all selected platforms run in order' );
 
-( $status, $outputs ) = select_for("fix: multi-platform mix\n\n[win-amd64] [mac]\nCI-Platforms: ubuntu-arm64\n");
-is( $status, 0, 'two bracket tags may share a footer line with a trailer' );
-is_deeply( $outputs, expected(qw(mac ubuntu_arm64 win_amd64)),
-    'multiple bracket and trailer tags preserve the complete union' );
+( $status, $result ) = select_for(qw(mac mac win-arm64 other-test v8.00));
+is( $status, 0, 'duplicate and unrelated tags are accepted' );
+is_deeply( $result, expected(qw(mac win_arm64)),
+    'duplicates do not change the selected platform set' );
 
-( $status, $outputs ) = select_for("docs: macOS and Windows updates\n");
-is( $status, 0, 'prose platform names are not mistaken for tags' );
-is_deeply( $outputs, expected(@platforms), 'plain words do not turn off coverage' );
+( $status, $result ) = select_for(qw(win-amd6 Mac [mac] ci-platforms));
+is( $status, 0, 'similar tag names do not trigger an error' );
+is_deeply( $result, expected(@outputs),
+    'platform Git tags require an exact case-sensitive match' );
 
-( $status, $outputs ) = select_for("docs: CI-Platforms: explained in prose\n\nNormal body.\n");
-is( $status, 0, 'a platform-looking phrase in the subject is not a trailer' );
-is_deeply( $outputs, expected(@platforms), 'subject prose keeps default full coverage' );
+( $status, $result ) = select_for('win-amd64', '[ubuntu-arm64]',
+    'CI-Platforms: mac');
+is( $status, 0, 'commit-message-like tag names are ignored' );
+is_deeply( $result, expected('win_amd64'),
+    'bracket tags and message trailers have no platform effect' );
 
-( $status, $outputs ) = select_for("docs: explain syntax\n\nCI-Platforms: not-a-platform\n\nThis later paragraph is ordinary prose.\n");
-is( $status, 0, 'platform-looking prose in a nonfinal paragraph is ignored' );
-is_deeply( $outputs, expected(@platforms), 'an earlier paragraph cannot override coverage' );
+# This optional check verifies the exact git command used by the workflow:
+# both lightweight and annotated tags point at HEAD, older tags do not.
+my $git_installed = system('git', '--version') == 0;
+SKIP: {
+    skip 'Git not installed on this host', 3 if !$git_installed;
+    my $dir = tempdir( CLEANUP => 1 );
+    my @git = ( 'git', '-C', $dir );
+    is( system( @git, 'init', '--quiet' ), 0, 'created temporary Git repository' );
+    my @identity = ( '-c', 'user.name=CI Test', '-c', 'user.email=ci@example.invalid' );
+    die 'Cannot create initial commit'
+      if system( @git, @identity, 'commit', '--allow-empty', '--quiet',
+          '-m', 'first commit') != 0;
+    die 'Cannot add lightweight Git tag'
+      if system( @git, 'tag', 'mac' ) != 0;
+    die 'Cannot add annotated Git tag'
+      if system( @git, @identity, 'tag', '-a', 'win-amd64', '-m', 'coverage' ) != 0;
 
-( $status, $outputs ) = select_for("docs: explain syntax\n\nCI-Platforms: not-a-platform\nThis explanatory line makes it prose.\n");
-is( $status, 0, 'a non-trailer final paragraph is not parsed as tags' );
-is_deeply( $outputs, expected(@platforms), 'free-form prose cannot skip coverage stages' );
+    open my $tag_pipe, '-|', @git, 'tag', '--points-at', 'HEAD'
+      or die "Cannot list pointed-at tags: $!";
+    my @tags = <$tag_pipe>;
+    close $tag_pipe or die 'Cannot finish Git tag query';
+    chomp @tags;
+    is_deeply( [ sort @tags ], [qw(mac win-amd64)],
+        'git finds lightweight and annotated tags on HEAD' );
 
-( $status, $outputs ) = select_for("fix: test\n\nSigned-off-by: Example Maintainer\nCI-Platforms: win-amd64\n");
-is( $status, 0, 'the final paragraph may contain standard Git trailers' );
-is_deeply( $outputs, expected('win_amd64'), 'CI-Platforms is recognized beside other trailers' );
-
-( $status, $outputs ) = select_for("fix: test\n\nCI-Platforms: win-amd6\n");
-isnt( $status, 0, 'unknown explicit trailer platform is rejected' );
-
-( $status, $outputs ) = select_for("fix: test\n\nCI-Platforms:\n");
-isnt( $status, 0, 'empty explicit trailer is rejected' );
+    die 'Cannot advance HEAD'
+      if system( @git, @identity, 'commit', '--allow-empty', '--quiet',
+          '-m', 'next commit') != 0;
+    open $tag_pipe, '-|', @git, 'tag', '--points-at', 'HEAD'
+      or die "Cannot list current Git tags: $!";
+    @tags = <$tag_pipe>;
+    close $tag_pipe or die 'Cannot finish Git tag query';
+    is_deeply( \@tags, [],
+        'tags pointing to the previous commit do not select the new HEAD' );
+}
 
 done_testing();
 
@@ -101,22 +125,22 @@ __END__
 
 =head1 NAME
 
-228-ci-platform-selection.t - verify opt-in commit platform tags
+228-ci-platform-selection.t - select coverage stages from real Git tags
 
 =head1 PURPOSE
 
-Exercise the actual CI selection script so that single-platform, nonadjacent
-multi-platform, and untagged defaults cannot silently change.
+Test that exactly matching Git tags point to platform stages, while untagged
+commits still run the full five-platform serial coverage sequence.
 
 =head1 WHY IT EXISTS
 
-A targeted coverage run must not be blocked by skipped earlier platforms, and
-a typo in an explicit selector must not silently switch back to the full chain.
-This test checks the tag parser without requiring hosted runner minutes.
+A branch commit with a tag elsewhere in the repository must not accidentally
+turn off four coverage stages. The selector's exact-tag and default-all rules
+are therefore protected by regressions independent of expensive hosted tests.
 
 =head1 WHEN TO USE
 
-Run after changing platform selectors or the commit-message tag grammar.
+Run when changing platform tag names, the tag query, or the coverage selector.
 
 =head1 HOW TO USE
 
@@ -124,12 +148,13 @@ Run after changing platform selectors or the commit-message tag grammar.
 
 =head1 WHAT USES IT
 
-Developers, the complete repository test suite and the five-platform coverage
-jobs use this regression to keep commit-message platform selection stable.
+The five-platform coverage workflow runs this test as part of its Perl suite.
+The optional real-Git test exercises the same command used by its selector job.
 
 =head1 EXAMPLES
 
-The C<[win-amd64]> tag selects Windows amd64 without macOS or Linux. An
-untagged commit selects the full original chain.
+C<win-amd64> alone selects Windows amd64. C<ubuntu-arm64> plus C<win-arm64>
+selects those two platforms in order. An empty list or a version tag selects
+all five. An older-commit tag does not affect the most recent commit.
 
 =cut
