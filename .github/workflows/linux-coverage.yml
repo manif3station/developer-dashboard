@@ -1,6 +1,6 @@
 name: Linux amd64 / arm64 Test Coverage
 
-# Called by the serial macOS -> Linux -> Windows coverage chain.
+# Called by the selectable serial five-platform coverage chain.
 on:
   workflow_call:
     inputs:
