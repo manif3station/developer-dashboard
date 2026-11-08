@@ -27,8 +27,11 @@ sub select_for {
     my $output = do { local $/; <$pipe> };
     close $pipe;
     my $status = $? >> 8;
+    # Ignore unexpected diagnostic lines rather than constructing an odd
+    # hash under fatal warnings; the workflow still rejects parser failures.
     my %values = map { split /=/, $_, 2 }
-      grep { length $_ } split /\n/, $output;
+      grep { /\A(?:mac|ubuntu_amd64|ubuntu_arm64|win_amd64|win_arm64)=(?:true|false)\z/ }
+      split /\n/, $output;
     return ( $status, \%values );
 }
 
