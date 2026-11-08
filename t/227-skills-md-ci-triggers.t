@@ -80,6 +80,10 @@ like( $selector_command->{run} // '', qr/git log -1 --format=%B/,
     'selector reads one commit message' );
 like( $selector_command->{run} // '', qr/script\/select-ci-platforms.*GITHUB_OUTPUT/s,
     'selector publishes script-derived job outputs' );
+like( $selector_command->{run} // '', qr/if ! perl script\/select-ci-platforms.*?exit 1/s,
+    'invalid platform tags fail the selector job explicitly' );
+like( $selector_command->{run} // '', qr/cat .*dd-platform-outputs.*>> "\$GITHUB_OUTPUT"/s,
+    'GitHub receives parsed outputs only after successful selection' );
 
 my @stages = qw(macos-arm64 linux-amd64 linux-arm64 windows-amd64 windows-arm64);
 my @outputs = qw(mac ubuntu_amd64 ubuntu_arm64 win_amd64 win_arm64);
