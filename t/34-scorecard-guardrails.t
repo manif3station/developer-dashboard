@@ -103,8 +103,10 @@ cmp_ok( scalar(@coverage_pins), '>=', 2,
     'coverage has SHA-pinned actions' );
 like( $windows_workflow, qr/^\s*workflow_call:\s*$/m,
     'Windows accepts only the reusable workflow trigger' );
-like( $mac_workflow, qr/^\s*needs:\s*macos-arm64\s*$/m,
-    'Windows waits for successful macOS coverage' );
+like( $mac_workflow, qr/needs:\s*\[select-platforms,\s*linux-arm64\]/,
+    'Windows waits for the preceding selected platform while allowing skipped stages' );
+like( $mac_workflow, qr/!cancelled\(\)\s*&&\s*!failure\(\)/,
+    'later selected stages still stop when an earlier selected stage fails' );
 like( $windows_workflow, qr/perl script\/coverage-gate --jobs 10/,
     'Windows coverage enforces all metrics with ten workers' );
 
