@@ -81,6 +81,7 @@ WriteMakefile(
         'JSON::XS'              => '4.04',
         'LWP::Protocol::https'  => '6.07',
         'LWP::UserAgent'        => '6.83',
+        'Mozilla::CA'           => '20261020',
         'YAML'                  => '1.30',
         'YAML::XS'              => '0.903.0',
         'TOML::Parser'          => 0,
