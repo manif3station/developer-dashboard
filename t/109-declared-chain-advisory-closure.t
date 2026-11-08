@@ -16,7 +16,14 @@ my $SOURCE = _slurp($GATE);
 # Source contracts. These hold whether or not the advisory database is
 # installed on this host, so they are checked before anything is executed.
 ok( -f $GATE, 'the declared-chain audit gate is tracked in script/' );
-ok( -x $GATE, 'the declared-chain audit gate is executable' );
+if ( $^O eq 'MSWin32' ) {
+    # Windows launches this .pl script via the Perl interpreter rather than a
+    # POSIX executable permission bit, which NTFS stat does not expose.
+    ok( -f $GATE && -r $GATE, 'native Perl can read the audit gate on Windows' );
+}
+else {
+    ok( -x $GATE, 'the declared-chain audit gate is executable' );
+}
 like( $SOURCE, qr{\A#!/usr/bin/env perl\n}, 'the gate uses the portable env shebang' );
 like( $SOURCE, qr/^use strict;$/m,   'the gate runs under strict' );
 like( $SOURCE, qr/^use warnings;$/m, 'the gate runs under warnings' );
