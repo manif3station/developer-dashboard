@@ -131,7 +131,7 @@ sub scripted {
     is( Developer::Dashboard::Runtime::Result::set_current( $payload, max_inline_bytes => 0 ),
         'file', 'Darwin mode spills RESULT into a named mode-0600 tempfile' );
     my $path = $ENV{RESULT_FILE};
-    like( $path, qr/dashboard-result-[A-Za-z0-9]+\z/,
+    like( $path, qr/dashboard-result-[A-Za-z0-9_]+\z/,
         'Darwin mode exposes a named tempfile rather than an inherited fd' );
     is_deeply( Developer::Dashboard::Runtime::Result::current(), $payload,
         'Darwin named channel is readable by the parent' );
