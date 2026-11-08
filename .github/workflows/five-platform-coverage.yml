@@ -47,7 +47,13 @@ jobs:
         shell: bash
         run: |
           git log -1 --format=%B > "$RUNNER_TEMP/dd-platform-commit-message"
-          perl script/select-ci-platforms "$RUNNER_TEMP/dd-platform-commit-message" >> "$GITHUB_OUTPUT"
+          # Publish outputs only after parsing succeeds: errors must fail CI,
+          # never turn into an apparently successful all-skipped workflow.
+          if ! perl script/select-ci-platforms "$RUNNER_TEMP/dd-platform-commit-message" > "$RUNNER_TEMP/dd-platform-outputs"; then
+            echo "::error::Platform selection failed; fix the commit tags"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/dd-platform-outputs" >> "$GITHUB_OUTPUT"
 
   macos-arm64:
     name: Four-metric coverage 100% (macOS arm64, prove -j 10)
