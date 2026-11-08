@@ -20,17 +20,26 @@ while ( $message =~ /\[\s*(mac|ubuntu-amd64|ubuntu-arm64|win-amd64|win-arm64)\s*
     $selected{ lc $1 } = 1;
 }
 
-# The optional explicit trailer also accepts comma/space-separated platforms.
-# Reject typos here, rather than silently running a misleading selection.
-while ( $message =~ /^CI-Platforms:[ \t]*(.*)$/gmi ) {
-    my $value = $1;
-    $value =~ s/\r\z//;
-    my @names = grep { length $_ } split /[\s,]+/, $value;
-    die "CI-Platforms trailer requires at least one platform\n" if !@names;
-    for my $name (@names) {
-        $name = lc $name;
-        die "Unknown CI platform '$name'\n" if !$valid{$name};
-        $selected{$name} = 1;
+# A Git-style trailer is only recognized in the final blank-line-separated
+# paragraph, not in a subject or an explanatory paragraph of the commit body.
+# If a footer includes free-form prose, it is not a trailer block.
+my @paragraphs = split /\n[ \t]*\n+/, $message;
+my $footer = @paragraphs > 1 ? $paragraphs[-1] : '';
+my @footer_lines = grep { /\S/ } split /\n/, $footer;
+my $valid_footer = @footer_lines
+  && !grep { !/^[A-Za-z][A-Za-z0-9-]*:[ \t]*.*\r?\z/ } @footer_lines;
+
+if ($valid_footer) {
+    for my $line (@footer_lines) {
+        next if $line !~ /^CI-Platforms:[ \t]*(.*)\r?\z/i;
+        my $value = $1;
+        my @names = grep { length $_ } split /[\s,]+/, $value;
+        die "CI-Platforms trailer requires at least one platform\n" if !@names;
+        for my $name (@names) {
+            $name = lc $name;
+            die "Unknown CI platform '$name'\n" if !$valid{$name};
+            $selected{$name} = 1;
+        }
     }
 }
 
