@@ -109,6 +109,9 @@ for my $i ( 0 .. $#stages ) {
 my $mac = $jobs->{'macos-arm64'} || {};
 is( $mac->{'runs-on'}, 'macos-15', 'macOS coverage uses Apple Silicon' );
 my $mac_steps = $mac->{steps} || [];
+my $mac_checkout = find_step( $mac_steps, 'Checkout' );
+like( $mac_checkout->{with}{ref} // '', qr/github\.sha/,
+    'coverage tests the PR merge SHA even though tag selection reads PR head' );
 my $mac_arch = find_step( $mac_steps, 'Verify Apple Silicon runner' );
 like( $mac_arch->{run} // '', qr/uname -m.*arm64/s,
     'macOS validates the native arm64 host' );
