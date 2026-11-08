@@ -1,0 +1,58 @@
+name: One-shot Windows amd64 Git tag dispatch
+
+on:
+  push:
+    branches:
+      - ci/one-shot-win-amd64-20261108
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag-and-dispatch:
+    if: github.repository == 'manif3station/developer-dashboard'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Tag isolated Windows amd64 test commit and dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: 6af0d0b5a6c1371e8fb4cf3da51e6791a6958c14
+          EXPECTED_TREE: b5de3411d820f9ba1901856a89d31d98206da78d
+        run: |
+          set -euo pipefail
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/test/windows-amd64-only-20261108" --jq '.object.sha')"
+          if [[ "$actual" != "$TARGET_SHA" ]]; then
+            echo "::error::Windows test branch moved to $actual; refusing stale dispatch $TARGET_SHA"
+            exit 1
+          fi
+          actual_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$TARGET_SHA" --jq '.tree.sha')"
+          if [[ "$actual_tree" != "$EXPECTED_TREE" ]]; then
+            echo "::error::Windows baseline source tree changed unexpectedly"
+            exit 1
+          fi
+          # Do not accidentally select any other platform at this commit.
+          for other in mac ubuntu-amd64 ubuntu-arm64 win-arm64; do
+            other_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$other" --jq '.object.sha' 2>/dev/null || true)"
+            if [[ "$other_sha" == "$TARGET_SHA" ]]; then
+              echo "::error::Other platform tag $other targets this Windows test SHA"
+              exit 1
+            fi
+          done
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/win-amd64" >/dev/null 2>&1; then
+            echo "::error::win-amd64 already exists; refusing to overwrite"
+            exit 1
+          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref=refs/tags/win-amd64 -f sha="$TARGET_SHA" >/dev/null
+          confirmed="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/win-amd64" --jq '.object.sha')"
+          if [[ "$confirmed" != "$TARGET_SHA" ]]; then
+            echo "::error::Created tag was not attached to requested SHA"
+            exit 1
+          fi
+          # GITHUB_TOKEN tag pushes do not dispatch another workflow automatically.
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/five-platform-coverage.yml/dispatches" \
+            -f ref=win-amd64 >/dev/null
+          echo "::notice::Dispatched ONLY Windows amd64 coverage for $TARGET_SHA"
