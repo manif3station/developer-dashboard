@@ -38,7 +38,8 @@ Or select nonadjacent stages in the same commit:
     fix: Linux ARM64 and Windows ARM64 [ubuntu-arm64] [win-arm64]
 
 An explicit commit message trailer works too. It must be in the final
-blank-line-separated footer paragraph, not ordinary subject/body prose:
+blank-line-separated footer paragraph, not ordinary subject/body prose.
+Bracket tags can share that footer with `CI-Platforms:`:
 
     fix: targeted native test
 
@@ -47,9 +48,12 @@ blank-line-separated footer paragraph, not ordinary subject/body prose:
 The exact tags are case-insensitive. Plain mentions like "macOS" or "Windows"
 are not tags. Invalid names in `CI-Platforms:` cause selection to fail visibly.
 For pull requests, only the **latest PR head commit** decides the platforms,
-not the merge commit or all commits in the PR. Pushing another untagged commit
-restores the full five-stage run. On master pushes and manual dispatches, the
-latest commit of the triggering ref determines the selection.
+not the merge commit or all commits in the PR. The selected coverage jobs still
+test GitHub's synthetic PR merge commit to catch integration failures against
+the target branch; selection and checkout intentionally use different refs.
+Pushing another untagged commit restores the full five-stage run. On master
+pushes and manual dispatches, the latest commit of the triggering ref
+determines the selection.
 
 The five platforms always retain their original order, **not tag order**.
 An unselected predecessor is skipped without blocking the next selected
