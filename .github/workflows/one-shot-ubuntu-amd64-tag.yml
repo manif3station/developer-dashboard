@@ -15,36 +15,39 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Tag pinned master commit and dispatch the existing coverage workflow
+      - name: Retarget only ubuntu-amd64 and dispatch existing coverage workflow
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: abca4b7ae4acc59adbc1982ff480c234aa76ff3f
+          TARGET_SHA: afe4328b96dec877732a9fcdf74e5e455d71a08b
+          PREVIOUS_TAG_SHA: abca4b7ae4acc59adbc1982ff480c234aa76ff3f
         run: |
           set -euo pipefail
-          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq '.object.sha')"
-          if [[ "$current" != "$TARGET_SHA" ]]; then
-            echo "::error::Master advanced from pinned target $TARGET_SHA to $current. Refusing stale tag."
+          # The tag must point at this exact pushed fix branch, not stale master.
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/fix/linux-amd64-runtime-tests-20261108" --jq '.object.sha')"
+          if [[ "$actual" != "$TARGET_SHA" ]]; then
+            echo "::error::Fix branch moved from $TARGET_SHA to $actual; refusing stale test."
             exit 1
           fi
-          other_tags=(mac ubuntu-arm64 win-amd64 win-arm64)
-          for tag in "${other_tags[@]}"; do
-            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
-              echo "::error::Unexpected other platform tag '$tag'. Refusing multi-platform run."
+          for tag in mac ubuntu-arm64 win-amd64 win-arm64; do
+            other="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha' 2>/dev/null || true)"
+            if [[ "$other" == "$TARGET_SHA" ]]; then
+              echo "::error::Other platform tag $tag also points at the target commit."
               exit 1
             fi
           done
-          if ! existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/ubuntu-amd64" --jq '.object.sha' 2>/dev/null)"; then
-            existing=""
-          fi
-          if [[ -n "$existing" && "$existing" != "$TARGET_SHA" ]]; then
-            echo "::error::ubuntu-amd64 exists on a different commit: $existing"
+          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/ubuntu-amd64" --jq '.object.sha')"
+          if [[ "$existing" != "$PREVIOUS_TAG_SHA" && "$existing" != "$TARGET_SHA" ]]; then
+            echo "::error::ubuntu-amd64 moved unexpectedly: $existing; refusing to overwrite."
             exit 1
           fi
-          if [[ -z "$existing" ]]; then
-            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              -f ref=refs/tags/ubuntu-amd64 -f sha="$TARGET_SHA" >/dev/null
+          if [[ "$existing" == "$PREVIOUS_TAG_SHA" ]]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/ubuntu-amd64" -f sha="$TARGET_SHA" -F force=true >/dev/null
           fi
-          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/five-platform-coverage.yml/dispatches" \
-            -f ref=ubuntu-amd64 >/dev/null
-          echo "::notice::Created real Git tag ubuntu-amd64 on $TARGET_SHA; dispatched existing five-platform workflow at that tag"
+          confirmed="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/ubuntu-amd64" --jq '.object.sha')"
+          if [[ "$confirmed" != "$TARGET_SHA" ]]; then
+            echo "::error::Failed to retarget ubuntu-amd64 to $TARGET_SHA"
+            exit 1
+          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/five-platform-coverage.yml/dispatches" -f ref=ubuntu-amd64 >/dev/null
+          echo "::notice::Dispatched Linux-only coverage at $TARGET_SHA"
