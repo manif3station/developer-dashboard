@@ -85,6 +85,8 @@ ok( $selector_checkout->{with}{'fetch-tags'},
     'selector explicitly fetches Git tags even for pull requests' );
 like( $selector_command->{run} // '', qr/git tag --points-at HEAD/,
     'selector enumerates Git tags attached to the current source commit' );
+like( $selector_command->{run} // '', qr/git tag --points-at HEAD[^\n]*\n\s*\|\|\s*\{\s*echo.*?exit 1/s,
+    'selector stops rather than running the full chain when Git tag discovery fails' );
 unlike( $selector_command->{run} // '', qr/\bgit\s+log\b/,
     'selector never reads commit messages with git log' );
 unlike( $selector_command->{run} // '', qr/format=%B/,
