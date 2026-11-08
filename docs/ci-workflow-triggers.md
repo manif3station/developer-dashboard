@@ -37,7 +37,10 @@ Or select nonadjacent stages in the same commit:
 
     fix: Linux ARM64 and Windows ARM64 [ubuntu-arm64] [win-arm64]
 
-An explicit commit message trailer works too:
+An explicit commit message trailer works too. It must be in the final
+blank-line-separated footer paragraph, not ordinary subject/body prose:
+
+    fix: targeted native test
 
     CI-Platforms: mac, win-amd64, win-arm64
 
