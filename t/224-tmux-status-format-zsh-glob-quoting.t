@@ -92,13 +92,18 @@ for my $shell (qw(zsh bash sh)) {
         my ( $stdout, $stderr, $exit ) = capture {
             local $ENV{PATH} = "$tmpdir:$ENV{PATH}";
             local $ENV{TMUX} = 'fake';
-            system $shell, $script;
-            return $? >> 8;
+            # A non-interactive shell must not load a user's Bash/POSIX
+            # initialization code; exercise only the generated function.
+            delete local $ENV{BASH_ENV};
+            delete local $ENV{ENV};
+            my $child_status = system $shell, $script;
+            return $child_status < 0 ? 255 : ( $child_status >> 8 );
         };
         is( $exit, 0, "_dd_apply_tmux_ticket_status exits 0 under real $shell" );
         unlike( $stderr, qr/no matches found/, "no zsh glob-expansion error under real $shell" )
             if $shell eq 'zsh';
-        diag("$shell stderr: $stderr") if $stderr && $exit != 0;
+        diag("$shell child exit $exit; stdout: $stdout; stderr: $stderr")
+            if $exit != 0;
     }
 }
 
