@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 
+use Capture::Tiny qw(capture_merged);
 use File::Path qw(make_path remove_tree);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -25,8 +26,21 @@ sub _run_gate {
     my ( $root, %env ) = @_;
 
     local @ENV{ keys %env } = values %env;
-    my $out = `bash \Q$GATE\E \Q$root\E 2>&1`;
-    return ( ${^CHILD_ERROR_NATIVE} >> 8, $out );
+    # Convert Windows native paths to MSYS paths before Bash opens the script.
+    # Use list-form system so the native Perl shell never strips backslashes.
+    my @args = ( $GATE, $root );
+    if ( $^O eq 'MSWin32' ) {
+        for my $path (@args) {
+            $path =~ s{\\}{/}g;
+            $path =~ s{\A([A-Za-z]):}{'/' . lc($1)}e;
+        }
+    }
+    my $status;
+    my $out = capture_merged {
+        system 'bash', @args;
+        $status = $?;
+    };
+    return ( $status < 0 ? 255 : ( $status >> 8 ), $out );
 }
 
 # _seed_root($dir)
