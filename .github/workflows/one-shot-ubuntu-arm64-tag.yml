@@ -1,0 +1,52 @@
+name: One-shot Linux arm64 Git tag dispatch
+
+on:
+  push:
+    branches:
+      - ci/one-shot-ubuntu-arm64-20261108
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag-and-dispatch:
+    if: github.repository == 'manif3station/developer-dashboard'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Attach only Ubuntu arm64 tag to verified master and dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: 3d8f663f84d69747bc809effa1915daff110baae
+        run: |
+          set -euo pipefail
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq '.object.sha')"
+          if [[ "$actual" != "$TARGET_SHA" ]]; then
+            echo "::error::master moved: $actual; refusing stale test target $TARGET_SHA"
+            exit 1
+          fi
+          # No other platform may be selected by a tag on this same commit.
+          for other in mac ubuntu-amd64 win-amd64 win-arm64; do
+            other_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$other" --jq '.object.sha' 2>/dev/null || true)"
+            if [[ "$other_sha" == "$TARGET_SHA" ]]; then
+              echo "::error::Other selected platform tag $other is on $TARGET_SHA"
+              exit 1
+            fi
+          done
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/ubuntu-arm64" >/dev/null 2>&1; then
+            echo '::error::ubuntu-arm64 Git tag already exists; refusing to overwrite.'
+            exit 1
+          fi
+          # GitHub-token tag push does not itself start another push workflow.
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref=refs/tags/ubuntu-arm64 -f sha="$TARGET_SHA" >/dev/null
+          confirmed="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/ubuntu-arm64" --jq '.object.sha')"
+          if [[ "$confirmed" != "$TARGET_SHA" ]]; then
+            echo '::error::The new tag does not point at the intended commit.'
+            exit 1
+          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/five-platform-coverage.yml/dispatches" \
+            -f ref=ubuntu-arm64 >/dev/null
+          echo "::notice::Dispatched Ubuntu arm64 ONLY at $TARGET_SHA"
