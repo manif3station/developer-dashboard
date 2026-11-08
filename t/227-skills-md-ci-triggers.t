@@ -59,7 +59,7 @@ is_deeply( [ sort keys %{$events} ], [qw(pull_request push workflow_dispatch)],
 is_deeply( $events->{push}{branches}, ['master'],
     'branch pushes run coverage only on master' );
 is_deeply( $events->{push}{tags},
-    [qw(mac win-amd64 win-arm64 ubuntu-amd64 ubuntu-arm64)],
+    [qw(mac ubuntu-amd64 ubuntu-arm64 win-amd64 win-arm64)],
     'pushing a platform Git tag also triggers the orchestrator' );
 is( $orchestrator->{permissions}{contents}, 'read',
     'the orchestrator requests read-only repository access' );
