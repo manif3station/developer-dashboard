@@ -52,6 +52,28 @@ select-ci-platforms - select native coverage stages from the latest commit
 Preserve the default five-stage coverage chain while allowing explicitly tagged
 commits to run only selected platforms, in the original fail-fast order.
 
+=head1 WHY IT EXISTS
+
+The sequential workflow previously could not test an isolated middle platform:
+every later platform depended on all earlier platforms running first. A
+separate, deterministic parser enables targeted CI without weakening failures.
+
+=head1 WHEN TO USE
+
+Use the script in the orchestrator when deciding which native test runners to
+start for a push, manual run, or pull-request head commit.
+
+=head1 HOW TO USE
+
+    git log -1 --format=%B > commit-message.txt
+    perl script/select-ci-platforms commit-message.txt
+
+=head1 WHAT USES IT
+
+The five-platform GitHub Actions orchestrator calls this script and publishes
+its output as job outputs. The corresponding regression test exercises the same
+script using temporary commit messages.
+
 =head1 INPUTS
 
 The first argument is a file containing the full message of the latest commit,
