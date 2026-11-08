@@ -18,52 +18,59 @@ ten TAP workers and requires 100% statement, branch, condition, and subroutine
 coverage. Native-thread tests run separately without unsupported
 instrumentation and must still pass.
 
-## Targeting individual platforms with commit tags
+## Selecting coverage platforms with Git tags
 
-Normally an untagged latest commit runs the **full five-platform chain**:
+By default, a commit without platform Git tags runs all five 100% coverage jobs
+in the original serial fail-fast order:
 
-1. macOS arm64 (tag: `mac`)
-2. Ubuntu amd64 (tag: `ubuntu-amd64`)
-3. Ubuntu arm64 (tag: `ubuntu-arm64`)
-4. Windows amd64 (tag: `win-amd64`)
-5. Windows arm64 (tag: `win-arm64`)
+1. macOS arm64 (`mac`)
+2. Ubuntu amd64 (`ubuntu-amd64`)
+3. Ubuntu arm64 (`ubuntu-arm64`)
+4. Windows amd64 (`win-amd64`)
+5. Windows arm64 (`win-arm64`)
 
-To run only selected platforms, put one or more **square-bracket tags** in
-the latest commit's subject or body, for example:
+**These are real Git tags, not strings in commit messages.** To test only a
+middle stage on the currently checked-out commit, create and push the tag:
 
-    fix: native Windows compatibility [win-amd64]
+```sh
+git tag win-amd64 HEAD
+git push origin win-amd64
+```
 
-Or select nonadjacent stages in the same commit:
+To test more than one platform on the same commit, attach multiple Git tags:
 
-    fix: Linux ARM64 and Windows ARM64 [ubuntu-arm64] [win-arm64]
+```sh
+git tag ubuntu-arm64 HEAD
+git tag win-arm64 HEAD
+git push origin ubuntu-arm64 win-arm64
+```
 
-An explicit commit message trailer works too. It must be in the final
-blank-line-separated footer paragraph, not ordinary subject/body prose.
-Bracket tags can share that footer with `CI-Platforms:`:
+The workflow's tag-push trigger can run the tests without first pushing a new
+branch commit. The selector fetches Git tag refs and evaluates only tags that
+point **exactly at the triggering commit**, or at the PR head commit when a PR
+run is triggered. Both lightweight and annotated Git tags are supported.
+A tag on a previous commit, or a release tag such as `v6.29`, does not affect
+the current commit. The exact tag names are case-sensitive.
 
-    fix: targeted native test
+**Git tags are repository-wide names:** a name such as `win-amd64` cannot be
+used for another commit while it still exists. To retarget a platform tag,
+coordinate with collaborators before deliberately moving or replacing the
+existing remote tag; force-updating a shared Git ref is not automatic.
 
-    CI-Platforms: mac, win-amd64, win-arm64
+For pull requests, tags are read from the actual PR head commit, not GitHub's
+synthetic merge commit. The coverage jobs themselves still test the synthetic
+merge SHA so that integration against the target branch is validated. If no
+platform Git tags are attached to the current commit, all five stages run.
 
-The exact tags are case-insensitive. Plain mentions like "macOS" or "Windows"
-are not tags. Invalid names in `CI-Platforms:` cause selection to fail visibly.
-For pull requests, only the **latest PR head commit** decides the platforms,
-not the merge commit or all commits in the PR. The selected coverage jobs still
-test GitHub's synthetic PR merge commit to catch integration failures against
-the target branch; selection and checkout intentionally use different refs.
-Pushing another untagged commit restores the full five-stage run. On master
-pushes and manual dispatches, the latest commit of the triggering ref
-determines the selection.
+Selected platforms always execute in the original order, regardless of tag
+creation or push order. Skipped predecessors do not block selected stages, but
+a selected failing platform prevents every later selected platform from running.
+Every selected platform still runs the full ten-worker suite and mandatory
+100% statement, branch, condition and subroutine coverage gate.
 
-The five platforms always retain their original order, **not tag order**.
-An unselected predecessor is skipped without blocking the next selected
-platform. But any selected stage that fails prevents all later selected stages
-from running. This applies equally to single-platform and multi-platform
-runs; it does not relax the 100% four-metric coverage gate.
-
-Read-only permissions and SHA-pinned external actions are required. Workflow
-regression tests protect tag parsing, the ordered skip-aware dependency chain,
-architecture checks, Linux dependencies, and coverage invocation.
+Read-only permissions and SHA-pinned external actions remain required. The
+workflow tests guard tag discovery, stage ordering, native dependencies and
+the four-metric coverage invocation.
 
 ## Retired workflows
 
