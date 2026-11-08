@@ -128,7 +128,7 @@ __END__
 
 =head1 NAME
 
-228-ci-platform-selection.t - select coverage stages from real Git tags
+267-ci-platform-selection.t - select coverage stages from real Git tags
 
 =head1 PURPOSE
 
@@ -147,7 +147,7 @@ Run when changing platform tag names, the tag query, or the coverage selector.
 
 =head1 HOW TO USE
 
-    prove -lv t/228-ci-platform-selection.t
+    prove -lv t/267-ci-platform-selection.t
 
 =head1 WHAT USES IT
 
