@@ -3720,6 +3720,11 @@ sub _run {
           && $cmd =~ /\Q'$runtime_dd_cli_root\E\/(?:_dashboard-core|doctor|serve|restart|stop)\b/
     );
     my ( $stdout, $stderr, $exit_code ) = capture {
+        # Git Bash rewrites URL-like command arguments such as /ajax/health to
+        # Windows filesystem paths before handing them to native Strawberry
+        # Perl. Disable that conversion only for this Windows shell fixture.
+        local $ENV{MSYS_NO_PATHCONV} = '1' if $^O eq 'MSWin32';
+        local $ENV{MSYS2_ARG_CONV_EXCL} = '*' if $^O eq 'MSWin32';
         if ($runtime_command) {
             local $ENV{PERL5OPT};
             local $ENV{HARNESS_PERL_SWITCHES};
