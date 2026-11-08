@@ -25,6 +25,8 @@ sub select_for {
     open my $pipe, '-|', $^X, $selector, $filename
       or die "Could not launch the selector: $!";
     my $output = do { local $/; <$pipe> };
+    # A nonzero child exit makes close return false, but still stores its
+    # wait status in $?. Expected rejection cases must inspect that status.
     close $pipe;
     my $exit_code = $? >> 8;
     my %values = map { split /=/, $_, 2 }
@@ -65,6 +67,22 @@ is_deeply( $outputs, expected(qw(ubuntu_amd64 win_amd64)),
 ( $status, $outputs ) = select_for("docs: macOS and Windows updates\n");
 is( $status, 0, 'prose platform names are not mistaken for tags' );
 is_deeply( $outputs, expected(@platforms), 'plain words do not turn off coverage' );
+
+( $status, $outputs ) = select_for("docs: CI-Platforms: explained in prose\n\nNormal body.\n");
+is( $status, 0, 'a platform-looking phrase in the subject is not a trailer' );
+is_deeply( $outputs, expected(@platforms), 'subject prose keeps default full coverage' );
+
+( $status, $outputs ) = select_for("docs: explain syntax\n\nCI-Platforms: not-a-platform\n\nThis later paragraph is ordinary prose.\n");
+is( $status, 0, 'platform-looking prose in a nonfinal paragraph is ignored' );
+is_deeply( $outputs, expected(@platforms), 'an earlier paragraph cannot override coverage' );
+
+( $status, $outputs ) = select_for("docs: explain syntax\n\nCI-Platforms: not-a-platform\nThis explanatory line makes it prose.\n");
+is( $status, 0, 'a non-trailer final paragraph is not parsed as tags' );
+is_deeply( $outputs, expected(@platforms), 'free-form prose cannot skip coverage stages' );
+
+( $status, $outputs ) = select_for("fix: test\n\nSigned-off-by: Example Maintainer\nCI-Platforms: win-amd64\n");
+is( $status, 0, 'the final paragraph may contain standard Git trailers' );
+is_deeply( $outputs, expected('win_amd64'), 'CI-Platforms is recognized beside other trailers' );
 
 ( $status, $outputs ) = select_for("fix: test\n\nCI-Platforms: win-amd6\n");
 isnt( $status, 0, 'unknown explicit trailer platform is rejected' );
