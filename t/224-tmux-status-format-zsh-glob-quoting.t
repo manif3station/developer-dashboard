@@ -66,7 +66,7 @@ for my $shell (qw(zsh bash sh)) {
 my $tmpdir = tempdir( CLEANUP => 1 );
 my $fake_tmux = File::Spec->catfile( $tmpdir, 'tmux' );
 open my $fh, '>', $fake_tmux or die "write $fake_tmux: $!";
-print {$fh} "#!/usr/bin/env bash\nexit 0\n";
+# A POSIX mock avoids recursive bash startup hooks and works for zsh, bash and sh.\nprint {$fh} "#!/bin/sh\nexit 0\n";
 close $fh;
 chmod 0755, $fake_tmux;
 
