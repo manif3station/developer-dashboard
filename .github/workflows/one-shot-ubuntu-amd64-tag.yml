@@ -1,0 +1,48 @@
+name: One-shot Linux amd64 Git tag dispatch
+
+on:
+  push:
+    branches:
+      - ci/one-shot-ubuntu-amd64-20261108
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag-and-dispatch:
+    if: github.repository == 'manif3station/developer-dashboard'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Tag pinned master commit and dispatch the existing coverage workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: abca4b7ae4acc59adbc1982ff480c234aa76ff3f
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq '.object.sha')"
+          if [[ "$current" != "$TARGET_SHA" ]]; then
+            echo "::error::Master advanced from pinned target $TARGET_SHA to $current. Refusing stale tag."
+            exit 1
+          fi
+          other_tags=(mac ubuntu-arm64 win-amd64 win-arm64)
+          for tag in "${other_tags[@]}"; do
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+              echo "::error::Unexpected other platform tag '$tag'. Refusing multi-platform run."
+              exit 1
+            fi
+          done
+          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/ubuntu-amd64" --jq '.object.sha' 2>/dev/null || true)"
+          if [[ -n "$existing" && "$existing" != "$TARGET_SHA" ]]; then
+            echo "::error::ubuntu-amd64 exists on a different commit: $existing"
+            exit 1
+          fi
+          if [[ -z "$existing" ]]; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref=refs/tags/ubuntu-amd64 -f sha="$TARGET_SHA" >/dev/null
+          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/five-platform-coverage.yml/dispatches" \
+            -f ref=ubuntu-amd64 >/dev/null
+          echo "::notice::Created real Git tag ubuntu-amd64 on $TARGET_SHA; dispatched existing five-platform workflow at that tag"
