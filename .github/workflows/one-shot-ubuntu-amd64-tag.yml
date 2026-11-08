@@ -15,12 +15,26 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Checkout exact test fix commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 267b17f4c3690057a897fea93a6bb2dca8cfb7b0
+          persist-credentials: false
+      - name: Run focused tmux shell regression before expensive coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! perl -MCapture::Tiny -e 1 >/dev/null 2>&1 || ! command -v zsh >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y libcapture-tiny-perl zsh
+          fi
+          prove -lv t/224-tmux-status-format-zsh-glob-quoting.t
       - name: Retarget only ubuntu-amd64 and dispatch existing coverage workflow
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: afe4328b96dec877732a9fcdf74e5e455d71a08b
-          PREVIOUS_TAG_SHA: abca4b7ae4acc59adbc1982ff480c234aa76ff3f
+          TARGET_SHA: 267b17f4c3690057a897fea93a6bb2dca8cfb7b0
+          PREVIOUS_TAG_SHA: afe4328b96dec877732a9fcdf74e5e455d71a08b
         run: |
           set -euo pipefail
           # The tag must point at this exact pushed fix branch, not stale master.
