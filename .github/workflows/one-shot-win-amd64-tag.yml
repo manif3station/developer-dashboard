@@ -19,8 +19,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: 6af0d0b5a6c1371e8fb4cf3da51e6791a6958c14
-          EXPECTED_TREE: b5de3411d820f9ba1901856a89d31d98206da78d
+          TARGET_SHA: b1c96c6184404bd30f2b4df575c8bd0fa5c06377
+          EXPECTED_TREE: db0a5df7ce5a1d8d46c58da9862ba8fb837f7917
         run: |
           set -euo pipefail
           actual="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/test/windows-amd64-only-20261108" --jq '.object.sha')"
@@ -41,12 +41,17 @@ jobs:
               exit 1
             fi
           done
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/win-amd64" >/dev/null 2>&1; then
-            echo "::error::win-amd64 already exists; refusing to overwrite"
+          # Compare-and-update only the Windows test tag created by this job.
+          # Never force-move an unexpectedly changed or unrelated tag.
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/win-amd64" --jq '.object.sha')"
+          if [[ "$current" != "6af0d0b5a6c1371e8fb4cf3da51e6791a6958c14" && "$current" != "$TARGET_SHA" ]]; then
+            echo "::error::win-amd64 unexpectedly moved to $current; refusing overwrite"
             exit 1
           fi
-          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
-            -f ref=refs/tags/win-amd64 -f sha="$TARGET_SHA" >/dev/null
+          if [[ "$current" != "$TARGET_SHA" ]]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/win-amd64" \
+              -f sha="$TARGET_SHA" -F force=true >/dev/null
+          fi
           confirmed="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/win-amd64" --jq '.object.sha')"
           if [[ "$confirmed" != "$TARGET_SHA" ]]; then
             echo "::error::Created tag was not attached to requested SHA"
