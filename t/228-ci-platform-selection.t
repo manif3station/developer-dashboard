@@ -106,7 +106,7 @@ SKIP: {
     open my $tag_pipe, '-|', @git, 'tag', '--points-at', 'HEAD'
       or die "Cannot list pointed-at tags: $!";
     my @tags = <$tag_pipe>;
-    close $tag_pipe or die 'Cannot finish Git tag query';
+    close $tag_pipe or die "Cannot finish Git tag query: exit " . ($? >> 8);
     chomp @tags;
     is_deeply( [ sort @tags ], [qw(mac win-amd64)],
         'git finds lightweight and annotated tags on HEAD' );
@@ -117,7 +117,7 @@ SKIP: {
     open $tag_pipe, '-|', @git, 'tag', '--points-at', 'HEAD'
       or die "Cannot list current Git tags: $!";
     @tags = <$tag_pipe>;
-    close $tag_pipe or die 'Cannot finish Git tag query';
+    close $tag_pipe or die "Cannot finish Git tag query: exit " . ($? >> 8);
     is_deeply( \@tags, [],
         'tags pointing to the previous commit do not select the new HEAD' );
 }
