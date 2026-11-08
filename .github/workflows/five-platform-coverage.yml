@@ -11,10 +11,10 @@ on:
     # A tag push can start targeted CI without requiring a branch push.
     tags:
       - mac
-      - win-amd64
-      - win-arm64
       - ubuntu-amd64
       - ubuntu-arm64
+      - win-amd64
+      - win-arm64
   pull_request:
   workflow_dispatch:
 
