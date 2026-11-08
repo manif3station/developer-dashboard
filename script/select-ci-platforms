@@ -2,52 +2,23 @@
 use strict;
 use warnings FATAL => 'all';
 
-# Emit GitHub Actions outputs selecting stages from the latest commit message.
-# Without explicit tags, preserve the full five-platform coverage chain.
-my ($message_file) = @ARGV;
-die "Usage: $0 COMMIT_MESSAGE_FILE\n" if !defined $message_file || @ARGV != 1;
+# GitHub supplies this file from `git tag --points-at HEAD`. Do not inspect
+# the commit message: only real Git refs pointing to that commit count.
+my ($tag_file) = @ARGV;
+die "Usage: $0 GIT_TAG_LIST_FILE\n" if !defined $tag_file || @ARGV != 1;
 
-open my $fh, '<', $message_file or die "Cannot read $message_file: $!\n";
-my $message = do { local $/; <$fh> };
-close $fh or die "Cannot close $message_file: $!\n";
+open my $fh, '<', $tag_file or die "Cannot read $tag_file: $!\n";
+my @tags = <$fh>;
+close $fh or die "Cannot close $tag_file: $!\n";
 
 my @platforms = qw(mac ubuntu-amd64 ubuntu-arm64 win-amd64 win-arm64);
 my %valid = map { $_ => 1 } @platforms;
 my %selected;
 
-# Square-bracket tags may occur anywhere in the subject or message body.
-while ( $message =~ /\[\s*(mac|ubuntu-amd64|ubuntu-arm64|win-amd64|win-arm64)\s*\]/gi ) {
-    $selected{ lc $1 } = 1;
-}
-
-# A Git-style trailer is only recognized in the final blank-line-separated
-# paragraph, not in a subject or an explanatory paragraph of the commit body.
-# If a footer includes free-form prose, it is not a trailer block.
-my @paragraphs = split /\n[ \t]*\n+/, $message;
-my $footer = @paragraphs > 1 ? $paragraphs[-1] : '';
-my @footer_lines = grep { /\S/ } split /\n/, $footer;
-# A footer may also contain standalone bracket tag lines. Those tags were
-# already collected globally, but they must not invalidate a real trailer.
-my $tag_names = join '|', map { quotemeta $_ } @platforms;
-my $bracket_tag_line = qr/^(?:\[\s*(?:$tag_names)\s*\]\s*)+\r?\z/i;
-my $valid_footer = @footer_lines
-  && !grep {
-      !/^[A-Za-z][A-Za-z0-9-]*:[ \t]*.*\r?\z/
-        && !/$bracket_tag_line/
-  } @footer_lines;
-
-if ($valid_footer) {
-    for my $line (@footer_lines) {
-        next if $line !~ /^CI-Platforms:[ \t]*(.*)\r?\z/i;
-        my $value = $1;
-        my @names = grep { length $_ } split /[\s,]+/, $value;
-        die "CI-Platforms trailer requires at least one platform\n" if !@names;
-        for my $name (@names) {
-            $name = lc $name;
-            die "Unknown CI platform '$name'\n" if !$valid{$name};
-            $selected{$name} = 1;
-        }
-    }
+for my $tag (@tags) {
+    $tag =~ s/\r?\n\z//;
+    # Ignore version tags and unrelated Git refs. Exact match required.
+    $selected{$tag} = 1 if $valid{$tag};
 }
 
 my $run_all = !%selected;
@@ -61,53 +32,51 @@ __END__
 
 =head1 NAME
 
-select-ci-platforms - select native coverage stages from the latest commit
+select-ci-platforms - select native coverage stages from Git tags
 
 =head1 PURPOSE
 
-Preserve the default five-stage coverage chain while allowing explicitly tagged
-commits to run only selected platforms, in the original fail-fast order.
+Preserve the five-stage serial coverage chain when a commit has no platform Git
+tags, or select only the stages named by exact Git tags pointing at that commit.
 
 =head1 WHY IT EXISTS
 
-The sequential workflow previously could not test an isolated middle platform:
-every later platform depended on all earlier platforms running first. A
-separate, deterministic parser enables targeted CI without weakening failures.
+The old all-or-nothing chain forced a failure on an unrelated earlier platform
+to block a targeted test on a later platform. Matching Git refs, rather than
+commit-message text, makes selection independent of commit wording.
 
 =head1 WHEN TO USE
 
-Use the script in the orchestrator when deciding which native test runners to
-start for a push, manual run, or pull-request head commit.
+Use this script in the GitHub Actions selector job after fetching all tags and
+checking out the source commit (the PR head SHA for pull requests).
 
 =head1 HOW TO USE
 
-    git log -1 --format=%B > commit-message.txt
-    perl script/select-ci-platforms commit-message.txt
+    git tag --points-at HEAD > git-tags.txt
+    perl script/select-ci-platforms git-tags.txt
 
 =head1 WHAT USES IT
 
-The five-platform GitHub Actions orchestrator calls this script and publishes
-its output as job outputs. The corresponding regression test exercises the same
-script using temporary commit messages.
+The five-platform coverage orchestrator supplies the names of Git tags
+pointing at its selected commit. The regression test checks the output mapping
+for zero, one, multiple, and unrelated Git tag names.
 
 =head1 INPUTS
 
-The first argument is a file containing the full message of the latest commit,
-not the complete pull request or a Git tag. For pull requests the caller must
-read the PR head commit, not GitHub's synthetic merge commit.
+A newline-separated list of Git tag names produced by C<git tag --points-at
+HEAD>. For pull requests, the source commit is the PR head commit, not the
+synthetic merge commit. No commit-message tags or trailers are read.
 
 =head1 OUTPUTS
 
-Prints five GitHub Actions output assignments with C<true> or C<false> values:
-C<mac>, C<ubuntu_amd64>, C<ubuntu_arm64>, C<win_amd64> and C<win_arm64>.
+Five GitHub Actions output assignments, always written in the canonical stage
+order: C<mac>, C<ubuntu_amd64>, C<ubuntu_arm64>, C<win_amd64> and
+C<win_arm64>. The values are the exact strings C<true> or C<false>.
 
 =head1 EXAMPLES
 
-    git log -1 --format=%B > commit-message.txt
-    perl script/select-ci-platforms commit-message.txt
-
-A message containing C<[win-amd64] [ubuntu-arm64]> selects those two stages.
-An explicit C<CI-Platforms: mac, win-arm64> trailer works too. In the absence
-of either form, all five stages are selected.
+If C<git-tags.txt> contains C<win-amd64> only, only Windows amd64 runs. If it
+contains C<ubuntu-arm64> and C<win-arm64>, those two stages run in that order.
+An empty file, or a file containing only C<v6.29>, selects every platform.
 
 =cut
