@@ -85,8 +85,10 @@ ok( $selector_checkout->{with}{'fetch-tags'},
     'selector explicitly fetches Git tags even for pull requests' );
 like( $selector_command->{run} // '', qr/git tag --points-at HEAD/,
     'selector enumerates Git tags attached to the current source commit' );
-unlike( $selector_command->{run} // '', qr/git log -1|format=%B/,
-    'selector does not interpret commit-message words as tags' );
+unlike( $selector_command->{run} // '', qr/\bgit\s+log\b/,
+    'selector never reads commit messages with git log' );
+unlike( $selector_command->{run} // '', qr/format=%B/,
+    'selector never extracts commit-message bodies with a format option' );
 like( $selector_command->{run} // '', qr/script\/select-ci-platforms.*GITHUB_OUTPUT/s,
     'selector publishes script-derived job outputs' );
 like( $selector_command->{run} // '', qr/if ! perl script\/select-ci-platforms.*?exit 1/s,
