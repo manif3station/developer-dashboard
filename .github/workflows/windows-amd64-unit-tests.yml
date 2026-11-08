@@ -1,6 +1,6 @@
 name: Windows amd64 Test Coverage
 
-# Reusable only: the five-platform chain calls this after Linux arm64 passes.
+# Reusable only: runs after any selected earlier stages pass (skips allowed).
 on:
   workflow_call:
 

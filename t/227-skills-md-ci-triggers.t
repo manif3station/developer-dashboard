@@ -57,28 +57,74 @@ my $events = events($orchestrator);
 is_deeply( [ sort keys %{$events} ], [qw(pull_request push workflow_dispatch)],
     'coverage runs on pull requests, master pushes and manual dispatch' );
 is_deeply( $events->{push}{branches}, ['master'],
-    'push coverage is restricted to master' );
+    'branch pushes run coverage only on master' );
+is_deeply( $events->{push}{tags},
+    [qw(mac ubuntu-amd64 ubuntu-arm64 win-amd64 win-arm64)],
+    'pushing a platform Git tag also triggers the orchestrator' );
 is( $orchestrator->{permissions}{contents}, 'read',
     'the orchestrator requests read-only repository access' );
-like( $orchestrator->{concurrency}{group} // '', qr/five-platform-coverage-\$\{\{ github\.ref \}\}/,
-    'the orchestrator groups and cancels duplicate runs on the same ref' );
+like( $orchestrator->{concurrency}{group} // '', qr/five-platform-coverage-.*github\.event\.pull_request\.head\.sha/,
+    'the orchestrator cancels duplicate tag/PR events for the same commit' );
 
 my $jobs = $orchestrator->{jobs} || {};
 is_deeply( [ sort keys %{$jobs} ],
-    [qw(linux-amd64 linux-arm64 macos-arm64 windows-amd64 windows-arm64)],
-    'the orchestrator defines exactly five ordered platform stages' );
-is( $jobs->{'linux-amd64'}{needs}, 'macos-arm64',
-    'Linux amd64 waits for macOS arm64 coverage' );
-is( $jobs->{'linux-arm64'}{needs}, 'linux-amd64',
-    'Linux arm64 waits for Linux amd64 coverage' );
-is( $jobs->{'windows-amd64'}{needs}, 'linux-arm64',
-    'Windows amd64 waits for Linux arm64 coverage' );
-is( $jobs->{'windows-arm64'}{needs}, 'windows-amd64',
-    'Windows arm64 waits for Windows amd64 coverage' );
+    [qw(linux-amd64 linux-arm64 macos-arm64 select-platforms windows-amd64 windows-arm64)],
+    'the orchestrator defines one selector and five ordered coverage stages' );
+
+my $selector = $jobs->{'select-platforms'} || {};
+is( $selector->{'runs-on'}, 'ubuntu-24.04',
+    'the lightweight selector runs independently on Linux' );
+my $selector_steps = $selector->{steps} || [];
+my $selector_checkout = find_step( $selector_steps, 'Checkout latest source commit for tag selection' );
+like( $selector_checkout->{with}{ref} // '', qr/github\.event\.pull_request\.head\.sha/,
+    'pull requests select tags from the latest real commit, not a merge commit' );
+my $selector_command = find_step( $selector_steps, 'Read Git tags pointing at last commit' );
+like( $selector_checkout->{with}{'fetch-depth'}, qr/^0$/,
+    'selector checks out enough Git history to read real tag refs' );
+ok( $selector_checkout->{with}{'fetch-tags'},
+    'selector explicitly fetches Git tags even for pull requests' );
+like( $selector_command->{run} // '', qr/git tag --points-at HEAD/,
+    'selector enumerates Git tags attached to the current source commit' );
+like( $selector_command->{run} // '', qr/git tag --points-at HEAD[^\n]*\n\s*\|\|\s*\{\s*echo.*?exit 1/s,
+    'selector stops rather than running the full chain when Git tag discovery fails' );
+unlike( $selector_command->{run} // '', qr/\bgit\s+log\b/,
+    'selector never reads commit messages with git log' );
+unlike( $selector_command->{run} // '', qr/format=%B/,
+    'selector never extracts commit-message bodies with a format option' );
+like( $selector_command->{run} // '', qr/script\/select-ci-platforms.*GITHUB_OUTPUT/s,
+    'selector publishes script-derived job outputs' );
+like( $selector_command->{run} // '', qr/if ! perl script\/select-ci-platforms.*?exit 1/s,
+    'selector errors fail the job instead of skipping every platform' );
+like( $selector_command->{run} // '', qr/cat .*dd-platform-outputs.*>> "\$GITHUB_OUTPUT"/s,
+    'GitHub receives parsed outputs only after successful selection' );
+
+my @stages = qw(macos-arm64 linux-amd64 linux-arm64 windows-amd64 windows-arm64);
+my @outputs = qw(mac ubuntu_amd64 ubuntu_arm64 win_amd64 win_arm64);
+for my $i ( 0 .. $#stages ) {
+    my $job = $jobs->{ $stages[$i] } || {};
+    my @expected_needs = $i
+      ? ( 'select-platforms', $stages[ $i - 1 ] )
+      : ('select-platforms');
+    my $needs = $job->{needs};
+    my @actual_needs = ref $needs eq 'ARRAY' ? @{$needs} : ($needs);
+    is_deeply( \@actual_needs, \@expected_needs,
+        "$stages[$i] is ordered after the previous stage but can skip it" );
+    like( $job->{if} // '', qr/!cancelled\(\)\s*&&\s*!failure\(\)/,
+        "$stages[$i] remains fail-fast while allowing skipped ancestors" );
+    like( $job->{if} // '', qr/needs\.select-platforms\.result == 'success'/,
+        "$stages[$i] requires successful tag selection" );
+    like( $job->{if} // '', qr/\Qneeds.select-platforms.outputs.$outputs[$i]\E == 'true'/,
+        "$stages[$i] runs only when it was selected" );
+    like( $selector->{outputs}{ $outputs[$i] } // '', qr/steps\.select\.outputs\.\Q$outputs[$i]\E/,
+        "the selector exposes the $stages[$i] switch" );
+}
 
 my $mac = $jobs->{'macos-arm64'} || {};
 is( $mac->{'runs-on'}, 'macos-15', 'macOS coverage uses Apple Silicon' );
 my $mac_steps = $mac->{steps} || [];
+my $mac_checkout = find_step( $mac_steps, 'Checkout' );
+like( $mac_checkout->{with}{ref} // '', qr/github\.sha/,
+    'coverage tests the PR merge SHA even though tag selection reads PR head' );
 my $mac_arch = find_step( $mac_steps, 'Verify Apple Silicon runner' );
 like( $mac_arch->{run} // '', qr/uname -m.*arm64/s,
     'macOS validates the native arm64 host' );
@@ -183,19 +229,19 @@ __END__
 
 =head1 NAME
 
-t/227-skills-md-ci-triggers.t - enforce the five-platform coverage chain
+t/227-skills-md-ci-triggers.t - enforce selectable serial five-platform coverage
 
 =head1 PURPOSE
 
-Verify that the active GitHub Actions workflow runs coverage in order across
-macOS arm64, Linux amd64, Linux arm64, Windows amd64, and Windows arm64. Check
+Verify that commits without platform Git tags preserve the five-platform order,
+and that real tags can skip arbitrary stages without bypassing failures. Check
 the native Linux build dependencies and the shared four-metric coverage gate.
 
 =head1 WHY IT EXISTS
 
 The coverage workflow was consolidated into one serial orchestrator and three
 reusable platform workflows. Static contracts catch stale workflow inventories,
-incorrect stage dependencies, missing native build packages, and drift away
+incorrect stage dependencies, missing Git tag selectors, native packages, and drift
 from the mandatory coverage gate before a hosted run is needed.
 
 =head1 WHEN TO USE
@@ -216,8 +262,8 @@ The full Linux coverage job executes this test as part of the repository suite.
 
 =head1 EXAMPLES
 
-The test verifies that the orchestrator selects Linux amd64 before Linux arm64,
-then waits for both Windows stages in turn. It also checks that Linux installs
+The test verifies that every selected stage waits for earlier selected stages
+but can bypass skipped predecessors. It also checks that Linux installs
 the GTK and Ayatana development packages before compiling the native helper.
 
 =cut

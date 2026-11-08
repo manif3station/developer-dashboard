@@ -16,13 +16,15 @@ anyone building or contributing to the distribution itself.
   pages/ajax), `CollectorRunner` (scheduled checks), `Housekeeper` (cleanup),
   `PathRegistry`/`Config` (the layered `.developer-dashboard/` directory stack).
 - `t/*.t` covers `lib/`; each carries POD naming what it covers.
-- `.github/workflows/` contains exactly **two** workflows.
-  `macos-arm64-unit-tests.yml` builds the native XS extension and runs
-  the full four-metric 100% Devel::Cover gate with ten parallel workers.
-  Only after macOS succeeds, it calls `windows-amd64-unit-tests.yml`,
-  which requires the same 100% gate on a Windows x64 runner.
-  The separate Linux unit-test, coverage, platform matrix, Docker Hub
-  and release workflows are retired.
+- `.github/workflows/` contains **four** workflows: the
+  `five-platform-coverage.yml` orchestrator, reusable Linux coverage, and
+  reusable Windows amd64 and arm64 coverage. By default tests run serially
+  on macOS arm64, Ubuntu amd64, Ubuntu arm64, Windows amd64 and Windows arm64,
+  each with ten TAP workers and 100% four-metric coverage. A real Git tag
+  pointing at the current commit, such as `git tag win-amd64`, selects just
+  that platform; multiple Git tags select stages in the usual order. See
+  `docs/ci-workflow-triggers.md` for tag creation and push instructions.
+  The separate Linux unit-test, Docker Hub and release workflows are retired.
 
 ## Running the tests
 

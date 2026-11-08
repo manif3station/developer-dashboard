@@ -1,6 +1,6 @@
 name: Windows arm64 Test Coverage
 
-# Native Windows-on-ARM coverage. Called only after Windows amd64 succeeds.
+# Native Windows-on-ARM coverage. Runs after preceding selected coverage passes.
 # MSYS2 CLANGARM64 provides an ARM64 Perl and ARM64 Devel::Cover;
 # an x64 Strawberry Perl under emulation would not validate ARM64 XS.
 on:
