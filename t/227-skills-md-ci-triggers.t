@@ -57,11 +57,14 @@ my $events = events($orchestrator);
 is_deeply( [ sort keys %{$events} ], [qw(pull_request push workflow_dispatch)],
     'coverage runs on pull requests, master pushes and manual dispatch' );
 is_deeply( $events->{push}{branches}, ['master'],
-    'push coverage is restricted to master' );
+    'branch pushes run coverage only on master' );
+is_deeply( $events->{push}{tags},
+    [qw(mac win-amd64 win-arm64 ubuntu-amd64 ubuntu-arm64)],
+    'pushing a platform Git tag also triggers the orchestrator' );
 is( $orchestrator->{permissions}{contents}, 'read',
     'the orchestrator requests read-only repository access' );
-like( $orchestrator->{concurrency}{group} // '', qr/five-platform-coverage-\$\{\{ github\.ref \}\}/,
-    'the orchestrator groups and cancels duplicate runs on the same ref' );
+like( $orchestrator->{concurrency}{group} // '', qr/five-platform-coverage-.*github\.event\.pull_request\.head\.sha/,
+    'the orchestrator cancels duplicate tag/PR events for the same commit' );
 
 my $jobs = $orchestrator->{jobs} || {};
 is_deeply( [ sort keys %{$jobs} ],
@@ -75,13 +78,19 @@ my $selector_steps = $selector->{steps} || [];
 my $selector_checkout = find_step( $selector_steps, 'Checkout latest source commit for tag selection' );
 like( $selector_checkout->{with}{ref} // '', qr/github\.event\.pull_request\.head\.sha/,
     'pull requests select tags from the latest real commit, not a merge commit' );
-my $selector_command = find_step( $selector_steps, 'Read last commit platform tags' );
-like( $selector_command->{run} // '', qr/git log -1 --format=%B/,
-    'selector reads one commit message' );
+my $selector_command = find_step( $selector_steps, 'Read Git tags pointing at last commit' );
+like( $selector_checkout->{with}{'fetch-depth'}, qr/^0$/,
+    'selector checks out enough Git history to read real tag refs' );
+ok( $selector_checkout->{with}{'fetch-tags'},
+    'selector explicitly fetches Git tags even for pull requests' );
+like( $selector_command->{run} // '', qr/git tag --points-at HEAD/,
+    'selector enumerates Git tags attached to the current source commit' );
+unlike( $selector_command->{run} // '', qr/git log -1|format=%B/,
+    'selector does not interpret commit-message words as tags' );
 like( $selector_command->{run} // '', qr/script\/select-ci-platforms.*GITHUB_OUTPUT/s,
     'selector publishes script-derived job outputs' );
 like( $selector_command->{run} // '', qr/if ! perl script\/select-ci-platforms.*?exit 1/s,
-    'invalid platform tags fail the selector job explicitly' );
+    'selector errors fail the job instead of skipping every platform' );
 like( $selector_command->{run} // '', qr/cat .*dd-platform-outputs.*>> "\$GITHUB_OUTPUT"/s,
     'GitHub receives parsed outputs only after successful selection' );
 
@@ -220,15 +229,15 @@ t/227-skills-md-ci-triggers.t - enforce selectable serial five-platform coverage
 
 =head1 PURPOSE
 
-Verify that untagged GitHub Actions runs preserve the five-platform order and
-that tagged commits can skip arbitrary stages without bypassing failure. Check
+Verify that commits without platform Git tags preserve the five-platform order,
+and that real tags can skip arbitrary stages without bypassing failures. Check
 the native Linux build dependencies and the shared four-metric coverage gate.
 
 =head1 WHY IT EXISTS
 
 The coverage workflow was consolidated into one serial orchestrator and three
 reusable platform workflows. Static contracts catch stale workflow inventories,
-incorrect stage dependencies, missing tag selectors, build packages, and drift away
+incorrect stage dependencies, missing Git tag selectors, native packages, and drift
 from the mandatory coverage gate before a hosted run is needed.
 
 =head1 WHEN TO USE
