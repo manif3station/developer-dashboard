@@ -8,6 +8,7 @@ use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin qw($RealBin);
+use Config;
 use Capture::Tiny qw(capture);
 use JSON::XS ();
 use Test::More;
@@ -240,11 +241,28 @@ if ( $dist ne '' ) {
         copy( _repo_path('HtmlEscape.xs'), File::Spec->catfile( $fixture, 'HtmlEscape.xs' ) )
           or die "Unable to copy HtmlEscape.xs into $fixture: $!";
         make_path( File::Spec->catdir( $fixture, 'share' ) );
+        my $fake_bin = File::Spec->catdir( $fixture, 'fake-bin' );
+        make_path($fake_bin);
+        my $fake_pkg_config = File::Spec->catfile( $fake_bin, 'pkg-config' );
+        open my $pkg_config_handle, '>', $fake_pkg_config
+          or die "Unable to write pkg-config fixture '$fake_pkg_config': $!";
+        print {$pkg_config_handle} <<'PKG_CONFIG_FIXTURE';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+exit ( ( $ENV{DD_TEST_PKG_CONFIG_STATUS} // 1 ) == 0 ? 0 : 1 );
+PKG_CONFIG_FIXTURE
+        close $pkg_config_handle
+          or die "Unable to close pkg-config fixture '$fake_pkg_config': $!";
+        chmod 0755, $fake_pkg_config
+          or die "Unable to make pkg-config fixture executable '$fake_pkg_config': $!";
 
         my ( $configure_stdout, $configure_stderr, $configure_exit ) = capture {
             my $original = Cwd::cwd();
             chdir $fixture or die "Unable to chdir to $fixture: $!";
             local $ENV{HOME} = $fixture;
+            local $ENV{PATH} = join $Config{path_sep}, $fake_bin, ( $ENV{PATH} // q{} );
+            local $ENV{DD_TEST_PKG_CONFIG_STATUS} = 1;
             system( $^X, 'Makefile.PL' );
             my $exit = $? >> 8;
             chdir $original or die "Unable to return to $original: $!";
@@ -259,6 +277,56 @@ if ( $dist ne '' ) {
         ok( -f $mymeta_path, 'Makefile.PL writes MYMETA.json' );
         my $generated_meta = JSON::XS->new->decode( _slurp($mymeta_path) );
         is_deeply( $generated_meta->{license}, ['mit'], 'generated MakeMaker metadata declares only the canonical MIT license' );
+        my $generated_makefile = _slurp( File::Spec->catfile( $fixture, 'Makefile' ) );
+        if ( $^O eq 'linux' ) {
+            unlike( $generated_makefile, qr/^build-system-menu-helper:/m,
+                'Linux Makefile omits the native helper build when pkg-config reports missing GTK/Ayatana modules' );
+            like( $configure_stdout, qr/System Menu helper.*not built.*pkg-config/is,
+                'Linux Makefile.PL visibly explains why the optional helper was not built' );
+        }
+        else {
+            pass('Linux-only optional GTK helper assertions are not applicable on this platform');
+            pass('Linux-only optional GTK helper notice is not applicable on this platform');
+        }
+
+        if ( $^O eq 'linux' ) {
+            my ( $available_stdout, $available_stderr, $available_exit ) = capture {
+                my $original = Cwd::cwd();
+                chdir $fixture or die "Unable to chdir to $fixture: $!";
+                local $ENV{HOME} = $fixture;
+                local $ENV{PATH} = join $Config{path_sep}, $fake_bin, ( $ENV{PATH} // q{} );
+                local $ENV{DD_TEST_PKG_CONFIG_STATUS} = 0;
+                local $ENV{DD_REQUIRE_SYSTEM_MENU_HELPER} = 1;
+                system( $^X, 'Makefile.PL' );
+                my $exit = $? >> 8;
+                chdir $original or die "Unable to return to $original: $!";
+                return $exit;
+            };
+            is( $available_exit, 0,
+                'Linux configure succeeds when GTK/Ayatana modules are available and the helper is required' )
+              or diag("stdout:\n$available_stdout\nstderr:\n$available_stderr");
+            $generated_makefile = _slurp( File::Spec->catfile( $fixture, 'Makefile' ) );
+            like( $generated_makefile, qr/^build-system-menu-helper:/m,
+                'Linux Makefile retains the native helper target when both pkg-config modules exist' );
+
+            my ( $required_stdout, $required_stderr, $required_exit ) = capture {
+                my $original = Cwd::cwd();
+                chdir $fixture or die "Unable to chdir to $fixture: $!";
+                local $ENV{HOME} = $fixture;
+                local $ENV{PATH} = join $Config{path_sep}, $fake_bin, ( $ENV{PATH} // q{} );
+                local $ENV{DD_TEST_PKG_CONFIG_STATUS} = 1;
+                local $ENV{DD_REQUIRE_SYSTEM_MENU_HELPER} = 1;
+                system( $^X, 'Makefile.PL' );
+                my $exit = $? >> 8;
+                chdir $original or die "Unable to return to $original: $!";
+                return $exit;
+            };
+            isnt( $required_exit, 0,
+                'Linux configure fails when the required native helper dependencies are missing' );
+            like( "$required_stdout\n$required_stderr",
+                qr/Required Linux System Menu helper cannot be built.*gtk/i,
+                'required-helper failure names the missing native dependency setup' );
+        }
     }
     like( $makefile, qr/VERSION_FROM\s*=>\s*'lib\/Developer\/Dashboard\/Version\.pm'/,
         'Makefile.PL reads version metadata from the lightweight version module' );
@@ -1305,6 +1373,9 @@ documentation, and numbered problem-report index aligned for the private-helper
 and isolated-skill packaging model. It also pins the declared runtime dependency floors, so a
 distribution carrying a published advisory cannot be permitted by the manifests
 even where no current advisory database is installed to notice.
+It configures isolated MakeMaker fixtures with mocked pkg-config results to
+verify optional Linux System Menu helper handling, including the strict mode
+used by CI.
 It also resolves every C<t/NN-name.t> path cited in the README, the markdown under
 C<doc/> and C<docs/>, and the POD of every Perl file, so a renamed test file
 cannot leave a stale citation behind in the documentation. The collector cron
@@ -1341,13 +1412,16 @@ Example 1:
 
   prove -lv t/15-release-metadata.t
 
-Run the release metadata and documentation contract checks by themselves while editing docs or version metadata.
+Run the release metadata, documentation, and optional native-helper configure
+contract checks by themselves while editing docs, version metadata, or build
+prerequisites.
 
 Example 2:
 
   HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/15-release-metadata.t
 
-Confirm the metadata guardrails still behave under the covered test path.
+Confirm the metadata and mocked native-helper configuration guardrails still
+behave under the covered test path.
 
 Example 3:
 

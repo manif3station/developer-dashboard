@@ -27,6 +27,10 @@ like( $install_command, qr/\blibayatana-appindicator3-dev\b/,
 like( $install_command, qr/\blibgtk-3-dev\b/,
     'the Linux dependency step installs GTK 3 development files' );
 
+my $job_env = $job->{env} || {};
+is( $job_env->{DD_REQUIRE_SYSTEM_MENU_HELPER}, '1',
+    'Linux coverage fails closed instead of skipping the helper when native build packages are missing' );
+
 done_testing();
 
 __END__
@@ -38,14 +42,18 @@ t/811-linux-coverage-workflow-dependencies.t - enforce Linux XS build packages
 =head1 PURPOSE
 
 Check that the active Linux coverage workflow installs the native development
-packages needed to compile the Dashboard System Menu helper.
+packages needed to compile the Dashboard System Menu helper and requires that
+helper during the CI build.
 
 =head1 WHY IT EXISTS
 
 The Linux amd64 local coverage job failed during XS compilation because
 pkg-config could not find C<ayatana-appindicator3-0.1> or C<gtk+-3.0>, and the
 compiler could not find C<gtk/gtk.h>. These checks keep the workflow package
-list aligned with the native helper build.
+list aligned with the native helper build. The strict environment setting
+ensures CI fails if dependency installation or pkg-config detection does not
+produce the required binary; only ordinary Linux builds may take the optional
+headless path.
 
 =head1 WHEN TO USE
 
@@ -68,6 +76,8 @@ workflow tests.
 
 A passing workflow installs both C<libayatana-appindicator3-dev> and
 C<libgtk-3-dev> before compiling the XS extension. Removing either package
-causes the test to fail with the missing package named in its assertion.
+causes the test to fail with the missing package named in its assertion. The
+workflow must also set C<DD_REQUIRE_SYSTEM_MENU_HELPER=1> so Makefile.PL refuses
+to skip the helper in CI.
 
 =cut

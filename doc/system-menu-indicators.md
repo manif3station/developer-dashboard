@@ -42,9 +42,15 @@ adapter starts the platform helper in a controlled GoRoutine worker and
 forwards the projected entries while owning helper shutdown. On Ubuntu,
 the helper uses Ayatana AppIndicator3 and a GTK menu; rendered status icons are
 kept in a private temporary icon-theme directory and removed when the helper
-shuts down. Building from source requires the Ayatana AppIndicator3 and GTK3
+shuts down. Building the helper requires the Ayatana AppIndicator3 and GTK3
 development packages, and runtime requires a desktop session with AppIndicator
-support. The helper reports a clear error when no desktop session is available.
+support. On Linux, `Makefile.PL` checks for both pkg-config modules and omits
+the optional helper target with a visible notice when they are missing. This
+allows CPAN testers without desktop development headers to build and test the
+distribution; invoking the System Menu without its helper still reports a
+clear error. Set `DD_REQUIRE_SYSTEM_MENU_HELPER=1` to make missing modules
+fatal, as the Linux coverage workflow does.
+The helper reports a clear error when no desktop session is available.
 Source-contract and compile tests do not prove that a desktop shell visibly
 displayed the menu.
 
@@ -56,7 +62,8 @@ The focused test runs inside the project development container:
 
 The development image, Linux GitHub workflows, and the published Docker image
 install `libayatana-appindicator3-dev` and `libgtk-3-dev` before building the
-native helper. The macOS helper is compiled with Objective-C ARC and deprecated
+native helper. Linux workflow jobs require the helper and fail if detection
+does not find both GTK and Ayatana modules. The macOS helper is compiled with Objective-C ARC and deprecated
 AppKit API diagnostics treated as errors. Windows runs its full test suite with
 Test::Harness but omits Devel::Cover because that instrumentation distribution
 does not configure on the supported Windows runner.

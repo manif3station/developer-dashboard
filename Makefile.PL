@@ -200,6 +200,39 @@ sub _write_local_lib_runner {
     return $runner;
 }
 
+# _program_in_path($name)
+# Finds an executable by basename using the current PATH.
+# Input: executable basename without directory components.
+# Output: executable path, or undef when PATH has no executable match.
+sub _program_in_path {
+    my ($name) = @_;
+    for my $directory ( File::Spec->path ) {
+        next if !defined $directory || $directory eq q{};
+        my $candidate = File::Spec->catfile( $directory, $name );
+        return $candidate if -f $candidate && -x $candidate;
+    }
+    return;
+}
+
+# _linux_menu_helper_unavailable_reason()
+# Checks whether the Linux System Menu helper's compile-time pkg-config modules exist.
+# Input: none; reads PATH and runs pkg-config when available.
+# Output: a visible reason string when the optional helper cannot be built, or undef.
+sub _linux_menu_helper_unavailable_reason {
+    my $pkg_config = _program_in_path('pkg-config');
+    return 'pkg-config was not found on PATH' if !defined $pkg_config;
+
+    my $status = system { $pkg_config } $pkg_config, '--exists',
+      'ayatana-appindicator3-0.1', 'gtk+-3.0';
+    die "Unable to execute pkg-config at '$pkg_config': $!\n" if $status == -1;
+    die "pkg-config terminated by signal " . ( $status & 127 ) . "\n"
+      if $status & 127;
+
+    my $exit = $status >> 8;
+    return if $exit == 0;
+    return "pkg-config could not find ayatana-appindicator3-0.1 and gtk+-3.0 (exit $exit)";
+}
+
 # postamble()
 # Appends the File::ShareDir::Install postamble so packaged installs refresh
 # dist share assets, then adds the home-runtime helper bootstrap hook used by
@@ -214,10 +247,11 @@ sub postamble {
     my $helper_name = $^O eq 'MSWin32'
       ? 'system_menu_helper.exe'
       : 'system_menu_helper';
-    my ( $helper_source, $helper_compile );
+    my ( $helper_source, $helper_compile, $helper_unavailable_reason );
     if ( $^O eq 'linux' ) {
         $helper_source = 'native/system_menu_helper_linux.c';
         $helper_compile = q{$(CC) $(CCFLAGS) -Werror=deprecated-declarations -o "$@" native/system_menu_helper_linux.c `pkg-config --cflags --libs ayatana-appindicator3-0.1 gtk+-3.0`};
+        $helper_unavailable_reason = _linux_menu_helper_unavailable_reason();
     }
     elsif ( $^O eq 'darwin' ) {
         $helper_source = 'native/system_menu_helper_mac.m';
@@ -230,18 +264,30 @@ sub postamble {
     else {
         die "System Menu native helper is unsupported on $^O\n";
     }
-    my $helper_target = '$(INST_ARCHAUTODIR)/' . $helper_name;
-    my $helper_rules = join "\n",
-      '.PHONY: build-system-menu-helper clean-system-menu-helper',
-      'all :: build-system-menu-helper',
-      "build-system-menu-helper: $helper_target",
-      "$helper_target: $helper_source",
-      "\t\$(MKPATH) \$(INST_ARCHAUTODIR)",
-      "\t$helper_compile",
-      'clean :: clean-system-menu-helper',
-      'clean-system-menu-helper:',
-      "\t\$(RM_F) $helper_target",
-      q{};
+    my $helper_rules = q{};
+    if ( defined $helper_unavailable_reason ) {
+        my $install_hint = 'Install pkg-config, libayatana-appindicator3-dev, and libgtk-3-dev.';
+        if ( ( $ENV{DD_REQUIRE_SYSTEM_MENU_HELPER} // q{} ) eq '1' ) {
+            die "Required Linux System Menu helper cannot be built: "
+              . "$helper_unavailable_reason. $install_hint\n";
+        }
+        print "Optional Linux System Menu helper was not built: "
+          . "$helper_unavailable_reason. $install_hint\n";
+    }
+    else {
+        my $helper_target = '$(INST_ARCHAUTODIR)/' . $helper_name;
+        $helper_rules = join "\n",
+          '.PHONY: build-system-menu-helper clean-system-menu-helper',
+          'all :: build-system-menu-helper',
+          "build-system-menu-helper: $helper_target",
+          "$helper_target: $helper_source",
+          "\t\$(MKPATH) \$(INST_ARCHAUTODIR)",
+          "\t$helper_compile",
+          'clean :: clean-system-menu-helper',
+          'clean-system-menu-helper:',
+          "\t\$(RM_F) $helper_target",
+          q{};
+    }
 
     return "FULLPERL = \$(PERL) $runner\n\n"
       . $share_postamble
@@ -277,6 +323,15 @@ ExtUtils::MakeMaker. It declares runtime and configuration prerequisites,
 version metadata, executable scripts, XS extension sources, shared assets, and
 repository metadata. Its MakeMaker postamble installs private command helpers
 and removes its generated local-library launcher during C<make clean>.
+
+On Linux, the System Menu helper is built when C<pkg-config> can find the
+Ayatana AppIndicator3 and GTK3 development modules. If either module is absent,
+configuration prints a notice and omits that optional helper target so CPAN
+testers can build and test the distribution without desktop development
+headers. The System Menu feature still reports a missing helper when invoked.
+Set C<DD_REQUIRE_SYSTEM_MENU_HELPER=1> to make missing modules a configuration
+failure; the Linux coverage workflow uses this setting so its native helper
+check cannot be skipped.
 
 When local::lib modules are present under C<.perl5> or the current user's
 C<perl5> directory, the generated Makefile runs Perl commands through a small

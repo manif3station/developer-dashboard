@@ -68,6 +68,7 @@ local $ENV{HOME} = tempdir(CLEANUP => 1);
 # while omitting this build's GoRoutine XSUBs.
 my @built_perl_libs = grep { -d $_ } map { File::Spec->catdir( $repo, 'blib', $_ ) } qw(arch lib);
 local $ENV{PERL5LIB} = join Developer::Dashboard::PerlEnv::path_separator(), grep { defined && $_ ne '' } ( @built_perl_libs, $ENV{PERL5LIB} || () );
+my $JAVA_TOOLCHAIN_SKIP_REASON = _java_toolchain_skip_reason();
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
@@ -2559,8 +2560,8 @@ GO
 }
 
 SKIP: {
-    skip 'Java hook smoke requires a usable javac and java runtime', 4
-      if !_command_usable('javac', '-version') || !_command_usable('java', '-version');
+    skip "Java hook smoke skipped: $JAVA_TOOLCHAIN_SKIP_REASON", 4
+      if defined $JAVA_TOOLCHAIN_SKIP_REASON;
     my $jq_java_hook = File::Spec->catfile( $jq_hook_root, '03-java.java' );
     open my $jq_java_hook_fh, '>', $jq_java_hook or die "Unable to write $jq_java_hook: $!";
     print {$jq_java_hook_fh} <<'JAVA';
@@ -3021,8 +3022,8 @@ GO
     is( $go_stdout, "Hello, World!\n", 'dashboard direct Go custom command runs through go run' );
 }
 SKIP: {
-    skip 'a usable javac and java runtime are required for direct CLI source-command smoke test', 3
-      if !_command_usable('javac', '-version') || !_command_usable('java', '-version');
+    skip "Direct Java source-command smoke skipped: $JAVA_TOOLCHAIN_SKIP_REASON", 3
+      if defined $JAVA_TOOLCHAIN_SKIP_REASON;
     my $java_extension = File::Spec->catfile( $cli_root, 'foo.java' );
     open my $java_extension_fh, '>', $java_extension or die "Unable to write $java_extension: $!";
     print {$java_extension_fh} <<'JAVA';
@@ -3830,6 +3831,46 @@ sub _command_usable {
     return $exit_code == 0 ? 1 : 0;
 }
 
+# _java_toolchain_skip_reason()
+# Checks that the available Java compiler can produce a class that the selected
+# runtime can execute, so Java-specific smoke assertions skip on mismatched JDKs.
+# Input: none; resolves javac and java through the current PATH.
+# Output: undef when compatible, or a visible skip reason string.
+sub _java_toolchain_skip_reason {
+    return 'javac is unavailable' if !_command_usable( 'javac', '-version' );
+    return 'java is unavailable' if !_command_usable( 'java', '-version' );
+
+    my $probe_dir = tempdir( 'dd-java-toolchain-XXXXXX', CLEANUP => 1, TMPDIR => 1 );
+    my $probe_source = File::Spec->catfile( $probe_dir, 'DashboardJavaToolchainProbe.java' );
+    open my $probe_handle, '>', $probe_source
+      or die "Unable to write Java toolchain probe '$probe_source': $!";
+    print {$probe_handle} <<'JAVA_PROBE';
+public class DashboardJavaToolchainProbe {
+    public static void main(String[] args) {
+        System.out.println("dashboard-java-toolchain-ok");
+    }
+}
+JAVA_PROBE
+    close $probe_handle
+      or die "Unable to close Java toolchain probe '$probe_source': $!";
+
+    my ( undef, undef, $compile_exit ) = capture {
+        system 'javac', $probe_source;
+        return $? >> 8;
+    };
+    return "javac could not compile a compatibility probe (exit $compile_exit)"
+      if $compile_exit != 0;
+
+    my ( $stdout, $run_stderr, $run_exit ) = capture {
+        system 'java', '-cp', $probe_dir, 'DashboardJavaToolchainProbe';
+        return $? >> 8;
+    };
+    return "javac output is incompatible with the available java runtime (exit $run_exit)"
+      if $run_exit != 0 || $stdout ne "dashboard-java-toolchain-ok\n";
+
+    return;
+}
+
 __END__
 
 =head1 NAME
@@ -3858,6 +3899,9 @@ When this checkout has a built XS extension, child Perl commands also verify
 that the current `blib/arch` is preferred over an installed older copy.
 The live foreground status probe is launched, terminated, and reaped through
 the Dashboard GoRoutine process API to keep process control portable.
+Java-specific hook and direct-source assertions first compile and run a small
+compatibility probe; those assertions skip with a visible reason when the
+available Java compiler and runtime are missing or incompatible.
 
 =for comment FULL-POD-DOC START
 
