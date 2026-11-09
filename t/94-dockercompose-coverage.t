@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-use Cwd qw(getcwd);
+use Cwd qw(abs_path getcwd);
 use File::Path qw(make_path);
 use File::Basename qw(dirname);
 use File::Spec;
@@ -20,6 +20,11 @@ use Developer::Dashboard::Config;
 use Developer::Dashboard::DockerCompose;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
+
+sub _tempdir {
+    my $path = File::Temp::tempdir(@_);
+    return abs_path($path) // $path;
+}
 
 # mkfile($path, $content)
 # Purpose: create a file (and its parent dirs) with content.
@@ -60,7 +65,7 @@ sub build_docker {
 # ---------------------------------------------------------------------------
 # Primary hermetic home (required setup shape).
 # ---------------------------------------------------------------------------
-my $home = tempdir( CLEANUP => 1 );
+my $home = _tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
 chdir $home or die "Unable to chdir to $home: $!";
 
@@ -183,7 +188,7 @@ my ( $docker, $paths ) = build_docker( $home, $repo );
 
 # Problem 34: a local Compose project scopes automatic runtime service overlays.
 {
-    my $local_home = tempdir( CLEANUP => 1 );
+    my $local_home = _tempdir( CLEANUP => 1 );
     my $local_repo = File::Spec->catdir( $local_home, 'projects', 'local-compose' );
     my $local_work = File::Spec->catdir( $local_repo, 'work' );
     make_path( File::Spec->catdir( $local_repo, '.git' ), $local_work );
@@ -469,7 +474,7 @@ STUB
 # second config pass may add overlays for services present in its output.
 # ---------------------------------------------------------------------------
 {
-    my $p40_home = tempdir( CLEANUP => 1 );
+    my $p40_home = _tempdir( CLEANUP => 1 );
     my $p40_repo = File::Spec->catdir( $p40_home, 'project' );
     my $p40_project_directory = File::Spec->catdir( $p40_home, 'explicit-project-directory' );
     my $p40_explicit_file = File::Spec->catfile( $p40_home, 'explicit-base.yaml' );
@@ -866,7 +871,7 @@ chmod 0755, File::Spec->catfile( $logbin, 'docker' );
 # so it can never itself produce a zero-files resolution.
 {
     unlink $invocation_log if -e $invocation_log;
-    my $empty_home = tempdir( CLEANUP => 1 );
+    my $empty_home = _tempdir( CLEANUP => 1 );
     my $empty_repo = File::Spec->catdir( $empty_home, 'projects', 'empty-repo' );
     make_path( File::Spec->catdir( $empty_repo, '.git' ) );
     my ( $empty_docker, undef ) = build_docker( $empty_home, $empty_repo );
@@ -1411,7 +1416,7 @@ SKIP: {
 # Scenario B: an empty runtime with no docker config and no isolated services.
 # ===========================================================================
 {
-    my $homeB = tempdir( CLEANUP => 1 );
+    my $homeB = _tempdir( CLEANUP => 1 );
     local $ENV{HOME} = $homeB;
     my $repoB = File::Spec->catdir( $homeB, 'plain' );
     make_path($repoB);
@@ -1438,7 +1443,7 @@ SKIP: {
 # Scenario C: malformed config (non-hash defs, missing files keys, bad env).
 # ===========================================================================
 {
-    my $homeC = tempdir( CLEANUP => 1 );
+    my $homeC = _tempdir( CLEANUP => 1 );
     local $ENV{HOME} = $homeC;
     my $repoC = File::Spec->catdir( $homeC, 'projects', 'malformed' );
     make_path( File::Spec->catdir( $repoC, '.git' ) );
@@ -1762,11 +1767,9 @@ JSON
         like( join( ' ', @{$result} ), qr/\bps\z/, 'selected overlay materializes successfully with an empty environment' );
     }
 
-    my $not_a_directory = File::Spec->catfile( $home, 'materialize-parent-file' );
-    mkfile( $not_a_directory, 'not a directory' );
     {
         no warnings 'redefine';
-        local *File::Temp::tempdir = sub { return $not_a_directory };
+        local *File::Temp::tempfile = sub { die "forced temp-file creation failure\n" };
         my $error = '';
         eval {
             $docker->_materialized_command(
@@ -1777,7 +1780,7 @@ JSON
             );
             1;
         } or $error = $@;
-        like( $error, qr/Unable to write .*merged-compose\.yml/, 'materializer reports a failure to create its temporary merged YAML' );
+        like( $error, qr/forced temp-file creation failure/, 'materializer reports a failure to create its temporary merged YAML' );
     }
 
     {
@@ -1793,7 +1796,7 @@ JSON
             );
             1;
         } or $error = $@;
-        like( $error, qr/Unable to close .*merged-compose\.yml/, 'materializer reports a failure to close its temporary merged YAML' );
+        like( $error, qr/Unable to close .*merged-compose-[^\/]+\.yml/, 'materializer reports a failure to close its temporary merged YAML' );
     }
 
     my $fail_final_bin = File::Spec->catdir( $home, 'fail-final-bin' );

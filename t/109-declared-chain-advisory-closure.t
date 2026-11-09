@@ -1,6 +1,7 @@
 use strict;
 use warnings;
 
+use Config ();
 use Cwd qw(abs_path);
 use File::Path qw(make_path);
 use File::Spec;
@@ -263,9 +264,11 @@ sub _write_cpanfile {
 # Input: none.
 # Output: the first matching library root path, or undef when none exists.
 sub _installed_library_root {
+    my $arch = $Config::Config{archname};
     my @candidates = (
-        File::Spec->catdir( $ROOT, 'local', 'lib', 'perl5' ),
-        File::Spec->catdir( $ENV{HOME} // '', 'perl5', 'lib', 'perl5' ),
+        File::Spec->catdir( $ROOT, 'local', 'lib', 'perl5', $arch ),
+        File::Spec->catdir( $ROOT, '.perl5', 'lib', 'perl5', $arch ),
+        File::Spec->catdir( $ENV{HOME} // '', 'perl5', 'lib', 'perl5', $arch ),
     );
 
     for my $candidate (@candidates) {

@@ -19,14 +19,20 @@ use Developer::Dashboard::CLI::Which;
 use Developer::Dashboard::Config;
 use Developer::Dashboard::JSON qw(json_encode);
 
+sub _without_private_var_prefix {
+    my ($path) = @_;
+    $path =~ s{\A/private(?=/var/folders/)}{} if defined $path;
+    return $path;
+}
+
 # AC-1: ~/.d2 alone is recognised as the home runtime layer.
 {
     my $home = tempdir( CLEANUP => 1 );
     make_path( File::Spec->catdir( $home, '.d2' ) );
     my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
     is(
-        $paths->home_runtime_path,
-        File::Spec->catdir( $home, '.d2' ),
+        _without_private_var_prefix( $paths->home_runtime_path ),
+        _without_private_var_prefix( File::Spec->catdir( $home, '.d2' ) ),
         'AC-1: home_runtime_path resolves to .d2 when only .d2 exists'
     );
 }
@@ -41,8 +47,8 @@ use Developer::Dashboard::JSON qw(json_encode);
     chdir $project or die "Unable to chdir to $project: $!";
     my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
     is(
-        $paths->project_runtime_root,
-        File::Spec->catdir( $project, '.d2' ),
+        _without_private_var_prefix( $paths->project_runtime_root ),
+        _without_private_var_prefix( File::Spec->catdir( $project, '.d2' ) ),
         'AC-2: project_runtime_root resolves to .d2 when only $PWD/.d2 exists'
     );
     chdir $orig_cwd or die "Unable to chdir back to $orig_cwd: $!";
@@ -55,8 +61,8 @@ use Developer::Dashboard::JSON qw(json_encode);
     make_path( File::Spec->catdir( $home, '.developer-dashboard' ) );
     my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
     is(
-        $paths->home_runtime_path,
-        File::Spec->catdir( $home, '.developer-dashboard' ),
+        _without_private_var_prefix( $paths->home_runtime_path ),
+        _without_private_var_prefix( File::Spec->catdir( $home, '.developer-dashboard' ) ),
         'AC-3: .developer-dashboard is checked before .d2 when both exist (home layer)'
     );
 }
@@ -72,8 +78,8 @@ use Developer::Dashboard::JSON qw(json_encode);
     chdir $project or die "Unable to chdir to $project: $!";
     my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
     is(
-        $paths->project_runtime_root,
-        File::Spec->catdir( $project, '.developer-dashboard' ),
+        _without_private_var_prefix( $paths->project_runtime_root ),
+        _without_private_var_prefix( File::Spec->catdir( $project, '.developer-dashboard' ) ),
         'AC-3: .developer-dashboard is checked before .d2 when both exist (project layer)'
     );
     chdir $orig_cwd or die "Unable to chdir back to $orig_cwd: $!";
@@ -100,25 +106,27 @@ use Developer::Dashboard::JSON qw(json_encode);
     make_path( File::Spec->catdir( $project, '.git' ), @runtime_roots );
     my $paths = Developer::Dashboard::PathRegistry->new( home => $home, cwd => $project );
 
-    is_deeply( [ $paths->runtime_layers ], \@runtime_roots,
+    is_deeply( [ map { _without_private_var_prefix($_) } $paths->runtime_layers ],
+        [ map { _without_private_var_prefix($_) } @runtime_roots ],
         'both names participate as home and project runtime layers in deterministic order' );
-    is( $paths->runtime_root, $runtime_roots[-1],
+    is( _without_private_var_prefix( $paths->runtime_root ), _without_private_var_prefix( $runtime_roots[-1] ),
         'the canonical project runtime remains the effective write target' );
-    is( $paths->runtime_layer_root_for( File::Spec->catdir( $runtime_roots[0], 'config' ) ), $runtime_roots[0],
+    is( _without_private_var_prefix( $paths->runtime_layer_root_for( File::Spec->catdir( $runtime_roots[0], 'config' ) ) ),
+        _without_private_var_prefix( $runtime_roots[0] ),
         'runtime security ownership recognizes the home .d2 root' );
     ok( $paths->is_home_runtime_path( File::Spec->catdir( $runtime_roots[0], 'config' ) ),
         'home-runtime classification recognizes the .d2 sibling' );
-    is_deeply( [ $paths->cli_layers ],
-        [ map { File::Spec->catdir( $_, 'cli' ) } @runtime_roots ],
+    is_deeply( [ map { _without_private_var_prefix($_) } $paths->cli_layers ],
+        [ map { _without_private_var_prefix( File::Spec->catdir( $_, 'cli' ) ) } @runtime_roots ],
         'CLI discovery includes both runtime directory names' );
-    is_deeply( [ $paths->config_layers ],
-        [ map { File::Spec->catdir( $_, 'config' ) } @runtime_roots ],
+    is_deeply( [ map { _without_private_var_prefix($_) } $paths->config_layers ],
+        [ map { _without_private_var_prefix( File::Spec->catdir( $_, 'config' ) ) } @runtime_roots ],
         'config discovery includes both runtime directory names' );
-    is_deeply( [ $paths->dashboards_layers ],
-        [ map { File::Spec->catdir( $_, 'dashboards' ) } @runtime_roots ],
+    is_deeply( [ map { _without_private_var_prefix($_) } $paths->dashboards_layers ],
+        [ map { _without_private_var_prefix( File::Spec->catdir( $_, 'dashboards' ) ) } @runtime_roots ],
         'dashboard discovery includes both runtime directory names' );
-    is_deeply( [ $paths->skills_roots ],
-        [ map { File::Spec->catdir( $_, 'skills' ) } reverse @runtime_roots ],
+    is_deeply( [ map { _without_private_var_prefix($_) } $paths->skills_roots ],
+        [ map { _without_private_var_prefix( File::Spec->catdir( $_, 'skills' ) ) } reverse @runtime_roots ],
         'skill lookup includes both names with deepest-layer-first precedence' );
 
     my @skill_layers;
@@ -154,11 +162,13 @@ use Developer::Dashboard::JSON qw(json_encode);
         return $output;
     };
 
+    my $short_cli = _without_private_var_prefix( "$runtime_roots[0]/cli/in-short-name-folder" );
     like( $which_output->('in-short-name-folder'),
-        qr/^COMMAND \Q$runtime_roots[0]\/cli\/in-short-name-folder\E$/m,
+        qr/^COMMAND \Q$short_cli\E$/m,
         'which resolves a custom command stored only under .d2' );
+    my $long_cli = _without_private_var_prefix( "$runtime_roots[1]/cli/in-long-name-folder" );
     like( $which_output->('in-long-name-folder'),
-        qr/^COMMAND \Q$runtime_roots[1]\/cli\/in-long-name-folder\E$/m,
+        qr/^COMMAND \Q$long_cli\E$/m,
         'which resolves a custom command stored only under .developer-dashboard' );
 
     for my $index ( 0 .. $#runtime_roots ) {
@@ -192,7 +202,8 @@ use Developer::Dashboard::JSON qw(json_encode);
     }
     is( $merged_config->{P21_CONFIG_ORDER}, 'layer_3',
         'configuration in the deepest canonical root wins across both names' );
-    is_deeply( [ $paths->skill_layers('parallel-skill') ], \@skill_layers,
+    is_deeply( [ map { _without_private_var_prefix($_) } $paths->skill_layers('parallel-skill') ],
+        [ map { _without_private_var_prefix($_) } @skill_layers ],
         'installed skill lookup discovers same-named skills under both runtime directories' );
 
     my $compose = Developer::Dashboard::DockerCompose->new(
@@ -202,8 +213,8 @@ use Developer::Dashboard::JSON qw(json_encode);
     my @docker_roots = map { File::Spec->catdir( $_, 'config', 'docker' ) } @runtime_roots;
     make_path( map { File::Spec->catdir( $_, 'sample' ) } @docker_roots );
     is_deeply(
-        [ $compose->_service_lookup_roots( service => 'sample', project_root => $project ) ],
-        \@docker_roots,
+        [ map { _without_private_var_prefix($_) } $compose->_service_lookup_roots( service => 'sample', project_root => $project ) ],
+        [ map { _without_private_var_prefix($_) } @docker_roots ],
         'docker compose service discovery includes both runtime directory names'
     );
 

@@ -8,9 +8,20 @@ use Encode qw(encode);
 use Errno qw(EACCES);
 use File::Path qw(make_path remove_tree);
 use File::Spec;
-use File::Temp qw(tempdir tempfile);
+use File::Temp qw(tempfile);
 use Socket qw(AF_INET6 inet_pton pack_sockaddr_in6);
 use Test::More;
+
+sub tempdir {
+    my $path = File::Temp::tempdir(@_);
+    return abs_path($path) // $path;
+}
+
+sub _portable_path_string {
+    my ($path) = @_;
+    $path =~ s{/private(?=/var/folders/)}{}g if defined $path;
+    return $path;
+}
 # Perl's builtin sleep takes an integer, so every sub-second sleep in this file
 # silently became sleep(0) and the poll loops below spun with no delay at all.
 # That is what actually made the live-singleton pid probe flake under load, not
@@ -1447,7 +1458,10 @@ SH
     # directory is is_runnable_file/resolve_runnable_file's job via
     # _runnable_path_candidates, which is unrelated to command_in_path and
     # still works below unchanged.
-    ok( !command_in_path('tool'), 'command_in_path does not resolve a bare name against the cwd (DD-765)' );
+    {
+        local $ENV{PATH} = tempdir( CLEANUP => 1 );
+        ok( !command_in_path('tool'), 'command_in_path does not resolve a bare name against the cwd (DD-765)' );
+    }
     ok( is_runnable_file('tool'), 'is_runnable_file resolves PATHEXT-backed PowerShell scripts on Windows' );
     {
         open my $fh, '>', 'tool.cmd' or die $!;
@@ -6301,7 +6315,7 @@ EOF
         Developer::Dashboard::EnvAudit->key('SHARED'),
         {
             value   => 'child-dd',
-            envfile => File::Spec->catfile( $child_root, '.developer-dashboard', '.env' ),
+            envfile => _portable_path_string(File::Spec->catfile( $child_root, '.developer-dashboard', '.env' )),
         },
         'EnvAudit records the deepest env file that supplied the effective value',
     );
@@ -6316,7 +6330,7 @@ EOF
     ok( !defined Developer::Dashboard::EnvAudit->key('SYSTEM_ONLY'), 'EnvAudit leaves system-only environment keys untracked' );
     my $audit_keys = Developer::Dashboard::EnvAudit->keys();
     is( $audit_keys->{ROOT_PL}{value}, 'root-pl', 'EnvAudit->keys exposes recorded values as a hash inventory' );
-    is( $audit_keys->{CHILD_DD}{envfile}, File::Spec->catfile( $child_root, '.developer-dashboard', '.env' ), 'EnvAudit->keys exposes the source file for each recorded key' );
+    is( _portable_path_string($audit_keys->{CHILD_DD}{envfile}), _portable_path_string(File::Spec->catfile( $child_root, '.developer-dashboard', '.env' )), 'EnvAudit->keys exposes the source file for each recorded key' );
     chdir $previous_cwd or die "Unable to chdir back to $previous_cwd: $!";
 }
 {

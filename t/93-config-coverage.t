@@ -84,9 +84,16 @@ is( $paths->runtime_layer_root_for(''),    '', 'runtime_layer_root_for empty str
 {
     no warnings 'redefine';
     my $real_root = $paths->home_runtime_path;
+    make_path($real_root);
     local *Developer::Dashboard::PathRegistry::_runtime_layers_from_env = sub { return ( undef, '', $real_root ) };
     my $probe = File::Spec->catdir( $real_root, 'probe.txt' );
-    is( $paths->runtime_layer_root_for($probe), $real_root,
+    open my $probe_fh, '>', $probe or die "Unable to create runtime-layer probe '$probe': $!";
+    close $probe_fh or die "Unable to close runtime-layer probe '$probe': $!";
+    my $resolved_root = $paths->runtime_layer_root_for($probe);
+    $resolved_root =~ s{/private(?=/var/folders/)}{}g;
+    my $expected_root = $real_root;
+    $expected_root =~ s{/private(?=/var/folders/)}{}g;
+    is( $resolved_root, $expected_root,
         'runtime_layer_root_for skips an injected undef and empty layer root and still finds the real one' );
 }
 

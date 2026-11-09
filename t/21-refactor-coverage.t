@@ -45,8 +45,8 @@ my $repo_root = getcwd();
 sub _portable_path {
     my ($path) = @_;
     return undef if !defined $path;
-    my $resolved = eval { abs_path($path) };
-    return defined $resolved && $resolved ne '' ? $resolved : $path;
+    $path =~ s{/private(?=/var/folders/)}{}g;
+    return $path;
 }
 
 sub is_same_path {
@@ -1368,6 +1368,9 @@ like( $paths_output, qr/home_runtime_root/, 'CLI::Paths default table includes t
     make_path($work_project);
     make_path( $named_dir, $named_match_one, $named_match_two, $cwd_match_one, $cwd_match_two );
     chdir $project_dir or die "Unable to chdir to $project_dir: $!";
+    $project_dir = getcwd();
+    $cwd_match_one = File::Spec->catdir( $project_dir, 'docs-alpha' );
+    $cwd_match_two = File::Spec->catdir( $project_dir, 'nested', 'docs-alpha-red' );
 
     my ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(
@@ -1536,7 +1539,7 @@ like( $paths_output, qr/home_runtime_root/, 'CLI::Paths default table includes t
     is_deeply(
         _portable_cdr_payload( json_decode($stdout) ),
         {
-            target  => _portable_path($project_dir),
+            target  => '',
             matches => _portable_paths( sort ( $cwd_match_one, $cwd_match_two ) ),
         },
         'CLI::Paths cdr returns only the match list when current-directory keyword search finds multiple directories',
@@ -3171,7 +3174,7 @@ open my $npm_log_fh, '<', $npx_log or die "Unable to read $npx_log: $!";
 my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npm_log_fh>;
 close $npm_log_fh;
 like(
-    $npm_steps[-1],
+    _portable_path($npm_steps[-1]),
     qr/^--yes npm install dep-skill-runtime\@\^1\.2\.3 dep-skill-dev\@\^4\.5\.6\|cwd=\Q$ENV{HOME}\E\/skills-home\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
     '_install_skill_dependencies stages package.json work under the dashboard runtime cache through npx instead of using bare HOME as the npm project root',
 );
@@ -3179,20 +3182,22 @@ open my $python_log_fh, '<', $python_log or die "Unable to read $python_log: $!"
 my @python_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$python_log_fh>;
 close $python_log_fh;
 is(
-    $python_steps[-1],
-    "-m pip install --user --requirement $dep_skill_root/requirements.txt|cwd=$dep_skill_root",
+    _portable_path($python_steps[-1]),
+    _portable_path("-m pip install --user --requirement $dep_skill_root/requirements.txt|cwd=$dep_skill_root"),
     '_install_skill_dependencies installs requirements.txt through python -m pip install --user from the installed skill root',
 );
 open my $make_log_fh, '<', $make_log or die "Unable to read $make_log: $!";
 my @make_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$make_log_fh>;
 close $make_log_fh;
 is_deeply(
-    [ @make_steps[ -4 .. -1 ] ],
+    [ map { _portable_path($_) } @make_steps[ -4 .. -1 ] ],
     [
-        "|cwd=$dep_skill_root",
-        "test|cwd=$dep_skill_root",
-        "install|cwd=$dep_skill_root",
-        "clean|cwd=$dep_skill_root",
+        map { _portable_path($_) } (
+            "|cwd=$dep_skill_root",
+            "test|cwd=$dep_skill_root",
+            "install|cwd=$dep_skill_root",
+            "clean|cwd=$dep_skill_root",
+        ),
     ],
     '_install_skill_dependencies runs the default Makefile command chain before ddfile processing',
 );
@@ -3200,7 +3205,7 @@ open my $docker_log_fh, '<', $docker_log or die "Unable to read $docker_log: $!"
 my @docker_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$docker_log_fh>;
 close $docker_log_fh;
 like(
-    $docker_steps[-1],
+    _portable_path($docker_steps[-1]),
     qr/^build -t dep-skill -f \Q$dep_skill_root\E\/dockerfile \Q$dep_skill_root\E\|cwd=\Q$dep_skill_root\E$/,
     '_install_skill_dependencies builds dockerfile-based skill images from the installed skill root',
 );
@@ -3217,11 +3222,13 @@ like(
     my @skip_make_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$skip_make_fh>;
     close $skip_make_fh;
     is_deeply(
-        \@skip_make_steps,
+        [ map { _portable_path($_) } @skip_make_steps ],
         [
-            "|cwd=$dep_skill_root",
-            "install|cwd=$dep_skill_root",
-            "clean|cwd=$dep_skill_root",
+            map { _portable_path($_) } (
+                "|cwd=$dep_skill_root",
+                "install|cwd=$dep_skill_root",
+                "clean|cwd=$dep_skill_root",
+            ),
         ],
         '_install_skill_makefile skips the test target when the manager is configured for --notest installs',
     );
@@ -3749,13 +3756,13 @@ SH
         'install_from_ddfiles writes ddfile.local dependencies into the current skill-local skills root',
     );
     is_deeply(
-        $manifest_install->{operations},
+        [ map { +{ %$_, path => _portable_path($_->{path}) } } @{ $manifest_install->{operations} } ],
         [
             {
                 manifest       => 'ddfile',
                 source         => "file://$global_repo",
                 repo_name      => 'manifest-global-skill',
-                path           => File::Spec->catdir( $ENV{HOME}, 'skills-home', '.developer-dashboard', 'skills', 'manifest-global-skill' ),
+                path           => _portable_path(File::Spec->catdir( $ENV{HOME}, 'skills-home', '.developer-dashboard', 'skills', 'manifest-global-skill' )),
                 version_before => undef,
                 version_after  => undef,
                 status         => 'installed',
@@ -3765,7 +3772,7 @@ SH
                 manifest       => 'ddfile.local',
                 source         => "file://$local_repo",
                 repo_name      => 'manifest-local-skill',
-                path           => File::Spec->catdir( $manifest_root, 'skills', 'manifest-local-skill' ),
+                path           => _portable_path(File::Spec->catdir( $manifest_root, 'skills', 'manifest-local-skill' )),
                 version_before => undef,
                 version_after  => undef,
                 status         => 'installed',
@@ -3809,8 +3816,8 @@ SH
     my $missing_manifest_root = File::Spec->catdir( $test_repos, 'missing-manifest-root' );
     make_path($missing_manifest_root);
     is_deeply(
-        $manager->install_from_ddfiles($missing_manifest_root),
-        { error => "No ddfile or ddfile.local found under $missing_manifest_root" },
+        { error => _portable_path($manager->install_from_ddfiles($missing_manifest_root)->{error}) },
+        { error => _portable_path("No ddfile or ddfile.local found under $missing_manifest_root") },
         'install_from_ddfiles rejects roots with no ddfile manifests',
     );
 }

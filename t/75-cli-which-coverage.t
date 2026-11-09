@@ -377,9 +377,10 @@ is( scalar Developer::Dashboard::CLI::Which::_resolve_directory_runner( File::Sp
     make_path($project_hooks);
     my $hook_deep = make_exec( File::Spec->catfile( $project_hooks, '05-deep' ) );
     my $layered   = Developer::Dashboard::PathRegistry->new( home => $home, cwd => $project );
+    my @actual_layered_hooks = Developer::Dashboard::CLI::Which::_main_gate_hook_files( paths => $layered );
     is_deeply(
-        [ Developer::Dashboard::CLI::Which::_main_gate_hook_files( paths => $layered ) ],
-        [ $hook_deep, $hook_a, $hook_b ],
+        [ map { _without_private_var_prefix($_) } @actual_layered_hooks ],
+        [ map { _without_private_var_prefix($_) } ( $hook_deep, $hook_a, $hook_b ) ],
         '_main_gate_hook_files walks the layers deepest first and the home layer last',
     );
 
@@ -403,6 +404,12 @@ is( scalar Developer::Dashboard::CLI::Which::_resolve_directory_runner( File::Sp
 }
 
 done_testing;
+
+sub _without_private_var_prefix {
+    my ($path) = @_;
+    $path =~ s{\A/private(?=/var/folders/)}{} if defined $path;
+    return $path;
+}
 
 __END__
 

@@ -255,8 +255,8 @@ is( $run_libcheck->{stdout}, "local-lib-ok\n", 'dispatch exposes skill lib direc
 my $run_inc_check = $disp->dispatch( 'runner', 'inc' );
 my ($first_cli_inc) = split /,/, $run_inc_check->{stdout}, 2;
 is(
-    $first_cli_inc,
-    File::Spec->catdir( $proj_runner, 'lib' ),
+    _without_private_var_prefix($first_cli_inc),
+    _without_private_var_prefix( File::Spec->catdir( $proj_runner, 'lib' ) ),
     'the exact skill path providing a CLI script is the first entry in that child Perl process @INC',
 );
 
@@ -921,6 +921,12 @@ is_deeply( [ $disp->_descendant_skill_names( 'x', '' ) ], [], '_descendant_skill
 
 chdir $orig_cwd or die $!;
 done_testing;
+
+sub _without_private_var_prefix {
+    my ($path) = @_;
+    $path =~ s{/private(?=/var/folders/)}{}g if defined $path;
+    return $path;
+}
 
 __END__
 

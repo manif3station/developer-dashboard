@@ -108,7 +108,9 @@ my $runner          = Developer::Dashboard::CollectorRunner->new(
     my $child_cwd = <$fh>;
     close $fh or die "Unable to close child cwd marker '$cwd_marker': $!";
     my $expected_cwd = ( $ENV{HARNESS_PERL_SWITCHES} // q{} ) =~ /Devel::Cover/ ? $repo_root : $home;
-    is( $child_cwd, "$expected_cwd\n", 'coverage-instrumented GoRoutine children start in the checkout while ordinary fixtures retain the temporary HOME cwd' );
+    ( my $portable_child_cwd = $child_cwd ) =~ s{/private(?=/var/folders/)}{}g;
+    ( my $portable_expected_cwd = "$expected_cwd\n" ) =~ s{/private(?=/var/folders/)}{}g;
+    is( $portable_child_cwd, $portable_expected_cwd, 'coverage-instrumented GoRoutine children start in the checkout while ordinary fixtures retain the temporary HOME cwd' );
 }
 
 my $PKG = 'Developer::Dashboard::CollectorRunner';

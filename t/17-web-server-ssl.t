@@ -27,10 +27,31 @@ use Time::HiRes qw(sleep);
 use lib 'lib';
 use lib 't/lib';
 
-use Developer::Dashboard::Web::Server;
-use Developer::Dashboard::Web::DancerApp;
-use Local::PSGITest;
-use Developer::Dashboard::GoRoutine ();
+sub _command_available {
+    my ($name) = @_;
+    my @extensions = $^O eq 'MSWin32'
+      ? split( /;/, $ENV{PATHEXT} || '.EXE;.BAT;.CMD' )
+      : ('');
+    for my $directory ( File::Spec->path ) {
+        for my $extension (@extensions) {
+            my $candidate = File::Spec->catfile( $directory, $name . $extension );
+            return 1 if -f $candidate && ( $^O eq 'MSWin32' || -x $candidate );
+        }
+    }
+    return 0;
+}
+
+plan skip_all => 'OpenSSL executable is required for certificate integration checks'
+  if !_command_available('openssl');
+my $ssl_modules_loaded = eval {
+    require Developer::Dashboard::Web::Server;
+    require Developer::Dashboard::Web::DancerApp;
+    require Local::PSGITest;
+    require Developer::Dashboard::GoRoutine;
+    1;
+};
+plan skip_all => 'Dashboard XS bundle or SSL integration modules are unavailable'
+  if !$ssl_modules_loaded;
 
 # _spawn_perl_fixture($program, @args)
 # Starts an isolated Perl test fixture through GoRoutine's native process API.
@@ -466,7 +487,7 @@ OPENSSL_CONFIG
     ok($psgi_app, 'PSGI app created');
     ok(ref($psgi_app) eq 'CODE', 'PSGI app is a code reference');
     
-    Local::PSGITest::test_psgi $psgi_app, sub {
+    Local::PSGITest::test_psgi( $psgi_app, sub {
         my ($cb) = @_;
         my $http_request = GET 'http://127.0.0.1:17891/?from=http';
         my $http_response = $cb->($http_request);
@@ -483,7 +504,7 @@ OPENSSL_CONFIG
         ok($https_response, 'PSGI app responds to HTTPS request');
         is($https_response->code, 200, 'HTTPS request reaches the wrapped app');
         is($https_response->decoded_content, 'OK', 'HTTPS request preserves the wrapped app response body');
-    };
+    } );
 }
 
 # Test 8: Command line --ssl flag parsing

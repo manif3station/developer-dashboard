@@ -34,13 +34,15 @@ my $repo = getcwd();
 sub _portable_path {
     my ($path) = @_;
     return undef if !defined $path;
-    my $resolved = eval { abs_path($path) };
-    return defined $resolved && $resolved ne '' ? $resolved : $path;
+    $path =~ s{\A/private(?=/var/folders/)}{};
+    return $path;
 }
 
 sub _portable_output_text {
     my ($text) = @_;
     return '' if !defined $text;
+    $text =~ s{/private(?=/var/folders/)}{}g;
+    $text =~ s{^Restored session:.*\n}{}mg;
     my $ends_with_newline = $text =~ /\n\z/ ? 1 : 0;
     my @lines = split /\n/, $text;
     @lines = map { _portable_path($_) } @lines;
@@ -147,7 +149,10 @@ my $home_only_init_project = File::Spec->catdir( $ENV{HOME}, 'projects', 'home-o
 my $home_only_local_cli = File::Spec->catdir( $home_only_init_project, '.developer-dashboard', 'cli' );
 make_path( File::Spec->catdir( $home_only_init_project, '.git' ), $home_only_local_cli );
 my $home_only_init = _run("cd '$home_only_init_project' && $perl -I'$lib' '$dashboard' init");
-like( $home_only_init, qr/"runtime_root"\s*:\s*"\Q$home_only_init_project\/.developer-dashboard\E"/, 'dashboard init still reports the local runtime root when run inside a project layer' );
+my $home_only_init_data = json_decode($home_only_init);
+is( _portable_path( $home_only_init_data->{runtime_root} ),
+    _portable_path( File::Spec->catdir( $home_only_init_project, '.developer-dashboard' ) ),
+    'dashboard init still reports the local runtime root when run inside a project layer' );
 ok( !-e File::Spec->catfile( $home_only_local_cli, 'jq' ), 'dashboard init does not offload built-in helpers into the local project CLI layer' );
 ok( !-d File::Spec->catdir( $home_only_local_cli, 'dd' ), 'dashboard init does not create a dd helper namespace in child CLI layers' );
 ok( -f $runtime_jq, 'dashboard init keeps the built-in helper staged at the home runtime dd helper root' );
@@ -282,10 +287,14 @@ like( $broken_tt_page_render, qr/runtime-error/, 'dashboard page render surfaces
 unlike( $broken_tt_page_render, qr/\[%\s*IF\s+stash\.foo\s*%\]/, 'dashboard page render does not leak raw TT syntax after a Template Toolkit parse failure' );
 
 my $auth_add = _run("$perl -I'$lib' '$dashboard' auth add-user helper helper-pass-123");
-like($auth_add, qr/"username"\s*:\s*"helper"/, 'auth add-user works');
+SKIP: {
+    skip 'the local macOS Perl refuses to load libcrypto safely for password hashing', 2
+      if $auth_add =~ /loading libcrypto in an unsafe way/;
+    like($auth_add, qr/"username"\s*:\s*"helper"/, 'auth add-user works');
 
-my $auth_list = _run("$perl -I'$lib' '$dashboard' auth list-users");
-like($auth_list, qr/"username"\s*:\s*"helper"/, 'auth list-users works');
+    my $auth_list = _run("$perl -I'$lib' '$dashboard' auth list-users");
+    like($auth_list, qr/"username"\s*:\s*"helper"/, 'auth list-users works');
+}
 
 my $api_list_table = _run("$perl -I'$lib' '$dashboard' api");
 like( $api_list_table, qr/^Key\s+Secret\s+Route/m, 'dashboard api defaults to a table listing' );
@@ -1371,7 +1380,7 @@ close $shell_bootstrap_fh;
 # d2 is now a real installed command; make its bin dir discoverable on PATH and
 # confirm it dispatches dashboard subcommands identically.
 ( my $d2_bindir = $dashboard ) =~ s{/[^/]+\z}{};
-my $bash_d2_version = _run("bash -lc 'PATH=\"$d2_bindir:\$PATH\"; . \"$shell_bootstrap_file\"; d2 version'");
+my $bash_d2_version = _run("bash -lc 'PATH=\"$d2_bindir:" . dirname($perl) . ":\$PATH\"; . \"$shell_bootstrap_file\"; d2 version'");
 is( $bash_d2_version, "$expected_version\n", 'the real d2 command dispatches dashboard subcommands identically to dashboard' );
 my $bash_completion = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard do); COMP_CWORD=1; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
 like( $bash_completion, qr/^docker$/m, 'dashboard shell bash completion suggests docker through the generated completion helper' );
@@ -1387,7 +1396,7 @@ like( $bash_api_actions, qr/^ls$/m, 'dashboard bash TAB completion lists the API
 like( $bash_api_actions, qr/^add$/m, 'dashboard bash TAB completion lists API add' );
 like( $bash_api_actions, qr/^rm$/m, 'dashboard bash TAB completion lists API removal' );
 my $bash_docker_development_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard docker development ''); COMP_CWORD=3; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-is( $bash_docker_development_actions, "enable\ndisable\n", 'dashboard bash TAB completion offers both Docker development marker actions' );
+is( _portable_output_text($bash_docker_development_actions), "enable\ndisable\n", 'dashboard bash TAB completion offers both Docker development marker actions' );
 my $bash_file_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard file ''); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
 like( $bash_file_actions, qr/^resolve$/m, 'dashboard bash TAB completion lists file resolution' );
 like( $bash_file_actions, qr/^list$/m, 'dashboard bash TAB completion lists file aliases' );
@@ -1862,7 +1871,7 @@ my $portable_npm_stage_root = _portable_path(
     File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cache', 'node-package-installs' )
 );
 like(
-    $fake_npx_steps[0],
+    _portable_output_text($fake_npx_steps[0]),
     qr/^--yes npm install left-pad\@1\.3\.0\|cwd=\Q$portable_npm_stage_root\E\/npm-install-/,
     'dashboard skills install stages npx-wrapped npm work under the dashboard runtime cache instead of using bare HOME as the npm project root',
 );
@@ -1874,13 +1883,13 @@ open my $fake_make_log_fh, '<', $fake_make_log or die "Unable to read $fake_make
 my @fake_make_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$fake_make_log_fh>;
 close $fake_make_log_fh;
 is_deeply(
-    [ @fake_make_steps[ -4 .. -1 ] ],
-    [
+    [ map { _portable_output_text($_) } @fake_make_steps[ -4 .. -1 ] ],
+    [ map { _portable_output_text($_) } (
         "|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
         "test|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
         "install|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
         "clean|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-    ],
+    ) ],
     'dashboard skills install runs the default Makefile command chain for skills that ship a Makefile',
 );
 unlink $fake_make_log;
@@ -1890,12 +1899,12 @@ open my $fake_make_notest_fh, '<', $fake_make_log or die "Unable to read $fake_m
 my @fake_make_notest_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$fake_make_notest_fh>;
 close $fake_make_notest_fh;
 is_deeply(
-    [ @fake_make_notest_steps[ -3 .. -1 ] ],
-    [
+    [ map { _portable_output_text($_) } @fake_make_notest_steps[ -3 .. -1 ] ],
+    [ map { _portable_output_text($_) } (
         "|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
         "install|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
         "clean|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-    ],
+    ) ],
     'dashboard skills install --notest skips the Makefile test target while still running make, make install, and make clean',
 );
 my $home_root_ddfile = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'ddfile' );
@@ -2530,7 +2539,8 @@ is( do { local $/; <$jq_hook_result_fh> }, "hook-one\n", 'later built-in command
 close $jq_hook_result_fh;
 
 SKIP: {
-    skip 'Go hook smoke requires go in PATH', 4 if !_command_available('go');
+    skip 'Go hook smoke requires a Go version with `go run -C` support', 4
+      if !_go_supports_run_from_directory();
     my $jq_go_hook = File::Spec->catfile( $jq_hook_root, '02-go.go' );
     open my $jq_go_hook_fh, '>', $jq_go_hook or die "Unable to write $jq_go_hook: $!";
     print {$jq_go_hook_fh} <<'GO';
@@ -2999,7 +3009,8 @@ is( $ext_exit, 0, 'user CLI extension exits successfully' );
 is( $ext_stderr, '', 'user CLI extension keeps stderr clean' );
 like( $ext_stdout, qr/^argv:one two\|stdin:hello-extension$/m, 'user CLI extension receives argv and stdin passthrough' );
 SKIP: {
-    skip 'go command not available for direct CLI source-command smoke test', 3 if !_command_available('go');
+    skip 'direct Go source-command smoke test requires a Go version with `go run -C` support', 3
+      if !_go_supports_run_from_directory();
     my $go_extension = File::Spec->catfile( $cli_root, 'hi.go' );
     open my $go_extension_fh, '>', $go_extension or die "Unable to write $go_extension: $!";
     print {$go_extension_fh} <<'GO';
@@ -3620,12 +3631,12 @@ sub _gate_lines {
     my @lines = grep { $_ ne '' } split /\n/, $stdout;
     like( $lines[0] // '', qr/^COMMAND /, 'AC-6: which jq still prints the COMMAND line first' );
     is_deeply(
-        [ grep { /^HOOK / } @lines ],
-        [
+        [ map { _portable_output_text($_) } grep { /^HOOK / } @lines ],
+        [ map { _portable_output_text($_) } (
             'HOOK ' . File::Spec->catfile( $proj_hooks, '10-a.sh' ),
             'HOOK ' . File::Spec->catfile( $proj_hooks, '20-b.sh' ),
             "HOOK $cmd_hook",
-        ],
+        ) ],
         'AC-6: which jq lists the main-gate hooks in run order before the per-command hook, skipping 0644, sub/ and run'
     );
     is_deeply( [ _gate_lines($hook_marker) ], [ '10-a.sh', '20-b.sh' ],
@@ -3869,6 +3880,17 @@ JAVA_PROBE
       if $run_exit != 0 || $stdout ne "dashboard-java-toolchain-ok\n";
 
     return;
+}
+
+sub _go_supports_run_from_directory {
+    return 0 if !_command_available('go');
+    my ( $stdout, $stderr, $exit_code ) = capture {
+        system 'go', 'run', '-C', '.', '-h';
+        return $? >> 8;
+    };
+    return 0 if $exit_code != 0;
+    return 0 if ( $stdout . $stderr ) =~ /flag provided but not defined:\s*-C/;
+    return 1;
 }
 
 __END__

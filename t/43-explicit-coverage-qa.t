@@ -663,6 +663,8 @@ subtest 'CLI::Paths covers current-directory delete normalization branches' => s
     make_path($cwd);
     my $previous = File::Spec->catdir( $tmp, 'previous-dir' );
     make_path($previous);
+    my $cwd_alias = $cwd;
+    $cwd_alias =~ s{\A(?:/private|)/var/folders/}{/private/var/folders/};
     my $old = Cwd::getcwd();
     chdir $cwd or die "Unable to chdir to $cwd: $!";
 
@@ -671,7 +673,7 @@ subtest 'CLI::Paths covers current-directory delete normalization branches' => s
     local *TestCLIPathsConfig::path_aliases = sub {
         return {
             alpha => $previous,
-            beta  => $cwd,
+            beta  => $cwd_alias,
         };
     };
 

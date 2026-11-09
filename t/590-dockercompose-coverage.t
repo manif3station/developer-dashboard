@@ -6,15 +6,11 @@ use warnings;
 # CORE::GLOBAL overrides must exist before the module under test is compiled.
 # Each one fails only for exact registered paths (or a registered path pattern),
 # so the failure branches run for any uid, including root.
-our ( %FAIL_CLOSE, %FAIL_CHDIR, $FAIL_OPEN_RE, $FAIL_CLOSE_RE );
+our ( %FAIL_CLOSE, %FAIL_CHDIR, $FAIL_CLOSE_RE );
 my %close_handles;
 
 BEGIN {
     *CORE::GLOBAL::open = sub (*;$@) {
-        if ( @_ >= 3 && defined $_[2] && !ref $_[2] && $FAIL_OPEN_RE && $_[2] =~ $FAIL_OPEN_RE ) {
-            $! = 13;
-            return 0;
-        }
         my $rc = @_ == 2 ? CORE::open( $_[0], $_[1] ) : CORE::open( $_[0], $_[1], @_[ 2 .. $#_ ] );
         if ( $rc && @_ >= 3 && defined $_[2] && !ref $_[2]
             && ( $FAIL_CLOSE{"$_[1]|$_[2]"} || ( $FAIL_CLOSE_RE && $_[2] =~ $FAIL_CLOSE_RE ) ) )
@@ -158,15 +154,24 @@ my $docker = Developer::Dashboard::DockerCompose->new( config => $config, paths 
 
     my $cmd = $docker->_materialized_command($resolved);
     is( $cmd->[-1], 'up', 'the passthrough arguments are preserved' );
+    my ($materialized_file) = map { $cmd->[$_ + 1] } grep { defined $cmd->[$_] && $cmd->[$_] eq '-f' } 0 .. ( $#{$cmd} - 1 );
+    ok( defined $materialized_file && -f $materialized_file,
+        'the merged Compose file remains available to the caller after materialization' );
 
-    local $FAIL_OPEN_RE = qr/merged-compose\.yml\z/;
-    ok( !eval { $docker->_materialized_command($resolved); 1 }, 'an unwritable merged file is fatal' );
-    like( $@, qr/Unable to write .*merged-compose\.yml/, 'the open failure names the merged file' );
+    {
+        no warnings 'redefine';
+        local *File::Temp::tempfile = sub { die "forced temp-file creation failure\n" };
+        ok( !eval { $docker->_materialized_command($resolved); 1 }, 'a merged file creation failure is fatal' );
+        like( $@, qr/forced temp-file creation failure/,
+            'the creation failure is reported' );
+    }
 
-    local $FAIL_OPEN_RE  = undef;
-    local $FAIL_CLOSE_RE = qr/merged-compose\.yml\z/;
-    ok( !eval { $docker->_materialized_command($resolved); 1 }, 'a merged file close failure is fatal' );
-    like( $@, qr/Unable to close .*merged-compose\.yml/, 'the close failure names the merged file' );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::DockerCompose::_close_materialized_compose_file = sub { return 0 };
+        ok( !eval { $docker->_materialized_command($resolved); 1 }, 'a merged file close failure is fatal' );
+        like( $@, qr/Unable to close .*merged-compose-[^\/]+\.yml/, 'the close failure names the merged file' );
+    }
 }
 
 chdir q{/} or die "Unable to chdir: $!";

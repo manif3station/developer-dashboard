@@ -1111,9 +1111,17 @@ sub _materialized_command {
         $merged = _compose_yaml_utf8_bytes($effective_output);
     }
 
-    my $tmp_dir  = File::Temp::tempdir( CLEANUP => 1 );
-    my $tmp_file = File::Spec->catfile( $tmp_dir, 'merged-compose.yml' );
-    open my $fh, '>:raw', $tmp_file or die "Unable to write $tmp_file: $!";
+    my ( $fh, $tmp_file );
+    eval {
+        ( $fh, $tmp_file ) = File::Temp::tempfile(
+            'merged-compose-XXXXXX',
+            SUFFIX => '.yml',
+            TMPDIR => 1,
+            UNLINK => 1,
+        );
+        1;
+    } or die "Unable to create temporary merged Compose file: $@";
+    binmode $fh, ':raw' or die "Unable to set raw mode for $tmp_file: $!";
     print {$fh} $merged;
     _close_materialized_compose_file($fh) or die "Unable to close $tmp_file: $!";
 

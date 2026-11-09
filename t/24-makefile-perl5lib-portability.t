@@ -104,6 +104,36 @@ like( $runner_source, qr/\$Config\{path_sep\}/,
     'BDD: launcher joins paths with the active Config path separator' );
 like( $runner_source, qr/\$ENV\{PERL5LIB\}\s*=\s*join\s+\$Config\{path_sep\},\s*\@prefix,\s*\@inherited,\s*\@local_lib_paths/s,
     'ATDD: launcher preserves the caller library precedence before local-lib fallback paths' );
+unlike( $runner_source, qr/\$ENV\{TMPDIR\}\s*=/,
+    'BDD: launcher leaves temporary-directory selection to File::Temp' );
+
+my $temp_root = $ENV{TMPDIR} || File::Spec->tmpdir;
+$temp_root =~ s{/\z}{};
+my $temp_root_pattern;
+if ( $temp_root =~ m{\A(?:/private|)/var/folders/(.*)\z} ) {
+    $temp_root_pattern = qr{\A(?:/private|)/var/folders/\Q$1\E/runner-temp-};
+}
+else {
+    $temp_root_pattern = qr{\A\Q$temp_root\E/runner-temp-};
+}
+SKIP: {
+    skip 'temporary-root alias probe is macOS-specific', 3 if $^O ne 'darwin';
+    my ( $temp_stdout, $temp_stderr, $temp_exit );
+    {
+        ( $temp_stdout, $temp_stderr, $temp_exit ) = capture {
+            system(
+                $^X, $runner, '-MFile::Temp=tempfile', '-e',
+                'my ($fh,$path)=tempfile("runner-temp-XXXXXX", TMPDIR=>1, UNLINK=>1); close $fh or die $!; print $path;'
+            );
+            return $? >> 8;
+        };
+    }
+    is( $temp_exit, 0, 'ATDD: child Perl creates its tempfile using the generated runner' );
+    chomp $temp_stdout;
+    like( $temp_stdout, $temp_root_pattern,
+        'BDD: File::Temp uses TMPDIR with an optional macOS /private prefix' );
+    ok( !-e $temp_stdout, 'ATDD: File::Temp removes the probe tempfile when its child exits' );
+}
 
 my ( $probe_stdout, $probe_stderr, $probe_exit );
 {

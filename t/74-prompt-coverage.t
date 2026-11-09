@@ -16,6 +16,12 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::Prompt;
 
+sub _portable_text {
+    my ($text) = @_;
+    $text =~ s{/private(?=/var/folders/)}{}g if defined $text;
+    return $text;
+}
+
 # Hermetic runtime rooted in a throwaway HOME, with the current working
 # directory moved inside it so the runtime-layer stack resolves from a clean
 # temporary tree rather than the developer checkout.
@@ -84,7 +90,8 @@ sub write_file {
     like( $explicit, qr/🎫:T-1/, 'TICKET_REF becomes the ticket (line 58 defined-true, line 60 push)' );
 
     my $bare = render_with( $prompt, no_indicators => 1, env => {} );
-    like( $bare, qr/Home: \Q$home\E/, 'falls back to cwd() when no cwd given (line 37 right-true)' );
+    my $portable_home = _portable_text($home);
+    like( _portable_text($bare), qr/Home: \Q$portable_home\E/, 'falls back to cwd() when no cwd given (line 37 right-true)' );
     unlike( $bare, qr/🎫/, 'no ticket rendered when both refs unset (line 58 defined-false, line 60 no-push)' );
 
     my $empty_ws = render_with(

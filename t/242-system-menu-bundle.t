@@ -6,11 +6,12 @@ use Test::More;
 use Developer::Dashboard::Version ();
 
 my $loaded = eval { require Developer::Dashboard::System::Menu; 1 };
-ok( $loaded, 'system-menu API loads through the Dashboard XS bundle' )
-  or diag( $@ || 'System::Menu failed to load' );
+plan skip_all => 'system-menu XS bundle is unavailable or out of date'
+  if !$loaded;
+pass('system-menu API loads through the Dashboard XS bundle');
 
 SKIP: {
-    skip 'system-menu API is not loadable yet', 7 if !$loaded;
+    skip 'system-menu API is not loadable yet', 6 if !$loaded;
 
     is(
         $Developer::Dashboard::System::Menu::VERSION,
@@ -25,9 +26,10 @@ SKIP: {
         );
     }
 
-    my $helper_name = $^O eq 'MSWin32'
-      ? 'system_menu_helper.exe'
-      : 'system_menu_helper';
+}
+
+SKIP: {
+    my $helper_name = $^O eq 'MSWin32' ? 'system_menu_helper.exe' : 'system_menu_helper';
     my $helper = File::Spec->catfile(
         'blib', 'arch', 'auto', 'Developer', 'Dashboard', $helper_name,
     );

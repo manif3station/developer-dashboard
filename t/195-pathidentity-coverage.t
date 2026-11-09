@@ -98,8 +98,13 @@ for my $invalid_pwd ( 'relative/path', File::Spec->catdir( $tmp, 'missing-pwd' )
 {
     my $nonexistent = File::Spec->catdir( $tmp, 'does-not-exist-at-all' );
     my $canon       = File::Spec->canonpath($nonexistent);
-    is( _path_identity( $nonexistent, empty_fallback => 1 ), $canon, '_path_identity falls back to canonpath for a nonexistent path (empty_fallback=>1, undef abs_path)' );
-    is( _path_identity( $nonexistent, empty_fallback => 0 ), $canon, '_path_identity falls back to canonpath for a nonexistent path (empty_fallback=>0, undef abs_path)' );
+    my $got_fallback = _path_identity( $nonexistent, empty_fallback => 1 );
+    my $got_empty    = _path_identity( $nonexistent, empty_fallback => 0 );
+    for ( $canon, $got_fallback, $got_empty ) {
+        s{/private(?=/var/folders/)}{}g;
+    }
+    is( $got_fallback, $canon, '_path_identity falls back to canonpath for a nonexistent path (empty_fallback=>1, undef abs_path)' );
+    is( $got_empty, $canon, '_path_identity falls back to canonpath for a nonexistent path (empty_fallback=>0, undef abs_path)' );
 }
 
 # --- the abs_path()-returns-empty-string edge case: THIS is where the two ------

@@ -189,6 +189,7 @@ sub _write_local_lib_runner {
       "my \@inherited = grep { length \$_ } split /\$separator/, \$ENV{PERL5LIB} // '';\n",
       "my \$is_test_harness = grep { \$_ eq '-MTest::Harness' } \@ARGV;\n",
       "my \@prefix = \$is_test_harness ? \@test_lib_paths : ();\n",
+      "if (\$^O eq 'darwin') { require Cwd; \@inherited = map { Cwd::abs_path(\$_) // \$_ } \@inherited; \@local_lib_paths = map { Cwd::abs_path(\$_) // \$_ } \@local_lib_paths; \@test_lib_paths = map { Cwd::abs_path(\$_) // \$_ } \@test_lib_paths; }\n",
       "\$ENV{PERL5LIB} = join \$Config{path_sep}, \@prefix, \@inherited, \@local_lib_paths;\n",
       "my \$perl = \$^X;\nexec { \$perl } \$perl, \@ARGV;\n",
       "die \"Unable to execute \$perl: \$!\\n\";\n",
@@ -288,7 +289,6 @@ sub postamble {
           "\t\$(RM_F) $helper_target",
           q{};
     }
-
     return "FULLPERL = \$(PERL) $runner\n\n"
       . $share_postamble
       . $helper_rules
