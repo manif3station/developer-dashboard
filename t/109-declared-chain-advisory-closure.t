@@ -1,12 +1,14 @@
 use strict;
 use warnings;
 
-use Capture::Tiny qw(capture_merged);
 use Cwd qw(abs_path);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin qw($RealBin);
+# Below FindBin so this import does not share a hunk with the Config import
+# master adds above Cwd, which would block merging master into this branch.
+use Capture::Tiny qw(capture_merged);
 use Test::More;
 
 my $ROOT  = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
