@@ -6,6 +6,7 @@ use utf8;
 
 use Test::More;
 use Cwd qw(getcwd);
+use Fcntl qw(:flock);
 use File::Spec;
 use File::Temp qw(tempdir);
 
@@ -27,6 +28,31 @@ my $gate       = File::Spec->catfile( $repository, 'script', 'coverage-gate' );
 plan skip_all => "the coverage gate is not present at $gate" if !-f $gate;
 
 plan tests => 6;
+
+# Purpose: serialise this file against t/148-coverage-gate-entrypoint.t.
+# Input: none. Output: an exclusive flock held for the life of this process.
+# This file deliberately creates t/dd528-moving-target-probe.tmp while its
+# own gate run is in progress, to prove the gate notices a moving tree.
+# The gate fingerprints t/ and lib/ before and after the suite, so when
+# prove -j runs both files at once, the probe can land inside t/148's
+# fingerprint window and its gate refuses to report - a failure that looks
+# like a defect in the gate but is only the two files racing each other.
+# The gate already sequences these two files for the suites it runs
+# itself; the outer harness (dzil test, prove -j) knows no such rule, so
+# the files sequence themselves here instead, on the same lock t/148
+# takes. The lock file lives in the system temp dir, never under t/ or
+# lib/, so creating it cannot itself change the fingerprint. The handle
+# is a file-scope lexical, never closed explicitly: the flock is released
+# when the process exits, after END blocks run, so the probe is unlinked
+# before the lock is released.
+my $serial_lock_dir = File::Spec->tmpdir();
+$serial_lock_dir = '.' if !defined $serial_lock_dir || !-d $serial_lock_dir;
+my $serial_lock_path
+  = File::Spec->catfile( $serial_lock_dir, 'developer-dashboard-coverage-gate-148-149.lock' );
+open my $serial_lock_fh, '>>', $serial_lock_path
+  or die "cannot open serial lock $serial_lock_path: $!";
+flock $serial_lock_fh, LOCK_EX
+  or die "cannot lock $serial_lock_path: $!";
 
 my $probe = File::Spec->catfile( $repository, 't', 'dd528-moving-target-probe.tmp' );
 
