@@ -312,6 +312,11 @@ sub _run_command {
 sub _start_dashboard_server {
     my (%args) = @_;
     my $drop_harness = _coverage_requested() ? 1 : 0;
+    my $running_helper = File::Spec->catfile(
+        $args{home}, '.developer-dashboard', 'cli', 'dd', '_dashboard-core',
+    );
+    die "dashboard init did not stage the SSL server helper '$running_helper': $!\n"
+      if !-f $running_helper;
     my $launcher = q{
         my ($repo_lib, $dashboard_bin, $drop_harness, @arguments) = @ARGV;
         delete @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)} if $drop_harness;
@@ -323,7 +328,10 @@ sub _start_dashboard_server {
             'serve', '--ssl', '--host', '127.0.0.1', '--port', $args{port}, '--foreground' ],
         {
             cwd          => $args{cwd},
-            env          => { HOME => $args{home} },
+            env          => {
+                HOME => $args{home},
+                DEVELOPER_DASHBOARD_RUNNING_HELPER => $running_helper,
+            },
             stdout       => $args{log_file},
             stderr       => $args{log_file},
             process_group => 1,
@@ -436,6 +444,8 @@ of a broken reset, and that the real dashboard page loads once certificate
 trust is bypassed locally for the test browser process. Chromium versions differ
 in whether C<--dump-dom> emits the interstitial markup or only reports
 C<ERR_CERT_AUTHORITY_INVALID> / C<net_error -202> on stderr.
+The server fixture also pins C<DEVELOPER_DASHBOARD_RUNNING_HELPER> to the helper
+staged in its temporary home, isolating the test from a caller's stale helper.
 
 =for comment FULL-POD-DOC START
 

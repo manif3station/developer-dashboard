@@ -118,7 +118,7 @@ for arg in "\$@"; do
     previous="\$arg"
 done
 case "\$merged_file" in
-*/merged-compose.yml)
+*/merged-compose-*.yml)
     printf 'ARGS:%s\n' "\$*"
     printf 'DEBUG:%s\n' "\${DEBUG_ENABLED:-}"
     printf 'MODE:%s\n' "\${APP_MODE:-}"
@@ -508,7 +508,9 @@ ok( $actions->_reap_child_process($child), '_reap_child_process collects one exi
         );
         return '';
     } || $@;
-    like( $error, qr/Unable to restore cwd to \Q$old_dir\E/, '_run_command surfaces restore-cwd failures when the original cwd disappears mid-run' );
+    ( my $portable_error = $error ) =~ s{/private(?=/var/folders/)}{}g;
+    ( my $portable_old_dir = $old_dir ) =~ s{/private(?=/var/folders/)}{}g;
+    like( $portable_error, qr/Unable to restore cwd to \Q$portable_old_dir\E/, '_run_command surfaces restore-cwd failures when the original cwd disappears mid-run' );
     chdir $repo or die "Unable to chdir back to repo $repo after restore-cwd coverage: $!";
     remove_tree($old_dir);
 }

@@ -40,6 +40,7 @@ my $MARKER = 'dd-loopback-probe-ok';
 #   missed by one of them.
 sub browser_can_fetch_loopback {
     my (%args) = @_;
+    local $SIG{PIPE} = 'IGNORE';
     my $browser = $args{browser} or die 'browser_can_fetch_loopback requires a browser path';
     my @browser_args = @{ $args{args} || [] };
     my $seconds = $args{seconds} || 30;

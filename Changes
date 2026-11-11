@@ -1,3 +1,11 @@
+6.30  2026-11-08
+
+  - Allow headless Linux CPAN builds to omit the optional GTK/Ayatana System
+    Menu helper with a visible notice; keep Linux CI strict and skip only the
+    helper-binary assertion when its development modules are unavailable.
+  - Add configure regression coverage for available and unavailable native
+    dependencies and document the CPAN tester behavior.
+
 6.29  2026-11-06
 
   - Install the GTK and Ayatana development packages required by the Linux

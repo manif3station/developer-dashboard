@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '6.29';
+our $VERSION = '6.30';
 
 use Cwd qw(abs_path);
 use File::Basename qw(basename);
@@ -45,8 +45,16 @@ sub render {
     $no_indicators = 1 if !$no_indicators && $self->_tmux_status_active;
     my $project = $self->{paths}->project_root_for($cwd);
     my $home = $self->{paths}->home;
-    $cwd =~ s/^\Q$home\E/~/;
-    $cwd = "Home: $home" if $cwd eq '~';
+    my $cwd_for_home = $cwd // '';
+    my $home_for_match = $home // '';
+    $cwd_for_home =~ s{\A/private(?=/var/folders/)}{};
+    $home_for_match =~ s{\A/private(?=/var/folders/)}{};
+    if ( defined $home_for_match && $home_for_match ne ''
+        && $cwd_for_home =~ /^\Q$home_for_match\E(.*)\z/ )
+    {
+        my $suffix = $1;
+        $cwd = length $suffix ? "~$suffix" : "Home: $home";
+    }
 
     my @indicator_parts = $no_indicators
       ? ()

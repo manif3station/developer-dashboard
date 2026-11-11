@@ -82,6 +82,12 @@ use File::Spec;
 use File::Temp qw(tempdir);
 use Test::More;
 
+sub _without_private_var_prefix {
+    my ($path) = @_;
+    $path =~ s{/private(?=/var/folders/)}{}g if defined $path;
+    return $path;
+}
+
 use lib 'lib';
 
 use Developer::Dashboard::Auth;
@@ -334,7 +340,8 @@ sub write_file {
     my $wt = File::Spec->catdir( $home, 'worktree' );
     make_path($wt);
     my $git_file = write_file( File::Spec->catfile( $wt, '.git' ), "gitdir: $repo/.git\n" );
-    is( $prompt->_git_metadata_dir($wt), "$repo/.git", 'a readable .git file resolves its gitdir' );
+    is( _without_private_var_prefix( $prompt->_git_metadata_dir($wt) ),
+        _without_private_var_prefix("$repo/.git"), 'a readable .git file resolves its gitdir' );
     local $FAIL_OPEN{$git_file} = 1;
     is( $prompt->_git_metadata_dir($wt), undef, 'a .git file that cannot be opened resolves no metadata dir' );
 }

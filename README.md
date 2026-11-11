@@ -6,7 +6,7 @@ Developer Dashboard - a home for day-to-day development
 
 # VERSION
 
-6.29
+6.30
 
 # INTRODUCTION
 
@@ -3538,9 +3538,14 @@ because the configure-time `File::ShareDir::Install` dependency is needed
 before MakeMaker can create `blib`. Linux also installs
 `libayatana-appindicator3-dev` and `libgtk-3-dev` before building the native
 System Menu helper; these provide the pkg-config libraries and headers required
-by `native/system_menu_helper_linux.c`. The Windows builds use Perl's
-configured path separator when assembling the same local library path. Workflow
-regression tests check these setup requirements.
+by `native/system_menu_helper_linux.c`. On Linux, `Makefile.PL` checks for
+both pkg-config modules. If either is unavailable, it prints a notice and omits
+the optional helper target so CPAN testers without desktop headers can still
+build and test the distribution; invoking the System Menu without its helper
+still fails clearly. Set `DD_REQUIRE_SYSTEM_MENU_HELPER=1` to require the
+native helper, as the Linux coverage workflow does. The Windows builds use
+Perl's configured path separator when assembling the same local library path.
+Workflow regression tests check these setup requirements.
 
 The Linux coverage gate passes `blib/arch` and the local dependency library
 through `PERL5LIB` after compiling the extension. It instruments `lib/` rather

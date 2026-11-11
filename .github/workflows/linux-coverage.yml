@@ -21,6 +21,7 @@ jobs:
       PERL_MM_USE_DEFAULT: '1'
       NONINTERACTIVE_TESTING: '1'
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
+      DD_REQUIRE_SYSTEM_MENU_HELPER: '1'
       # Treat the workflow input as data, never as shell source text.
       DD_COVERAGE_TARGET: ${{ inputs.target }}
     steps:

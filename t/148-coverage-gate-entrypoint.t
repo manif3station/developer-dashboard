@@ -4,6 +4,7 @@ use warnings;
 use Capture::Tiny qw(capture);
 use Config ();
 use Cwd qw(abs_path);
+use Fcntl qw(:flock);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -26,6 +27,30 @@ my $shortfall = "File              stmt   bran   cond    sub  total\nTotal      
 # notice this guard being removed.
 plan skip_all => 'Devel::Cover is not installed, so the coverage gate cannot be exercised'
   if !eval { require Devel::Cover::DB::IO; 1 };
+
+# Purpose: serialise this file against t/149-coverage-gate-moving-target.t.
+# Input: none. Output: an exclusive flock held for the life of this process.
+# t/149 deliberately creates a file under t/ while its own gate run is in
+# progress, to prove the gate notices a moving tree. The gate fingerprints
+# t/ and lib/ before and after the suite, so when prove -j runs both files
+# at once, t/149's probe can land inside this file's fingerprint window and
+# the gate refuses to report - a failure that looks like a defect in the
+# gate but is only the two files racing each other. The gate already
+# sequences these two files for the suites it runs itself; the outer
+# harness (dzil test, prove -j) knows no such rule, so the files sequence
+# themselves here instead. The lock file lives in the system temp dir,
+# never under t/ or lib/, so creating it cannot itself change the
+# fingerprint. The handle is a file-scope lexical, never closed explicitly:
+# the flock is released when the process exits, after END blocks run, so
+# it covers every gate invocation in this file.
+my $serial_lock_dir = File::Spec->tmpdir();
+$serial_lock_dir = '.' if !defined $serial_lock_dir || !-d $serial_lock_dir;
+my $serial_lock_path
+  = File::Spec->catfile( $serial_lock_dir, 'developer-dashboard-coverage-gate-148-149.lock' );
+open my $serial_lock_fh, '>>', $serial_lock_path
+  or die "cannot open serial lock $serial_lock_path: $!";
+flock $serial_lock_fh, LOCK_EX
+  or die "cannot lock $serial_lock_path: $!";
 
 # The scripted stand-in used for both cover and prove. It records the
 # environment it observed before doing anything, which is how the one-

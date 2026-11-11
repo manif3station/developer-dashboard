@@ -35,29 +35,18 @@ sub _has_package {
     ok( $packages{$package}, "$name includes $package for the Linux System Menu native helper" );
 }
 
-_has_package( 'aptfile', 'pkg-config' );
-_has_package( 'aptfile', 'libgtk-3-dev' );
-_has_package( 'aptfile', 'libayatana-appindicator3-dev' );
-
-_has_package( 'apkfile', 'pkgconf' );
-_has_package( 'apkfile', 'libayatana-appindicator-dev' );
-
-_has_package( 'dnfile', 'pkgconf-pkg-config' );
-_has_package( 'dnfile', 'libayatana-appindicator-gtk3-devel' );
+for my $manifest (qw(aptfile apkfile dnfile)) {
+    my @packages = _manifest_lines($manifest);
+    ok( !( grep { /(?:gtk|ayatana-appindicator)/i } @packages ),
+        "$manifest does not force optional GTK/Ayatana development packages" );
+}
 
 my $installer = _slurp( File::Spec->catfile( $ROOT, 'install.sh' ) );
-for my $package (
-    'libgtk-3-dev',
-    'libayatana-appindicator3-dev',
-    'libayatana-appindicator-dev',
-    'libayatana-appindicator-gtk3-devel',
-) {
-    like(
-        $installer,
-        qr/^\Q$package\E$/m,
-        "install.sh embedded streamed-bootstrap manifests include $package",
-    );
-}
+unlike( $installer, qr/^(?:libgtk-3-dev|libayatana-appindicator3-dev|libayatana-appindicator-dev|libayatana-appindicator-gtk3-devel)$/m,
+    'install.sh does not force optional GTK/Ayatana development packages' );
+my $makefile = _slurp( File::Spec->catfile( $ROOT, 'Makefile.PL' ) );
+like( $makefile, qr/'--exists'.*'ayatana-appindicator3-0\.1'.*'gtk\+-3\.0'/s,
+    'the native helper build is gated on GTK/Ayatana availability' );
 
 done_testing();
 
@@ -65,26 +54,23 @@ __END__
 
 =head1 NAME
 
-t/683-install-native-menu-prereqs.t - protect Linux installer prerequisites for the native System Menu helper
+t/683-install-native-menu-prereqs.t - keep optional GTK packages out of bootstrap requirements
 
 =head1 DESCRIPTION
 
-Checks that each supported Linux bootstrap manifest installs the development
-package that provides the GTK3/Ayatana headers and pkg-config metadata consumed
-by C<Makefile.PL>, and that C<install.sh> carries the same packages in its
-embedded fallback manifests for streamed installs where the repo manifest files
-are not available yet.
+Checks that Linux bootstrap manifests do not force GTK3/Ayatana development
+packages on hosts that do not have them, and that C<Makefile.PL> gates the
+optional native menu helper on the corresponding pkg-config modules.
 
 =head1 PURPOSE
 
-Keep source-checkout and streamed Linux installs aligned with the native System
-Menu helper's compile-time requirements.
+Keep source-checkout and streamed Linux installs independent of optional
+native System Menu development packages.
 
 =head1 WHY IT EXISTS
 
-The Perl dependency graph cannot install GTK or Ayatana development headers.
-Without explicit system packages, C<cpanm .> reaches the native helper build and
-fails even though all CPAN prerequisites were installed successfully.
+The native Linux menu helper is optional. Missing GTK3 or Ayatana development
+packages must not prevent the Perl distribution from building or installing.
 
 =head1 WHEN TO USE
 
@@ -99,8 +85,8 @@ Run the focused regression with:
 
 =head1 WHAT USES IT
 
-Debian/Ubuntu, Alpine, and Fedora bootstrap installs rely on these manifests
-before C<cpanm> compiles the Dashboard native extension and menu helper.
+Debian/Ubuntu, Alpine, and Fedora bootstrap installs use these manifests before
+C<cpanm> compiles the Dashboard native extension.
 
 =head1 EXAMPLES
 

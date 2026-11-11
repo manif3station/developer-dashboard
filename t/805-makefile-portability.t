@@ -11,6 +11,10 @@ use FindBin;
 use Test::More;
 
 my $source_root = abs_path( File::Spec->catdir( $FindBin::Bin, File::Spec->updir ) );
+my $http_parser_xs_available = eval {
+    require HTTP::Parser::XS;
+    ($HTTP::Parser::XS::VERSION || 0) >= 0.18;
+} ? 1 : 0;
 my @configure_inc_args = map { "-I$_" }
   grep { !ref($_) && File::Spec->file_name_is_absolute($_) && -d $_ } @INC;
 my $fixture = tempdir( CLEANUP => 1 );
@@ -41,7 +45,11 @@ my ( $stdout, $stderr, $exit ) = capture {
 chdir $caller_dir or die "Unable to restore working directory: $!";
 
 is( $exit, 0, 'Makefile.PL generates a Makefile for the portability fixture' );
-is( $stderr, '', 'Makefile.PL emits no warnings for the portability fixture' );
+SKIP: {
+    skip 'HTTP::Parser::XS 0.18 is required for warning-free Makefile.PL configuration', 1
+      if !$http_parser_xs_available;
+    is( $stderr, '', 'Makefile.PL emits no warnings for the portability fixture' );
+}
 
 my $makefile_path = File::Spec->catfile( $fixture, 'Makefile' );
 ok( -f $makefile_path, 'Makefile.PL created the generated Makefile' );
@@ -78,7 +86,11 @@ my ( $no_home_stdout, $no_home_stderr, $no_home_exit ) = do {
 };
 
 is( $no_home_exit, 0, 'Makefile.PL builds when neither HOME nor USERPROFILE is set' );
-is( $no_home_stderr, '', 'Makefile.PL does not warn while HOME and USERPROFILE are unset' );
+SKIP: {
+    skip 'HTTP::Parser::XS 0.18 is required for warning-free Makefile.PL configuration', 1
+      if !$http_parser_xs_available;
+    is( $no_home_stderr, '', 'Makefile.PL does not warn while HOME and USERPROFILE are unset' );
+}
 ok( -f $makefile_path, 'Makefile.PL still creates the generated Makefile without a home variable' );
 
 my $profile_home = File::Spec->catdir( $fixture, 'profile-home' );
@@ -112,7 +124,11 @@ my ( $profile_stdout, $profile_stderr, $profile_exit ) = do {
 };
 
 is( $profile_exit, 0, 'Makefile.PL builds when USERPROFILE is the only home variable' );
-is( $profile_stderr, '', 'Makefile.PL does not warn when resolving USERPROFILE' );
+SKIP: {
+    skip 'HTTP::Parser::XS 0.18 is required for warning-free Makefile.PL configuration', 1
+      if !$http_parser_xs_available;
+    is( $profile_stderr, '', 'Makefile.PL does not warn when resolving USERPROFILE' );
+}
 my $runner_path = File::Spec->catfile( $fixture, '.dd-perl5lib-runner.pl' );
 my $runner = '';
 if ( -f $runner_path ) {

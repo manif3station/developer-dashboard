@@ -332,7 +332,7 @@ sub main {
                 . ( length $CHILD_INSTRUMENT_ERROR ? "\n  child probe: $CHILD_INSTRUMENT_ERROR" : '' )
         );
     }
-    if ( $child_instrument ne $instrument ) {
+    if ( !_same_instrument_path( $child_instrument, $instrument ) ) {
         return _unusable(
             "this process and its children resolve different Devel::Cover installs, so the suite would "
                 . "write a database the report cannot read:\n"
@@ -632,6 +632,22 @@ sub _instrument_module {
     return defined $loaded ? $loaded : $INC{'Devel/Cover/DB/IO.pm'};
 }
 
+# Purpose: compare resolved Devel::Cover module identities across processes.
+# Input: two module paths reported by Perl's %INC.
+# Output: true when both names identify the same existing module file.
+#
+# Login shells may add `$HOME/perl5/bin/../lib/perl5` while the invoking process
+# already has `$HOME/perl5/lib/perl5` in @INC. Those are the same installation;
+# resolving the existing module file preserves rejection of genuinely different
+# Devel::Cover installs without treating a harmless `..` spelling as one.
+sub _same_instrument_path {
+    my ( $left, $right ) = @_;
+    return 0 if !defined $left || !defined $right;
+    my $resolved_left  = Cwd::abs_path($left)  // $left;
+    my $resolved_right = Cwd::abs_path($right) // $right;
+    return $resolved_left eq $resolved_right;
+}
+
 # Purpose: ask a child process which Devel::Cover serializer IT resolves, because
 #          the suite and the report are children and resolve it independently of
 #          this process.
@@ -651,7 +667,8 @@ sub _child_instrument_module {
         return undef;
     }
     chomp $stdout;
-    return length $stdout ? $stdout : undef;
+    return undef if !length $stdout;
+    return $stdout;
 }
 
 # Purpose: refuse to grade a database written by a different Devel::Cover than the
@@ -669,7 +686,7 @@ sub _check_database_stamp {
             next if !-f $candidate;
             my $previous = _slurp_stamp($candidate);
             next if !defined $previous;
-            next if $previous eq $instrument;
+            next if _same_instrument_path( $previous, $instrument );
             return _unusable(
                 "this database was written by a different Devel::Cover than the one that would read it "
                     . "now, so any number it produced would be meaningless:\n"

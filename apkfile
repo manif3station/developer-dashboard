@@ -4,7 +4,6 @@ ca-certificates
 curl
 expat-dev
 git
-libayatana-appindicator-dev
 nodejs
 npm
 openssl-dev

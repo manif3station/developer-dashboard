@@ -18,6 +18,12 @@ use Developer::Dashboard::Config;
 use Developer::Dashboard::JSON qw(json_decode);
 use Developer::Dashboard::Platform ();
 
+sub _without_private_var_prefix {
+    my ($path) = @_;
+    $path =~ s{/private(?=/var/folders/)}{}g if defined $path;
+    return $path;
+}
+
 # Hermetic runtime: isolated home + isolated state root, cwd anchored inside the
 # temp home so DD-OOP-LAYER discovery resolves from a controlled tree.
 my $home = tempdir( CLEANUP => 1 );
@@ -231,9 +237,9 @@ sub dies_like {
     local *Developer::Dashboard::PathRegistry::cwd = sub { die "current_working_directory must not fork pwd\n"; };
 
     my $reg = Developer::Dashboard::PathRegistry->new( home => $home, cwd => '' );
-    is( $reg->current_working_directory, $first, 'empty cwd uses the live in-process working directory' );
+    is( _without_private_var_prefix( $reg->current_working_directory ), _without_private_var_prefix($first), 'empty cwd uses the live in-process working directory' );
     chdir $second or die "Unable to chdir to $second: $!";
-    is( $reg->current_working_directory, $second, 'the same registry observes a later process chdir' );
+    is( _without_private_var_prefix( $reg->current_working_directory ), _without_private_var_prefix($second), 'the same registry observes a later process chdir' );
     is( $getcwd_calls, 2, 'the live working directory is read without stale per-instance memoization' );
 
     my $fixed = Developer::Dashboard::PathRegistry->new( home => $home, cwd => $first );
@@ -246,7 +252,7 @@ sub dies_like {
     chdir $home or die "Unable to chdir to $home: $!";
 }
 
-is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the in-process lookup' );
+    is( _without_private_var_prefix( $paths->cwd ), _without_private_var_prefix($home), 'the public cwd compatibility accessor delegates to the in-process lookup' );
 
 {
     my $nested = File::Spec->catdir( $home, 'with-dir-getcwd' );
@@ -257,11 +263,11 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
     local *Developer::Dashboard::PathRegistry::cwd = sub { die "with_dir must not fork pwd\n"; };
 
     is(
-        $paths->with_dir( $nested, sub { return Cwd::getcwd(); } ),
-        $nested,
+        _without_private_var_prefix( $paths->with_dir( $nested, sub { return Cwd::getcwd(); } ) ),
+        _without_private_var_prefix($nested),
         'with_dir enters the requested directory without using external pwd',
     );
-    is( Cwd::getcwd(), $home, 'with_dir restores the original working directory' );
+    is( _without_private_var_prefix( Cwd::getcwd() ), _without_private_var_prefix($home), 'with_dir restores the original working directory' );
     is( $cwd_calls, 1, 'with_dir snapshots the original directory in-process once' );
 }
 
@@ -1909,10 +1915,17 @@ SKIP: {
 
     $registry->all_paths;
     my $new_layer = File::Spec->catdir( $repo, '.d2' );
-    make_path($new_layer);
+    make_path( File::Spec->catdir( $new_layer, 'config' ) );
+    my $config_path = File::Spec->catfile( $new_layer, 'config', 'config.json' );
+    open my $config_fh, '>', $config_path or die "Unable to create runtime-layer config '$config_path': $!";
+    close $config_fh or die "Unable to close runtime-layer config '$config_path': $!";
+    my $resolved_root = $registry->runtime_layer_root_for($config_path);
+    $resolved_root =~ s{/private(?=/var/folders/)}{}g;
+    my $expected_root = $new_layer;
+    $expected_root =~ s{/private(?=/var/folders/)}{}g;
     is(
-        $registry->runtime_layer_root_for( File::Spec->catfile( $new_layer, 'config', 'config.json' ) ),
-        $new_layer,
+        $resolved_root,
+        $expected_root,
         'a later security lookup discovers a runtime layer created after all_paths completed',
     );
 }

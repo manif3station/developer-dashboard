@@ -12,8 +12,29 @@ use Capture::Tiny qw(capture);
 
 use lib 'lib';
 
-use Developer::Dashboard::PathRegistry;
-use Developer::Dashboard::Doctor;
+sub _command_available {
+    my ($name) = @_;
+    my @extensions = $^O eq 'MSWin32'
+      ? split( /;/, $ENV{PATHEXT} || '.EXE;.BAT;.CMD' )
+      : ('');
+    for my $directory ( File::Spec->path ) {
+        for my $extension (@extensions) {
+            my $candidate = File::Spec->catfile( $directory, $name . $extension );
+            return 1 if -f $candidate && ( $^O eq 'MSWin32' || -x $candidate );
+        }
+    }
+    return 0;
+}
+
+plan skip_all => 'OpenSSL executable is required to create SSL expiry fixtures'
+  if !_command_available('openssl');
+my $doctor_modules_loaded = eval {
+    require Developer::Dashboard::PathRegistry;
+    require Developer::Dashboard::Doctor;
+    1;
+};
+plan skip_all => 'Dashboard SSL modules or their XS dependencies are unavailable'
+  if !$doctor_modules_loaded;
 
 # DD-651: doctor reports nothing about the SSL certificate's validity dates, so a
 # long-running server whose certificate expires under it keeps serving the expired

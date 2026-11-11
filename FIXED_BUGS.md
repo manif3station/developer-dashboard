@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 6.30
+
+- Prevent headless Linux CPAN Testers from failing during Makefile generation
+  when GTK/Ayatana development headers are unavailable. The optional System
+  Menu helper is omitted with a clear notice, its binary assertion is skipped,
+  and Linux CI remains strict so the native helper is still built and tested.
+
 ## 6.29
 
 - Fix Linux amd64 coverage XS compilation by installing the GTK 3 and Ayatana

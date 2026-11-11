@@ -15,6 +15,12 @@ use lib 'lib';
 
 use Developer::Dashboard::Config ();
 use Developer::Dashboard::Folder;
+
+sub _without_private_var_prefix {
+    my ($path) = @_;
+    $path =~ s{/private(?=/var/folders/)}{}g if defined $path;
+    return $path;
+}
 use Developer::Dashboard::PathRegistry;
 
 # Stub registries that answer nothing at all, used to drive the defensive
@@ -211,7 +217,7 @@ chdir $home or die "Unable to chdir back to $home: $!";
     my $err = $@;
     ok( !$died, 'cd() lets a dying callback\'s exception propagate out of cd() itself' );
     like( $err, qr/\Aboom\n/, 'and the ORIGINAL exception is not swallowed or replaced' );
-    is( cwd(), $home,
+    is( _without_private_var_prefix( cwd() ), _without_private_var_prefix($home),
         'cd() still restores the caller\'s original directory when the callback dies' );
 }
 
@@ -232,7 +238,7 @@ chdir $home or die "Unable to chdir back to $home: $!";
             }
         );
     };
-    is( cwd(), $stay_dest,
+    is( _without_private_var_prefix( cwd() ), _without_private_var_prefix($stay_dest),
         'cd() restores to the stay()-redirected directory, not the original, when the callback dies after calling stay()' );
 }
 chdir $home or die "Unable to chdir back to $home: $!";

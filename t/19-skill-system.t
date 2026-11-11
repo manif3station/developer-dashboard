@@ -13,6 +13,12 @@ use JSON::XS qw(decode_json);
 use Developer::Dashboard::Runtime::Result;
 use Test::More;
 
+sub _without_private_var_prefix {
+    my ($value) = @_;
+    $value =~ s{/private(?=/var/folders/)}{}g if defined $value;
+    return $value;
+}
+
 # These dependency fixtures deliberately exercise Debian package installation.
 # Set the simulated host explicitly so macOS does not select Homebrew instead.
 local $ENV{DD_TEST_OS} = 'linux';
@@ -300,7 +306,7 @@ open my $npx_log_fh, '<', $npx_log or die "Unable to read $npx_log: $!";
 my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npx_log_fh>;
 close $npx_log_fh;
 like(
-    $npm_steps[0],
+    _without_private_var_prefix($npm_steps[0]),
     qr/^--yes npm install express\@\^4\.19\.2 uuid\@\^11\.0\.0 playwright\@\^1\.52\.0\|cwd=\Q$ENV{HOME}\E\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
     'package.json installs declared Node dependencies through npx from a private staging workspace instead of using bare HOME as the npm project root',
 );
@@ -311,13 +317,13 @@ close $python_log_fh;
 # DD-824: the first python invocation is now the venv-creation attempt
 # (python -m venv <skill>/local/venv), before the pip install itself.
 is(
-    $python_steps[0],
-    "-m venv $install->{path}/local/venv|cwd=$install->{path}",
+    _without_private_var_prefix( $python_steps[0] ),
+    _without_private_var_prefix( "-m venv $install->{path}/local/venv|cwd=$install->{path}" ),
     'requirements.txt install first attempts to create the skill its own local/venv',
 );
 is(
-    $python_steps[1],
-    "-m pip install --user --requirement $install->{path}/requirements.txt|cwd=$install->{path}",
+    _without_private_var_prefix( $python_steps[1] ),
+    _without_private_var_prefix( "-m pip install --user --requirement $install->{path}/requirements.txt|cwd=$install->{path}" ),
     'requirements.txt falls back to python -m pip install --user from the skill root itself when the venv the stub "created" is not actually a real interpreter',
 );
 ok( -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'express' ), 'package.json merges staged Node dependencies into HOME/node_modules' );

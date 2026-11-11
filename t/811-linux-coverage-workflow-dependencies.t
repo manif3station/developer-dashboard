@@ -22,10 +22,23 @@ my ($native_dependencies) = grep {
 ok( ref($native_dependencies) eq 'HASH',
     'the Linux job has an explicit native build dependency step' );
 my $install_command = $native_dependencies->{run} // q{};
+like( $install_command, qr/\bpkg-config\b/,
+    'the Linux helper build has pkg-config available' );
 like( $install_command, qr/\blibayatana-appindicator3-dev\b/,
-    'the Linux dependency step installs Ayatana AppIndicator development files' );
+    'the strict Linux coverage job installs Ayatana AppIndicator development files' );
 like( $install_command, qr/\blibgtk-3-dev\b/,
-    'the Linux dependency step installs GTK 3 development files' );
+    'the strict Linux coverage job installs GTK 3 development files' );
+my $makefile_path = File::Spec->catfile( $root, 'Makefile.PL' );
+open my $makefile_handle, '<', $makefile_path
+  or die "Unable to read build configuration '$makefile_path': $!";
+my $makefile = do { local $/; <$makefile_handle> };
+close $makefile_handle or die "Unable to close build configuration '$makefile_path': $!";
+like( $makefile, qr/system \{ \$pkg_config \} \$pkg_config, '--exists',\s*'ayatana-appindicator3-0\.1', 'gtk\+-3\.0'/,
+    'the Linux native helper is built only when both system libraries are available' );
+
+my $job_env = $job->{env} || {};
+is( $job_env->{DD_REQUIRE_SYSTEM_MENU_HELPER}, '1',
+    'Linux coverage fails closed instead of skipping the helper when native build packages are missing' );
 
 done_testing();
 
@@ -33,19 +46,18 @@ __END__
 
 =head1 NAME
 
-t/811-linux-coverage-workflow-dependencies.t - enforce Linux XS build packages
+t/811-linux-coverage-workflow-dependencies.t - keep optional GTK packages out of Linux CI
 
 =head1 PURPOSE
 
-Check that the active Linux coverage workflow installs the native development
-packages needed to compile the Dashboard System Menu helper.
+Check that the strict Linux coverage workflow installs the optional GTK and
+Ayatana development packages and requires the helper during CI.
 
 =head1 WHY IT EXISTS
 
-The Linux amd64 local coverage job failed during XS compilation because
-pkg-config could not find C<ayatana-appindicator3-0.1> or C<gtk+-3.0>, and the
-compiler could not find C<gtk/gtk.h>. These checks keep the workflow package
-list aligned with the native helper build.
+GTK and Ayatana are needed only for the optional System Menu helper. Ordinary
+Linux package builds can skip that helper, while this strict CI job installs
+its development packages and refuses to silently skip the native build.
 
 =head1 WHEN TO USE
 
@@ -66,8 +78,9 @@ workflow tests.
 
 =head1 EXAMPLES
 
-A passing workflow installs both C<libayatana-appindicator3-dev> and
-C<libgtk-3-dev> before compiling the XS extension. Removing either package
-causes the test to fail with the missing package named in its assertion.
+A passing workflow installs C<libayatana-appindicator3-dev>, C<libgtk-3-dev>,
+and C<pkg-config>, and sets C<DD_REQUIRE_SYSTEM_MENU_HELPER=1>. Ordinary Linux
+package builds skip only the helper when its pkg-config modules are absent;
+CI fails closed if they are absent.
 
 =cut
