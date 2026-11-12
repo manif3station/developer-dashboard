@@ -1669,7 +1669,7 @@ active runtime-local `./.developer-dashboard/local` tree and appends matching
 `requires 'Module';` lines to `./.developer-dashboard/cpanfile`.
 
 The command
-stays implemented in the `d2` entrypoint rather than introducing a
+stays implemented in the d2 entrypoint rather than introducing a
 separate CPAN manager product module, and saved Ajax workers infer the
 same runtime-local `local/lib/perl5` path directly from the active runtime
 root. When the requested modules include `DBD::*`, the command also installs

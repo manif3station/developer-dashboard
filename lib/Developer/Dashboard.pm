@@ -1879,7 +1879,7 @@ active runtime-local F<./.developer-dashboard/local> tree and appends matching
 C<requires 'Module';> lines to F<./.developer-dashboard/cpanfile>.
 
 The command
-stays implemented in the C<d2> entrypoint rather than introducing a
+stays implemented in the d2 entrypoint rather than introducing a
 separate CPAN manager product module, and saved Ajax workers infer the
 same runtime-local C<local/lib/perl5> path directly from the active runtime
 root. When the requested modules include C<DBD::*>, the command also installs
