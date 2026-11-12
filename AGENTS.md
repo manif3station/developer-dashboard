@@ -1,7 +1,7 @@
 # AGENTS.md – Project Instruction Summary
 
 ## Overview
-Developer‑Dashboard is a Perl‑based local development helper with a web UI, prompt integration and a CLI (`dashboard`).  All production code lives under `lib/Developer/Dashboard/` and the Perl distribution is built with ExtUtils::MakeMaker (`make`).  The repository also contains a small JavaScript fuzz test (`npm run fuzz:scorecard`).
+Developer‑Dashboard is a Perl‑based local development helper with a web UI, prompt integration and a CLI (`d2`).  All production code lives under `lib/Developer/Dashboard/` and the Perl distribution is built with ExtUtils::MakeMaker (`make`).  The repository also contains a small JavaScript fuzz test (`npm run fuzz:scorecard`).
 
 ## Development environment
 - **Perl**: 5.38 (the Makefile hard‑codes `$VERSION = 3.33`).
@@ -49,7 +49,7 @@ Key points:
 - **E2E cross‑platform gate** – when a change can behave differently across OSes, run the relevant QEMU Windows/macOS guests or Docker containers for other Linux distros (see `CLAUDE.md` for details).
 - **Version gate** occurs at the *EPIC* level: after every ticket in the epic is finished, bump the version (see next section).
 - **Git gate** is at the *TICKET* level – one commit + push per finished ticket. Follow the `git-commit-message-format` codename in `ELLEN.md`: use `Problem <number>: <specific title>`, a short summary on its own paragraph, then a multi-line `-` bullet list of delivered changes and verified checks. Preserve real line breaks; do not put the whole summary into the title or literal `\n` escapes. Inspect the final body with `git log -1 --format=%B`.
-- **Release to PAUSE** is the final manual step (`dashboard pause-release`).  No automatic releases.
+- **Release to PAUSE** is the final manual step (`d2 pause-release`).  No automatic releases.
 
 ## Version bump procedure (gated by `t/15-release-metadata.t`)
 1. Update `$VERSION` in the Makefile (`VERSION = X.XX`).
@@ -82,7 +82,7 @@ Key points:
 ## Common pitfalls
 - Missing `PERL5LIB` – the test suite will pull system CPAN libs and may fail.
 - Forgetting the `capture {}` block – error output is lost.
-- Not running `install-private-cli-tools` after a fresh `make install`; the `dashboard` CLI will miss helper binaries.
+- Not running `install-private-cli-tools` after a fresh `make install`; the `d2` CLI will miss helper binaries.
 - Docker integration tests require a built `dd-int-test:latest` image.
 - Running `make` on Windows without GNU `make.cmd` shim leads to failures.
 - Editing generated files (`Makefile`, generated sections of `README.md`) – changes will be overwritten; modify the source (`Makefile.PL` or POD) instead.

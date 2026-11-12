@@ -4,7 +4,7 @@
 
 `Developer Dashboard` is the full product name.
 
-`dashboard` is the canonical command-line executable.
+`d2` is the canonical command-line executable.
 
 `DD` remains an acceptable short product nickname.
 
@@ -90,7 +90,7 @@ This implies:
 - documented CLI entrypoints
 - stable module namespaces
 - optional features that degrade cleanly when dependencies are absent
-- a thin public `dashboard` entrypoint that lazy-loads the full runtime only
+- a thin public `d2` entrypoint that lazy-loads the full runtime only
   for commands that actually need it
 - shipped seeded bookmark assets that live outside the main command script and
   resolve correctly both from a source checkout and from the installed
@@ -224,14 +224,14 @@ Current seeded workspaces should include:
 - `api-dashboard` as a file-backed HTTP workspace
 - `sql-dashboard` as a file-backed SQL workspace
 
-`dashboard init` must preserve an existing
+`d2 init` must preserve an existing
 `~/.developer-dashboard/config/config.json`. Re-running it may add missing
 defaults, helper commands, or seeded pages, but it must not wipe or replace
 user config.
 
 The shipped source for seeded workspaces should live outside the main command
 script as shipped assets or dedicated modules so bookmark bodies do not bloat
-the public `dashboard` entrypoint.
+the public `d2` entrypoint.
 
 `DD-OOP-LAYERS` is a required runtime contract. Starting at
 `~/.developer-dashboard` and walking down through every parent directory until
@@ -243,18 +243,18 @@ config, collectors, indicators, auth/session lookups, runtime
 that full layer chain.
 
 Dashboard-managed built-in helper extraction is the explicit exception to the
-layered write target. `dashboard init` and on-demand helper staging must only
+layered write target. `d2 init` and on-demand helper staging must only
 seed built-in helper scripts under `~/.developer-dashboard/cli/`, while
 user-provided commands and hook directories continue to participate across the
 full `DD-OOP-LAYERS` chain.
 
-Home helper staging must stay non-destructive. `dashboard init` may add or
+Home helper staging must stay non-destructive. `d2 init` may add or
 update dashboard-managed built-in helpers under `~/.developer-dashboard/cli/`,
 but it must preserve pre-existing user-owned colliding files plus unrelated
 files and directories there instead of deleting or overwriting them.
 
-The public `dashboard` entrypoint must remain a real switchboard. Built-in
-command bodies must live outside `bin/dashboard` under `share/private-cli/`.
+The public `d2` entrypoint must remain a real switchboard. Built-in
+command bodies must live outside `bin/d2` under `share/private-cli/`.
 Dedicated helper bodies may serve focused commands such as query, open-file,
 ticket, path, and prompt helpers, while broader built-in command sets may use
 thin staged wrappers that delegate into a private shared runtime such as
@@ -295,12 +295,12 @@ logic. It should support:
 - singleton saved-Ajax workers for bootstrap, profile save/delete, collection save/delete, execution, and schema browsing
 
 Database driver support should be optional instead of bundled by default.
-The runtime should provide a command such as `dashboard cpan <Module...>` that:
+The runtime should provide a command such as `d2 cpan <Module...>` that:
 
 - installs requested Perl modules into the active runtime's local library tree
 - records those modules in `./.developer-dashboard/cpanfile`
 
-The `dashboard` CLI and bookmark runtime must apply `DD-OOP-LAYERS`
+The `d2` CLI and bookmark runtime must apply `DD-OOP-LAYERS`
 consistently:
 
 - custom commands resolve from the deepest matching `./.developer-dashboard/cli/<command>` layer, then outward toward `~/.developer-dashboard/cli`
@@ -327,7 +327,7 @@ verification:
   the real CLI, collector, Ajax, web, and browser paths
 - release tarballs must exclude local coverage output such as `cover_db` even
   when the source tree just finished a Devel::Cover run before `dzil build`
-- keeps the implementation in the `dashboard` entrypoint instead of adding a dedicated SQL or CPAN manager product module
+- keeps the implementation in the `d2` entrypoint instead of adding a dedicated SQL or CPAN manager product module
 - makes the runtime-local Perl library visible to bookmark Ajax workers and other dashboard-managed processes by deriving `local/lib/perl5` from the active runtime root
 - automatically installs `DBI` when a requested module is a `DBD::*` driver
 
@@ -824,9 +824,9 @@ The wrapper should pass through unknown docker compose arguments where possible.
 
 The exact CLI is still open, but the shape should support commands like:
 
-- `dashboard docker compose ps`
-- `dashboard docker compose up`
-- `dashboard docker compose exec app bash`
+- `d2 docker compose ps`
+- `d2 docker compose up`
+- `d2 docker compose exec app bash`
 
 Optionally, a convenience shim named `docker_compose` may call into the DD runtime.
 
@@ -951,7 +951,7 @@ DD must provide a dedicated prompt integration layer.
 
 Requirements:
 
-- expose a `dashboard ps1` command as the canonical prompt entrypoint
+- expose a `d2 ps1` command as the canonical prompt entrypoint
 - support `bash` first in v1
 - support wiring `PS1` directly to command substitution, following the older shape
 - render from cached status only
@@ -972,11 +972,11 @@ V1 should preserve that user experience conceptually:
 
 Suggested interface:
 
-- `dashboard ps1 --jobs <n>`
+- `d2 ps1 --jobs <n>`
 
 or a shell-friendly equivalent that still allows:
 
-- `export PS1='$(dashboard ps1 --jobs \j)'`
+- `export PS1='$(d2 ps1 --jobs \j)'`
 
 Prompt rendering rules:
 
@@ -1272,7 +1272,7 @@ Other DD subsystems should consume collector output through a stable read API or
 
 Expected consumers include:
 
-- `dashboard ps1`
+- `d2 ps1`
 - dashboard status views
 - wrapper commands
 - plugins
@@ -1922,7 +1922,7 @@ Because CPAN distribution is a stated goal, the architecture should be packaging
 If Perl is chosen:
 
 - Developer Dashboard should be packaged as a CPAN distribution
-- CLI commands such as `dashboard` or compatibility shims should be installed from the distribution
+- CLI commands such as `d2` or compatibility shims should be installed from the distribution
 - plugin packages should be designed so they can also be shipped as CPAN distributions when appropriate
 
 If a non-Perl core is chosen:

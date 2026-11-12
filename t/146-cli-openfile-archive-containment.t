@@ -269,7 +269,7 @@ t/146-cli-openfile-archive-containment.t - DD-498 Zip Slip containment for open-
 
 =head1 PURPOSE
 
-Pins the containment guarantee that C<dashboard open-file> owes when it reads a
+Pins the containment guarantee that C<d2 open-file> owes when it reads a
 Java source archive it did not author. The command falls back to searching
 C<~/.m2/repository>, C<~/.gradle/caches> and the configured JDK roots for
 C<*.jar>, C<*.war> and C<src.zip> members, and downloads a C<-sources.jar> from

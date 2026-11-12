@@ -274,7 +274,7 @@ is( $runner->_effective_interval_seconds( { interval => 5 } ),     5,  '_effecti
 # L603/L605/L607.
 is( $runner->_is_dashboard_subcommand_collector('not-a-hash'), 0, '_is_dashboard_subcommand_collector rejects a non-hash job' );
 is( $runner->_is_dashboard_subcommand_collector( { command => '' } ), 0, '_is_dashboard_subcommand_collector rejects an empty command' );
-is( $runner->_is_dashboard_subcommand_collector( { command => '/opt/tools/dashboard status' } ), 1, '_is_dashboard_subcommand_collector detects an absolute dashboard path command' );
+is( $runner->_is_dashboard_subcommand_collector( { command => '/opt/tools/dashboard status' } ), 1, '_is_dashboard_subcommand_collector detects an absolute d2 path command' );
 
 # ===========================================================================
 # _sleep_until_next_tick internals.
@@ -1236,7 +1236,7 @@ like( ( eval { $runner->start_loop( {} ); 1 } ? '' : $@ ), qr/missing name/, 'st
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return undef };
     local *Developer::Dashboard::GoRoutine::spawn = sub { return 525252 };
-    is( $runner->start_loop( { name => 'parent.floored.loop', command => 'dashboard status', cwd => $home, interval => 1 } ), 525252, 'start_loop returns the GoRoutine process identifier for a floored dashboard collector' );
+    is( $runner->start_loop( { name => 'parent.floored.loop', command => 'dashboard status', cwd => $home, interval => 1 } ), 525252, 'start_loop returns the GoRoutine process identifier for a floored d2 collector' );
     is( $runner->loop_state('parent.floored.loop')->{configured_interval}, 1, 'start_loop records configured_interval when the effective interval is floored' );
     $runner->_cleanup_loop_files('parent.floored.loop');
 }

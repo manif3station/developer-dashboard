@@ -275,7 +275,7 @@ dies_like( sub { Developer::Dashboard::RuntimeManager->new( config => $config, f
 dies_like( sub { Developer::Dashboard::RuntimeManager->new( config => $config, files => $files, paths => $paths ) }, qr/Missing collector runner/, 'runtime manager requires runner' );
 dies_like( sub { Developer::Dashboard::RuntimeManager->new( config => $config, files => $files, paths => $paths, runner => $runner ) }, qr/Missing app builder/, 'runtime manager requires app builder' );
 
-is( $manager->_web_process_title( '0.0.0.0', 7890 ), 'dashboard web: 0.0.0.0:7890', 'web process title is predictable' );
+is( $manager->_web_process_title( '0.0.0.0', 7890 ), 'd2 web: 0.0.0.0:7890', 'web process title is predictable' );
 like( Developer::Dashboard::RuntimeManager::_now_iso8601( tz => 'utc' ), qr/^\d{4}-\d{2}-\d{2}T/, 'timestamp helper emits ISO-8601' );
 is( Developer::Dashboard::RuntimeManager::_portable_signal('TERM'), 15, 'portable signal helper maps TERM to numeric POSIX signal 15' );
 is( Developer::Dashboard::RuntimeManager::_portable_signal('kill'), 9, 'portable signal helper accepts lowercase signal names' );
@@ -283,16 +283,16 @@ is( Developer::Dashboard::RuntimeManager::_portable_signal(2), 2, 'portable sign
 is( $manager->_send_signal( 'TERM', undef, 0, 'not-a-pid' ), 0, 'portable signal sender skips invalid process ids without named-signal lookup' );
 dies_like( sub { Developer::Dashboard::RuntimeManager::_portable_signal() }, qr/Missing signal name/, 'portable signal helper rejects missing signal names clearly' );
 dies_like( sub { Developer::Dashboard::RuntimeManager::_portable_signal('NOPE') }, qr/Unsupported signal name: NOPE/, 'portable signal helper rejects unsupported signal names clearly' );
-ok( $manager->_looks_like_web_process( { pid => 1, args => 'dashboard web: 0.0.0.0:7890' } ), 'managed web process titles are recognized' );
-ok( $manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/dashboard serve' } ), 'legacy perl dashboard serve command lines are recognized' );
-ok( $manager->_looks_like_web_process( { pid => 1, args => 'dashboard serve --workers 4 --port 7890' } ), 'dashboard serve with startup flags is recognized as a web process' );
+ok( $manager->_looks_like_web_process( { pid => 1, args => 'd2 web: 0.0.0.0:7890' } ), 'managed web process titles are recognized' );
+ok( $manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/d2 serve' } ), 'legacy perl d2 serve command lines are recognized' );
+ok( $manager->_looks_like_web_process( { pid => 1, args => 'd2 serve --workers 4 --port 7890' } ), 'd2 serve with startup flags is recognized as a web process' );
 ok( $manager->_looks_like_web_process( { pid => 1, args => 'C:\\Strawberry\\perl\\bin\\perl.exe C:\\Users\\Docker\\.developer-dashboard\\cli\\dd\\_dashboard-core web-foreground --host 0.0.0.0 --port 7890' } ), 'Windows detached _dashboard-core web-foreground command lines are recognized as web processes' );
 ok( $manager->_looks_like_web_process( { pid => 1, args => '/usr/bin/perl /home/user/.developer-dashboard/cli/dd/_dashboard-core web-ssl-backend-foreground --host 127.0.0.1 --port 17898 --workers 1' } ), 'isolated SSL backend helper is recognized as part of the web runtime' );
-ok( !$manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/dashboard ps1' } ), 'non-web dashboard commands are ignored' );
-ok( !$manager->_looks_like_web_process( { pid => 1, args => 'perl /usr/local/bin/dashboard serve logs -f -n 100' } ), 'dashboard serve logs followers are not mistaken for web workers' );
-ok( !$manager->_looks_like_web_process( { pid => 1, args => 'dashboard serve workers 8' } ), 'dashboard serve workers subcommands are not mistaken for web workers' );
-ok( !$manager->_looks_like_web_process( { pid => 1, args => q{/bin/bash -c dashboard serve; sleep 1} } ), 'shell wrappers are not mistaken for web workers' );
-ok( !$manager->_looks_like_web_process( { pid => 1, args => q{strace -ff -o /tmp/ddexec ./bin/dashboard serve} } ), 'tracing wrappers are not mistaken for web workers' );
+ok( !$manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/d2 ps1' } ), 'non-web d2 commands are ignored' );
+ok( !$manager->_looks_like_web_process( { pid => 1, args => 'perl /usr/local/bin/d2 serve logs -f -n 100' } ), 'd2 serve logs followers are not mistaken for web workers' );
+ok( !$manager->_looks_like_web_process( { pid => 1, args => 'd2 serve workers 8' } ), 'd2 serve workers subcommands are not mistaken for web workers' );
+ok( !$manager->_looks_like_web_process( { pid => 1, args => q{/bin/bash -c d2 serve; sleep 1} } ), 'shell wrappers are not mistaken for web workers' );
+ok( !$manager->_looks_like_web_process( { pid => 1, args => q{strace -ff -o /tmp/ddexec ./bin/d2 serve} } ), 'tracing wrappers are not mistaken for web workers' );
 
 $manager->_cleanup_web_files;
 ok( !defined $manager->web_state, 'no web state file exists initially' );
@@ -516,7 +516,7 @@ my $pid;
 {
     no warnings 'redefine';
     $manager->_cleanup_web_files;
-    local *Developer::Dashboard::RuntimeManager::_ps_processes = sub { return ( { pid => $$, args => 'perl -Ilib bin/dashboard serve' } ) };
+    local *Developer::Dashboard::RuntimeManager::_ps_processes = sub { return ( { pid => $$, args => 'perl -Ilib bin/d2 serve' } ) };
     ok( !$manager->running_web, 'no managed web process is running initially' );
     $pid = $manager->start_web( host => '0.0.0.0', port => 7898 );
 }
@@ -572,7 +572,7 @@ is( $dedup_pid, $pid, 'background start deduplicates an already running web proc
 my $title;
 for ( 1 .. 20 ) {
     $title = $manager->_read_process_title($pid);
-    last if defined $title && $title =~ /^dashboard web:/;
+    last if defined $title && $title =~ /^d2 web:/;
     sleep 0.1;
 }
 if ($UNDER_COVER) {
@@ -582,12 +582,12 @@ elsif ( $manager->running_web && $manager->running_web->{pid} == $pid ) {
     pass('managed web process title reads tolerate hosts where the wrapper title is transient once running_web still confirms the managed pid');
 }
 else {
-    like( $title, qr/^dashboard web:/, 'managed web process title is readable' );
+    like( $title, qr/^d2 web:/, 'managed web process title is readable' );
 }
 ok( scalar $manager->_ps_processes, 'ps process list is available' );
 my @prefixed;
 for ( 1 .. 20 ) {
-    @prefixed = $manager->_find_processes_by_prefix('dashboard web:');
+    @prefixed = $manager->_find_processes_by_prefix('d2 web:');
     last if @prefixed;
     sleep 0.1;
 }
@@ -614,11 +614,11 @@ else {
     };
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub {
         my ( undef, $requested_pid ) = @_;
-        return $requested_pid == $pid ? 'dashboard web: 127.0.0.1:7898' : undef;
+        return $requested_pid == $pid ? 'd2 web: 127.0.0.1:7898' : undef;
     };
-    my @title_prefixed = $manager->_find_processes_by_prefix('dashboard web:');
+    my @title_prefixed = $manager->_find_processes_by_prefix('d2 web:');
     ok( scalar @title_prefixed, 'process prefix scan falls back to the readable process title when the ps command line itself is not prefixed' );
-    is( $title_prefixed[0]{args}, 'dashboard web: 127.0.0.1:7898', 'process prefix scan returns the recovered process title when the fallback path matches' );
+    is( $title_prefixed[0]{args}, 'd2 web: 127.0.0.1:7898', 'process prefix scan returns the recovered process title when the fallback path matches' );
 }
 
 $manager->_write_web_state( { pid => $pid, host => 'scan.host', port => 9999, status => 'running' } );
@@ -630,7 +630,7 @@ $files->remove('web_pid');
             {
                 pid  => $pid,
                 uid  => $< + 0,
-                args => 'dashboard web: 0.0.0.0:7898',
+                args => 'd2 web: 0.0.0.0:7898',
             }
         );
     };
@@ -646,17 +646,17 @@ $files->write( 'web_pid', "$pid\n" );
             {
                 pid  => 410_001,
                 uid  => $< + 1,
-                args => 'dashboard web: foreign:7898',
+                args => 'd2 web: foreign:7898',
             },
             {
                 pid  => 410_002,
                 uid  => $< + 1,
-                args => 'dashboard ajax: foreign-worker',
+                args => 'd2 ajax: foreign-worker',
             },
             {
                 pid  => 410_003,
                 uid  => $< + 0,
-                args => 'dashboard ajax: local-worker',
+                args => 'd2 ajax: local-worker',
             },
         );
     };
@@ -666,7 +666,7 @@ $files->write( 'web_pid', "$pid\n" );
         '_find_web_processes ignores dashboard web processes owned by other users',
     );
     is_deeply(
-        [ map { $_->{pid} } $manager->_find_processes_by_prefix('dashboard ajax:') ],
+        [ map { $_->{pid} } $manager->_find_processes_by_prefix('d2 ajax:') ],
         [410_003],
         '_find_processes_by_prefix only returns current-user dashboard processes',
     );
@@ -676,11 +676,11 @@ $files->write( 'web_pid', "$pid\n" );
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_find_processes_by_prefix = sub {
         my ( undef, $prefix ) = @_;
-        return () if $prefix ne 'dashboard ajax:';
+        return () if $prefix ne 'd2 ajax:';
         return (
-            { pid => 510_001, args => 'dashboard ajax: local-runtime' },
-            { pid => 510_002, args => 'dashboard ajax: foreign-runtime' },
-            { pid => 510_003, args => 'dashboard ajax: unmarked-runtime' },
+            { pid => 510_001, args => 'd2 ajax: local-runtime' },
+            { pid => 510_002, args => 'd2 ajax: foreign-runtime' },
+            { pid => 510_003, args => 'd2 ajax: unmarked-runtime' },
         );
     };
     local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub {
@@ -778,7 +778,7 @@ ok( -f $foreground_file, 'foreground start delegates to server run' );
             port                 => 7890,
             workers              => 1,
             ssl                  => 0,
-            process_title        => 'dashboard web: 0.0.0.0:7890',
+            process_title        => 'd2 web: 0.0.0.0:7890',
             web_service_marker   => 1,
             web_host_marker      => '0.0.0.0',
             web_port_marker      => 7890,
@@ -1160,7 +1160,7 @@ is( $manager->_tail_text( "one\ntwo\nthree\n", 2 ), "two\nthree\n", '_tail_text 
 is( $manager->_tail_text( "one\ntwo\nthree", 2 ), "two\nthree", '_tail_text preserves non-terminated trailing log lines' );
 is( $manager->web_log( lines => 1 ), "Dancer2 line\n", 'web_log can return only the last requested number of lines' );
 $files->remove('dashboard_log');
-is( $manager->web_log, '', 'web_log returns an empty string when the dashboard log file is missing' );
+is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file is missing' );
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_follow_log_file = sub {
@@ -1610,11 +1610,11 @@ JSON
     local $ENV{DEVELOPER_DASHBOARD_RUNTIME_ROOT} = $paths->state_root;
     my $ajax_name = 'STOP-ME-' . $$;
     my $ajax_pid = _spawn_perl_fixture(
-        '$0 = "dashboard ajax: ' . $ajax_name . '"; $SIG{TERM} = sub { exit 0 }; while (1) { sleep 1 }',
+        '$0 = "d2 ajax: ' . $ajax_name . '"; $SIG{TERM} = sub { exit 0 }; while (1) { sleep 1 }',
     );
     my $seen = 0;
     for ( 1 .. 20 ) {
-        if ( scalar grep { $_->{pid} == $ajax_pid } $manager->_find_processes_by_prefix('dashboard ajax:') ) {
+        if ( scalar grep { $_->{pid} == $ajax_pid } $manager->_find_processes_by_prefix('d2 ajax:') ) {
             $seen = 1;
             last;
         }
@@ -1625,7 +1625,7 @@ JSON
         no warnings 'redefine';
         local *Developer::Dashboard::RuntimeManager::_managed_ajax_processes = sub {
             return Developer::Dashboard::GoRoutine::process_running($ajax_pid)
-              ? ( { pid => $ajax_pid, args => "dashboard ajax: $ajax_name" } ) : ();
+              ? ( { pid => $ajax_pid, args => "d2 ajax: $ajax_name" } ) : ();
         };
         $manager->stop_all;
     }
@@ -1639,11 +1639,11 @@ JSON
     local $ENV{DEVELOPER_DASHBOARD_RUNTIME_ROOT} = $paths->state_root;
     my $ajax_name = 'STUBBORN-KILL-' . $$;
     my $stubborn_ajax = _spawn_perl_fixture(
-        '$0 = "dashboard ajax: ' . $ajax_name . '"; $SIG{TERM} = "IGNORE"; while (1) { sleep 1 }',
+        '$0 = "d2 ajax: ' . $ajax_name . '"; $SIG{TERM} = "IGNORE"; while (1) { sleep 1 }',
     );
     my $seen = 0;
     for ( 1 .. 20 ) {
-        if ( scalar grep { $_->{pid} == $stubborn_ajax } $manager->_find_processes_by_prefix('dashboard ajax:') ) {
+        if ( scalar grep { $_->{pid} == $stubborn_ajax } $manager->_find_processes_by_prefix('d2 ajax:') ) {
             $seen = 1;
             last;
         }
@@ -1654,7 +1654,7 @@ JSON
         no warnings 'redefine';
         local *Developer::Dashboard::RuntimeManager::_managed_ajax_processes = sub {
             return Developer::Dashboard::GoRoutine::process_running($stubborn_ajax)
-              ? ( { pid => $stubborn_ajax, args => "dashboard ajax: $ajax_name" } ) : ();
+              ? ( { pid => $stubborn_ajax, args => "d2 ajax: $ajax_name" } ) : ();
         };
         $manager->stop_web;
     }
@@ -1692,10 +1692,10 @@ END {
     local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_find_processes_by_prefix = sub {
         my ( undef, $prefix ) = @_;
-        return () if $prefix ne 'dashboard ajax:';
+        return () if $prefix ne 'd2 ajax:';
         $ajax_poll_count++;
         return () if $ajax_poll_count > 31;
-        return ( { pid => 999_991, args => 'dashboard ajax: COVER-KILL' } );
+        return ( { pid => 999_991, args => 'd2 ajax: COVER-KILL' } );
     };
     is( $manager->stop_web, undef, 'stop_web still completes when only lingering ajax singleton workers remain for the post-loop KILL branch' );
 }
@@ -1706,11 +1706,11 @@ END {
     local $ENV{DEVELOPER_DASHBOARD_RUNTIME_ROOT} = $paths->state_root;
     my $ajax_name = 'RESTART-ME-' . $$;
     my $ajax_pid = _spawn_perl_fixture(
-        '$0 = "dashboard ajax: ' . $ajax_name . '"; $SIG{TERM} = sub { exit 0 }; while (1) { sleep 1 }',
+        '$0 = "d2 ajax: ' . $ajax_name . '"; $SIG{TERM} = sub { exit 0 }; while (1) { sleep 1 }',
     );
     my $seen = 0;
     for ( 1 .. 20 ) {
-        if ( scalar grep { $_->{pid} == $ajax_pid } $manager->_find_processes_by_prefix('dashboard ajax:') ) {
+        if ( scalar grep { $_->{pid} == $ajax_pid } $manager->_find_processes_by_prefix('d2 ajax:') ) {
             $seen = 1;
             last;
         }
@@ -1721,7 +1721,7 @@ END {
     local *Developer::Dashboard::RuntimeManager::_web_runtime_ready = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_managed_ajax_processes = sub {
         return Developer::Dashboard::GoRoutine::process_running($ajax_pid)
-          ? ( { pid => $ajax_pid, args => "dashboard ajax: $ajax_name" } ) : ();
+          ? ( { pid => $ajax_pid, args => "d2 ajax: $ajax_name" } ) : ();
     };
     my $restart_with_ajax = $manager->restart_all( host => '0.0.0.0', port => 7904 );
     ok( $restart_with_ajax->{web_pid} > 0, 'restart_all still restarts the web service when singleton ajax workers are present' );
@@ -1735,7 +1735,7 @@ END {
 
 {
     my $stubborn_web = _spawn_perl_fixture(
-        q{$SIG{TERM} = 'IGNORE'; $ENV{DEVELOPER_DASHBOARD_WEB_SERVICE} = 1; $0 = 'dashboard web: stubborn:7906'; while (1) { sleep 0.1 }},
+        q{$SIG{TERM} = 'IGNORE'; $ENV{DEVELOPER_DASHBOARD_WEB_SERVICE} = 1; $0 = 'd2 web: stubborn:7906'; while (1) { sleep 0.1 }},
     );
     sleep 0.2;
     $files->write( 'web_pid', "$stubborn_web\n" );
@@ -1757,7 +1757,7 @@ END {
 
 {
     my $legacy_web = _spawn_perl_fixture(
-        q{$0 = 'perl -Ilib bin/dashboard serve'; while (1) { sleep 0.1 }},
+        q{$0 = 'perl -Ilib bin/d2 serve'; while (1) { sleep 0.1 }},
     );
     sleep 0.2;
     $manager->_cleanup_web_files;
@@ -1767,20 +1767,20 @@ END {
         return (
             {
                 pid  => $legacy_web,
-                args => 'perl -Ilib bin/dashboard serve',
+                args => 'perl -Ilib bin/d2 serve',
             }
         );
     };
     my $legacy_state = $manager->running_web;
-    is( $legacy_state->{pid}, $legacy_web, 'running_web discovers legacy dashboard serve processes by command line' );
+    is( $legacy_state->{pid}, $legacy_web, 'running_web discovers legacy d2 serve processes by command line' );
     is( $legacy_state->{host}, '0.0.0.0', 'legacy web discovery falls back to the default host when no state file exists' );
     is( $legacy_state->{port}, 7890, 'legacy web discovery falls back to the default port when no state file exists' );
-    is( $manager->stop_web, $legacy_web, 'stop_web terminates legacy dashboard serve processes that predate managed markers' );
-    ok( Developer::Dashboard::GoRoutine::process_exited($legacy_web), 'legacy dashboard serve process is gone after stop_web' );
+    is( $manager->stop_web, $legacy_web, 'stop_web terminates legacy d2 serve processes that predate managed markers' );
+    ok( Developer::Dashboard::GoRoutine::process_exited($legacy_web), 'legacy d2 serve process is gone after stop_web' );
 }
 {
     my $stubborn_legacy = _spawn_perl_fixture(
-        q{$SIG{TERM} = 'IGNORE'; $0 = 'perl -Ilib bin/dashboard serve'; while (1) { sleep 0.1 }},
+        q{$SIG{TERM} = 'IGNORE'; $0 = 'perl -Ilib bin/d2 serve'; while (1) { sleep 0.1 }},
     );
     sleep 0.2;
     {
@@ -1794,7 +1794,7 @@ END {
             return Developer::Dashboard::GoRoutine::process_running($stubborn_legacy)
               ? ( { pid => $stubborn_legacy } ) : ();
         };
-        is( $manager->stop_web, undef, 'stop_web still completes when only a stubborn legacy dashboard serve process remains' );
+        is( $manager->stop_web, undef, 'stop_web still completes when only a stubborn legacy d2 serve process remains' );
     }
     my $legacy_exited = Developer::Dashboard::GoRoutine::process_exited($stubborn_legacy);
     if ( !$legacy_exited && $UNDER_COVER && Developer::Dashboard::GoRoutine::process_running($stubborn_legacy) ) {
@@ -1806,13 +1806,13 @@ END {
         ok( $legacy_exited, 'stubborn legacy web shutdown remains timing-tolerant under coverage' );
     }
     else {
-        ok( $legacy_exited, 'stop_web escalates stubborn legacy dashboard serve processes to KILL after TERM is ignored' );
+        ok( $legacy_exited, 'stop_web escalates stubborn legacy d2 serve processes to KILL after TERM is ignored' );
     }
 }
 
 {
     my $stubborn_collector = _spawn_perl_fixture(
-        q{$SIG{TERM} = 'IGNORE'; $0 = 'dashboard collector: stubborn.collector'; while (1) { sleep 0.1 }},
+        q{$SIG{TERM} = 'IGNORE'; $0 = 'd2 collector: stubborn.collector'; while (1) { sleep 0.1 }},
     );
     sleep 0.2;
     $runner->{loops} = [ { name => 'stubborn.collector', pid => $stubborn_collector } ];
@@ -1835,7 +1835,7 @@ END {
 {
     local $ENV{PATH} = '/definitely-missing';
     my $fallback_child = _spawn_perl_fixture(
-        q{$0 = 'dashboard web: fallback:9999'; while (1) { sleep 0.1 }},
+        q{$0 = 'd2 web: fallback:9999'; while (1) { sleep 0.1 }},
     );
     sleep 0.2;
     no warnings 'redefine';
@@ -1844,11 +1844,11 @@ END {
             {
                 pid  => $fallback_child,
                 uid  => $< + 0,
-                args => 'dashboard web: fallback:9999',
+                args => 'd2 web: fallback:9999',
             }
         );
     };
-    ok( $manager->_pkill_perl('^dashboard web:'), 'pkill fallback succeeds even when pkill is unavailable' );
+    ok( $manager->_pkill_perl('^d2 web:'), 'pkill fallback succeeds even when pkill is unavailable' );
     my $exited = 0;
     for ( 1 .. 20 ) {
         if ( Developer::Dashboard::GoRoutine::process_exited($fallback_child) ) {
@@ -1868,7 +1868,7 @@ END {
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', '', 2 ) };
-    ok( !defined $manager->_pkill_perl('^dashboard web:'), '_pkill_perl returns undef for unexpected pkill failures' );
+    ok( !defined $manager->_pkill_perl('^d2 web:'), '_pkill_perl returns undef for unexpected pkill failures' );
     ok( !scalar( $manager->_ps_processes ), '_ps_processes returns an empty list when ps fails' );
 }
 
@@ -1887,11 +1887,11 @@ END {
             {
                 pid  => 9988,
                 uid  => $< + 0,
-                args => 'dashboard web: windows-fallback:9998',
+                args => 'd2 web: windows-fallback:9998',
             }
         );
     };
-    ok( $manager->_pkill_perl('^dashboard web:'), '_pkill_perl bypasses pkill and succeeds through process scanning on Windows hosts' );
+    ok( $manager->_pkill_perl('^d2 web:'), '_pkill_perl bypasses pkill and succeeds through process scanning on Windows hosts' );
     is_deeply(
         \@signalled,
         [ [ 'TERM', 9988 ] ],
@@ -1906,11 +1906,11 @@ END {
         return $pid == 4455 ? 0 : 1;
     };
     ok(
-        !$manager->_proc_owned_by_current_user( { pid => 4455, uid => $< + 0, args => 'dashboard web: foreign:7890' } ),
+        !$manager->_proc_owned_by_current_user( { pid => 4455, uid => $< + 0, args => 'd2 web: foreign:7890' } ),
         '_proc_owned_by_current_user rejects foreign pid-namespace processes even when the uid matches',
     );
     ok(
-        $manager->_proc_owned_by_current_user( { pid => 4456, uid => $< + 0, args => 'dashboard web: local:7890' } ),
+        $manager->_proc_owned_by_current_user( { pid => 4456, uid => $< + 0, args => 'd2 web: local:7890' } ),
         '_proc_owned_by_current_user keeps same-namespace processes visible to the current runtime',
     );
 }
@@ -1923,7 +1923,7 @@ END {
         return $pid == $foreign_pid ? 0 : 1;
     };
     local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return '1' };
-    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'dashboard web: 0.0.0.0:7890' };
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'd2 web: 0.0.0.0:7890' };
     local *Developer::Dashboard::RuntimeManager::_find_web_processes = sub { return () };
     $files->write( 'web_pid', "$foreign_pid\n" );
     $manager->_write_web_state(
@@ -2290,7 +2290,7 @@ END {
             host         => '127.0.0.1',
             pid          => 8812,
             port         => 7927,
-            process_name => 'dashboard web: 127.0.0.1:7927',
+            process_name => 'd2 web: 127.0.0.1:7927',
             ssl          => 0,
             status       => 'running',
             workers      => 2,
@@ -2301,7 +2301,7 @@ END {
             host         => '127.0.0.1',
             pid          => 8812,
             port         => 7927,
-            process_name => 'dashboard web: 127.0.0.1:7927',
+            process_name => 'd2 web: 127.0.0.1:7927',
             ssl          => 0,
             status       => 'running',
             workers      => 2,
@@ -2316,7 +2316,7 @@ END {
     local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub {
         my ( undef, $pid ) = @_;
-        return $pid == 9912 ? 'starman master' : 'dashboard web: 127.0.0.1:7927';
+        return $pid == 9912 ? 'starman master' : 'd2 web: 127.0.0.1:7927';
     };
     local *Developer::Dashboard::RuntimeManager::_write_web_state = sub {
         my ( undef, $state ) = @_;
@@ -3106,7 +3106,7 @@ END {
     is(
         $manager->_collector_watchdog_stale_seconds( { command => 'dashboard system-temp cpu', interval => 5 } ),
         70,
-        '_collector_watchdog_stale_seconds uses the throttled effective interval for dashboard subcommand collectors',
+        '_collector_watchdog_stale_seconds uses the throttled effective interval for d2 subcommand collectors',
     );
     is(
         $manager->_collector_watchdog_stale_seconds( {} ),
@@ -3882,7 +3882,7 @@ SCRIPT
     like( $args, qr/'C:\\Program Files\\Perl\\perl\.exe'/, '_spawn_windows_background_command quotes the Windows executable path for PowerShell' );
     like( $args, qr/'script with space\.ps1'/, '_spawn_windows_background_command quotes arguments with spaces for PowerShell' );
     like( $args, qr/'O''Hara'/, '_spawn_windows_background_command escapes embedded single quotes for PowerShell' );
-    like( $args, qr/\Q$stdout_log\E/, '_spawn_windows_background_command redirects stdout to the dashboard log' );
+    like( $args, qr/\Q$stdout_log\E/, '_spawn_windows_background_command redirects stdout to the d2 log' );
     like( $args, qr/\Q$stderr_log\E/, '_spawn_windows_background_command redirects stderr to the dashboard error log' );
 
     open my $ps_fail_fh, '>', $powershell or die "Unable to rewrite $powershell: $!";
@@ -4479,7 +4479,7 @@ SCRIPT
             pid          => $state_backed_pid,
             name         => 'beta.collector',
             status       => 'starting',
-            process_name => 'dashboard collector: beta.collector',
+            process_name => 'd2 collector: beta.collector',
         };
     };
     local *Local::RuntimeRunner::stop_loop = sub {
@@ -4541,13 +4541,13 @@ SCRIPT
             pid          => $$,
             name         => 'alpha.collector',
             status       => 'starting',
-            process_name => 'dashboard collector: alpha.collector',
+            process_name => 'd2 collector: alpha.collector',
         } if $name eq 'alpha.collector';
         return {
             pid          => $$,
             name         => 'wrong.collector',
             status       => 'starting',
-            process_name => 'dashboard collector: wrong.collector',
+            process_name => 'd2 collector: wrong.collector',
         } if $name eq 'beta.collector';
         return undef;
     };

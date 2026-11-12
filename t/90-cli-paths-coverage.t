@@ -202,12 +202,12 @@ subtest 'run_paths_command rejects malformed dispatch arguments' => sub {
 
 subtest 'paths and path list reject leftover positional arguments' => sub {
     my $paths_extra = eval { $run->( command => 'paths', args => ['leftover'] ); 1 };
-    is( $paths_extra, undef, 'dashboard paths refuses a stray positional argument' );
-    like( $@, qr/^Usage: dashboard paths \[-o json\|table\]$/m, 'the paths usage message is printed' );
+    is( $paths_extra, undef, 'd2 paths refuses a stray positional argument' );
+    like( $@, qr/^Usage: d2 paths \[-o json\|table\]$/m, 'the paths usage message is printed' );
 
     my $list_extra = eval { $run->( command => 'path', args => [ 'list', 'leftover' ] ); 1 };
-    is( $list_extra, undef, 'dashboard path list refuses a stray positional argument' );
-    like( $@, qr/^Usage: dashboard path list \[-o json\|table\]$/m, 'the list usage message is printed' );
+    is( $list_extra, undef, 'd2 path list refuses a stray positional argument' );
+    like( $@, qr/^Usage: d2 path list \[-o json\|table\]$/m, 'the list usage message is printed' );
 };
 
 subtest 'paths reuses one nested-skill inventory for configured and Folder.pm aliases' => sub {
@@ -232,12 +232,12 @@ subtest 'paths reuses one nested-skill inventory for configured and Folder.pm al
 subtest 'path dispatch reports usage for missing verbs and operands' => sub {
     my $no_action = eval { $run->( command => 'path', args => [] ); 1 };
     is( $no_action, undef, 'an empty path argument list falls through to the dispatch usage error' );
-    like( $@, qr/^Usage: dashboard path <resolve\|locate\|cdr\|complete-cdr\|add\|del\|rm\|project-root\|list> \.\.\.$/m,
+    like( $@, qr/^Usage: d2 path <resolve\|locate\|cdr\|complete-cdr\|add\|del\|rm\|project-root\|list> \.\.\.$/m,
         'the path dispatch usage message is printed' );
 
     my $no_name = eval { $run->( command => 'path', args => ['resolve'] ); 1 };
     is( $no_name, undef, 'path resolve without a name aborts' );
-    like( $@, qr/^Usage: dashboard path resolve <name>$/m, 'the resolve usage message is printed' );
+    like( $@, qr/^Usage: d2 path resolve <name>$/m, 'the resolve usage message is printed' );
 };
 
 subtest 'path complete-cdr defaults a missing or empty completion index' => sub {
@@ -265,15 +265,15 @@ subtest 'path project-root prints nothing outside a project checkout' => sub {
 subtest 'path add reports usage for every incomplete operand form' => sub {
     my $no_operands = eval { $run->( command => 'path', args => ['add'] ); 1 };
     is( $no_operands, undef, 'path add without operands aborts' );
-    like( $@, qr/^Usage: dashboard path add <name> <path>$/m, 'the add usage message is printed for no operands' );
+    like( $@, qr/^Usage: d2 path add <name> <path>$/m, 'the add usage message is printed for no operands' );
 
     my $lone_name = eval { $run->( command => 'path', args => [ 'add', 'solo' ] ); 1 };
     is( $lone_name, undef, 'a single non-dot operand is not the current-directory shorthand' );
-    like( $@, qr/^Usage: dashboard path add <name> <path>$/m, 'the add usage message is printed for a lone alias name' );
+    like( $@, qr/^Usage: d2 path add <name> <path>$/m, 'the add usage message is printed for a lone alias name' );
 
     my $empty_name = eval { $run->( command => 'path', args => [ 'add', '', 'target' ] ); 1 };
     is( $empty_name, undef, 'an empty alias name aborts' );
-    like( $@, qr/^Usage: dashboard path add <name> <path>$/m, 'the add usage message is printed for an empty alias name' );
+    like( $@, qr/^Usage: d2 path add <name> <path>$/m, 'the add usage message is printed for an empty alias name' );
 };
 
 subtest '_normalize_delete_argument guards its injected dependencies' => sub {
@@ -290,11 +290,11 @@ subtest '_normalize_delete_argument guards its injected dependencies' => sub {
 
     my $no_name = eval { $normalize_delete->( paths => $paths, config => $config ); 1 };
     is( $no_name, undef, 'an undefined alias name aborts alias deletion' );
-    like( $@, qr/^Usage: dashboard path del <name>$/m, 'the del usage message is printed for an undefined name' );
+    like( $@, qr/^Usage: d2 path del <name>$/m, 'the del usage message is printed for an undefined name' );
 
     my $empty_name = eval { $normalize_delete->( paths => $paths, config => $config, name => '' ); 1 };
     is( $empty_name, undef, 'an empty alias name aborts alias deletion' );
-    like( $@, qr/^Usage: dashboard path del <name>$/m, 'the del usage message is printed for an empty name' );
+    like( $@, qr/^Usage: d2 path del <name>$/m, 'the del usage message is printed for an empty name' );
 };
 
 subtest '_normalize_delete_argument falls back to the directory basename' => sub {
@@ -1085,7 +1085,7 @@ t/90-cli-paths-coverage.t - branch and condition coverage for the path CLI runti
 
 This test drives every remaining decision point in
 C<Developer::Dashboard::CLI::Paths> that the behavioural suites never reach: the
-dispatch argument guards, the usage errors for each C<dashboard path> verb, the
+dispatch argument guards, the usage errors for each C<d2 path> verb, the
 current-directory delete shorthand when alias targets are missing, blank, or
 unexpandable, the C<cdr> payload and completion helpers when an alias resolves
 to a blank target or the completion index runs past the supplied words,
@@ -1129,8 +1129,8 @@ columns for the path CLI module.
 =head1 WHAT USES IT
 
 The repository test suite, the Devel::Cover gate, and developers changing the
-path CLI runtime use this file to keep the defensive edges of C<dashboard path>
-and C<dashboard paths> behaving as documented. Its skill fixture also pins
+path CLI runtime use this file to keep the defensive edges of C<d2 path>
+and C<d2 paths> behaving as documented. Its skill fixture also pins
 config-first resolution, list-context C<Folder-E<gt>__list__> discovery, and
 the rule that C<path add> writes config without editing an installed skill. It
 also verifies that C<cdr> completion lists direct children and descends one

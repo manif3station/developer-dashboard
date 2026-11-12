@@ -92,7 +92,7 @@ is_deeply(
         config_root          => $paths->config_root,
         current_project_root => scalar $paths->current_project_root,
     },
-    'all_paths returns the same full runtime path inventory exposed by dashboard paths',
+    'all_paths returns the same full runtime path inventory exposed by d2 paths',
 );
 is_deeply(
     $paths->all_path_aliases,
@@ -111,7 +111,7 @@ is_deeply(
         collectors      => $paths->collectors_root,
         indicators      => $paths->indicators_root,
     },
-    'all_path_aliases returns the same alias inventory exposed by dashboard path list',
+    'all_path_aliases returns the same alias inventory exposed by d2 path list',
 );
 {
     my $from_folder = Developer::Dashboard::PathRegistry->new_from_all_folders;
@@ -562,7 +562,7 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
     elsif ( $helper eq 'housekeeper' ) {
         like(
             $content,
-            qr/\Qdashboard housekeeper\E/,
+            qr/\Qd2 housekeeper\E/,
             'helper_content renders the shipped housekeeper helper body',
         );
     }
@@ -576,7 +576,7 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
     elsif ( $helper eq 'complete' ) {
         like(
             $content,
-            qr/\Qdashboard complete <index> <word0> <word1> ...\E/,
+            qr/\Qd2 complete <index> <word0> <word1> ...\E/,
             'helper_content renders the shipped complete helper body',
         );
     }
@@ -590,14 +590,14 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
     elsif ( $helper eq 'api' ) {
         like(
             $content,
-            qr/\Qdashboard api ...\E/,
+            qr/\Qd2 api ...\E/,
             'helper_content renders the shipped api wrapper body',
         );
     }
     elsif ( $helper eq 'ask' ) {
         like(
             $content,
-            qr/\Qdashboard ask ...\E/,
+            qr/\Qd2 ask ...\E/,
             'helper_content renders the shipped ask wrapper body',
         );
     }
@@ -784,7 +784,7 @@ ok(
         };
         is( $exit, 0, "the staged shell helper generates the $shell bootstrap" );
         is( $stderr, '', "the $shell bootstrap generator writes no stderr" );
-        like( $stdout, qr/ps1[^\n]*--mode compact/, "$shell prompt delegates to the shared dashboard ps1 renderer" );
+        like( $stdout, qr/ps1[^\n]*--mode compact/, "$shell prompt delegates to the shared d2 ps1 renderer" );
     }
 }
 {
@@ -1053,12 +1053,12 @@ ok(
     like(
         $core_body,
         qr/helper_path\(\s*paths => \$paths,\s*name\s*=> 'init'/s,
-        'helper_content seeds the running-helper marker from the staged init helper path inside dashboard init on Windows',
+        'helper_content seeds the running-helper marker from the staged init helper path inside d2 init on Windows',
     );
     like(
         $core_body,
         qr/skip_names\} = \['init'\]/,
-        'helper_content skips rewriting the active init helper during Windows dashboard init refresh',
+        'helper_content skips rewriting the active init helper during Windows d2 init refresh',
     );
 }
 {
@@ -1109,7 +1109,7 @@ ok(
 }
 ok(
     Developer::Dashboard::InternalCLI::_is_dashboard_managed_helper(
-        "#!/usr/bin/env perl\n# old helper\nMissing built-in dashboard command\nDeveloper::Dashboard::CLI::SeededPages\n",
+        "#!/usr/bin/env perl\n# old helper\nMissing built-in d2 command\nDeveloper::Dashboard::CLI::SeededPages\n",
         '_dashboard-core',
     ),
     '_is_dashboard_managed_helper accepts the older pre-marker _dashboard-core helper body',
@@ -1626,7 +1626,7 @@ like( $paths_output, qr/home_runtime_root/, 'CLI::Paths default table includes t
 
     like(
         _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => ['bogus'] ) } ),
-        qr/Usage: dashboard path <resolve\|locate\|cdr\|complete-cdr\|add\|del\|rm\|project-root\|list> \.\.\./,
+        qr/Usage: d2 path <resolve\|locate\|cdr\|complete-cdr\|add\|del\|rm\|project-root\|list> \.\.\./,
         'CLI::Paths rejects unsupported path subcommands with a usage error',
     );
 
@@ -1687,7 +1687,7 @@ like( $paths_output, qr/home_runtime_root/, 'CLI::Paths default table includes t
 
     like(
         _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => ['bogus'] ) } ),
-        qr/Usage: dashboard file <resolve\|locate\|add\|del\|list> \.\.\./,
+        qr/Usage: d2 file <resolve\|locate\|add\|del\|list> \.\.\./,
         'CLI::Files rejects unsupported file subcommands with a usage error',
     );
 
@@ -2011,8 +2011,8 @@ like(
             );
         }
     ),
-    qr/Workspace 'unregistered-workspace' is not a registered dashboard path/,
-    'workspace -c refuses to run when the workspace name is not a registered dashboard path',
+    qr/Workspace 'unregistered-workspace' is not a registered d2 path/,
+    'workspace -c refuses to run when the workspace name is not a registered d2 path',
 );
 {
     my $not_dir_root = tempdir( CLEANUP => 1 );
@@ -2154,12 +2154,12 @@ like(
             },
         ),
         1,
-        'apply_ticket_status succeeds when it resolves the dashboard entrypoint from the environment',
+        'apply_ticket_status succeeds when it resolves the d2 entrypoint from the environment',
     );
     like(
         join( "\n", map { join ' ', @{$_} } @tmux_calls ),
         qr{/tmp/fake-dashboard' ps1 --mode tmux-status-top --width \#\{client_width\}},
-        'apply_ticket_status uses the environment-provided dashboard entrypoint in the tmux status command',
+        'apply_ticket_status uses the environment-provided d2 entrypoint in the tmux status command',
     );
 }
 {
@@ -2186,7 +2186,7 @@ like(
     my @tmux_calls;
     no warnings 'redefine';
     local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = '';
-    local *Developer::Dashboard::CLI::Ticket::command_in_path = sub { return '/tmp/bin/dashboard'; };
+    local *Developer::Dashboard::CLI::Ticket::command_in_path = sub { return '/tmp/bin/d2'; };
     is(
         Developer::Dashboard::CLI::Ticket::apply_ticket_status(
             session => 'DD-795',
@@ -2198,12 +2198,12 @@ like(
             },
         ),
         1,
-        'apply_ticket_status succeeds when it resolves the dashboard entrypoint from PATH',
+        'apply_ticket_status succeeds when it resolves the d2 entrypoint from PATH',
     );
     like(
         join( "\n", map { join ' ', @{$_} } @tmux_calls ),
-        qr{/tmp/bin/dashboard' ps1 --mode tmux-status-top --width \#\{client_width\}},
-        'apply_ticket_status uses the PATH-resolved dashboard entrypoint in the tmux status command',
+        qr{/tmp/bin/d2' ps1 --mode tmux-status-top --width \#\{client_width\}},
+        'apply_ticket_status uses the PATH-resolved d2 entrypoint in the tmux status command',
     );
 }
 {
@@ -2222,12 +2222,12 @@ like(
             },
         ),
         1,
-        'apply_ticket_status falls back to the literal dashboard command name when no explicit entrypoint can be resolved',
+        'apply_ticket_status falls back to the literal d2 command name when no explicit entrypoint can be resolved',
     );
     like(
         join( "\n", map { join ' ', @{$_} } @tmux_calls ),
-        qr/\#\('dashboard' ps1 --mode tmux-status-top --width \#\{client_width\}\)/,
-        'apply_ticket_status uses the literal dashboard command fallback in the tmux status command',
+        qr/\#\('d2' ps1 --mode tmux-status-top --width \#\{client_width\}\)/,
+        'apply_ticket_status uses the literal d2 command fallback in the tmux status command',
     );
 }
 {
@@ -2562,7 +2562,7 @@ ok(
 {
     local $0 = '';
     local $ENV{DEVELOPER_DASHBOARD_COMMAND} = '';
-    is( Developer::Dashboard::Runtime::Result::_command_name(), 'dashboard', '_command_name falls back to dashboard when neither $0 nor env provide a name' );
+    is( Developer::Dashboard::Runtime::Result::_command_name(), 'd2', '_command_name falls back to d2 when neither $0 nor env provide a name' );
 }
 {
     local $0 = '/tmp/custom-report/run';
@@ -2577,7 +2577,7 @@ ok(
 {
     local $0 = '/run';
     local $ENV{DEVELOPER_DASHBOARD_COMMAND} = '';
-    is( Developer::Dashboard::Runtime::Result::_command_name(), 'dashboard', '_command_name falls back to dashboard when run-style paths have no usable parent name and env is empty' );
+    is( Developer::Dashboard::Runtime::Result::_command_name(), 'd2', '_command_name falls back to d2 when run-style paths have no usable parent name and env is empty' );
 }
 {
     local $ENV{RESULT} = '{"01-foo":{"stdout":"ok\\n","stderr":"","exit_code":0},"02-bar":{"stdout":"","stderr":"bad\\n","exit_code":1}}';
@@ -2688,7 +2688,7 @@ SH
     0755,
 );
 _write_file(
-    File::Spec->catfile( $fake_bin, 'dashboard' ),
+    File::Spec->catfile( $fake_bin, 'd2' ),
     <<"SH",
 #!/bin/sh
 printf '%s\\n' "\$*" >> "$dashboard_log"
@@ -2789,7 +2789,7 @@ is_deeply(
         { id => 'install_ddfile',       label => 'Install ddfile dependencies' },
         { id => 'install_ddfile_local', label => 'Install ddfile.local dependencies' },
     ],
-    'install_progress_tasks returns the documented dashboard skills install task sequence',
+    'install_progress_tasks returns the documented d2 skills install task sequence',
 );
 {
     my @events;
@@ -3670,12 +3670,12 @@ ok( !$manager->install( 'file://' . $no_dep_repo )->{error}, 'skill manager inst
     make_path($stacked_repo);
     _write_file( File::Spec->catfile( $stacked_repo, 'ddfile' ), "stacked-skill\nfresh-skill\n" );
 
-    open my $dashboard_script_fh, '<', File::Spec->catfile( $fake_bin, 'dashboard' ) or die "Unable to read fake dashboard script: $!";
+    open my $dashboard_script_fh, '<', File::Spec->catfile( $fake_bin, 'd2' ) or die "Unable to read fake dashboard script: $!";
     my $original_dashboard_script = do { local $/; <$dashboard_script_fh> };
     close $dashboard_script_fh;
 
     _write_file(
-        File::Spec->catfile( $fake_bin, 'dashboard' ),
+        File::Spec->catfile( $fake_bin, 'd2' ),
         <<"SH",
 #!/bin/sh
 printf '%s\\n' "\$*" >> "$dashboard_log"
@@ -3702,7 +3702,7 @@ SH
     close $stacked_dashboard_log_fh;
     is_deeply( \@stacked_dashboard_steps, ['skills install fresh-skill'], '_install_skill_ddfile only invokes dashboard install for dependencies missing from the current install stack' );
 
-    _write_file( File::Spec->catfile( $fake_bin, 'dashboard' ), $original_dashboard_script, 0755 );
+    _write_file( File::Spec->catfile( $fake_bin, 'd2' ), $original_dashboard_script, 0755 );
 }
 {
     my $bad_root_repo = File::Spec->catdir( $test_repos, 'bad-root-dd-skill' );
@@ -4030,9 +4030,9 @@ SH
             args    => [ 'install', '-o', 'json' ],
         );
     };
-    is( $cli_exit, 0, 'bare dashboard skills install does not die when a root ddfile exists' );
-    is( $cli_code, 0, 'bare dashboard skills install returns success after consuming the root ddfile' );
-    is( $cli_stderr, '', 'bare dashboard skills install does not print usage errors when a root ddfile exists' );
+    is( $cli_exit, 0, 'bare d2 skills install does not die when a root ddfile exists' );
+    is( $cli_code, 0, 'bare d2 skills install returns success after consuming the root ddfile' );
+    is( $cli_stderr, '', 'bare d2 skills install does not print usage errors when a root ddfile exists' );
     is_deeply(
         json_decode($cli_stdout)->{operations},
         [
@@ -4047,7 +4047,7 @@ SH
                 changed        => 1,
             },
         ],
-        'bare dashboard skills install reports a first root-ddfile install without VERSION metadata as installed',
+        'bare d2 skills install reports a first root-ddfile install without VERSION metadata as installed',
     );
 }
 {
@@ -4066,14 +4066,14 @@ SH
             args    => [ 'install', '-o', 'json', @cli_sources ],
         );
     };
-    is( $multi_cli_exit, 0, 'dashboard skills install with multiple sources does not die' );
-    is( $multi_cli_code, 0, 'dashboard skills install with multiple sources returns success' );
-    is( $multi_cli_stderr, '', 'dashboard skills install with multiple sources does not print usage errors' );
-    is_deeply( json_decode($multi_cli_stdout)->{sources}, \@cli_sources, 'dashboard skills install accepts multiple explicit sources in order' );
+    is( $multi_cli_exit, 0, 'd2 skills install with multiple sources does not die' );
+    is( $multi_cli_code, 0, 'd2 skills install with multiple sources returns success' );
+    is( $multi_cli_stderr, '', 'd2 skills install with multiple sources does not print usage errors' );
+    is_deeply( json_decode($multi_cli_stdout)->{sources}, \@cli_sources, 'd2 skills install accepts multiple explicit sources in order' );
     is(
         _read_file( File::Spec->catfile( $multi_cli_paths->home_runtime_root, 'ddfile' ) ),
         join( "\n", @cli_sources ) . "\n",
-        'dashboard skills install registers every explicit source from one multi-source command',
+        'd2 skills install registers every explicit source from one multi-source command',
     );
 
     my $alias_cli_code;
@@ -4083,10 +4083,10 @@ SH
             args    => [ 'list', '-o', 'json' ],
         );
     };
-    is( $alias_cli_exit, 0, 'dashboard skill alias command runtime does not die' );
-    is( $alias_cli_code, 0, 'dashboard skill alias command runtime returns success' );
-    is( $alias_cli_stderr, '', 'dashboard skill alias command runtime does not emit errors' );
-    is( scalar @{ json_decode($alias_cli_stdout)->{skills} }, 2, 'dashboard skill alias reaches the skills management command family' );
+    is( $alias_cli_exit, 0, 'd2 skill alias command runtime does not die' );
+    is( $alias_cli_code, 0, 'd2 skill alias command runtime returns success' );
+    is( $alias_cli_stderr, '', 'd2 skill alias command runtime does not emit errors' );
+    is( scalar @{ json_decode($alias_cli_stdout)->{skills} }, 2, 'd2 skill alias reaches the skills management command family' );
 }
 {
     my $broken_repo = _create_skill_repo( $test_repos, 'broken-update-skill', with_cpanfile => 0 );
@@ -4111,7 +4111,7 @@ SH
         $root_ddfile,
         join(
             "\n",
-            '# dashboard skills',
+            '# d2 skills',
             $install_source,
             $keep_source,
             'owner/registered-uninstall-skill',
@@ -4123,7 +4123,7 @@ SH
     ok( !$manager->uninstall('registered-uninstall-skill')->{error}, 'uninstall succeeds for a skill registered in the root ddfile' );
     is(
         _read_file($root_ddfile),
-        join( "\n", '# dashboard skills', $keep_source, q{} ),
+        join( "\n", '# d2 skills', $keep_source, q{} ),
         'uninstall removes matching root ddfile entries while preserving unrelated sources and comments',
     );
 }
@@ -4188,7 +4188,7 @@ ok( $manager->get_skill_path( 'dep-skill', include_disabled => 1 ), 'get_skill_p
 is_deeply(
     $dispatcher->dispatch( 'dep-skill', 'run-test' ),
     {
-        error => "Skill 'dep-skill' is disabled.\n\nEnable it with:\n  dashboard skills enable dep-skill\n",
+        error => "Skill 'dep-skill' is disabled.\n\nEnable it with:\n  d2 skills enable dep-skill\n",
     },
     'dispatcher rejects disabled skills explicitly',
 );
@@ -4971,7 +4971,7 @@ sub _dies {
     my $output = '';
     open my $fh, '>', \$output or die "Unable to open scalar handle for progress output: $!";
     my $progress = Developer::Dashboard::CLI::Progress->new(
-        title   => 'dashboard restart progress',
+        title   => 'd2 restart progress',
         tasks   => [
             { id => 'stop_web',  label => 'Stop dashboard web service' },
             { id => 'start_web', label => 'Start dashboard web service' },
@@ -4979,7 +4979,7 @@ sub _dies {
         stream  => $fh,
         dynamic => 1,
     );
-    like( $output, qr/dashboard restart progress/, 'CLI::Progress renders the board title immediately' );
+    like( $output, qr/d2 restart progress/, 'CLI::Progress renders the board title immediately' );
     like( $output, qr/\[ \] Stop dashboard web service/, 'CLI::Progress renders pending tasks with an empty checkbox marker' );
     like( $output, qr/\[ \] Start dashboard web service/, 'CLI::Progress renders later pending tasks before work begins' );
     $progress->callback->( { task_id => 'stop_web', status => 'running' } );
@@ -4999,7 +4999,7 @@ sub _dies {
     my $output = '';
     open my $fh, '>', \$output or die "Unable to open scalar handle for progress output: $!";
     my $progress = Developer::Dashboard::CLI::Progress->new(
-        title   => 'dashboard skills install progress',
+        title   => 'd2 skills install progress',
         tasks   => [
             { id => 'fetch_source',   label => 'Fetch skill source' },
             { id => 'prepare_layout', label => 'Prepare skill layout' },
@@ -5024,7 +5024,7 @@ sub _dies {
     my $output = '';
     open my $fh, '>', \$output or die "Unable to open scalar handle for progress output: $!";
     my $progress = Developer::Dashboard::CLI::Progress->new(
-        title   => 'dashboard skills install progress',
+        title   => 'd2 skills install progress',
         max_detail_lines => 10,
         tasks   => [
             { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
@@ -5056,7 +5056,7 @@ sub _dies {
             label   => 'Install brewfile dependencies from /tmp/skill/brewfile',
         }
     );
-    my @boards = $output =~ /(dashboard skills install progress.*?)(?=dashboard skills install progress|\z)/sg;
+    my @boards = $output =~ /(d2 skills install progress.*?)(?=d2 skills install progress|\z)/sg;
     my $last_board = $boards[-1] || '';
     unlike( $last_board, qr/brew line 12/, 'CLI::Progress collapses active detail lines once the task completes successfully' );
 }
@@ -5066,7 +5066,7 @@ sub _dies {
     my $output = '';
     open my $fh, '>', \$output or die "Unable to open scalar handle for progress output: $!";
     my $progress = Developer::Dashboard::CLI::Progress->new(
-        title   => 'dashboard restart progress',
+        title   => 'd2 restart progress',
         tasks   => [ { id => 'stop_web', label => 'Stop dashboard web service' } ],
         stream  => $fh,
         dynamic => 0,
@@ -5331,7 +5331,7 @@ __END__
 
 This test closes direct branch coverage for private helper packaging, query
 parsing, runtime results, path registries, isolated skills, and cross-shell
-prompt bootstrap delegation to the common C<dashboard ps1> renderer. Its path
+prompt bootstrap delegation to the common C<d2 ps1> renderer. Its path
 completion checks also ensure cdr suggestions advance one directory level at
 a time rather than recursively scanning alias targets. The skill dispatcher
 fixture also verifies home runtime defaults load before skill values and
@@ -5353,7 +5353,7 @@ Use this file when changing helper packaging, query parsing, path registries
 and cdr completion, skill dispatch, or the generated Bash, Zsh, sh, and
 PowerShell prompt adapters.
 The shell bootstrap assertions verify the shell-specific hook delegates to the
-same C<dashboard ps1> output path.
+same C<d2 ps1> output path.
 
 =head1 HOW TO USE
 

@@ -4242,7 +4242,7 @@
       has to fall back to persisted-state listener pids, and still escalate the
       saved pid to KILL when process discovery lags after TERM
     - scope web stop ajax cleanup to the current dashboard runtime root instead
-      of sweeping every `dashboard ajax:` process owned by the user
+      of sweeping every `d2 ajax:` process owned by the user
     - make collector loop shutdown kill active worker process groups so
       long-running singleton commands stop with the collector loop instead of
       surviving as orphaned subprocesses

@@ -535,7 +535,7 @@ is( scalar @hook_paths, 2, 'command_hook_paths lists only the runnable hook file
 is( $disp->_page_location( '', 'index' ),    undef, '_page_location guards a missing skill name' );
 is( $disp->_page_location( 'runner', '' ),   undef, '_page_location guards a missing route id' );
 my ( $idx_file, $idx_owner ) = $disp->_page_location( 'runner', 'index' );
-ok( -f $idx_file, '_page_location resolves an existing dashboard file' );
+ok( -f $idx_file, '_page_location resolves an existing d2 file' );
 
 {
     my $died = !eval { $disp->_load_skill_page( route_id => 'index' ); 1 };
@@ -974,7 +974,7 @@ focused test with:
 
 The repository test harness and the Devel::Cover release gate use this file to
 lock down skill dispatcher behaviour that sits behind dotted
-C<dashboard E<lt>repoE<gt>.E<lt>commandE<gt>> dispatch and the skill browser
+C<d2 E<lt>repoE<gt>.E<lt>commandE<gt>> dispatch and the skill browser
 routes.
 
 =head1 EXAMPLES

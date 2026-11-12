@@ -383,8 +383,8 @@ makes mandatory.
 Run these checks:
 
 ```bash
-dashboard doctor
-dashboard doctor --fix
+d2 doctor
+d2 doctor --fix
 prove -lr t
 ```
 

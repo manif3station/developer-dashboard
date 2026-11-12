@@ -52,8 +52,8 @@ ok( ref($spawn_options) eq 'HASH', 'native process spawn receives an options has
 is( $spawn_options->{cwd}, $home, 'native supervisor starts in the validated action cwd' );
 is( $spawn_options->{process_group}, 1, 'native supervisor gets an isolated process group' );
 is( $spawn_options->{stdin}, File::Spec->devnull(), 'native supervisor has no inherited stdin' );
-is( $spawn_options->{stdout}, $files->dashboard_log, 'native supervisor stdout is recorded in the dashboard log' );
-is( $spawn_options->{stderr}, $files->dashboard_log, 'native supervisor stderr is recorded in the dashboard log' );
+is( $spawn_options->{stdout}, $files->dashboard_log, 'native supervisor stdout is recorded in the d2 log' );
+is( $spawn_options->{stderr}, $files->dashboard_log, 'native supervisor stderr is recorded in the d2 log' );
 is( $spawn_options->{env}{DASHBOARD_BACKGROUND_TEST}, 'present', 'action environment is passed to the native supervisor' );
 my $supervisor_payload = json_decode( $spawn_argv->[-1] );
 ok( ref($supervisor_payload) eq 'HASH', 'native supervisor receives a structured JSON payload' );

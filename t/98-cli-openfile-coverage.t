@@ -193,7 +193,7 @@ is_deeply( [ oc('_select_open_file_matches') ],                     [],         
 is_deeply( [ oc( '_select_open_file_matches', matches => ['solo'] ) ], ['solo'], 'single match returns immediately' );
 {
     # A pipe with data already written and then closed behaves exactly like
-    # the historical "piped answer" usage (printf '2\n' | dashboard of ...,
+    # the historical "piped answer" usage (printf '2\n' | d2 of ...,
     # t/05-cli-smoke.t) - IO::Select reports it ready immediately (EOF is a
     # readable event), so this exercises the real, unmocked
     # _stdin_has_pending_input() as well as the read/EOF path below it.
@@ -504,7 +504,7 @@ is_deeply( [ oc( '_named_source_matches', paths => $reg ) ], [], 'missing name y
 {
     like( eval { grep_matching_files(args => {}); 1 } ? '' : $@, qr/grep args must be an array reference/,
         'grep adapter rejects a non-array argument value' );
-    like( eval { grep_matching_files(); 1 } ? '' : $@, qr/^Usage: dashboard of grep/,
+    like( eval { grep_matching_files(); 1 } ? '' : $@, qr/^Usage: d2 of grep/,
         'grep adapter rejects an empty argument list' );
 
     my $grep_root = catdir( $home, 'grep-root' );
@@ -526,9 +526,9 @@ is_deeply( [ oc( '_named_source_matches', paths => $reg ) ], [], 'missing name y
         eval { run_open_file_command( paths => $reg, args => [ '--print', 'grep', '-nr', 'needle', $grep_root ] ) };
         $print_error = $@;
     };
-    like( $print_error, qr/^EXIT:0/, 'dashboard of --print grep exits successfully after printing matches' );
+    like( $print_error, qr/^EXIT:0/, 'd2 of --print grep exits successfully after printing matches' );
     is_deeply( [ sort split /\n/, $grep_print ], [ sort ( $match_a, $match_b, catfile( $grep_root, 'named:123:file.txt' ) ) ],
-        'dashboard of --print grep uses the content-search adapter' );
+        'd2 of --print grep uses the content-search adapter' );
 
     my $bare_print_error;
     eval { run_open_file_command( paths => $reg, args => ['--print'] ); 1 };
@@ -551,9 +551,9 @@ is_deeply( [ oc( '_named_source_matches', paths => $reg ) ], [], 'missing name y
         eval { run_open_file_command( paths => $reg, args => [ 'grep', '-nr', 'needle', $grep_root ] ) };
         $editor_error = $@;
     };
-    like( $editor_error, qr/^EDITOR EXECUTED/, 'dashboard of grep reaches the editor launch after matching content' );
+    like( $editor_error, qr/^EDITOR EXECUTED/, 'd2 of grep reaches the editor launch after matching content' );
     is_deeply( \@editor_command, [ 'vim', '-p', $match_a, $match_b ],
-        'dashboard of grep opens the unique matching files in vim tabs' );
+        'd2 of grep opens the unique matching files in vim tabs' );
 
     my @single_editor_command;
     my $single_editor_error;
@@ -571,9 +571,9 @@ is_deeply( [ oc( '_named_source_matches', paths => $reg ) ], [], 'missing name y
         eval { run_open_file_command( paths => $reg, args => [ 'grep', '-nr', 'needle', $grep_root ] ) };
         $single_editor_error = $@;
     }
-    like( $single_editor_error, qr/^SINGLE EDITOR EXECUTED/, 'dashboard of grep launches editors without tab support' );
+    like( $single_editor_error, qr/^SINGLE EDITOR EXECUTED/, 'd2 of grep launches editors without tab support' );
     is_deeply( \@single_editor_command, [ 'editor', $match_a, $match_b ],
-        'dashboard of grep omits the tab flag for an editor without tab support' );
+        'd2 of grep omits the tab flag for an editor without tab support' );
 
     my $no_match_error;
     eval {
@@ -581,7 +581,7 @@ is_deeply( [ oc( '_named_source_matches', paths => $reg ) ], [], 'missing name y
         1;
     };
     $no_match_error = $@;
-    like( $no_match_error, qr/^No files found\n/, 'dashboard of grep reports an explicit error when no file matches' );
+    like( $no_match_error, qr/^No files found\n/, 'd2 of grep reports an explicit error when no file matches' );
 
     my $grep_error;
     capture {
@@ -1206,8 +1206,8 @@ t/98-cli-openfile-coverage.t - branch and condition coverage for the open-file C
 =head1 PURPOSE
 
 This test drives every decision point in
-C<Developer::Dashboard::CLI::OpenFile>, the library behind C<dashboard of> and
-C<dashboard open-file>. It exercises direct path, C<file:line>, file-alias,
+C<Developer::Dashboard::CLI::OpenFile>, the library behind C<d2 of> and
+C<d2 open-file>. It exercises direct path, C<file:line>, file-alias,
 scoped-relative, complete C<@INC>-based Perl-module and Java-class resolution,
 recursive content-grep dispatch, the numbered chooser flow, editor-command
 selection, and Java source-archive/Maven download lookups, including guard,

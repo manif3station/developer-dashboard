@@ -346,7 +346,7 @@ my $is_root = ( $> == 0 );
     # DD-598: the PID-reuse regression this ticket exists to fix. This test
     # process's own pid is a REAL, live pid - but it is not the "live"
     # collector loop (no DEVELOPER_DASHBOARD_LOOP_NAME=live marker, no
-    # "dashboard collector: live" process title). A bare kill(0,$$) used to
+    # "d2 collector: live" process title). A bare kill(0,$$) used to
     # be trusted as "still alive"; the fix must reject it on identity.
     my $live_root = File::Spec->catdir( $home, 'live-root' );
     make_path( File::Spec->catdir( $live_root, 'collectors' ) );

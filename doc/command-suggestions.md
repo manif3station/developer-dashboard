@@ -18,8 +18,8 @@ dashboard dcoekr
 dashboard skils list
 ```
 
-The stderr guidance now points at likely corrections such as `dashboard docker`
-or `dashboard skills` instead of only dumping the generic usage block.
+The stderr guidance now points at likely corrections such as `d2 docker`
+or `d2 skills` instead of only dumping the generic usage block.
 
 Dotted skill commands
 ---------------------
@@ -47,8 +47,8 @@ candidates when the user presses Tab after `dashboard` or `d2`.
 Examples:
 
 ```bash
-dashboard complete 1 dashboard do
-dashboard complete 1 d2 alpha-s
+d2 complete 1 dashboard do
+d2 complete 1 d2 alpha-s
 ```
 
 That completion source includes built-in commands, layered custom commands,

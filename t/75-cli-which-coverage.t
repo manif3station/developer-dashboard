@@ -140,7 +140,7 @@ my $tool = make_exec( File::Spec->catfile( $cli_root, 'coverage-tool' ) );
         }
     );
     is( $rc, 0, 'run_which_command --edit returns 0 after handing off to open-file' );
-    is( $exec[0], 'dashboard', 'run_which_command --edit re-enters via the default dashboard entrypoint' );
+    is( $exec[0], 'd2', 'run_which_command --edit re-enters via the default d2 entrypoint' );
     is( $exec[1], 'open-file', 'run_which_command --edit re-enters the open-file command' );
     like( $exec[2], qr/coverage-tool/, 'run_which_command --edit hands the resolved command path to open-file' );
     is( $out, '', 'run_which_command --edit prints no inspection output' );
@@ -309,8 +309,8 @@ is( scalar Developer::Dashboard::CLI::Which::_resolve_directory_runner( File::Sp
     delete $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT};
     is_deeply(
         [ Developer::Dashboard::CLI::Which::_dashboard_entry_command() ],
-        ['dashboard'],
-        '_dashboard_entry_command defaults to the public dashboard entrypoint',
+        ['d2'],
+        '_dashboard_entry_command defaults to the public d2 entrypoint',
     );
 }
 
@@ -333,13 +333,13 @@ is( scalar Developer::Dashboard::CLI::Which::_resolve_directory_runner( File::Sp
     is_deeply(
         [ Developer::Dashboard::CLI::Which::_dashboard_entry_command() ],
         [$entrypoint],
-        'which --edit executes an existing executable dashboard entrypoint directly',
+        'which --edit executes an existing executable d2 entrypoint directly',
     );
 }
 
 # --- main-gate hook discovery (DD-810) ---------------------------------------
 # The switchboard runs <layer>/hooks/* once per invocation before the command is
-# resolved, so `dashboard which` reports those hooks ahead of the per-command
+# resolved, so `d2 which` reports those hooks ahead of the per-command
 # ones. Drive the registry guard, the no-hooks-root skip, the runnable / `run` /
 # subdirectory filters, the deepest-first layer order, and the printed order.
 {
@@ -417,15 +417,15 @@ __END__
 
 =head1 NAME
 
-t/75-cli-which-coverage.t - branch and condition closure for the dashboard which locator
+t/75-cli-which-coverage.t - branch and condition closure for the d2 which locator
 
 =head1 PURPOSE
 
 This test is the executable coverage contract for
-C<Developer::Dashboard::CLI::Which>, the runtime behind C<dashboard which>. It
+C<Developer::Dashboard::CLI::Which>, the runtime behind C<d2 which>. It
 drives every decision the locator makes: printing the resolved C<COMMAND> and
 C<HOOK> lines for a custom command, dying when a target cannot be resolved,
-re-entering C<dashboard open-file> under C<--edit>, and the argument-guard,
+re-entering C<d2 open-file> under C<--edit>, and the argument-guard,
 empty-HOME, skill-target, hook-directory, and directory-runner branches that the
 higher-level CLI smoke tests never reach.
 
@@ -441,7 +441,7 @@ that exercises both sides of each guard, those branches silently rot and the
 
 =head1 WHEN TO USE
 
-Use this file when changing how C<dashboard which> resolves a target, how it
+Use this file when changing how C<d2 which> resolves a target, how it
 prints or suppresses hook lines, how C<--edit> hands off to open-file, how skill
 command and hook discovery is presented, or how the directory-backed C<run.*>
 entrypoint fallback is resolved. Extend it first, watch it fail, then implement,

@@ -773,7 +773,7 @@ sub refresh_core_indicators {
     # read $? into their own return values, but without this guard the raw,
     # unshifted $? from whichever ran last stays set in the caller's process
     # after this sub returns - and this sub is called from share/private-cli/ps1
-    # and _dashboard-core, so that pollution is live in the 'dashboard ps1'
+    # and _dashboard-core, so that pollution is live in the 'd2 ps1'
     # process, not merely theoretical. `local` restores the caller's $? on
     # return regardless of how many system() calls run inside.
     local $?;

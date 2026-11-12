@@ -40,7 +40,7 @@ chdir $home or die "Unable to chdir to $home: $!";
     is( d2->paths->{home}, $direct->home, 'AC-1: d2->paths->{home} matches PathRegistry->home directly' );
 }
 
-# AC-2: a custom alias added the same way `dashboard path add` does (through
+# AC-2: a custom alias added the same way `d2 path add` does (through
 # the real CLI dispatch, so it is genuinely persisted, not a stub) is
 # resolvable through d2->paths too.
 {
@@ -75,7 +75,7 @@ chdir $home or die "Unable to chdir to $home: $!";
 }
 
 # AC-5/AC-8: a bareword single-word method (AUTOLOAD) shells to the real
-# `dashboard <name>` and a nonzero exit dies with stderr attached, rather
+# `d2 <name>` and a nonzero exit dies with stderr attached, rather
 # than silently returning as if it had succeeded.
 {
     # REWRITTEN FOR Q-101. This used to assert that a bareword call shells out
@@ -93,13 +93,13 @@ chdir $home or die "Unable to chdir to $home: $!";
     like( $@, qr/failed \(exit \d+\)/, 'and the die message names the exit code' );
 }
 
-# AC-6/AC-7: Handle->run() drives an arbitrary "dashboard"-named executable
+# AC-6/AC-7: Handle->run() drives an arbitrary "d2"-named executable
 # on PATH (stubbed here so the test does not depend on the real CLI's own
 # subcommand set), decoding JSON-shaped stdout and passing through plain
 # text, to isolate the run()/AUTOLOAD contract from the real CLI's behavior.
 {
     my $bin_dir = tempdir( CLEANUP => 1 );
-    my $stub    = File::Spec->catfile( $bin_dir, 'dashboard' );
+    my $stub    = File::Spec->catfile( $bin_dir, 'd2' );
     open my $fh, '>', $stub or die $!;
     print {$fh} <<'STUB';
 #!/bin/sh
@@ -189,7 +189,7 @@ STUB
 # not be mistaken for the decoded-structure case.
 {
     my $bin_dir = tempdir( CLEANUP => 1 );
-    my $stub    = File::Spec->catfile( $bin_dir, 'dashboard' );
+    my $stub    = File::Spec->catfile( $bin_dir, 'd2' );
     open my $fh, '>', $stub or die $!;
     print {$fh} <<'STUB';
 #!/bin/sh
@@ -252,7 +252,7 @@ is( scalar(@warnings), 0, 'no warnings escaped: ' . join( '; ', @warnings ) );
 {
     my $bin_dir = tempdir( CLEANUP => 1 );
     my $log     = File::Spec->catfile( $bin_dir, 'invocations' );
-    my $stub    = File::Spec->catfile( $bin_dir, 'dashboard' );
+    my $stub    = File::Spec->catfile( $bin_dir, 'd2' );
     open my $sfh, '>', $stub or die "Unable to write $stub: $!";
     print {$sfh} <<"STUB";
 #!/bin/sh
@@ -412,7 +412,7 @@ STUB
             'Q-101: and stringifies as a proxy at depth 1 too' );
         $reset->();
         eval { $one->(); 1 };
-        is_deeply( [ $invocations->() ], ['doctor'], 'Q-101: terminating it invokes `dashboard doctor`' );
+        is_deeply( [ $invocations->() ], ['doctor'], 'Q-101: terminating it invokes `d2 doctor`' );
     }
 
     # AC-4 run() UNCHANGED - the documented bypass other code depends on.
@@ -427,7 +427,7 @@ STUB
     # AC-6 HOOKS STILL RUN. Asserted here by its MECHANISM, which is the thing a
     # refactor could actually lose (the main-gate block near the end of this file
     # asserts the consequence directly, with a real layered runtime). Layered pre-run hooks execute because
-    # Handle::run shells out through the real `dashboard` entrypoint; anything
+    # Handle::run shells out through the real `d2` entrypoint; anything
     # that reaches the CLI that way gets them for free. So what has to hold is
     # that the proxy terminator goes through run() and inherits its WHOLE
     # contract, rather than growing its own system() call that would bypass the
@@ -437,7 +437,7 @@ STUB
     # _execute shell out directly, both would break loudly.
     {
         my $json_dir = tempdir( CLEANUP => 1 );
-        my $js = File::Spec->catfile( $json_dir, 'dashboard' );
+        my $js = File::Spec->catfile( $json_dir, 'd2' );
         open my $jfh, '>', $js or die "Unable to write $js: $!";
         print {$jfh} <<'JSTUB';
 #!/bin/sh
@@ -494,7 +494,7 @@ JSTUB
 # DD-810 AC-2/AC-6 - THE MAIN GATE IS INHERITED THROUGH THE HANDLE, asserted
 # DIRECTLY this time. The AC-6 block above proves the mechanism (run() reaches
 # the real entrypoint); this block proves the consequence with a real layered
-# runtime: a `dashboard` on PATH that execs the checkout's own bin/dashboard, a
+# runtime: a `d2` on PATH that execs the checkout's own bin/d2, a
 # main-gate hook under <home>/.developer-dashboard/hooks/, and a marker file the
 # hook appends its argv to. Handle::run('version') must fire that hook exactly
 # once, with the full command argv, and the command must still answer.
@@ -514,8 +514,8 @@ JSTUB
     chmod 0755, $hook or die "Unable to chmod $hook: $!";
 
     my $real_dir   = tempdir( CLEANUP => 1 );
-    my $real       = File::Spec->catfile( $real_dir, 'dashboard' );
-    my $entrypoint = File::Spec->catfile( $starting_cwd, 'bin', 'dashboard' );
+    my $real       = File::Spec->catfile( $real_dir, 'd2' );
+    my $entrypoint = File::Spec->catfile( $starting_cwd, 'bin', 'd2' );
     my $lib        = File::Spec->catdir( $starting_cwd, 'lib' );
     open my $rfh, '>', $real or die "Unable to write $real: $!";
     print {$rfh} "#!/bin/sh\nexec '$^X' -I'$lib' '$entrypoint' \"\$@\"\n";
@@ -549,7 +549,7 @@ t/166-dashboard-d2-handle.t - spec for the exported d2() Perl-code proxy
 =head1 PURPOSE
 
 Assert that C<d2()>, exported by L<Developer::Dashboard>, gives Perl code a
-one-line equivalent of the C<dashboard>/C<d2> command line, both for the
+one-line equivalent of the C<d2>/C<d2> command line, both for the
 fast in-process path-alias case and for the general subcommand proxy.
 
 =head1 WHY IT EXISTS
@@ -578,6 +578,6 @@ entrypoint for external Perl code embedding this distribution.
 
 The assertion that matters reads as the property it protects:
 
-    d2->paths->{name} matches what `dashboard path resolve name` prints
+    d2->paths->{name} matches what `d2 path resolve name` prints
 
 =cut

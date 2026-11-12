@@ -98,7 +98,7 @@ sub all_files {
 }
 
 # all_file_aliases()
-# Returns the runtime named file inventory exposed by dashboard file list.
+# Returns the runtime named file inventory exposed by d2 file list.
 # Input: none.
 # Output: hash reference of built-in logical file names to absolute file paths.
 sub all_file_aliases {
@@ -161,7 +161,7 @@ sub locate_files_under {
 # DD-868: the method-name fallback below must dispatch ONLY to these
 # no-arg path getters - never to the class's other public methods (which
 # take required arguments and/or mutate state), or a name typed straight
-# from the CLI (dashboard file resolve/locate) becomes an arbitrary method
+# from the CLI (d2 file resolve/locate) becomes an arbitrary method
 # call on this object.
 my %RESOLVABLE_ACCESSOR = map { $_ => 1 } qw(
   prompt_log collector_log dashboard_log global_config

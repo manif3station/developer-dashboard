@@ -763,7 +763,7 @@ ignored.
 
 =head1 PURPOSE
 
-This module is the ordered env-file loader for the dashboard switchboard and skill dispatcher. Read it when you need to understand which env files participate, in what order they load, and how failures become explicit.
+This module is the ordered env-file loader for the d2 switchboard and skill dispatcher. Read it when you need to understand which env files participate, in what order they load, and how failures become explicit.
 
 =head1 WHY IT EXISTS
 
@@ -784,7 +784,7 @@ Both entrypoints preserve caller-exported values above the files they load.
 
 =head1 WHAT USES IT
 
-It is used by C<bin/dashboard>, by the skill dispatcher, by custom commands and hooks that inherit the loaded environment, and by tests that verify precedence and failure behavior.
+It is used by C<bin/d2>, by the skill dispatcher, by custom commands and hooks that inherit the loaded environment, and by tests that verify precedence and failure behavior.
 
 =head1 EXAMPLES
 

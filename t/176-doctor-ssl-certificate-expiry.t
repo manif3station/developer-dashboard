@@ -297,7 +297,7 @@ certificate's remaining validity
 
 =head1 PURPOSE
 
-Pins the behaviour DD-651 adds: C<dashboard doctor> reports a certificate that is
+Pins the behaviour DD-651 adds: C<d2 doctor> reports a certificate that is
 close to expiry or already past it, and stays silent about one that is healthy.
 
 =head1 WHY IT EXISTS

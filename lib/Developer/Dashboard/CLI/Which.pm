@@ -16,11 +16,11 @@ use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::SkillManager;
 
 # run_which_command(%args)
-# Dispatches the lightweight dashboard which helper command.
+# Dispatches the lightweight d2 which helper command.
 # Input: command name under "command" plus the remaining argv array reference
 # under "args".
 # Output: prints the resolved command path plus hook file paths to STDOUT and
-# returns a process exit code, or re-enters dashboard open-file when --edit is
+# returns a process exit code, or re-enters d2 open-file when --edit is
 # requested, or dies with a usage message when invalid.
 sub run_which_command {
     my (%args) = @_;
@@ -57,15 +57,15 @@ sub run_which_command {
 }
 
 # _usage()
-# Returns the usage text for dashboard which.
+# Returns the usage text for d2 which.
 # Input: none.
 # Output: usage string.
 sub _usage {
-    return "Usage: dashboard which [--edit] <cmd>|<skill>.<cmd>|<skill>.<sub-skill>.<cmd>\n";
+    return "Usage: d2 which [--edit] <cmd>|<skill>.<cmd>|<skill>.<sub-skill>.<cmd>\n";
 }
 
 # _locate_target(%args)
-# Resolves one dashboard command target into the actual runnable file path and
+# Resolves one d2 command target into the actual runnable file path and
 # the ordered hook files that will execute before it.
 # Input: path registry under "paths" and requested command token under
 # "target".
@@ -259,13 +259,13 @@ sub _resolve_directory_runner {
 }
 
 # _dashboard_entry_command()
-# Resolves the public dashboard entrypoint used when which --edit re-enters
-# dashboard open-file.
+# Resolves the public d2 entrypoint used when which --edit re-enters
+# d2 open-file.
 # Input: none.
 # Output: command list using Perl for an existing non-executable dashboard
 # script, or the entrypoint itself for installed executable commands.
 sub _dashboard_entry_command {
-    my $entrypoint = $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} || 'dashboard';
+    my $entrypoint = $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} || 'd2';
     return ( $^X, $entrypoint ) if -f $entrypoint && !-x $entrypoint;
     return ($entrypoint);
 }
@@ -295,22 +295,22 @@ Developer::Dashboard::CLI::Which - lightweight command and hook locator
       command => 'which',
       args    => \@ARGV,
   );
-  # dashboard which [--edit] jq
+  # d2 which [--edit] jq
 
 =head1 DESCRIPTION
 
-Implements the lightweight C<dashboard which> helper so the public entrypoint
+Implements the lightweight C<d2 which> helper so the public entrypoint
 can show the resolved runnable file plus the participating hook files for a
 built-in command, layered custom command, or dotted skill command without
 loading the full runtime. When users pass C<--edit>, it re-enters the public
-C<dashboard open-file> command with the resolved command file path instead of
+C<d2 open-file> command with the resolved command file path instead of
 printing the inspection output.
 
 =for comment FULL-POD-DOC START
 
 =head1 PURPOSE
 
-This module is the command runtime behind C<dashboard which>. It resolves the
+This module is the command runtime behind C<d2 which>. It resolves the
 actual runnable file that the switchboard or skill dispatcher will exec, then
 lists the hook files that will run before that target so contributors can see
 the real execution chain.
@@ -324,10 +324,10 @@ file wins and which hooks will participate.
 
 =head1 WHEN TO USE
 
-Use this file when changing the public C<dashboard which> contract, the way the
+Use this file when changing the public C<d2 which> contract, the way the
 switchboard resolves built-in versus custom commands, or the way skill command
 and hook discovery should be presented for debugging, or the way C<--edit>
-hands off to C<dashboard open-file>.
+hands off to C<d2 open-file>.
 
 =head1 HOW TO USE
 
@@ -340,7 +340,7 @@ executable file directly under a layer's F<hooks/> directory, deepest layer
 first and the home layer last) come before the per-command
 F<E<lt>commandE<gt>.d/> hooks, because the switchboard runs the main gate once
 before it resolves the command. When users add C<--edit>, the
-module skips the printed inspection output and re-enters C<dashboard open-file>
+module skips the printed inspection output and re-enters C<d2 open-file>
 with the resolved command file path so the existing editor-selection behavior
 is reused.
 
@@ -348,16 +348,16 @@ is reused.
 
 It is used by the staged C<which> private helper, by CLI smoke tests that pin
 the visible shell contract, by users who want to open the resolved command file
-through the public C<dashboard open-file> path, and by contributors debugging
+through the public C<d2 open-file> path, and by contributors debugging
 DD-OOP-LAYERS command resolution and skill hook chains.
 
 =head1 EXAMPLES
 
-  dashboard which jq
-  dashboard which layered-tool
-  dashboard which example-skill.run-test
-  dashboard which example-skill.level1.level2.here
-  dashboard which --edit jq
+  d2 which jq
+  d2 which layered-tool
+  d2 which example-skill.run-test
+  d2 which example-skill.level1.level2.here
+  d2 which --edit jq
 
 =for comment FULL-POD-DOC END
 

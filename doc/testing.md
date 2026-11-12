@@ -77,9 +77,9 @@ integration/browser/run-bookmark-browser-smoke.pl \
 
 For long-running saved bookmark Ajax handlers that would otherwise survive a
 browser refresh, prefer `Ajax(..., singleton => 'NAME', ...)`. The runtime will
-rename the Perl worker to `dashboard ajax: NAME`, terminate the older matching
+rename the Perl worker to `d2 ajax: NAME`, terminate the older matching
 Perl stream before it starts the refreshed one, and also tear down matching
-singleton workers during `dashboard stop`, `dashboard restart`, and browser
+singleton workers during `d2 stop`, `d2 restart`, and browser
 `pagehide` cleanup beacons. For browser streaming checks, use `stream_data()`
 or `stream_value()` against a finite saved Ajax handler and assert the final
 DOM after incremental chunks land.
@@ -271,11 +271,11 @@ break helper startup on macOS or other hosts with older local-lib artefacts.
 The runtime-manager coverage cases also use bounded child reaping for stubborn process shutdown scenarios, so `Devel::Cover` runs do not stall indefinitely after the escalation path has already been exercised.
 The collector indicator ordering regression also stays under direct unit
 coverage now: a live `CollectorRunner->run_once()` status write must preserve
-the existing managed indicator `collector_order`, otherwise `dashboard ps1`,
+the existing managed indicator `collector_order`, otherwise `d2 ps1`,
 page-header items, and the browser status board can fall back to name sorting
 after one collector refresh.
 Prompt fast-path coverage also now locks down the low-latency shell contract:
-`dashboard ps1` must not probe `tmux show-environment` unless `TMUX` is
+`d2 ps1` must not probe `tmux show-environment` unless `TMUX` is
 actually set, and it must resolve the trailing git branch from `.git/HEAD`
 metadata without spawning `git branch`. The prompt-only core indicator refresh
 path also skips the hidden `project` and `git` status subprocess checks, so
@@ -367,7 +367,7 @@ GitHub can classify cleanly.
 The same release boundary applies to repo-only verification and bootstrap
 folders: `integration/` and the top-level `updates/` checkout helpers are not
 installed runtime assets and must stay out of the release tarball. The shipped
-runtime contract for `dashboard update` is the user-provided layered command
+runtime contract for `d2 update` is the user-provided layered command
 under `.developer-dashboard/cli/update` or `.developer-dashboard/cli/update.d`,
 not the repository's checkout-only `updates/` folder.
 Shipped library modules must also load correctly from an installed tarball.
@@ -380,7 +380,7 @@ bootstrap target as a compatibility contract: checkout or extracted-tarball
 runs must install `.` locally, streamed `curl ... | sh` runs with no checkout
 must clone the current GitHub `master` checkout instead of silently falling
 back to a stale CPAN release, and the shipped bootstrap package manifests must
-carry `tmux` because `dashboard workspace` is a first-party tmux workflow.
+carry `tmux` because `d2 workspace` is a first-party tmux workflow.
 
 Branch and condition reports are still generated and should be used to drive new edge-case tests, especially when adding new runtime modules.
 
@@ -410,13 +410,13 @@ interpreter that generated the shell fragment, which prevents macOS
 `JSON::XS` ABI mismatches when `/usr/bin/perl` and `~/perl5` belong to
 different Perl builds.
 That same shell-bootstrap coverage now also checks the tmux prompt split:
-when the shell is inside a `dashboard workspace` tmux session, generated bash,
+when the shell is inside a `d2 workspace` tmux session, generated bash,
 zsh, POSIX sh, and PowerShell bootstraps must recognize either the explicit
 `DEVELOPER_DASHBOARD_TMUX_STATUS=1` flag, the seeded `WORKSPACE_REF`, or the
 older compatibility `TICKET_REF`, program a session-local two-line bottom tmux
 status block, keep the normal indexed session/window row visible beneath the
-dashboard indicator row, suppress inline prompt indicators with
-`dashboard ps1 --no-indicators`, and leave ordinary tmux sessions on the
+d2 indicator row, suppress inline prompt indicators with
+`d2 ps1 --no-indicators`, and leave ordinary tmux sessions on the
 normal inline prompt path.
 That helper-staging coverage also executes the staged home-runtime `shell`
 helper itself and verifies it emits the same tmux bootstrap, while rerunning
@@ -459,24 +459,24 @@ The runtime-manager tests also cover:
 
 - POSIX GoRoutine background web startup, listener-readiness persistence, and
   timeout child termination/reaping
-- `dashboard serve` collector startup and failure handling, including explicit startup errors and cleanup of already-started loops when a later collector fails
+- `d2 serve` collector startup and failure handling, including explicit startup errors and cleanup of already-started loops when a later collector fails
 - disabled collector lifecycle handling, including skip-on-start, stop-if-running, and explicit rejection of named starts for collectors with `disable => 1`
 - collector watchdog supervision after startup, including automatic restart of unexpectedly-dead loops and explicit `attention_required` state after repeated crashes inside the watchdog window
 - collector stall supervision after startup, including automatic restart of a live loop that stops updating its status/output timestamps instead of dying outright
 - DD-OOP-LAYERS canonical-path normalization, including a symlinked-home versus canonical-cwd regression that matches macOS `/var/...` and `/private/var/...` alias behaviour
-- CLI `dashboard path project-root` assertions compare path identity instead of raw strings, so packaged installs stay green when macOS resolves the same temp repo through `/private/var/...`
+- CLI `d2 path project-root` assertions compare path identity instead of raw strings, so packaged installs stay green when macOS resolves the same temp repo through `/private/var/...`
 - shell-helper `cdr` and `which_dir` assertions also normalize those `/var/...` versus `/private/var/...` aliases, so source-tree and packaged macOS runs do not fail on equivalent canonical paths
-- `dashboard web: <host>:<port>` process-title detection
+- `d2 web: <host>:<port>` process-title detection
 - `pkill` fallback when pid files are stale or missing
 - `/proc` listener-pid fallback when minimal Linux containers do not provide `ss`
 - saved-port listener fallback for `starman master` listener pids during
-  `dashboard stop` and `dashboard restart`, so real serving pids remain under
+  `d2 stop` and `d2 restart`, so real serving pids remain under
   runtime control even after the original wrapper title disappears
 - Linux pid-namespace isolation for managed web and collector processes, so
   host-side lifecycle checks ignore sibling Docker runtimes that happen to run
   the same Developer Dashboard command names under another namespace
 - packaged fallback assertions that stub `_find_web_processes`, so ambient live dashboard processes on the host cannot contaminate the recorded-pid branch during source-tree, tarball, or PAUSE install runs
-- `dashboard stop` and `dashboard restart` lifecycle behavior
+- `d2 stop` and `d2 restart` lifecycle behavior
 
 The extension tests also cover:
 
@@ -485,11 +485,11 @@ The extension tests also cover:
   `C.UTF-8`, and an emoji-bearing prompt/status marker must survive tmux output.
 - config-backed path alias registration
 - shell helper `cdr` and `which_dir` flows where the first argument may be a saved alias, remaining arguments narrow the alias root with AND-matched regex directory keywords, and non-alias arguments search beneath the current directory with the same regex contract
-- `dashboard of` and `dashboard open-file` regex scope searches, including `Ok\.js$`-style exact suffix matches that must not drift into broader files such as `ok.json`
+- `d2 of` and `d2 open-file` regex scope searches, including `Ok\.js$`-style exact suffix matches that must not drift into broader files such as `ok.json`
 - Java class lookup through live `.java` files, local source archives such as source jars and `src.zip`, and cached Maven source-jar downloads when no local source file exists
 - provider page resolution
 - trusted versus transient action execution policy
-- `dashboard doctor` audits of the current home runtime plus older `$HOME/bookmarks`, `$HOME/config`, `$HOME/cli`, and `$HOME/checkers` trees, including `--fix` permission repair and `cli/doctor.d` hook result capture
+- `d2 doctor` audits of the current home runtime plus older `$HOME/bookmarks`, `$HOME/config`, `$HOME/cli`, and `$HOME/checkers` trees, including `--fix` permission repair and `cli/doctor.d` hook result capture
 - encoded action payload execution
 - CLI hook directories under `~/.developer-dashboard/cli/<command>` or `~/.developer-dashboard/cli/<command>.d` with sorted executable-only hook execution, live streamed hook progress, per-hook `RESULT` rewrites between hook runs, and `Runtime::Result` helper coverage
 - explicit `[[STOP]]` hook-stop behavior, where only the stderr marker skips later hook files while control still returns to the main command path
@@ -498,16 +498,16 @@ The extension tests also cover:
 - direct `.py` custom commands plus executable `.py` hook files resolving through `python`, and direct `.js` custom commands plus executable `.js` hook files resolving through `node`, without breaking existing `.pl`, `.go`, `.java`, `.sh`, `.bash`, `.ps1`, `.cmd`, or `.bat` dispatch
 - directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`
 - non-destructive home helper staging, with dashboard-managed helpers isolated under `~/.developer-dashboard/cli/dd/` and user commands plus hooks preserved under `~/.developer-dashboard/cli/`
-- MD5-aware `dashboard init` helper and seed refreshes, including unchanged mtimes when a dashboard-managed helper or seeded starter page already matches the shipped content
-- empty-object `config.json` bootstrapping when `dashboard init` or `dashboard config init` finds no existing config file, without seeding an example collector
+- MD5-aware `d2 init` helper and seed refreshes, including unchanged mtimes when a dashboard-managed helper or seeded starter page already matches the shipped content
+- empty-object `config.json` bootstrapping when `d2 init` or `d2 config init` finds no existing config file, without seeding an example collector
 - project-local `./.developer-dashboard` precedence over the home fallback for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders
 - when changing starter-page refresh logic, run `prove -lv t/04-update-manager.t` and `prove -lv t/05-cli-smoke.t` so the core seeded-page init/update refresh path stays covered against stale managed saved copies
-- when changing bookmark rendering, verify both the browser route and the CLI render path with the same TT bookmark: run `prove -lv t/05-cli-smoke.t` for `dashboard page render <id>` coverage and `integration/browser/run-bookmark-browser-smoke.pl --bookmark-file /path/to/bookmark` for the browser route
-- when changing Template Toolkit rendering or `nav/*.tt`, verify syntax-error handling too: broken TT must surface a visible `runtime-error` block and must not leak raw `[% ... %]` source in either the browser route or `dashboard page render`
-- when changing `dashboard serve --ssl`, run `prove -lv t/17-web-server-ssl.t` and `prove -lv t/33-web-server-ssl-browser.t` so both the certificate profile and the real Chromium browser path stay covered; the generated cert must keep SAN coverage for `localhost`, `127.0.0.1`, `::1`, the concrete non-wildcard bind host, and any configured `web.ssl_subject_alt_names`, older dashboard certs must regenerate when stale or when the expected SAN list changes, plain HTTP must redirect on the public port, and Chromium must report the certificate privacy interstitial (as DOM or a headless certificate diagnostic) plus reach the real dashboard page when certificate trust is bypassed for the test browser, including one configured alias hostname. The isolated backend must be dispatched through the staged `_dashboard-core` file rather than the current command wrapper, and readiness polling must detect exited-but-unreaped children.
+- when changing bookmark rendering, verify both the browser route and the CLI render path with the same TT bookmark: run `prove -lv t/05-cli-smoke.t` for `d2 page render <id>` coverage and `integration/browser/run-bookmark-browser-smoke.pl --bookmark-file /path/to/bookmark` for the browser route
+- when changing Template Toolkit rendering or `nav/*.tt`, verify syntax-error handling too: broken TT must surface a visible `runtime-error` block and must not leak raw `[% ... %]` source in either the browser route or `d2 page render`
+- when changing `d2 serve --ssl`, run `prove -lv t/17-web-server-ssl.t` and `prove -lv t/33-web-server-ssl-browser.t` so both the certificate profile and the real Chromium browser path stay covered; the generated cert must keep SAN coverage for `localhost`, `127.0.0.1`, `::1`, the concrete non-wildcard bind host, and any configured `web.ssl_subject_alt_names`, older dashboard certs must regenerate when stale or when the expected SAN list changes, plain HTTP must redirect on the public port, and Chromium must report the certificate privacy interstitial (as DOM or a headless certificate diagnostic) plus reach the real d2 page when certificate trust is bypassed for the test browser, including one configured alias hostname. The isolated backend must be dispatched through the staged `_dashboard-core` file rather than the current command wrapper, and readiness polling must detect exited-but-unreaped children.
 - when changing layered machine auth for saved `/ajax/...` handlers, run `prove -lv t/07-core-units.t` and `prove -lv t/08-web-update-coverage.t` so `config/api.json` still follows `DD-OOP-LAYERS`, installed skill `config/api.json` fragments still contribute to skill-local saved ajax routes, helper sessions still work on API-registered ajax routes, remote machine callers still need matching `X-DD-API-Key` plus `X-DD-API-Secret` headers, and registered remote ajax routes still fail closed with `403 {"status":"forbidden"}`
-- when changing the operator-facing `dashboard api` workflow, also run `prove -lv t/05-cli-smoke.t` and `prove -lv t/22-cli-module-coverage.t` so the built-in helper still lists the effective merged registry, hashes raw secrets from `--secret` or `--maybe-secret` before persistence, writes only to the deepest writable `config/api.json` layer, keeps duplicate route adds idempotent, and masks inherited keys through child-layer tombstones instead of rewriting parent files
-- when changing runtime-local optional Perl dependency handling, run `prove -lv t/05-cli-smoke.t` and `prove -lv t/28-runtime-cpan-env.t` to verify `dashboard cpan DBD::Driver` still installs into `./.developer-dashboard/local`, appends the runtime `cpanfile`, records `DBI` automatically for requested `DBD::*` drivers, and keeps the runtime-local `PERL5LIB` wiring script-local instead of reintroducing a dedicated manager module
+- when changing the operator-facing `d2 api` workflow, also run `prove -lv t/05-cli-smoke.t` and `prove -lv t/22-cli-module-coverage.t` so the built-in helper still lists the effective merged registry, hashes raw secrets from `--secret` or `--maybe-secret` before persistence, writes only to the deepest writable `config/api.json` layer, keeps duplicate route adds idempotent, and masks inherited keys through child-layer tombstones instead of rewriting parent files
+- when changing runtime-local optional Perl dependency handling, run `prove -lv t/05-cli-smoke.t` and `prove -lv t/28-runtime-cpan-env.t` to verify `d2 cpan DBD::Driver` still installs into `./.developer-dashboard/local`, appends the runtime `cpanfile`, records `DBI` automatically for requested `DBD::*` drivers, and keeps the runtime-local `PERL5LIB` wiring script-local instead of reintroducing a dedicated manager module
 - Docker Compose file, project, service, addon, mode, and env resolution
 - bookmark syntax parsing, placeholder rendering, `TITLE` head-only rendering, and sandpit-isolated `CODE*` execution
 
@@ -551,7 +551,7 @@ The web tests also cover the access model:
 - `/apps -> /app/index` compatibility
 - top chrome rendering on edit and saved render pages
 - denial of browser `token=` and `atoken=` execution for transient page and action payloads, plus transient `/ajax?token=...`, when the transient URL opt-in env var is absent
-- absence of accidental project-local `.developer-dashboard` creation when `dashboard restart` runs inside a git repo that has not opted into a local dashboard root
+- absence of accidental project-local `.developer-dashboard` creation when `d2 restart` runs inside a git repo that has not opted into a local dashboard root
 - saved bookmark `Ajax file => ...` handlers through `/ajax/<file>?type=...`, including `dashboards/ajax/...` storage, direct process-backed streamed ajax execution for both `stdout` and `stderr`, and blank-env verification under the default deny policy
 - file-backed saved Ajax Perl wrappers with autoflushed `STDOUT` and `STDERR`, including a timing check that long-running `print` plus `sleep` handlers emit early chunks instead of buffering until exit
 - skill install progress rendering that keeps the epic checklist visible while
@@ -667,8 +667,8 @@ The integration flow also:
 - creates a fake project with its own `./.developer-dashboard` runtime tree
 - creates that fake-project runtime tree only after `cpanm` completes, so the tarball's own test phase still runs against a clean runtime
 - verifies installed CLI and saved bookmarks from that fake project's local runtime plus config collectors from that same runtime root
-- verifies `dashboard version` reports the installed runtime version
-- seeds a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks inside the container and verifies `dashboard update` uses the same executable command-hook path as every other top-level subcommand, including later-hook reads through `Runtime::Result`
+- verifies `d2 version` reports the installed runtime version
+- seeds a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks inside the container and verifies `d2 update` uses the same executable command-hook path as every other top-level subcommand, including later-hook reads through `Runtime::Result`
 - verifies the installed web app denies `/?token=...` browser execution by default while saved bookmark routes still render
 - uses headless Chromium to validate the editor, the saved fake-project bookmark page, and the helper login page
 - verifies that an installed long-running saved `/ajax/...` route starts streaming visible output within the expected first seconds instead of buffering until process exit
@@ -713,7 +713,7 @@ keeps release verification aligned with the platform and Linux Test workflows:
 tests exercise the extension built from the release checkout rather than
 silently relying on the Perl fallback or an installed binary.
 
-The Strawberry smoke verifies `dashboard shell ps`, `dashboard ps1`, one
+The Strawberry smoke verifies `d2 shell ps`, `d2 ps1`, one
 PowerShell-backed collector command, one saved Ajax handler through
 `Invoke-WebRequest`, and a browser DOM dump through Edge or Chrome when either
 browser is present in the Windows environment.
@@ -726,7 +726,7 @@ in-guest smoke first runs the repo-root `install.ps1` through a streamed
 staged tarball, so the release gate matches the intended operator flow of
 `irm .../install.ps1 | iex`. That bootstrap path must also prove that a
 brand-new profile-loaded PowerShell session can resolve `dashboard`, print
-`dashboard version`, run `dashboard logs` without a manual PATH edit, keep
+`d2 version`, run `d2 logs` without a manual PATH edit, keep
 `HOME` visible to later dashboard commands, and expose a working user-space
 `make` shim for skill `Makefile` flows.
 It must also keep test-only dependencies such as `Plack::Test` and

@@ -16,7 +16,7 @@ use Developer::Dashboard::JSON qw(json_decode);
 use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
 
 # new(%args)
-# Constructs the dashboard doctor runtime service.
+# Constructs the d2 doctor runtime service.
 # Input: paths object.
 # Output: Developer::Dashboard::Doctor object.
 sub new {
@@ -387,7 +387,7 @@ sub _is_dashboard_bashrc_line {
     return 1 if $line =~ /\Aexport PERLBREW_HOME=.*perlbrew.*\z/;
     return 1 if $line =~ /\Aexport PATH=.*perlbrew\/perls\/.*:\$PATH"?\z/;
     return 1 if $line =~ /\Aeval "\$\(".*-Mlocal::lib\)"\z/;
-    return 1 if $line =~ /\Aeval "\$\(".*dashboard" shell bash\)"\z/;
+    return 1 if $line =~ /\Aeval "\$\(".*d2" shell bash\)"\z/;
     return 0;
 }
 
@@ -596,7 +596,7 @@ It exists because runtime security should be inspectable and fixable from inside
 
 =head1 WHEN TO USE
 
-Use this file when changing the runtime permission policy, the report format for C<dashboard doctor>, or the set of files and directories that should be audited and repaired.
+Use this file when changing the runtime permission policy, the report format for C<d2 doctor>, or the set of files and directories that should be audited and repaired.
 
 =head1 HOW TO USE
 
@@ -604,7 +604,7 @@ Construct it with the active path registry, call C<run(fix =E<gt> 0)> to audit o
 
 =head1 WHAT USES IT
 
-It is used by the C<dashboard doctor> helper, by security and integration tests, and by contributors verifying that init/update paths do not leave insecure runtime permissions behind.
+It is used by the C<d2 doctor> helper, by security and integration tests, and by contributors verifying that init/update paths do not leave insecure runtime permissions behind.
 
 =head1 EXAMPLES
 

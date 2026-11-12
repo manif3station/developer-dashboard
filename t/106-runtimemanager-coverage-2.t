@@ -150,10 +150,10 @@ for my $case (@env_int_cases) {
     $state_root = '/root';
     $procfs     = 1;
     @procs      = (
-        { pid => 101, args => 'dashboard ajax: a' },
-        { pid => 102, args => 'dashboard ajax: b' },
-        { pid => 103, args => 'dashboard ajax: c' },
-        { pid => 104, args => 'dashboard ajax: d' },
+        { pid => 101, args => 'd2 ajax: a' },
+        { pid => 102, args => 'd2 ajax: b' },
+        { pid => 103, args => 'd2 ajax: c' },
+        { pid => 104, args => 'd2 ajax: d' },
     );
     %markers = ( 101 => '', 103 => '/root', 104 => 'other' );
     is_deeply(
@@ -167,8 +167,8 @@ for my $case (@env_int_cases) {
     $state_root = '';
     $procfs     = 1;
     @procs      = (
-        { pid => 101, args => 'dashboard ajax: a' },
-        { pid => 102, args => 'dashboard ajax: b' },
+        { pid => 101, args => 'd2 ajax: a' },
+        { pid => 102, args => 'd2 ajax: b' },
     );
     %markers = ( 101 => '' );
     is_deeply(
@@ -181,7 +181,7 @@ for my $case (@env_int_cases) {
     # false, so the process is kept regardless of runtime root.
     $state_root = '/root';
     $procfs     = 0;
-    @procs      = ( { pid => 102, args => 'dashboard ajax: b' } );
+    @procs      = ( { pid => 102, args => 'd2 ajax: b' } );
     %markers    = ();
     is_deeply(
         [ map { $_->{pid} } $manager->_managed_ajax_processes ],
@@ -344,7 +344,7 @@ for my $case (@env_int_cases) {
     }
     is( $manager->_read_process_env_marker( $$, 'DD_ABSENT_KEY_XYZ' ), undef, '_read_process_env_marker returns undef for an absent key' );
 
-    my $worker_title = 'dashboard collector coverage worker ' . ( 'z' x 512 );
+    my $worker_title = 'd2 collector coverage worker ' . ( 'z' x 512 );
     my $worker_script = q{
         my ($title) = @ARGV;
         $0 = $title;

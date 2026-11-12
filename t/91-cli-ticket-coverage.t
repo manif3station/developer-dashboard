@@ -128,7 +128,7 @@ my $dash_bin  = File::Spec->catdir( $home, 'dashbin' );
 my $empty_bin = File::Spec->catdir( $home, 'emptybin' );
 make_path($empty_bin);
 write_stub_command( File::Spec->catfile( $fake_bin, 'tmux' ) );
-write_stub_command( File::Spec->catfile( $dash_bin, 'dashboard' ) );
+write_stub_command( File::Spec->catfile( $dash_bin, 'd2' ) );
 
 my $ws_dir = File::Spec->catdir( $home, 'ws' );
 write_file( File::Spec->catfile( $ws_dir, '.env' ), "WS_LAYER_KEY=layer\n" );
@@ -596,8 +596,8 @@ is(
 
 {
     local %ENV = %ENV;
-    $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = '/opt/dd/bin/dashboard';
-    is( Developer::Dashboard::CLI::Ticket::_dashboard_command_path(), '/opt/dd/bin/dashboard', '_dashboard_command_path prefers an explicit entrypoint override' );
+    $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = '/opt/dd/bin/d2';
+    is( Developer::Dashboard::CLI::Ticket::_dashboard_command_path(), '/opt/dd/bin/d2', '_dashboard_command_path prefers an explicit entrypoint override' );
 }
 
 {
@@ -606,7 +606,7 @@ is(
     $ENV{PATH}                           = $dash_bin;
     is(
         Developer::Dashboard::CLI::Ticket::_dashboard_command_path(),
-        File::Spec->catfile( $dash_bin, 'dashboard' ),
+        File::Spec->catfile( $dash_bin, 'd2' ),
         '_dashboard_command_path ignores an empty entrypoint override and searches PATH',
     );
 }
@@ -615,7 +615,7 @@ is(
     local %ENV = %ENV;
     delete $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT};
     $ENV{PATH} = $empty_bin;
-    is( Developer::Dashboard::CLI::Ticket::_dashboard_command_path(), 'dashboard', '_dashboard_command_path falls back to the bare command name when PATH holds no dashboard' );
+    is( Developer::Dashboard::CLI::Ticket::_dashboard_command_path(), 'd2', '_dashboard_command_path falls back to the bare command name when PATH holds no d2' );
 }
 
 # --- _run_workspace_docker_compose ------------------------------------------
@@ -646,7 +646,7 @@ FAKE_DASHBOARD
     is_deeply(
         [ split /\n/, $stdout ],
         [ qw(docker compose up -d --build), $argument ],
-        '_run_workspace_docker_compose sends each argument directly through the dashboard entrypoint',
+        '_run_workspace_docker_compose sends each argument directly through the d2 entrypoint',
     );
     ok( !-e $marker, '_run_workspace_docker_compose does not interpret an alias argument through a shell' );
     my ( $probe_stdout, $probe_stderr, $probe_exit, $probe_result );
@@ -782,18 +782,18 @@ FAKE_D2
 
     my $dashboard_bin = File::Spec->catdir( $home, 'dashboard-entrypoint-bin' );
     make_path($dashboard_bin);
-    my $fake_dashboard = File::Spec->catfile( $dashboard_bin, 'dashboard' );
+    my $fake_dashboard = File::Spec->catfile( $dashboard_bin, 'd2' );
     write_stub_command($fake_dashboard);
     local $ENV{PATH} = $dashboard_bin;
     my $dashboard_fallback = Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose( args => ['dashboard-fallback'] );
-    is( $dashboard_fallback->{exit_code}, 0, '_run_workspace_docker_compose falls back to dashboard when d2 is not on PATH' );
+    is( $dashboard_fallback->{exit_code}, 0, '_run_workspace_docker_compose uses the d2 entrypoint found on PATH' );
 
     local $ENV{PATH} = File::Spec->catdir( $home, 'no-commands-on-this-path' );
     my $bare_fallback_error = error_from( sub {
         Developer::Dashboard::CLI::Ticket::_run_workspace_docker_compose( args => ['bare-fallback'] );
     } );
-    like( $bare_fallback_error, qr/Unable to execute d2 Docker Compose command 'dashboard'/,
-        '_run_workspace_docker_compose reports when neither d2 nor dashboard is executable from PATH' );
+    like( $bare_fallback_error, qr/Unable to execute d2 Docker Compose command 'd2'/,
+        '_run_workspace_docker_compose reports when d2 is not executable from PATH' );
 }
 
 {
@@ -1147,7 +1147,7 @@ like( error_from( sub { apply_ticket_status() } ), qr/Missing session name/, 'ap
 
 {
     local $ENV{PATH} = "$fake_bin:$dash_bin";
-    is( apply_ticket_status( session => 'DD-1' ), 1, 'apply_ticket_status defaults to the real tmux runner and the resolved dashboard entrypoint' );
+    is( apply_ticket_status( session => 'DD-1' ), 1, 'apply_ticket_status defaults to the real tmux runner and the resolved d2 entrypoint' );
 }
 
 {
@@ -1161,7 +1161,7 @@ like( error_from( sub { apply_ticket_status() } ), qr/Missing session name/, 'ap
         }
     );
     is(
-        apply_workspace_status( session => 'DD-1', dashboard => '/opt/dd/bin/dashboard', tmux => $tmux ),
+        apply_workspace_status( session => 'DD-1', dashboard => '/opt/dd/bin/d2', tmux => $tmux ),
         1,
         'apply_workspace_status configures the session status through the ticket-status implementation',
     );
@@ -1174,7 +1174,7 @@ like( error_from( sub { apply_ticket_status() } ), qr/Missing session name/, 'ap
     );
 
     my ($indicators) = grep { $_->[0] eq 'set-option' && $_->[2] eq 'status-format[0]' } @calls;
-    like( $indicators->[3], qr{\Q/opt/dd/bin/dashboard\E}, 'apply_workspace_status renders dashboard indicators on the top status row' );
+    like( $indicators->[3], qr{\Q/opt/dd/bin/d2\E}, 'apply_workspace_status renders dashboard indicators on the top status row' );
 }
 
 {
@@ -1619,19 +1619,19 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
 
 {
     my $err = error_from( sub { run_workspace_command( args => [ '-c', 'DD-4' ], tmux => ok_tmux(), resolve_dir => sub { return undef } ) } );
-    like( $err, qr/Workspace 'DD-4' is not a registered dashboard path/, 'run_workspace_command refuses -c when the resolver knows nothing about the workspace' );
+    like( $err, qr/Workspace 'DD-4' is not a registered d2 path/, 'run_workspace_command refuses -c when the resolver knows nothing about the workspace' );
 }
 
 {
     my $err = error_from( sub { run_workspace_command( args => [ '-c', 'DD-5' ], tmux => ok_tmux(), resolve_dir => sub { return '' } ) } );
-    like( $err, qr/Workspace 'DD-5' is not a registered dashboard path/, 'run_workspace_command refuses -c when the resolver returns an empty path' );
+    like( $err, qr/Workspace 'DD-5' is not a registered d2 path/, 'run_workspace_command refuses -c when the resolver returns an empty path' );
 }
 
 {
     my $err = error_from( sub { run_workspace_command( args => [ '-c', 'dd-ticket-unregistered-workspace' ], tmux => ok_tmux() ) } );
     like(
         $err,
-        qr/Workspace 'dd-ticket-unregistered-workspace' is not a registered dashboard path/,
+        qr/Workspace 'dd-ticket-unregistered-workspace' is not a registered d2 path/,
         'run_workspace_command defaults -c to the registered-paths inventory',
     );
 }

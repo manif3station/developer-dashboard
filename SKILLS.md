@@ -6,9 +6,9 @@ anyone building or contributing to the distribution itself.
 
 ## Layout
 
-- `bin/dashboard` and `bin/d2` are the two shipped entrypoints; `bin/d2` re-execs
-  `dashboard` with the same arguments.
-- `bin/dashboard` is a thin switchboard - it bootstraps, runs layered hooks,
+- `bin/d2` and `bin/d2` are the two shipped entrypoints; `bin/d2` re-execs
+  `d2` with the same arguments.
+- `bin/d2` is a thin switchboard - it bootstraps, runs layered hooks,
   stages command bodies, and `exec`s. Command implementations live in
   `share/private-cli/`, staged as working copies at first use.
 - `lib/Developer/Dashboard/` is the module tree: `RuntimeManager` (process
@@ -80,5 +80,5 @@ CPAN upload is a separate, manual step.
 
 ## Two entrypoints, one CLI
 
-`bin/dashboard` and `bin/d2` must both stay listed in `Makefile.PL`'s
+`bin/d2` and `bin/d2` must both stay listed in `Makefile.PL`'s
 `EXE_FILES`, or a fresh install silently drops one of them.

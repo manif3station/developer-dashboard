@@ -436,7 +436,7 @@ is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'a
 
     my $bashrc = File::Spec->catfile( $secure_home, '.bashrc' );
     my $local_lib_line = qq{eval "\$("/usr/bin/perl" -I "$secure_home/perl5/lib/perl5" -Mlocal::lib)"};
-    my $dashboard_line = qq{eval "\$("$secure_home/perl5/bin/dashboard" shell bash)"};
+    my $dashboard_line = qq{eval "\$("$secure_home/perl5/bin/d2" shell bash)"};
     open my $bashrc_fh, '>', $bashrc or die "Unable to write $bashrc: $!";
     print {$bashrc_fh} <<"BASHRC";
 case \$- in
@@ -637,7 +637,7 @@ BASHRC
     my $plain_helper_body = "#!/usr/bin/env perl\nprint qq|ok\\n|;\n";
     my $legacy_core_helper_body = join "\n",
       '#!/usr/bin/env perl',
-      'die "Missing built-in dashboard command";',
+      'die "Missing built-in d2 command";',
       'use Developer::Dashboard::CLI::SeededPages;',
       q{};
     my $legacy_lazy_helper_body = join "\n",
@@ -1763,7 +1763,7 @@ is( $files->paths, $paths, 'file registry exposes path registry' );
 is( $files->resolve_file('/tmp/example'), '/tmp/example', 'resolve_file keeps absolute files unchanged' );
 like( $files->resolve_file('prompt_log'), qr/prompt\.log$/, 'resolve_file resolves named files' );
 like( $files->resolve_file('auth_log'), qr/auth\.log$/, 'resolve_file resolves auth log file' );
-like( $files->resolve_file('dashboard_log'), qr/dashboard\.log$/, 'resolve_file resolves dashboard log file' );
+like( $files->resolve_file('dashboard_log'), qr/dashboard\.log$/, 'resolve_file resolves d2 log file' );
 like( $files->resolve_file('web_pid'), qr/web\.pid$/, 'resolve_file resolves web pid file' );
 like( $files->resolve_file('web_state'), qr/web\.json$/, 'resolve_file resolves web state file' );
 dies_like( sub { Developer::Dashboard::FileRegistry->new }, qr/Missing paths registry/, 'file registry requires paths' );
@@ -1780,7 +1780,7 @@ is( $files->read('prompt_log'), '', 'append treats undef content as empty text' 
 like( $files->dashboard_index, qr{/index$}, 'dashboard_index resolves the saved page bookmark file' );
 like( $files->global_config, qr/config\.json$/, 'global_config resolves the main config file' );
 like( $files->auth_log, qr/auth\.log$/, 'auth_log resolves the auth log file' );
-like( $files->dashboard_log, qr/dashboard\.log$/, 'dashboard_log resolves the dashboard log file' );
+like( $files->dashboard_log, qr/dashboard\.log$/, 'dashboard_log resolves the d2 log file' );
 like( $files->web_pid, qr/web\.pid$/, 'web_pid resolves the web pid file' );
 like( $files->web_state, qr/web\.json$/, 'web_state resolves the web state file' );
 
@@ -3921,7 +3921,7 @@ my $collector_prompt = Developer::Dashboard::Prompt->new( paths => $paths, indic
     is( $tt_indicators->get_indicator('templated.indicator.bad-json')->{status}, 'error', 'collector TT icon rendering marks the indicator red when JSON decoding fails' );
     is( $tt_indicators->get_indicator('templated.indicator.bad-json')->{icon}, '', 'collector TT icon rendering leaves the live icon blank when no prior rendered value exists' );
 }
-like( $runner->_process_title('demo'), qr/^dashboard collector: demo$/, '_process_title formats managed process names' );
+like( $runner->_process_title('demo'), qr/^d2 collector: demo$/, '_process_title formats managed process names' );
 ok( !defined $runner->loop_state('missing-loop-state'), 'loop_state returns undef for missing state files' );
 {
     my $retry_state_path = File::Spec->catfile( $paths->collector_dir('retry-loop-state'), 'loop.json' );
@@ -3968,7 +3968,7 @@ print {$live_pid} "$$\n";
 close $live_pid;
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::_read_process_title = sub { 'dashboard collector: live' };
+    local *Developer::Dashboard::CollectorRunner::_read_process_title = sub { 'd2 collector: live' };
     is( $runner->start_loop( { name => 'live', command => q{printf live}, interval => 1 } ), $$, 'start_loop returns existing live pid when pidfile is active and managed' );
     is( $runner->loop_state('live')->{status}, 'running', 'start_loop refreshes state for already-running managed loops' );
     ok( $runner->_is_managed_loop( $$, 'live' ), '_is_managed_loop accepts matching managed titles' );
@@ -4368,7 +4368,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         $runner->_run_loop_worker(
             { name => 'worker.error.loop', command => 'printf worker', cwd => 'home', interval => 12 },
             'worker.error.loop',
-            'dashboard collector: worker.error.loop',
+            'd2 collector: worker.error.loop',
             77777,
         );
     };
@@ -4420,7 +4420,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         use strict;
         use warnings;
         $ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = 'manual';
-        $0 = 'dashboard collector: manual';
+        $0 = 'd2 collector: manual';
         sleep 30;
     };
     my $child = Developer::Dashboard::GoRoutine::spawn(
@@ -4531,7 +4531,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         'observed',
         {
             pid          => $$,
-            process_name => 'dashboard collector: observed',
+            process_name => 'd2 collector: observed',
             status       => 'running',
         }
     );
@@ -4539,7 +4539,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     {
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::_read_process_env_marker = sub { return 'observed' };
-        local *Developer::Dashboard::CollectorRunner::_read_process_title = sub { return 'dashboard collector: observed' };
+        local *Developer::Dashboard::CollectorRunner::_read_process_title = sub { return 'd2 collector: observed' };
         @running = $runner->running_loops;
     }
     is_deeply( [ map { $_->{name} } @running ], ['observed'], 'running_loops returns only validated managed collectors' );
@@ -4561,7 +4561,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         {
             pid          => $child,
             name         => 'state-backed',
-            process_name => 'dashboard collector: state-backed',
+            process_name => 'd2 collector: state-backed',
             status       => 'starting',
         }
     );
@@ -4595,7 +4595,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             {
                 pid          => $$ + 1,
                 name         => 'wrong-pid',
-                process_name => 'dashboard collector: wrong-pid',
+                process_name => 'd2 collector: wrong-pid',
                 status       => 'running',
             },
             qr/pid mismatch/,
@@ -4605,7 +4605,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             {
                 pid          => $$,
                 name         => 'other-name',
-                process_name => 'dashboard collector: wrong-name',
+                process_name => 'd2 collector: wrong-name',
                 status       => 'running',
             },
             qr/name mismatch/,
@@ -4625,7 +4625,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             {
                 pid          => $$,
                 name         => 'wrong-status',
-                process_name => 'dashboard collector: wrong-status',
+                process_name => 'd2 collector: wrong-status',
                 status       => 'stopped',
             },
             qr/status mismatch/,
@@ -4659,7 +4659,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         {
             pid          => 424242,
             name         => 'stubborn-state',
-            process_name => 'dashboard collector: stubborn-state',
+            process_name => 'd2 collector: stubborn-state',
             status       => 'running',
         }
     );
@@ -4771,11 +4771,11 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return '' };
         local *Developer::Dashboard::CollectorRunner::capture = sub (&) {
-            return ( "dashboard collector: ps-fallback   \n", '', 0 );
+            return ( "d2 collector: ps-fallback   \n", '', 0 );
         };
         is(
             $runner->_read_process_title(4242),
-            'dashboard collector: ps-fallback',
+            'd2 collector: ps-fallback',
             '_read_process_title falls back to ps output when procfs command line data is unavailable',
         );
     }
@@ -4784,7 +4784,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return '' };
         local *Developer::Dashboard::CollectorRunner::capture = sub (&) {
-            return ( "dashboard collector: ps-failure\n", '', 1 );
+            return ( "d2 collector: ps-failure\n", '', 1 );
         };
         ok(
             !defined $runner->_read_process_title(4242),
@@ -4927,7 +4927,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             $name,
             {
                 pid          => $pid,
-                process_name => "dashboard collector: $name",
+                process_name => "d2 collector: $name",
                 status       => 'running',
             }
         );
@@ -4938,7 +4938,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         local *Developer::Dashboard::CollectorRunner::_read_process_env_marker = sub { return };
         local *Developer::Dashboard::CollectorRunner::_read_process_title = sub {
             my ( $self, $pid ) = @_;
-            return $pid == $child ? 'dashboard collector: alpha-sort' : 'dashboard collector: zeta-sort';
+            return $pid == $child ? 'd2 collector: alpha-sort' : 'd2 collector: zeta-sort';
         };
         @sorted = $runner->running_loops;
     }
@@ -4958,7 +4958,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         'signal-stop',
         {
             pid          => $$,
-            process_name => 'dashboard collector: signal-stop',
+            process_name => 'd2 collector: signal-stop',
             status       => 'running',
         }
     );
@@ -5027,7 +5027,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             {
                 pid          => 5151,
                 name         => 'windows-replace',
-                process_name => 'dashboard collector: windows-replace',
+                process_name => 'd2 collector: windows-replace',
                 status       => 'running',
             }
         );
@@ -5066,7 +5066,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             {
                 pid          => 5252,
                 name         => 'windows-powershell-replace',
-                process_name => 'dashboard collector: windows-powershell-replace',
+                process_name => 'd2 collector: windows-powershell-replace',
                 status       => 'running',
             }
         );
@@ -5111,7 +5111,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
                 {
                     pid          => 5353,
                     name         => 'windows-in-place-replace',
-                    process_name => 'dashboard collector: windows-in-place-replace',
+                    process_name => 'd2 collector: windows-in-place-replace',
                     status       => 'running',
                 }
             );
@@ -5124,7 +5124,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             {
                 pid          => 5353,
                 name         => 'windows-in-place-replace',
-                process_name => 'dashboard collector: windows-in-place-replace',
+                process_name => 'd2 collector: windows-in-place-replace',
                 status       => 'running',
             }
         );
@@ -5599,7 +5599,7 @@ is_deeply( [ $runner->running_loops ], [], 'running_loops prunes stale pidfiles'
         {
             pid          => $zombie,
             name         => 'zombie-loop',
-            process_name => 'dashboard collector: zombie-loop',
+            process_name => 'd2 collector: zombie-loop',
             status       => 'running',
         }
     );

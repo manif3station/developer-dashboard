@@ -100,7 +100,7 @@ mkfile( File::Spec->catfile( $docker_root, 'green', 'compose.yml' ), "services:\
 # --- toggle marker failures ------------------------------------------------
 {
     for my $method (qw(enable_service_development disable_service_development)) {
-        ok( !eval { $docker->$method(); 1 } && $@ =~ /Usage: dashboard docker development/, "$method requires a service" );
+        ok( !eval { $docker->$method(); 1 } && $@ =~ /Usage: d2 docker development/, "$method requires a service" );
         ok( !eval { $docker->$method( service => '../escape' ); 1 } && $@ =~ /Refusing service name/, "$method refuses a service name that escapes the docker root" );
     }
     ok( !eval { $docker->_service_development_marker_path(); 1 } && $@ =~ /Missing service/, '_service_development_marker_path requires a service' );

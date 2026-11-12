@@ -566,7 +566,7 @@ and worktree pointer files. Branch-label tests cover nested local names,
 detached HEAD resolution through loose and packed origin refs, malformed refs,
 symlink and non-file entries, and injected Git metadata I/O failures. These
 expectations apply to every supported shell because Bash, Zsh, sh, and
-PowerShell adapters all invoke the same C<dashboard ps1> renderer.
+PowerShell adapters all invoke the same C<d2 ps1> renderer.
 
 =head1 WHY IT EXISTS
 
@@ -595,7 +595,7 @@ green under C<prove -lr t>. Under the coverage gate it closes the renderer's
 statement, branch, condition, and subroutine columns using deterministic Git
 fixtures and injected I/O failures. No behavior is excused by an uncoverable
 annotation. Branch-label behavior is shell-independent: Bash, Zsh, sh, and
-PowerShell adapters all invoke the same C<dashboard ps1> renderer.
+PowerShell adapters all invoke the same C<d2 ps1> renderer.
 
 =head1 WHAT USES IT
 

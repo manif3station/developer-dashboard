@@ -1005,11 +1005,11 @@ shell_command_runner() {
 }
 
 write_dashboard_shell_bootstrap() {
-    DASHBOARD_BIN="$INSTALL_ROOT/bin/dashboard"
+    DASHBOARD_BIN="$INSTALL_ROOT/bin/d2"
     if [ ! -x "$DASHBOARD_BIN" ]; then
-        DASHBOARD_BIN=$(command -v dashboard || true)
+        DASHBOARD_BIN=$(command -v d2 || true)
     fi
-    [ -n "$DASHBOARD_BIN" ] || fail "Developer Dashboard was installed but the dashboard command could not be located"
+    [ -n "$DASHBOARD_BIN" ] || fail "Developer Dashboard was installed but the d2 command could not be located"
     [ -x "$DASHBOARD_BIN" ] || fail "Developer Dashboard was installed but $DASHBOARD_BIN is not executable"
 
     SHELL_BOOTSTRAP_LINE=$(printf 'eval "$("%s" shell %s)"' "$DASHBOARD_BIN" "$(shell_bootstrap_target)")
@@ -1061,8 +1061,8 @@ handoff_to_activated_shell() {
 }
 
 initialize_dashboard() {
-    require_command dashboard
-    dashboard init
+    require_command d2
+    d2 init
 }
 
 main() {
@@ -1120,7 +1120,7 @@ main() {
     say "Run this now in your current shell:"
     say "  . \"$ACTIVATION_FILE\""
     say "Then verify with:"
-    say "  dashboard version"
+    say "  d2 version"
 }
 
 main "$@"

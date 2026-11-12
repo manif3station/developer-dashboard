@@ -89,8 +89,8 @@ _run_or_die_with_retry(
     2,
     [ 'docker', 'exec', $container, 'sh', '-lc', "cpanm --notest $container_tarball" ],
 );
-_run_or_die( 'docker', 'exec', $container, 'sh', '-lc', 'dashboard init' );
-_run_or_die( 'docker', 'exec', $container, 'sh', '-lc', 'cd /root && dashboard restart web' );
+_run_or_die( 'docker', 'exec', $container, 'sh', '-lc', 'd2 init' );
+_run_or_die( 'docker', 'exec', $container, 'sh', '-lc', 'cd /root && d2 restart web' );
 
 my ( $stage1_code, $stage1_body ) = _container_http_get(
     $container,
@@ -99,7 +99,7 @@ my ( $stage1_code, $stage1_body ) = _container_http_get(
 is( $stage1_code, 404, 'stage 1 root extracted-dashboard ajax route is absent before skill installation' );
 is( $stage1_body, "Ajax handler not found\n", 'stage 1 root extracted-dashboard ajax route reports the handler is absent before skill installation' );
 
-_run_or_die( 'docker', 'exec', $container, 'sh', '-lc', "cd /root && dashboard skills install file://$skill_mount_path" );
+_run_or_die( 'docker', 'exec', $container, 'sh', '-lc', "cd /root && d2 skills install file://$skill_mount_path" );
 ok(
     _docker_file_exists(
         $container,
@@ -176,7 +176,7 @@ sub _create_dashboard_skill_repo {
         0700,
     );
     _run_or_die(qw(git add .));
-    _run_or_die( 'git', 'commit', '-m', 'Initial extracted dashboard skill fixture' );
+    _run_or_die( 'git', 'commit', '-m', 'Initial extracted d2 skill fixture' );
     chdir $cwd or die "Unable to chdir back to $cwd: $!";
     return $repo;
 }
@@ -272,7 +272,7 @@ tarball exists, installs that tarball into a pinned threaded Perl 5.44
 Docker container, verifies that its interpreter supports ithreads, installs
 the Linux GTK/Ayatana build headers required by the distribution's native XS
 helpers, and then exercises the two-stage smart-router contract for one
-extracted dashboard skill fixture. The threaded Perl build is required by the
+extracted d2 skill fixture. The threaded Perl build is required by the
 Dashboard native GoRoutine XS extension.
 
 =for comment FULL-POD-DOC START

@@ -96,7 +96,7 @@ subtest 'paths command output modes' => sub {
 
     ( $ok, $err ) = _run( command => 'paths', args => [ '-o', 'xml' ] );
     ok( !$ok, 'paths rejects an unknown output format' );
-    like( $err, qr/Usage: dashboard paths/, 'usage is reported' );
+    like( $err, qr/Usage: d2 paths/, 'usage is reported' );
 };
 
 subtest 'path locate, list and project-root' => sub {
@@ -109,7 +109,7 @@ subtest 'path locate, list and project-root' => sub {
 
     ( $ok, $err ) = _run( command => 'path', args => [ 'locate', '-o', 'xml' ] );
     ok( !$ok, 'locate rejects a bad output format' );
-    like( $err, qr/Usage: dashboard path locate/, 'locate usage reported' );
+    like( $err, qr/Usage: d2 path locate/, 'locate usage reported' );
 
     ( $ok, $err, $out ) = _run( command => 'path', args => ['list'] );
     ok( $ok, 'list table succeeds' );
@@ -147,7 +147,7 @@ subtest 'path add and del modes' => sub {
 
     ( $ok, $err ) = _run( command => 'path', args => [ 'add', 'bad', $target, '-o', 'xml' ] );
     ok( !$ok, 'bad output rejected on add' );
-    like( $err, qr/Usage: dashboard path add/, 'add usage reported' );
+    like( $err, qr/Usage: d2 path add/, 'add usage reported' );
 
     ( $ok, $err, $out ) = _run( command => 'path', args => [ 'add', '.', '-o', 'json' ] );
     ok( $ok, 'add . uses cwd shorthand' ) or diag $err;
@@ -173,7 +173,7 @@ subtest 'path add and del modes' => sub {
 
     ( $ok, $err ) = _run( command => 'path', args => [ 'del', 'x', '-o', 'xml' ] );
     ok( !$ok, 'del bad output rejected' );
-    like( $err, qr/Usage: dashboard path del/, 'del usage reported' );
+    like( $err, qr/Usage: d2 path del/, 'del usage reported' );
 };
 
 subtest 'resolve and cdr with aliases' => sub {

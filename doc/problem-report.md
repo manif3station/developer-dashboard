@@ -177,7 +177,7 @@ method. No ineffective code was retained.
 Saved URLs redirect while preserving saved query keys, allowing request keys to override matching values and append new ones. Regression coverage: `t/03-web-app.t`, `t/104-skilldispatcher-coverage.t`, `t/131-bookmark-url-encoding.t`.
 
 ### Problem 2: Resolve skill-aware Template Toolkit includes (2a09c53b) — done
-Skill pages can include local dashboard fragments and explicit skill dashboard paths. The include allow-list now covers the owning skill dashboard root. Regression coverage: `t/08-web-update-coverage.t`, `t/20-skill-web-routes.t`.
+Skill pages can include local dashboard fragments and explicit skill d2 paths. The include allow-list now covers the owning skill dashboard root. Regression coverage: `t/08-web-update-coverage.t`, `t/20-skill-web-routes.t`.
 
 ### Problem 3: Render supplied data in saved Ajax code templates (2a09c53b) — done
 Ajax handler source is rendered with its supplied Template Toolkit data before it is stored and executed. Regression coverage: `t/12-legacy-helper-coverage.t`, `t/85-zipper-coverage.t`.
@@ -383,7 +383,7 @@ stale uncoverable annotations). The required focused
 web-security trio passed 459 tests. The 5.65 tarball passed CPANTS kwalitee
 at 100% (7/7 assertions) and the source POD gate (348 files, 355 assertions).
 `dzil build` produced `Developer-Dashboard-5.65.tar.gz`; the image build
-succeeded and a one-off Compose run reported `dashboard version` as `5.65`.
+succeeded and a one-off Compose run reported `d2 version` as `5.65`.
 The blank-environment container installed the tarball using `cpanm` without
 `--notest`, then its complete installed-runtime integration script passed.
 `perlsec` was reviewed from the container's `perlsec.pod` with `pod2text`
@@ -615,7 +615,7 @@ reported `d2 version` 5.70. The image-build guard had already recorded 5.69
 as used, so the finalized report and repeat artifact checks were assigned this
 distinct version. No release upload was performed.
 
-### Problem 45: Add Docker-style timestamps, follow, and tail to dashboard logs (done in 5.77)
+### Problem 45: Add Docker-style timestamps, follow, and tail to d2 logs (done in 5.77)
 
 Expected: `d2 logs` supports Docker-style `-t`, `-f`, `--tail N`, and
 `--tail=N` across the default mixed web/collector view, web-only output, all
@@ -645,7 +645,7 @@ from persisted run records and uses UTC read time for raw web records, whose
 file format has no historical per-line timestamp. Tail is applied to the
 selected output after source composition and timestamp formatting. Follow
 polls each source independently, emits only appended bytes, and restarts from
-the beginning when a log is truncated. `dashboard serve logs` delegates to
+the beginning when a log is truncated. `d2 serve logs` delegates to
 the same parser, so its options and validation stay aligned. The shared help
 catalog, option completion metadata, README, POD, and integration plan are
 updated.
@@ -1142,7 +1142,7 @@ regression tests. Do not claim the whole goal from one optimized routine.
 
 Latest command-floor evidence (2026-10-14): an alternating 31-run Docker
 measurement found a 2.286 ms median for a bare `perl -e 1` child and 32.528 ms
-for the current `perl bin/dashboard version` child. The documented v5.88
+for the current `perl bin/d2 version` child. The documented v5.88
 version baseline is 56.7 ms, so 50x end-to-end would require 1.134 ms—below
 the measured Perl child-process floor. This is not a reason to reduce the
 requested subroutine scope; it shows that the command-level 50x interpretation
@@ -1183,7 +1183,7 @@ run --rm bench perl script/problem48-collector-config-benchmark`.
 This scoped improvement does not meet the 50x-per-subroutine objective; the
 full Problem 48 and SDLC delivery gates remain open.
 
-Reproduction and baseline: run the checked-out `bin/dashboard` inside the
+Reproduction and baseline: run the checked-out `bin/d2` inside the
 isolated `dd-problem48-profile` Compose project five times each for `version`,
 `paths`, and `ps1`. Median elapsed times were 56.7 ms, 93.3 ms, and 109.5 ms.
 Profile `t/03-web-app.t` in a one-off container; all 328 assertions passed.
@@ -1232,7 +1232,7 @@ Measured startup follow-up: NYTProf first attributed 18.6 ms inclusive to eager
 `Pod::Usage` loading on the version path. A red CLI smoke contract failed before
 the eager import was removed and the usage-error branches changed to load the
 module lazily. Later NYTProf tracing showed the apparent lazy import was
-insufficient: `bin/dashboard` loaded `InternalCLI` before dispatch, and that
+insufficient: `bin/d2` loaded `InternalCLI` before dispatch, and that
 module loaded `Platform`; `PathRegistry` also imported `Platform` eagerly. Red
 runtime tests confirmed both paths. The fix defers those imports until their
 behavior is needed and adds `Developer::Dashboard::Version` so the version
@@ -1292,7 +1292,7 @@ Literal-target audit: the v5.88 `HEAD` tree has 1,624 named `sub` declaration
 lines under `lib/Developer/Dashboard`; the current worktree has 1,648 by the
 same source-line count. Anonymous closures are excluded; none of these has a
 50x before/after proof set. The measured
-bare Perl process floor is 1.032–1.268 ms; 50x for the 5.88 `dashboard version`
+bare Perl process floor is 1.032–1.268 ms; 50x for the 5.88 `d2 version`
 median would require about 1.134 ms total, leaving roughly 0.1 ms beyond the
 interpreter floor for application startup, environment discovery, hooks, and
 output. The current evidence contradicts a 50x result for that invocation and
@@ -1312,8 +1312,8 @@ coverage shortfall only; Problem 48's 50× performance requirement and remaining
 delivery gates are still open.
 
 Fresh-process timing recheck (2026-10-12): after two warm-ups, 15 successful
-Docker executions measured medians of 36.379 ms for `dashboard version`,
-82.020 ms for `dashboard paths -o json`, and 90.429 ms for `dashboard ps1`.
+Docker executions measured medians of 36.379 ms for `d2 version`,
+82.020 ms for `d2 paths -o json`, and 90.429 ms for `d2 ps1`.
 Exit statuses were checked and stdout was discarded to exclude terminal output
 from the timing. The refreshed results do not establish a 50x result; the
 resident-runtime and socket results below remain separate prototype figures.
@@ -1572,7 +1572,7 @@ was made; this evidence does not establish or satisfy the required 50x for
 every subroutine.
 
 Prompt-path refinement (2026-10-13): a red-first test made an injected
-`Capture::Tiny` stub die when loaded during ordinary `dashboard ps1
+`Capture::Tiny` stub die when loaded during ordinary `d2 ps1
 --no-indicators`; the existing helper and `IndicatorStore` imports triggered
 it. The helper now loads Capture::Tiny only for a tmux ticket lookup, while the
 full project/Git core-indicator refresh loads it only after returning from the
@@ -1586,10 +1586,10 @@ Path-only Config view refinement (2026-10-13): the prompt and path CLI created
 a `FileRegistry` only to construct `Config`; these collector and path-alias
 operations resolve through `PathRegistry`, and `Config` does not access its
 `files` member. A red-first Docker test blocked `FileRegistry` and failed on
-`dashboard paths -o json`. `Config->for_path_config` now creates a path-bound
+`d2 paths -o json`. `Config->for_path_config` now creates a path-bound
 view without importing or constructing `FileRegistry`, and both paths use it.
 The prompt-loader, Config, and path CLI suites passed 361 assertions. An
-alternating 25-cycle fresh-process comparison measured `dashboard paths -o
+alternating 25-cycle fresh-process comparison measured `d2 paths -o
 json` at 64.636 ms with FileRegistry unloaded versus 72.077 ms with its module
 force-loaded (about 1.12x). This control isolates import overhead and does not
 reproduce the full old path. The first full gate found a stale
@@ -1949,7 +1949,7 @@ goal remains open.
 
 ### Problem 48 cold-process performance floor evidence (2026-10-14)
 
-An alternating Docker control launched 25 fresh `bin/dashboard version`
+An alternating Docker control launched 25 fresh `bin/d2 version`
 processes and 25 fresh bare Perl processes with the same interpreter. The
 medians were 32.424 ms and 1.263 ms respectively. Against the recorded v5.88
 dashboard median of 56.7 ms, a 50x result requires 1.134 ms total, less than

@@ -94,7 +94,7 @@ sub _run_lifecycle_command {
       && !_collector_known( $collectors, $config, $target );
 
     my $progress = _lifecycle_progress(
-        title => "dashboard $command progress",
+        title => "d2 $command progress",
         tasks => $command eq 'restart'
           ? $runtime->restart_progress_tasks( scope => $scope, name => $target )
           : $runtime->stop_progress_tasks( scope => $scope, name => $target ),
@@ -127,7 +127,7 @@ sub _run_lifecycle_command {
 }
 
 # _run_log_command(%args)
-# Parses one top-level dashboard log or logs request and prints the requested
+# Parses one top-level d2 log or logs request and prints the requested
 # log stream, optionally timestamped, followed, or limited to trailing lines.
 # Input: command name, argv array reference, runtime manager, config object,
 # and collector store.
@@ -337,7 +337,7 @@ sub _tail_log_text {
 }
 
 # _collector_logs_text(%args)
-# Builds the collector log text for top-level dashboard log/logs commands.
+# Builds the collector log text for top-level d2 log/logs commands.
 # Input: collector store, config object, and optional collector name.
 # Output: log text string or dies for unknown named collectors.
 sub _collector_logs_text {
@@ -408,7 +408,7 @@ sub _stderr_is_tty {
 }
 
 # _lifecycle_progress(%args)
-# Builds the optional progress board for dashboard restart and stop commands.
+# Builds the optional progress board for d2 restart and stop commands.
 # Input: title string and ordered task array reference.
 # Output: Developer::Dashboard::CLI::Progress object or undef.
 sub _lifecycle_progress {
@@ -420,7 +420,7 @@ sub _lifecycle_progress {
     return if !$enabled && !$tty;
     my $interactive = $tty ? 1 : 0;
     return Developer::Dashboard::CLI::Progress->new(
-        title   => $args{title} || 'dashboard progress',
+        title   => $args{title} || 'd2 progress',
         tasks   => $args{tasks} || [],
         stream  => \*STDERR,
         dynamic => $interactive,
@@ -491,20 +491,20 @@ sub _pad_row {
 }
 
 # _lifecycle_usage($command)
-# Returns the user-facing usage text for dashboard restart and stop.
+# Returns the user-facing usage text for d2 restart and stop.
 # Input: command name string.
 # Output: usage text string.
 sub _lifecycle_usage {
     my ($command) = @_;
-    return "Usage: dashboard $command [web|collector [name]] [-o json|table] [--host <host>] [--port <port>] [--workers <count>] [--ssl|--no-ssl]\n";
+    return "Usage: d2 $command [web|collector [name]] [-o json|table] [--host <host>] [--port <port>] [--workers <count>] [--ssl|--no-ssl]\n";
 }
 
 # _log_usage()
-# Returns the user-facing usage text for dashboard log and logs.
+# Returns the user-facing usage text for d2 log and logs.
 # Input: none.
 # Output: usage text string.
 sub _log_usage {
-    return "Usage: dashboard log[s] [-t] [-f] [web|collector [name]] [--tail <lines>|--tail=<lines>] [-n <lines>]\n";
+    return "Usage: d2 log[s] [-t] [-f] [web|collector [name]] [--tail <lines>|--tail=<lines>] [-n <lines>]\n";
 }
 
 1;
@@ -531,8 +531,8 @@ Developer::Dashboard::CLI::RuntimeControl - shared restart, stop, and log comman
 =head1 DESCRIPTION
 
 Owns the command parsing and default human-facing output for the built-in
-runtime control commands: C<dashboard restart>, C<dashboard stop>,
-C<dashboard log>, and C<dashboard logs>.
+runtime control commands: C<d2 restart>, C<d2 stop>,
+C<d2 log>, and C<d2 logs>.
 
 Log commands accept C<--tail N> and C<--tail=N> to limit the printed output to
 the last N lines. C<-n N> remains an alias. The limit applies to the selected
@@ -556,7 +556,7 @@ table behavior.
 =head1 WHY IT EXISTS
 
 It exists because restart and stop now need scoped variants such as
-C<dashboard restart web> and C<dashboard stop collector NAME>, and those flows
+C<d2 restart web> and C<d2 stop collector NAME>, and those flows
 should not be duplicated inside the private switchboard. Keeping the logic here
 makes the contract testable and keeps the thin helper loader honest.
 
@@ -581,17 +581,17 @@ runtime-manager tests that verify scoped restart and stop progress plans.
 
 =head1 EXAMPLES
 
-  dashboard restart
-  dashboard restart web --port 7901
-  dashboard restart collector housekeeper -o json
-  dashboard stop collector
-  dashboard log
-  dashboard logs --tail 100
-  dashboard logs --tail=100
-  dashboard log -t web -n 20 -f
-  dashboard log -t collector alpha.collector --tail=50
-  dashboard logs -f --tail=20
-  dashboard log web -n 50
+  d2 restart
+  d2 restart web --port 7901
+  d2 restart collector housekeeper -o json
+  d2 stop collector
+  d2 log
+  d2 logs --tail 100
+  d2 logs --tail=100
+  d2 log -t web -n 20 -f
+  d2 log -t collector alpha.collector --tail=50
+  d2 logs -f --tail=20
+  d2 log web -n 50
 
 =for comment FULL-POD-DOC END
 

@@ -34,7 +34,7 @@ isolated skill root inside the active `DD-OOP-LAYERS` runtime chain.
 
 Use a skill when you want a shareable package that can provide:
 
-- one or more commands under the dotted `dashboard <repo-name>.<command>` form
+- one or more commands under the dotted `d2 <repo-name>.<command>` form
 - skill-local hook files under `cli/<command>.d/`
 - one or more browser pages under `/app/<repo-name>` and
   `/app/<repo-name>/<id>`
@@ -104,19 +104,19 @@ HTML:
 Install it:
 
 ```bash
-dashboard skills install file:///absolute/path/to/example-skill
-dashboard skills install /absolute/path/to/example-skill
-dashboard skills install browser foo/bar git@github.com:user/example-skill.git
-dashboard skill list
+d2 skills install file:///absolute/path/to/example-skill
+d2 skills install /absolute/path/to/example-skill
+d2 skills install browser foo/bar git@github.com:user/example-skill.git
+d2 skill list
 ```
 
 When you install from a direct local path, that path must be a checked-out Git
 repository with `.git/` and a `.env` file containing `VERSION=...`. Running
-`dashboard skills install ...` again reinstalls or refreshes the isolated
+`d2 skills install ...` again reinstalls or refreshes the isolated
 installed copy instead of failing on the existing repo name. A single install
 command can take multiple sources and processes them in order. `dashboard
 skill` is the singular alias for skills management commands; installed skill
-commands still use the dotted `dashboard <skill>.<command>` form. If
+commands still use the dotted `d2 <skill>.<command>` form. If
 `~/.developer-dashboard/.gitignore` already exists, each install also appends
 `skills/<repo-name>/` without duplicates so cloned skill trees stay out of
 runtime Git status.
@@ -144,11 +144,11 @@ https://127.0.0.1:7890/app/example-skill/welcome
 Developer Dashboard already gives you the lifecycle commands:
 
 ```bash
-dashboard skills install git@github.com:user/example-skill.git
-dashboard skills install /absolute/path/to/example-skill
-dashboard skills update example-skill
-dashboard skills list
-dashboard skills uninstall example-skill
+d2 skills install git@github.com:user/example-skill.git
+d2 skills install /absolute/path/to/example-skill
+d2 skills update example-skill
+d2 skills list
+d2 skills uninstall example-skill
 dashboard example-skill.hello arg1 arg2
 ```
 
@@ -159,10 +159,10 @@ Important behavior:
 - Git sources are cloned and qualified direct local checked-out repositories
   are synced with `rsync`
 - local path installs require both `.git/` and a `.env` file with `VERSION=...`
-- repeated `dashboard skills install ...` calls reinstall or refresh the
+- repeated `d2 skills install ...` calls reinstall or refresh the
   isolated installed copy instead of failing on an existing repo name
-- one `dashboard skills install ...` call can install multiple explicit
-  sources in order, and `dashboard skill` aliases the management command family
+- one `d2 skills install ...` call can install multiple explicit
+  sources in order, and `d2 skill` aliases the management command family
 - the installed copy lives under the deepest participating
   `DD-OOP-LAYERS` skill root, such as
   `~/.developer-dashboard/skills/<repo-name>/` or
@@ -172,8 +172,8 @@ Important behavior:
 - skill lookup also follows `DD-OOP-LAYERS`: when the same repo name exists in
   multiple participating layers, the deepest matching repo name is the active
   skill and shadows higher-layer copies
-- `dashboard skills update` does `git pull --ff-only`
-- `dashboard skills uninstall` removes only that skill directory
+- `d2 skills update` does `git pull --ff-only`
+- `d2 skills uninstall` removes only that skill directory
 - skill commands are not installed into the system `PATH`
 
 ## 4. Filesystem Layout
@@ -200,7 +200,7 @@ The skill manager prepares this layout inside the installed skill root:
 For the local Windows guest used in Developer Dashboard verification, use
 `ssh windev` to reach the running PowerShell session directly. That is the
 preferred operator path for rerunning `install.ps1`, checking the generated
-profile, and validating fresh-session `dashboard` bootstrap behavior without
+profile, and validating fresh-session `d2` bootstrap behavior without
 rebuilding the older QEMU wrapper setup each time.
 
 Rule for this guest:
@@ -224,7 +224,7 @@ cli/report
 you run it as:
 
 ```bash
-dashboard <repo-name>.report
+d2 <repo-name>.report
 ```
 
 Current rule: skill commands are file-based commands. Create a real executable
@@ -266,7 +266,7 @@ Developer Dashboard does not enforce a rich schema here. The file is mainly
 for your skill. The dispatcher exposes it to skill-side code and guarantees the
 path exists.
 
-The merged dashboard config also exposes this file under an underscored key
+The merged d2 config also exposes this file under an underscored key
 named after the repo, for example `_example-skill`.
 
 A safe starting point is:
@@ -283,7 +283,7 @@ Reserved space for skill-local Docker or Compose-related files.
 
 Current behavior:
 
-- `dashboard skills list` metadata records the directories under `config/docker/`
+- `d2 skills list` metadata records the directories under `config/docker/`
 - skill commands and hooks get `DEVELOPER_DASHBOARD_SKILL_DOCKER_ROOT`
 - docker service lookup follows `DD-OOP-LAYERS`, so each participating runtime
   layer contributes its own installed skill `config/docker/...` roots alongside
@@ -532,7 +532,7 @@ Lives inside the skill:
 Run with:
 
 ```bash
-dashboard <repo-name>.<command>
+d2 <repo-name>.<command>
 ```
 
 Hook path:
@@ -553,7 +553,7 @@ Lives in the normal dashboard runtime:
 Run with:
 
 ```bash
-dashboard <command>
+d2 <command>
 ```
 
 Hook paths:
@@ -758,7 +758,7 @@ These are good working rules when writing bookmarks and skills:
 - prefer saved runtime bookmarks for heavy Ajax workflows
 - keep skill bookmarks simple, readable, and source-controlled
 
-### For custom dashboard CLI
+### For custom d2 CLI
 
 - if the goal is project-local and not reusable, prefer `./.developer-dashboard/cli/<command>`
 - use `.d` hook folders when you want pre-command validation or context gathering
@@ -812,7 +812,7 @@ the parts your skill actually needs.
 ### Do skill commands go into my system `PATH`?
 
 No. You always run them through the dotted
-`dashboard <repo-name>.<command>` form.
+`d2 <repo-name>.<command>` form.
 
 ### Can a skill expose browser pages?
 
@@ -875,8 +875,8 @@ ssh windev
 Practical reminders:
 
 - run PowerShell commands inside that SSH session
-- test `install.ps1`, profile bootstrap, `dashboard restart`, `dashboard logs`,
-  and `dashboard skills install ...` there
+- test `install.ps1`, profile bootstrap, `d2 restart`, `d2 logs`,
+  and `d2 skills install ...` there
 - do not touch anything under `~/vm` as part of this normal verification path
 - the older OEM/shared-folder wrapper flow is fallback-only and must not be the
   normal local verification path while guest SSH works

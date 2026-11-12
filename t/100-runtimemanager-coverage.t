@@ -1000,12 +1000,12 @@ is( $manager->_send_signal( 'TERM', undef, 0, 'nope' ), 0, '_send_signal ignores
     local *Developer::Dashboard::RuntimeManager::_ps_processes = sub {
         return (
             { pid => 1, uid => $<, args => undef },
-            { pid => 2, uid => $<, args => 'dashboard ajax: real' },
+            { pid => 2, uid => $<, args => 'd2 ajax: real' },
         );
     };
     local *Developer::Dashboard::RuntimeManager::_proc_owned_by_current_user = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return undef };
-    my @matches = $manager->_find_processes_by_prefix('dashboard ajax:');
+    my @matches = $manager->_find_processes_by_prefix('d2 ajax:');
     is_deeply( [ map { $_->{pid} } @matches ], [2], '_find_processes_by_prefix skips processes with an undef command line' );
 }
 
@@ -1014,8 +1014,8 @@ is( $manager->_send_signal( 'TERM', undef, 0, 'nope' ), 0, '_send_signal ignores
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_ps_processes = sub {
         return (
-            { pid => 500, uid => $<, args => 'dashboard web: 0.0.0.0:1' },
-            { pid => 500, uid => $<, args => 'dashboard web: 0.0.0.0:1' },
+            { pid => 500, uid => $<, args => 'd2 web: 0.0.0.0:1' },
+            { pid => 500, uid => $<, args => 'd2 web: 0.0.0.0:1' },
         );
     };
     local *Developer::Dashboard::RuntimeManager::_proc_owned_by_current_user = sub { return 1 };
@@ -1537,7 +1537,7 @@ is( $manager->_web_runtime_ready( 5,     0 ),    0, '_web_runtime_ready rejects 
     }
     {
         local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };
-        local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'dashboard web: 0.0.0.0:1' };
+        local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'd2 web: 0.0.0.0:1' };
         $manager->_cleanup_web_files;
         is( $manager->_adopt_web_listener_pid( listener_pid => 5, state => 'not-a-hash' ), 5, '_adopt_web_listener_pid adopts a listener pid using persisted web state' );
         is( $manager->_adopt_web_listener_pid( listener_pid => 5, state => { pid => 5 } ), undef, '_adopt_web_listener_pid skips when the state pid already matches' );
@@ -1570,10 +1570,10 @@ is( $manager->_wait_for_unix_web_shutdown( listener_pids => [ 999999 ] ),       
     my $root = $paths->state_root;
     local *Developer::Dashboard::RuntimeManager::_find_processes_by_prefix = sub {
         return (
-            { pid => 1, args => 'dashboard ajax: a' },
-            { pid => 2, args => 'dashboard ajax: b' },
-            { pid => 3, args => 'dashboard ajax: c' },
-            { pid => 4, args => 'dashboard ajax: d' },
+            { pid => 1, args => 'd2 ajax: a' },
+            { pid => 2, args => 'd2 ajax: b' },
+            { pid => 3, args => 'd2 ajax: c' },
+            { pid => 4, args => 'd2 ajax: d' },
         );
     };
     local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub {
@@ -1612,7 +1612,7 @@ is( $manager->_is_managed_web(999999), 0, '_is_managed_web rejects a dead pid' )
     is( $manager->_is_managed_web($$), 0, '_is_managed_web rejects a pid with no readable title' );
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return '' };
     is( $manager->_is_managed_web($$), 0, '_is_managed_web rejects a pid with an empty title' );
-    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'dashboard web: 0.0.0.0:1' };
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'd2 web: 0.0.0.0:1' };
     ok( $manager->_is_managed_web($$), '_is_managed_web recognizes a managed web process title' );
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'something else' };
     is( $manager->_is_managed_web($$), 0, '_is_managed_web rejects an unrelated process title' );
@@ -2154,7 +2154,7 @@ is( $manager->_is_collector_supervisor(999999), 0, '_is_collector_supervisor rej
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return '' };
     is( $manager->_is_collector_supervisor($$), 0, '_is_collector_supervisor rejects a pid with an empty title' );
     local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return '0' };
-    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'dashboard collector supervisor' };
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'd2 collector supervisor' };
     ok( $manager->_is_collector_supervisor($$), '_is_collector_supervisor matches the supervisor process title' );
 }
 
@@ -2635,7 +2635,7 @@ is( $manager->_tail_text( "\n", 5 ), '', '_tail_text returns empty for a lone ne
 # _managed_ajax_processes: procfs unavailable with an unmarked worker (line 387)
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::_find_processes_by_prefix = sub { return ( { pid => 9, args => 'dashboard ajax: z' } ); };
+    local *Developer::Dashboard::RuntimeManager::_find_processes_by_prefix = sub { return ( { pid => 9, args => 'd2 ajax: z' } ); };
     local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
     is_deeply( [ map { $_->{pid} } $manager->_managed_ajax_processes ], [9], '_managed_ajax_processes keeps unmarked workers when procfs is unavailable' );
@@ -2718,7 +2718,7 @@ is( $manager->_tail_text( "\n", 5 ), '', '_tail_text returns empty for a lone ne
 }
 
 # _looks_like_collector_supervisor_process: a matching record (line 1665 both-true)
-ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard collector supervisor' } ), '_looks_like_collector_supervisor_process recognizes the supervisor title' );
+ok( $manager->_looks_like_collector_supervisor_process( { args => 'd2 collector supervisor' } ), '_looks_like_collector_supervisor_process recognizes the supervisor title' );
 
 # _collector_restart_limit: a non-numeric override (line 1758)
 {
@@ -2772,7 +2772,7 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return undef };
-    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'dashboard web: 0.0.0.0:1' };
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'd2 web: 0.0.0.0:1' };
     ok( $manager->_is_managed_web($$), '_is_managed_web falls through to the process title when no marker exists' );
 }
 
@@ -2837,7 +2837,7 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
     local *Developer::Dashboard::RuntimeManager::_ps_processes = sub { return ( { pid => 1, uid => $<, args => 'unrelated command' } ); };
     local *Developer::Dashboard::RuntimeManager::_proc_owned_by_current_user = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return undef };
-    is_deeply( [ $manager->_find_processes_by_prefix('dashboard ajax:') ], [], '_find_processes_by_prefix drops processes whose args do not match the prefix' );
+    is_deeply( [ $manager->_find_processes_by_prefix('d2 ajax:') ], [], '_find_processes_by_prefix drops processes whose args do not match the prefix' );
 }
 
 # _listener_pids_for_port (Windows): undef stdout falls back to netstat (line 2764)
@@ -3310,10 +3310,10 @@ is( $manager->_port_accepting_connections(0),     0, '_port_accepting_connection
 # --- WAVE 4: remaining sides ------------------------------------------------
 
 # _looks_like_web_process: each recognized command shape
-ok( $manager->_looks_like_web_process( { pid => 1, args => 'dashboard web: 0.0.0.0:7890' } ), '_looks_like_web_process recognizes a managed web title' );
+ok( $manager->_looks_like_web_process( { pid => 1, args => 'd2 web: 0.0.0.0:7890' } ), '_looks_like_web_process recognizes a managed web title' );
 ok( $manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib /usr/lib/_dashboard-core serve' } ), '_looks_like_web_process recognizes a perl _dashboard-core serve command' );
-ok( $manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/dashboard serve' } ), '_looks_like_web_process recognizes a perl bin/dashboard serve command' );
-ok( $manager->_looks_like_web_process( { pid => 1, args => 'dashboard serve --workers 4' } ), '_looks_like_web_process recognizes a bare dashboard serve command' );
+ok( $manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/d2 serve' } ), '_looks_like_web_process recognizes a perl bin/d2 serve command' );
+ok( $manager->_looks_like_web_process( { pid => 1, args => 'd2 serve --workers 4' } ), '_looks_like_web_process recognizes a bare d2 serve command' );
 
 # _portable_signal: a numeric signal passes straight through
 is( Developer::Dashboard::RuntimeManager::_portable_signal(15), 15, '_portable_signal returns a numeric signal unchanged' );

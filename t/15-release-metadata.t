@@ -384,7 +384,7 @@ for my $path (
     ok( !-e _repo_path($path), "$path is no longer shipped as a public executable" );
 }
 
-ok( -f _repo_path( 'bin', 'd2' ), 'bin/d2 is shipped as the real short dashboard entrypoint' );
+ok( -f _repo_path( 'bin', 'd2' ), 'bin/d2 is shipped as the real short d2 entrypoint' );
 ok( -x _repo_path( 'bin', 'd2' ), 'bin/d2 is shipped as an executable' );
 
 for my $module (
@@ -605,7 +605,7 @@ my @operator_local_files = qw(
 
     my @must_be_shipped = qw(
         lib/Developer/Dashboard.pm
-        bin/dashboard
+        bin/d2
         t/15-release-metadata.t
         share/public/js/jquery-4.0.0.min.js
         integration/blank-env/run-integration.pl
@@ -763,11 +763,11 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/~\/\.developer-dashboard\/cli/, 'docs describe private helper extraction under the runtime cli root' );
     like( $doc, qr/\bof\b.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*\bof\b/s, 'docs describe private of/open-file helper staging' );
     like( $doc, qr/\bworkspace\b.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*\bworkspace\b/s, 'docs describe private workspace helper staging' );
-    like( $doc, qr/dashboard jq/, 'docs describe the renamed jq subcommand' );
-    like( $doc, qr/dashboard yq/, 'docs describe the renamed yq subcommand' );
-    like( $doc, qr/dashboard tomq/, 'docs describe the renamed tomq subcommand' );
-    like( $doc, qr/dashboard propq/, 'docs describe the renamed propq subcommand' );
-    like( $doc, qr/dashboard of \. jq|jq\.js.*jquery\.js|jquery\.js.*jq\.js/s, 'docs describe the scoped open-file ranking behaviour' );
+    like( $doc, qr/d2 jq/, 'docs describe the renamed jq subcommand' );
+    like( $doc, qr/d2 yq/, 'docs describe the renamed yq subcommand' );
+    like( $doc, qr/d2 tomq/, 'docs describe the renamed tomq subcommand' );
+    like( $doc, qr/d2 propq/, 'docs describe the renamed propq subcommand' );
+    like( $doc, qr/d2 of \. jq|jq\.js.*jquery\.js|jquery\.js.*jq\.js/s, 'docs describe the scoped open-file ranking behaviour' );
     like( $doc, qr/Ok\\\.js\$|ok\.json|case-insensitive regex/i, 'docs describe regex-based scoped open-file matching explicitly' );
     like( $doc, qr/javax\.jws\.WebService|Maven source jar|~\/\.developer-dashboard\/cache\/open-file/i, 'docs describe Java source lookup through archives and cached Maven downloads' );
     like( $doc, qr/vim -p|C<vim -p>/, 'docs describe vim tab mode for blank-enter open-all' );
@@ -775,14 +775,14 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/XMLHttpRequest/, 'docs describe incremental browser streaming through XMLHttpRequest' );
     like( $doc, qr/request-specific\s+token\s+form|carry(?:ing)?\s+those\s+token\s+values\s+across\s+matching\s+placeholders|(?:`\{\{token\}\}`|C<\{\{token\}\}>|\{\{token\}\})\s+placeholders/s, 'docs describe the request-token carry-over workflow' );
     like( $doc, qr/below\s+the\s+response\s+`pre`|below\s+the\s+response\s+C<pre>/s, 'docs describe the response tabs below the response pre box' );
-    like( $doc, qr/dashboard cpan(?: <Module\.\.\.>| E<lt>Module\.\.\.E<gt>)?|C<dashboard cpan E<lt>Module\.\.\.E<gt>>/, 'docs describe the runtime-local dashboard cpan command' );
+    like( $doc, qr/d2 cpan(?: <Module\.\.\.>| E<lt>Module\.\.\.E<gt>)?|C<d2 cpan E<lt>Module\.\.\.E<gt>>/, 'docs describe the runtime-local d2 cpan command' );
     like( $doc, qr/ssl_subject_alt_names/, 'docs describe configured extra SSL SAN aliases and IPs' );
     like( $doc, qr/config\/api\.json|F<config\/api\.json>/, 'docs describe layered config/api.json machine auth for saved ajax routes' );
-    like( $doc, qr/dashboard api(?: add| rm| ls)?/, 'docs describe the dashboard api management command for layered machine auth' );
+    like( $doc, qr/d2 api(?: add| rm| ls)?/, 'docs describe the d2 api management command for layered machine auth' );
     like( $doc, qr/X-DD-API-Key|x-dd-api-key/i, 'docs describe the API key header for saved ajax machine auth' );
     like( $doc, qr/X-DD-API-Secret|x-dd-api-secret/i, 'docs describe the API secret header for saved ajax machine auth' );
-    like( $doc, qr/bin\/dashboard|dashboard entrypoint|C<dashboard> entrypoint/, 'docs describe the dashboard cpan implementation as entrypoint-local' );
-    like( $doc, qr/config\/config\.json.*intact|preserves an existing .*config\/config\.json/s, 'docs describe non-destructive dashboard init reruns' );
+    like( $doc, qr/bin\/dashboard|d2 entrypoint|C<d2> entrypoint/, 'docs describe the d2 cpan implementation as entrypoint-local' );
+    like( $doc, qr/config\/config\.json.*intact|preserves an existing .*config\/config\.json/s, 'docs describe non-destructive d2 init reruns' );
     like( $doc, qr/cli\/dd/, 'docs describe the dedicated dd helper namespace under the home runtime CLI root' );
     like( $doc, qr/config\.json.*\{\}|creates it as `\{\}`|creates it as C<\{\}>/s, 'docs describe empty-object config bootstrapping instead of example collector seeding' );
     like( $doc, qr/preserve(?:s|d)?\s+.*user-owned.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*user-owned.*preserve|non-destructive.*~\/\.developer-dashboard\/cli/s, 'docs describe non-destructive preservation of user-owned files under the home runtime CLI root' );
@@ -815,9 +815,9 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/Developer::Dashboard::Runtime::Result/, 'docs use the namespaced Runtime::Result module name' );
     like( $doc, qr/Developer::Dashboard::Folder/, 'docs use the namespaced Folder module name' );
     like( $doc, qr/Folder->all|all_paths|new_from_all_folders|Collector->new_from_all_folders/, 'docs mention the public Perl path inventory API' );
-    like( $doc, qr/dashboard which/, 'docs mention the command inspection helper explicitly' );
-    like( $doc, qr/COMMAND \/full\/path|HOOK \/full\/path/, 'docs describe the COMMAND and HOOK output shape for dashboard which' );
-    like( $doc, qr/--edit.*dashboard open-file|dashboard open-file.*--edit/s, 'docs describe dashboard which --edit re-entering dashboard open-file' );
+    like( $doc, qr/d2 which/, 'docs mention the command inspection helper explicitly' );
+    like( $doc, qr/COMMAND \/full\/path|HOOK \/full\/path/, 'docs describe the COMMAND and HOOK output shape for d2 which' );
+    like( $doc, qr/--edit.*d2 open-file|d2 open-file.*--edit/s, 'docs describe d2 which --edit re-entering d2 open-file' );
     like( $doc, qr/Developer::Dashboard::EnvAudit/, 'docs mention the env provenance audit API' );
     like( $doc, qr/\.env\.pl|\.env/, 'docs describe layered env files explicitly' );
     like( $doc, qr/skill-local env files (?:load|are loaded) only when a skill command|skill env files only load when a skill command/i, 'docs describe skill-local env loading isolation' );
@@ -847,14 +847,14 @@ for my $doc (
 }
 
 for my $doc ( grep { defined && $_ ne '' } ( $skill_guide, $skills_pod ) ) {
-    like( $doc, qr/dashboard skills install/, 'skill authoring docs explain installation' );
-    like( $doc, qr/dashboard skills install browser foo\/bar git\@github\.com:user\/example-skill\.git/, 'skill authoring docs explain multi-source skill installs' );
-    like( $doc, qr/dashboard skill list|C<dashboard skill>/, 'skill authoring docs explain the singular skill management alias' );
+    like( $doc, qr/d2 skills install/, 'skill authoring docs explain installation' );
+    like( $doc, qr/d2 skills install browser foo\/bar git\@github\.com:user\/example-skill\.git/, 'skill authoring docs explain multi-source skill installs' );
+    like( $doc, qr/d2 skill list|C<d2 skill>/, 'skill authoring docs explain the singular skill management alias' );
     like( $doc, qr/\.gitignore.*skills\/<repo-name>\/|\.gitignore.*skills\/E<lt>repo-nameE<gt>\//s, 'skill authoring docs explain home gitignore skill tree registration' );
     like( $doc, qr/\/absolute\/path\/to\/example-skill/, 'skill authoring docs explain direct local skill installs' );
     like( $doc, qr/\.git\/.*\.env.*VERSION|\.env.*VERSION.*\.git\//is, 'skill authoring docs explain local skill qualification' );
     like( $doc, qr/dashboard example-skill\.hello/, 'skill authoring docs explain dotted command dispatch' );
-    unlike( $doc, qr/dashboard skill example-skill/, 'skill authoring docs no longer describe the removed singular dispatcher' );
+    unlike( $doc, qr/d2 skill example-skill/, 'skill authoring docs no longer describe the removed singular dispatcher' );
     like( $doc, qr{~/.developer-dashboard/skills/<repo-name>/|F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>}, 'skill authoring docs describe the isolated skill root' );
     like( $doc, qr/DD-OOP-LAYERS.*skill|skill.*DD-OOP-LAYERS/is, 'skill authoring docs describe layered skill lookup through DD-OOP-LAYERS' );
     like( $doc, qr/deepest.*shadow|shadow.*deepest|deepest matching repo name/is, 'skill authoring docs describe deepest-layer skill shadowing' );
@@ -919,23 +919,23 @@ for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/checkout-only.*install\.sh|install\.sh.*checkout-only/is, 'README documents install.sh as a checkout-only bootstrap script instead of an installed CPAN command' );
     like( $doc, qr/checkout-only.*install\.ps|install\.ps.*checkout-only/is, 'README and POD document install.ps1 as a checkout-only bootstrap script instead of an installed CPAN command' );
     like( $doc, qr/PowerShell.*install\.ps|install\.ps.*PowerShell/is, 'README and POD document install.ps1 as the Windows bootstrap entrypoint' );
-    like( $doc, qr/dashboard skills install/, 'README documents skill installation' );
-    like( $doc, qr/dashboard skills install browser foo\/bar git\@github\.com:user\/example-skill\.git/, 'README documents multi-source skill installation' );
-    like( $doc, qr/dashboard skill list|`dashboard skill`/, 'README documents the singular skill management alias' );
+    like( $doc, qr/d2 skills install/, 'README documents skill installation' );
+    like( $doc, qr/d2 skills install browser foo\/bar git\@github\.com:user\/example-skill\.git/, 'README documents multi-source skill installation' );
+    like( $doc, qr/d2 skill list|`d2 skill`/, 'README documents the singular skill management alias' );
     like( $doc, qr/\.gitignore.*skills\/<repo-name>\//s, 'README documents home gitignore skill tree registration' );
-    like( $doc, qr/dashboard skills install \/absolute\/path\/to\/example-skill/, 'README documents direct local skill installation' );
-    like( $doc, qr/dashboard skills uninstall/, 'README documents skill uninstallation' );
-    like( $doc, qr/Update registered skills.*dashboard skills install/s, 'README documents bare install as the registered-skill update command' );
+    like( $doc, qr/d2 skills install \/absolute\/path\/to\/example-skill/, 'README documents direct local skill installation' );
+    like( $doc, qr/d2 skills uninstall/, 'README documents skill uninstallation' );
+    like( $doc, qr/Update registered skills.*d2 skills install/s, 'README documents bare install as the registered-skill update command' );
     like( $doc, qr/-o json.*raw result payload|raw result payload.*-o json/s, 'README documents JSON output as an explicit skill install option' );
-    like( $doc, qr/dashboard skills enable/, 'README documents skill enablement' );
-    like( $doc, qr/dashboard skills disable/, 'README documents skill disablement' );
-    like( $doc, qr/dashboard skills usage/, 'README documents skill usage inspection' );
-    like( $doc, qr/dashboard skills list -o json|dashboard skills usage example-skill -o json|default output is a readable multi-section summary|default output is a padded table/is, 'README documents the human-summary plus explicit JSON contract for skill inspection' );
-    like( $doc, qr/dashboard skills list -o json/, 'README documents explicit JSON output for the skills list' );
+    like( $doc, qr/d2 skills enable/, 'README documents skill enablement' );
+    like( $doc, qr/d2 skills disable/, 'README documents skill disablement' );
+    like( $doc, qr/d2 skills usage/, 'README documents skill usage inspection' );
+    like( $doc, qr/d2 skills list -o json|d2 skills usage example-skill -o json|default output is a readable multi-section summary|default output is a padded table/is, 'README documents the human-summary plus explicit JSON contract for skill inspection' );
+    like( $doc, qr/d2 skills list -o json/, 'README documents explicit JSON output for the skills list' );
     like( $doc, qr/default output is a padded table|default output is a .*table/i, 'README documents table as the default skills list output' );
     like( $doc, qr/dashboard example-skill\.somecmd/, 'README documents dotted isolated skill command dispatch' );
     like( $doc, qr/dashboard example-skill\.foo\.bar\.baz|skills\/foo\/skills\/bar\/cli\/baz/, 'README documents dotted dispatch for multi-level nested skills/<repo>/cli commands' );
-    unlike( $doc, qr/dashboard skill example-skill/, 'README no longer documents the removed singular dispatcher' );
+    unlike( $doc, qr/d2 skill example-skill/, 'README no longer documents the removed singular dispatcher' );
     like( $doc, qr/aptfile/, 'README documents skill apt dependency bootstrap' );
     like( $doc, qr/_example-skill|_<repo-name>/, 'README documents underscored skill config merge keys' );
     like( $doc, qr{/app/<repo-name>|/app/<repo-name>/<page>}, 'README documents app-style skill routes' );
@@ -992,8 +992,8 @@ unlike( $readme, qr/real\s+inputs.*outputs|outputs.*real\s+inputs/is, 'README no
 unlike( $pm, qr/real\s+inputs.*outputs|outputs.*real\s+inputs/is, 'main module POD no longer carries file-level FULL-POD-DOC contributor guidance' );
 unlike( $readme, qr/common\s+path.*edge|edge.*common\s+path/is, 'README no longer carries the contributor example-bank wording' ) if $readme ne '';
 unlike( $pm, qr/common\s+path.*edge|edge.*common\s+path/is, 'main module POD no longer carries the contributor example-bank wording' );
-like( $readme, qr/How is the browser UI served\?|browser UI runs as the dashboard web service.*dashboard serve/is, 'README explains the browser service entrypoint instead of framing it as a framework requirement' ) if $readme ne '';
-like( $pm, qr/How is the browser UI served\?|browser UI runs as the dashboard web service.*dashboard serve/is, 'main module explains the browser service entrypoint instead of framing it as a framework requirement' );
+like( $readme, qr/How is the browser UI served\?|browser UI runs as the dashboard web service.*d2 serve/is, 'README explains the browser service entrypoint instead of framing it as a framework requirement' ) if $readme ne '';
+like( $pm, qr/How is the browser UI served\?|browser UI runs as the dashboard web service.*d2 serve/is, 'main module explains the browser service entrypoint instead of framing it as a framework requirement' );
 unlike( $pm, qr/=head2 Does it require a web framework\?/m, 'main module no longer carries the misleading web framework FAQ heading' );
 unlike( $readme, qr/minimal HTTP layer implemented with core Perl-oriented modules/i, 'README no longer claims the web stack avoids a framework' ) if $readme ne '';
 unlike( $pm, qr/minimal HTTP layer implemented with core Perl-oriented modules/i, 'main module no longer claims the web stack avoids a framework' );
@@ -1036,7 +1036,7 @@ my @forbidden_full_pod_boilerplate = (
     qr/Perl module in the Developer Dashboard codebase\./,
     qr/Private helper script in the Developer Dashboard codebase\./,
     qr/Open this file when you need the implementation, regression coverage, or runtime entrypoint for that responsibility rather than guessing which part of the tree owns it\./,
-    qr/It exists to keep this responsibility in reusable Perl code instead of hiding it in the thin C<dashboard> switchboard, bookmark text, or duplicated helper scripts\./,
+    qr/It exists to keep this responsibility in reusable Perl code instead of hiding it in the thin C<d2> switchboard, bookmark text, or duplicated helper scripts\./,
     qr/Use this file when you are changing the underlying runtime behaviour it owns, when you need to call its routines from another part of the project, or when a failing test points at this module as the real owner of the bug\./,
     qr/Load C<Developer::Dashboard::[A-Za-z:]+> from Perl code under C<lib\/> or from a focused test, then use the public routines documented in the inline function comments and existing SYNOPSIS\/METHODS sections\./,
     qr/This file is used by whichever runtime path owns this responsibility:/,
@@ -1174,7 +1174,7 @@ sub _perl_doc_paths {
     );
     push @paths, grep { -f $_ } (
         _repo_path('app.psgi'),
-        _repo_path('bin', 'dashboard'),
+        _repo_path('bin', 'd2'),
     );
 
     for my $root (@roots) {
@@ -1262,7 +1262,7 @@ sub _shipped_perl_doc_paths {
     my @paths;
     push @paths, grep { -f $_ } (
         _repo_path('app.psgi'),
-        _repo_path('bin', 'dashboard'),
+        _repo_path('bin', 'd2'),
     );
 
     for my $root ( _repo_path('lib'), _repo_path( 'share', 'private-cli' ) ) {

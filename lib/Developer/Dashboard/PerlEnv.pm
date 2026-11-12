@@ -248,7 +248,7 @@ Developer::Dashboard::PerlEnv - normalize safe Perl library ordering for dashboa
 =head1 DESCRIPTION
 
 This module centralizes the C<PERL5LIB> ordering used by the public
-C<dashboard> switchboard, staged private helpers, and dashboard-managed child
+C<d2> switchboard, staged private helpers, and dashboard-managed child
 process environments. It keeps dashboard libraries and the active Perl core
 directories ahead of inherited user-local paths so stale dual-life XS modules
 such as C<Encode> do not shadow the interpreter's matching core copy.
@@ -271,7 +271,7 @@ slightly different ways.
 
 =head1 WHEN TO USE
 
-Use this module when bootstrapping C<dashboard> itself, when staging or
+Use this module when bootstrapping C<d2> itself, when staging or
 running private helper commands, and whenever dashboard-managed subprocesses
 need a Perl-aware child environment. It is also the right place to debug XS
 handshake mismatches, interpreter drift, or any bug where a child process
@@ -342,7 +342,7 @@ defaulting to C<%ENV>.
 
 =head1 WHAT USES IT
 
-The public C<bin/dashboard> entrypoint uses it during early bootstrap, the
+The public C<bin/d2> entrypoint uses it during early bootstrap, the
 staged private helper runtime uses it before loading command implementations,
 and runtime child-process builders use it to prepare safe Perl environments
 for saved Ajax handlers, skills, and collector-related subprocesses.

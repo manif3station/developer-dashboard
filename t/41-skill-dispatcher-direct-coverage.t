@@ -577,8 +577,8 @@ is_deeply(
 );
 
 my ( $leaf_index, $leaf_owner ) = $dispatcher->_page_location( 'layered', 'index' );
-is( $leaf_index, File::Spec->catfile( $leaf_skill, 'dashboards', 'index' ), '_page_location prefers the deepest layered dashboard file' );
-is( $leaf_owner, $leaf_skill, '_page_location reports the skill layer that served the dashboard file' );
+is( $leaf_index, File::Spec->catfile( $leaf_skill, 'dashboards', 'index' ), '_page_location prefers the deepest layered d2 file' );
+is( $leaf_owner, $leaf_skill, '_page_location reports the skill layer that served the d2 file' );
 ok( !defined scalar $dispatcher->_page_location( 'layered', '../outside' ),
     '_page_location rejects an untrusted parent-directory route' );
 ok( !defined scalar $dispatcher->_page_location(
@@ -613,7 +613,7 @@ ok( !defined scalar $dispatcher->_page_location(
     '_page_location rejects a non-array inventory segment value' );
 
 my ( $base_welcome, $base_owner ) = $dispatcher->_page_location( 'layered', 'welcome' );
-is( $base_welcome, File::Spec->catfile( $base_skill, 'dashboards', 'welcome' ), '_page_location falls back to inherited dashboard files when the leaf layer has none' );
+is( $base_welcome, File::Spec->catfile( $base_skill, 'dashboards', 'welcome' ), '_page_location falls back to inherited d2 files when the leaf layer has none' );
 is( $base_owner, $base_skill, '_page_location reports the inherited layer when falling back' );
 
 is_deeply(

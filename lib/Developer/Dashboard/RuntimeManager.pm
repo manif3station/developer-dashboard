@@ -358,7 +358,7 @@ sub _web_state_with_endpoint {
     return $running if defined $running->{host} && defined $running->{port};
 
     my $title = $self->_read_process_title($pid);
-    if ( defined $title && $title =~ /^dashboard web:\s+(\S+):(\d+)$/ ) {
+    if ( defined $title && $title =~ /^d2 web:\s+(\S+):(\d+)$/ ) {
         $running->{host} = defined $running->{host} ? $running->{host} : $1;
         $running->{port} = defined $running->{port} ? $running->{port} : $2 + 0;
     }
@@ -385,7 +385,7 @@ sub running_web {
     }
 
     for my $proc ( $self->_find_web_processes ) {
-        if ( $proc->{args} =~ /^dashboard web:\s+(\S+):(\d+)$/ ) {
+        if ( $proc->{args} =~ /^d2 web:\s+(\S+):(\d+)$/ ) {
             return {
                 %$state,
                 pid          => $proc->{pid},
@@ -482,7 +482,7 @@ sub stop_web {
 
     $self->_send_signal( 'TERM', $pid ) if $pid;
     $self->_send_signal( 'TERM', @listener_pids );
-    $self->_pkill_perl('^dashboard web:');
+    $self->_pkill_perl('^d2 web:');
     my @ajax_workers = $self->_managed_ajax_processes;
     my @ajax_worker_pids = map { $_->{pid} } @ajax_workers;
     $self->_send_signal( 'TERM', @ajax_worker_pids );
@@ -562,7 +562,7 @@ sub _managed_ajax_processes {
     my ($self) = @_;
     my $runtime_root = $self->{paths} ? $self->{paths}->state_root : '';
     my @matches;
-    for my $proc ( $self->_find_processes_by_prefix('dashboard ajax:') ) {
+    for my $proc ( $self->_find_processes_by_prefix('d2 ajax:') ) {
         my $marker = $self->_read_process_env_marker( $proc->{pid}, 'DEVELOPER_DASHBOARD_RUNTIME_ROOT' );
         next if defined $marker && $marker ne '' && $marker ne $runtime_root;
         next if defined $marker && $marker eq '' && $runtime_root ne '';
@@ -1853,7 +1853,7 @@ sub _is_collector_supervisor {
 sub _looks_like_collector_supervisor_process {
     my ( $self, $proc ) = @_;
     return 0 if !$proc || !$proc->{args};
-    return 1 if $proc->{args} =~ /^dashboard collector supervisor$/;
+    return 1 if $proc->{args} =~ /^d2 collector supervisor$/;
     return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$};
     return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$}i;
     return 0;
@@ -1941,7 +1941,7 @@ sub _cleanup_collector_supervisor_files {
 # Input: none.
 # Output: process title string.
 sub _collector_supervisor_process_title {
-    return 'dashboard collector supervisor';
+    return 'd2 collector supervisor';
 }
 
 # _normalized_collector_watch_names($names)
@@ -2015,7 +2015,7 @@ sub _collector_supervisor_poll_interval {
 }
 
 # stop_progress_tasks()
-# Builds the ordered task list shown for dashboard stop progress output.
+# Builds the ordered task list shown for d2 stop progress output.
 # Input: none.
 # Output: array reference of task hash references.
 sub stop_progress_tasks {
@@ -2046,7 +2046,7 @@ sub stop_progress_tasks {
 }
 
 # restart_progress_tasks()
-# Builds the ordered task list shown for dashboard restart progress output.
+# Builds the ordered task list shown for d2 restart progress output.
 # Input: none.
 # Output: array reference of task hash references.
 sub restart_progress_tasks {
@@ -2476,7 +2476,7 @@ sub _cleanup_web_files {
 # Output: process title string.
 sub _web_process_title {
     my ( $self, $host, $port ) = @_;
-    return "dashboard web: $host:$port";
+    return "d2 web: $host:$port";
 }
 
 # _portable_signal($signal)
@@ -2548,7 +2548,7 @@ sub _is_managed_web {
     my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_WEB_SERVICE' );
     return 1 if defined $marker && $marker eq '1';
     my $title = $self->_read_process_title($pid);
-    return 1 if defined $title && $title =~ /^dashboard web:/;
+    return 1 if defined $title && $title =~ /^d2 web:/;
 
     # Starman replaces the helper's process title with "starman master" and
     # may re-exec its listener without the helper's runtime marker. Trust that
@@ -2760,12 +2760,12 @@ sub _proc_owned_by_current_user {
 }
 
 # _find_legacy_web_processes()
-# Returns older-style dashboard serve processes.
+# Returns older-style d2 serve processes.
 # Input: none.
 # Output: list of process hash references.
 sub _find_legacy_web_processes {
     my ($self) = @_;
-    return grep { $_->{args} !~ /^dashboard web:/ } $self->_find_web_processes;
+    return grep { $_->{args} !~ /^d2 web:/ } $self->_find_web_processes;
 }
 
 # _looks_like_web_process($proc)
@@ -2775,11 +2775,11 @@ sub _find_legacy_web_processes {
 sub _looks_like_web_process {
     my ( $self, $proc ) = @_;
     return 0 if !$proc || !$proc->{pid} || !$proc->{args};
-    return 1 if $proc->{args} =~ /^dashboard web:\s+\S+:\d+$/;
+    return 1 if $proc->{args} =~ /^d2 web:\s+\S+:\d+$/;
     return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground|web-ssl-backend-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
     return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground|web-ssl-backend-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$}i;
-    return 1 if $proc->{args} =~ m{^(?:\S+/env\s+)?perl(?:\s+-\S+)*\s+(?:\S+/)?dashboard\s+serve(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
-    return 1 if $proc->{args} =~ m{^(?:\S+/)?dashboard\s+serve(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
+    return 1 if $proc->{args} =~ m{^(?:\S+/env\s+)?perl(?:\s+-\S+)*\s+(?:\S+/)?d2\s+serve(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
+    return 1 if $proc->{args} =~ m{^(?:\S+/)?d2\s+serve(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
     return 0;
 }
 
@@ -3509,7 +3509,7 @@ serves the TLS Starman runner on that internal endpoint and returns its exit
 status. The public SSL frontend launches it through GoRoutine's native process
 API so foreground and managed web serving share the same lifecycle contract.
 
-The C<web_log> method reads the dashboard log, optionally returns only the last
+The C<web_log> method reads the d2 log, optionally returns only the last
 N lines, or follows appended data after printing that tail. A zero line count
 prints no existing lines before follow mode begins; line counts must be
 non-negative integers.
@@ -3520,7 +3520,7 @@ Construct it with the path registry and any required collaborators, then call th
 
 =head1 WHAT USES IT
 
-It is used by the C<dashboard serve>, C<dashboard restart>, and C<dashboard stop> helpers, by integration smoke that exercises lifecycle commands, and by tests that cover pid handling and process validation.
+It is used by the C<d2 serve>, C<d2 restart>, and C<d2 stop> helpers, by integration smoke that exercises lifecycle commands, and by tests that cover pid handling and process validation.
 
 =head1 EXAMPLES
 
@@ -3550,7 +3550,7 @@ Put any module-level change back through the entire repository suite before rele
 
 Example 5:
 
-  dashboard serve logs -t --tail=0
+  d2 serve logs -t --tail=0
 
 Read no current log lines with timestamps enabled. When combined with C<-f>,
 this starts following future log entries without first printing the existing

@@ -41,8 +41,8 @@ cpanm --no-wget --notest Developer::Dashboard   # from CPAN
 ```
 
 ```sh
-dashboard init
-dashboard serve      # starts the web interface
+d2 init
+d2 serve      # starts the web interface
 ```
 
 ## What's inside
@@ -57,7 +57,7 @@ dashboard serve      # starts the web interface
 ## Repository map
 
 ```
-bin/         dashboard CLI entry points
+bin/         d2 CLI entry points
 lib/         Developer::Dashboard modules
 script/      helpers, including the README sync script
 share/       browser assets served by the web interface

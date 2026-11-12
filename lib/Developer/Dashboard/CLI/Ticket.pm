@@ -301,16 +301,16 @@ sub _tmux_stdout {
 }
 
 # _dashboard_command_path()
-# Resolves the explicit dashboard entrypoint path used in tmux status commands.
+# Resolves the explicit d2 entrypoint path used in tmux status commands.
 # Input: none.
-# Output: absolute/relative dashboard command path string, or "dashboard" as a final fallback.
+# Output: absolute/relative d2 command path string, or "d2" as a final fallback.
 sub _dashboard_command_path {
     return $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT}
       if defined $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT}
       && $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} ne '';
-    my $path = command_in_path('dashboard');
+    my $path = command_in_path('d2');
     return $path if defined $path;
-    return 'dashboard';
+    return 'd2';
 }
 
 # _run_workspace_docker_compose(%args)
@@ -525,7 +525,7 @@ sub apply_workspace_environment {
 
 # apply_ticket_status(%args)
 # Configures one tmux ticket session to render dashboard indicators on the top tmux status row.
-# Input: session name plus optional tmux runner coderef and optional dashboard command path override.
+# Input: session name plus optional tmux runner coderef and optional d2 command path override.
 # Output: true on success, or dies when tmux refuses the session status update.
 sub apply_workspace_status {
     return apply_ticket_status(@_);
@@ -544,7 +544,7 @@ sub _tmux_status_interval_seconds {
 # Configures a tmux session's status bar to show the dashboard's ticket
 # indicator on top while preserving whatever status line the session already
 # had, restoring it below the indicator.
-# Input: session name, and optional tmux/dashboard command overrides for tests.
+# Input: session name, and optional tmux/d2 command overrides for tests.
 # Output: 1 on success, dies on a tmux configuration error.
 sub apply_ticket_status {
     my (%args) = @_;
@@ -757,7 +757,7 @@ sub run_workspace_command {
       if $docker && File::Spec->file_name_is_absolute($workspace);
     my $target = $resolver->($workspace);
     if ($change_dir) {
-        die "Workspace '$workspace' is not a registered dashboard path, so -c has no directory to change into\n"
+        die "Workspace '$workspace' is not a registered d2 path, so -c has no directory to change into\n"
           if !defined $target || $target eq '';
         die "Workspace '$workspace' resolves to '$target', which is not a directory\n"
           if !-d $target;
@@ -885,7 +885,7 @@ the dashboard toolchain without installing a public top-level executable.
 
 =head1 PURPOSE
 
-This module owns the workspace-session runtime behind C<dashboard workspace>.
+This module owns the workspace-session runtime behind C<d2 workspace>.
 It resolves the requested workspace reference, builds the C<tmux> environment,
 decides whether the session already exists, creates the session when needed,
 and attaches the terminal to the chosen workspace session. Logical dotted names
@@ -944,7 +944,7 @@ If another command creates the session between the initial existence check and
 the create request, the helper rechecks the exact name and attaches only when
 that session is confirmed; other create errors remain visible.
 
-For C<dashboard workspace -c E<lt>aliasE<gt> --docker> (or the short C<-d>
+For C<d2 workspace -c E<lt>aliasE<gt> --docker> (or the short C<-d>
 form), the module changes into the resolved host directory and checks whether
 the Compose C<workspace> service is already running. A stopped service starts
 without building by default, including when the configured image is missing:
@@ -1014,10 +1014,10 @@ create/attach error handling.
   dashboard ticket
   TICKET_REF=DD-123 dashboard ticket
   dashboard ticket feature-branch-42
-  dashboard workspace parent.child.work -c
-  dashboard workspace -c foobar --docker
-  dashboard workspace foobar -c -d
-  dashboard workspace foobar -d -C
+  d2 workspace parent.child.work -c
+  d2 workspace -c foobar --docker
+  d2 workspace foobar -c -d
+  d2 workspace foobar -d -C
   perl -Ilib -MDeveloper::Dashboard::CLI::Ticket=list_sessions -e 'print join qq(\n), list_sessions()'
 
 =for comment FULL-POD-DOC END
