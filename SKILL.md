@@ -124,7 +124,7 @@ runtime Git status.
 Run its command:
 
 ```bash
-dashboard example-skill.hello
+d2 example-skill.hello
 ```
 
 Render its index page in the browser:
@@ -149,7 +149,7 @@ d2 skills install /absolute/path/to/example-skill
 d2 skills update example-skill
 d2 skills list
 d2 skills uninstall example-skill
-dashboard example-skill.hello arg1 arg2
+d2 example-skill.hello arg1 arg2
 ```
 
 Important behavior:
@@ -452,7 +452,7 @@ and command name.
 Example:
 
 ```bash
-dashboard example-skill.report one two
+d2 example-skill.report one two
 ```
 
 means your command sees:
@@ -857,7 +857,7 @@ Start with the simplest thing:
 
 ## 14. Use Cases
 
-- wrap an external internal tool behind `dashboard ops-tool.run`
+- wrap an external internal tool behind `d2 ops-tool.run`
 - ship a browser bookmark that explains a workflow, links to docs, and reads local status files
 - keep isolated Perl dependencies for one automation package without growing the main dashboard dependency set
 - provide a reusable team command bundle with validation hooks

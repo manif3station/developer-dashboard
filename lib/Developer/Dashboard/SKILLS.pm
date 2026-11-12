@@ -27,7 +27,7 @@ Skill lifecycle:
   d2 skills install --ddfile
   d2 skills install
   d2 skills list
-  dashboard example-skill.hello arg1 arg2
+  d2 example-skill.hello arg1 arg2
   d2 skills uninstall example-skill
 
 =head1 DESCRIPTION
@@ -137,7 +137,7 @@ for existing targets.
 
 Run its command:
 
-  dashboard example-skill.hello
+  d2 example-skill.hello
 
 Open its bookmark:
 

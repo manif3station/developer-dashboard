@@ -2044,7 +2044,7 @@ detail window that keeps the newest progress lines under the active task in
 blue and leaves failure detail lines visible in red when a manifest step stops
 with an error.
 
-Installed dotted skill commands such as C<dashboard demo-skill.foo> now hand
+Installed dotted skill commands such as C<d2 demo-skill.foo> now hand
 control to the real skill command after hook processing instead of wrapping
 the main command in an extra capture layer. That keeps interactive prompting
 behaviour intact for commands that print a prompt and then read from standard
@@ -2187,10 +2187,10 @@ shared nav rendering.
 
 Execute a skill command:
 
-  dashboard example-skill.somecmd arg1 arg2
+  d2 example-skill.somecmd arg1 arg2
 
 The dotted form is the public route. If C<example-skill> is installed and
-ships C<cli/somecmd>, C<dashboard example-skill.somecmd> resolves the correct
+ships C<cli/somecmd>, C<d2 example-skill.somecmd> resolves the correct
 layered skill command. If the active child layer for that same repo omits
 C<cli/somecmd>, the command falls back to the nearest inherited skill layer
 that still provides it.
@@ -2206,7 +2206,7 @@ C<skills/E<lt>repoE<gt>/.../skills/E<lt>repoE<gt>> trees, the same dotted
 public form keeps walking those nested skill roots until it resolves the final
 C<cli/E<lt>cmdE<gt>> file. For example:
 
-  dashboard nest.level1.level2.here
+  d2 nest.level1.level2.here
   d2 which nest.level1.level2.here
 
 The first command executes the nested skill command. The second prints the
@@ -2216,15 +2216,15 @@ before it.
 Nested skill trees under C<skills/E<lt>repoE<gt>/cli/> stay reachable through
 that same public dotted route, including multiple nested levels. For example,
 if C<example-skill> ships C<skills/foo/skills/bar/cli/baz>, then
-C<dashboard example-skill.foo.bar.baz> resolves the nested command through the
+C<d2 example-skill.foo.bar.baz> resolves the nested command through the
 installed skill tree.
 
 A nested skill can also expose its default command as C<cli/__init__> (with any
 supported executable extension). Naming that nested skill directly invokes
 its initializer, including at multiple nested levels:
 
-  dashboard example-skill.foo
-  dashboard example-skill.foo.bar
+  d2 example-skill.foo
+  d2 example-skill.foo.bar
 
 When a deeper nested skill has its own initializer, it takes precedence over
 an ancestor skill's generic initializer. Explicit command files are resolved
@@ -3589,7 +3589,7 @@ Unknown top-level subcommands can be provided by executable files under
 the current working directory's F<./.developer-dashboard/cli> first, then the
 nearest git-backed project runtime F<./.developer-dashboard/cli> when it is a
 different directory, and then F<~/.developer-dashboard/cli>. For example,
-C<dashboard foobar a b> will exec the first matching
+C<d2 foobar a b> will exec the first matching
 F<cli/foobar> with C<a b> as argv, while preserving stdin, stdout, and
 stderr.
 
@@ -3603,14 +3603,14 @@ those files.
 
 Concrete source-backed examples:
 
-  dashboard hi
-  dashboard foo
+  d2 hi
+  d2 foo
 
-If F<cli/hi.go> is executable, C<dashboard hi> runs it through C<go run>.
-If F<cli/report.py> is executable, C<dashboard report> runs it through C<python>.
+If F<cli/hi.go> is executable, C<d2 hi> runs it through C<go run>.
+If F<cli/report.py> is executable, C<d2 report> runs it through C<python>.
 
-If F<cli/webhook.js> is executable, C<dashboard webhook> runs it through C<node>.
-If F<cli/foo.java> is executable, C<dashboard foo> compiles it with C<javac>
+If F<cli/webhook.js> is executable, C<d2 webhook> runs it through C<node>.
+If F<cli/foo.java> is executable, C<d2 foo> compiles it with C<javac>
 into an isolated temp directory and then runs the declared main class with
 C<java>.
 
@@ -3630,7 +3630,7 @@ project-local runtime layers take precedence over the home layer.
 If a user mistypes a command, dashboard now prints an explicit unknown-command
 error together with the closest matching public command before the usual usage
 summary. The same guidance also applies to dotted skill commands, so
-C<dashboard alpha-skill.run-tset> suggests the nearest installed dotted skill
+C<d2 alpha-skill.run-tset> suggests the nearest installed dotted skill
 command instead of only dumping generic help.
 
 =head2 Built-in command help and completion
@@ -3853,7 +3853,7 @@ chain and deeper runtime layers after it. Therefore a nested command such as
 C<d2 foo.bar.bob> receives home defaults, then the C<foo> and C<bar> skill
 overrides, then any nearer project runtime values.
 
-For nested skill commands such as C<dashboard foo.bar.zzz.show>, the skill env
+For nested skill commands such as C<d2 foo.bar.zzz.show>, the skill env
 chain expands from the root nested skill to the leaf skill before the command
 runs:
 
@@ -4142,7 +4142,7 @@ scoped to the current working directory:
 C<< d2->paths >> resolves in-process, the same table C<d2 paths>
 prints. Any other bareword method name starts a B<lazy chain> that mirrors
 the CLI's own dotted dispatch at arbitrary depth - C<< d2->foo->bar->() >>
-runs C<dashboard foo.bar> - and B<nothing executes until the chain is
+runs C<d2 foo.bar> - and B<nothing executes until the chain is
 terminated with a call>, the trailing C<< ->() >>.
 
 An un-terminated chain is

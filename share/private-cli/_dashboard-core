@@ -1099,7 +1099,7 @@ elsif ( $cmd eq 'web-foreground' ) {
         'workers=i' => \$workers,
         'ssl!'      => \$ssl,
     );
-    die "Usage: dashboard web-foreground [--host HOST] [--port PORT] [--workers N] [--ssl|--no-ssl]\n" if @ARGV;
+    die "Usage: d2 web-foreground [--host HOST] [--port PORT] [--workers N] [--ssl|--no-ssl]\n" if @ARGV;
     require Developer::Dashboard::SystemMenu::Runner;
     my $menu_platform = $^O eq 'darwin' ? 'macos'
       : $^O eq 'MSWin32' ? 'windows'
@@ -1133,7 +1133,7 @@ elsif ( $cmd eq 'web-ssl-backend-foreground' ) {
         'port=i'    => \$port,
         'workers=i' => \$workers,
     );
-    die "Usage: dashboard web-ssl-backend-foreground --host HOST --port PORT [--workers N]\n"
+    die "Usage: d2 web-ssl-backend-foreground --host HOST --port PORT [--workers N]\n"
       if @ARGV || !$port;
     my $status = $runtime->serve_ssl_backend_foreground(
         host    => $host,

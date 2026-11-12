@@ -807,7 +807,7 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/\.js.*node|node.*\.js/s, 'docs describe direct executable JavaScript command and hook dispatch through node' );
     like( $doc, qr/\.py.*python|python.*\.py/s, 'docs describe direct executable Python command and hook dispatch through python' );
     like( $doc, qr/\.java.*javac.*java|javac.*\.java.*java/s, 'docs describe direct executable Java command and hook dispatch through javac and java' );
-    like( $doc, qr/dashboard hi|dashboard foo/, 'docs include concrete custom-command examples for source-backed CLI dispatch' );
+    like( $doc, qr/d2 hi|d2 foo/, 'docs include concrete custom-command examples for source-backed CLI dispatch' );
     unlike( $doc, qr/CPANManager/, 'docs do not describe a dedicated CPAN manager module for a removed browser workspace runtime driver flow' );
     like( $doc, qr/Developer::Dashboard::SKILLS/, 'docs point readers at the shipped skill POD module' );
     unlike( $doc, qr/standalone `of` and `open-file`|standalone of and open-file/, 'docs no longer advertise public standalone of/open-file executables' );
@@ -853,7 +853,7 @@ for my $doc ( grep { defined && $_ ne '' } ( $skill_guide, $skills_pod ) ) {
     like( $doc, qr/\.gitignore.*skills\/<repo-name>\/|\.gitignore.*skills\/E<lt>repo-nameE<gt>\//s, 'skill authoring docs explain home gitignore skill tree registration' );
     like( $doc, qr/\/absolute\/path\/to\/example-skill/, 'skill authoring docs explain direct local skill installs' );
     like( $doc, qr/\.git\/.*\.env.*VERSION|\.env.*VERSION.*\.git\//is, 'skill authoring docs explain local skill qualification' );
-    like( $doc, qr/dashboard example-skill\.hello/, 'skill authoring docs explain dotted command dispatch' );
+    like( $doc, qr/d2 example-skill\.hello/, 'skill authoring docs explain dotted command dispatch' );
     unlike( $doc, qr/d2 skill example-skill/, 'skill authoring docs no longer describe the removed singular dispatcher' );
     like( $doc, qr{~/.developer-dashboard/skills/<repo-name>/|F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>}, 'skill authoring docs describe the isolated skill root' );
     like( $doc, qr/DD-OOP-LAYERS.*skill|skill.*DD-OOP-LAYERS/is, 'skill authoring docs describe layered skill lookup through DD-OOP-LAYERS' );
@@ -933,8 +933,8 @@ for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/d2 skills list -o json|d2 skills usage example-skill -o json|default output is a readable multi-section summary|default output is a padded table/is, 'README documents the human-summary plus explicit JSON contract for skill inspection' );
     like( $doc, qr/d2 skills list -o json/, 'README documents explicit JSON output for the skills list' );
     like( $doc, qr/default output is a padded table|default output is a .*table/i, 'README documents table as the default skills list output' );
-    like( $doc, qr/dashboard example-skill\.somecmd/, 'README documents dotted isolated skill command dispatch' );
-    like( $doc, qr/dashboard example-skill\.foo\.bar\.baz|skills\/foo\/skills\/bar\/cli\/baz/, 'README documents dotted dispatch for multi-level nested skills/<repo>/cli commands' );
+    like( $doc, qr/d2 example-skill\.somecmd/, 'README documents dotted isolated skill command dispatch' );
+    like( $doc, qr/d2 example-skill\.foo\.bar\.baz|skills\/foo\/skills\/bar\/cli\/baz/, 'README documents dotted dispatch for multi-level nested skills/<repo>/cli commands' );
     unlike( $doc, qr/d2 skill example-skill/, 'README no longer documents the removed singular dispatcher' );
     like( $doc, qr/aptfile/, 'README documents skill apt dependency bootstrap' );
     like( $doc, qr/_example-skill|_<repo-name>/, 'README documents underscored skill config merge keys' );

@@ -296,7 +296,7 @@ STUB
             1;
         };
         is_deeply( [ $invocations->() ], [$dotted],
-            "AC-1: d2()->" . join( '->', @{$words} ) . "->() invokes exactly `dashboard $dotted`" );
+            "AC-1: d2()->" . join( '->', @{$words} ) . "->() invokes exactly `d2 $dotted`" );
     }
 
     # Q-107 TRANSLATION, AT EVERY SEGMENT AND EVERY DEPTH. A Perl method name
@@ -316,7 +316,7 @@ STUB
             1;
         };
         is_deeply( [ $invocations->() ], [$dotted],
-            "Q-107: d2()->" . join( '->', @{$words} ) . "->() invokes exactly `dashboard $dotted`" );
+            "Q-107: d2()->" . join( '->', @{$words} ) . "->() invokes exactly `d2 $dotted`" );
     }
 
     # DD-739 NAMED-ARGUMENT TRANSLATION. d2()->somecmd(arg1 => 1) is
@@ -342,7 +342,7 @@ STUB
         $reset->();
         eval { $handle->$word(@$args)->(); 1 };
         is_deeply( [ $invocations->() ], [$expect],
-            "DD-739: d2()->$word(" . join( ', ', @$args ) . ")->() invokes `dashboard $expect`" );
+            "DD-739: d2()->$word(" . join( ', ', @$args ) . ")->() invokes `d2 $expect`" );
     }
 
     # THE TERMINATOR'S OWN ARGS ARE TRANSLATED TOO, not just ones supplied at
@@ -549,7 +549,7 @@ t/166-dashboard-d2-handle.t - spec for the exported d2() Perl-code proxy
 =head1 PURPOSE
 
 Assert that C<d2()>, exported by L<Developer::Dashboard>, gives Perl code a
-one-line equivalent of the C<d2>/C<d2> command line, both for the
+one-line equivalent of the C<d2> command line, both for the
 fast in-process path-alias case and for the general subcommand proxy.
 
 =head1 WHY IT EXISTS
