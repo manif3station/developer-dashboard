@@ -15,7 +15,6 @@ use File::Temp qw(tempdir);
 my $repo_root = abs_path( File::Spec->catdir( dirname(__FILE__), '..' ) );
 my $lib       = File::Spec->catdir( $repo_root, 'lib' );
 my $d2        = File::Spec->catfile( $repo_root, 'bin', 'd2' );
-my $dashboard = File::Spec->catfile( $repo_root, 'bin', 'd2' );
 
 ok( -f $d2, 'bin/d2 is shipped as a real entrypoint' );
 ok( -x $d2, 'bin/d2 is executable' );
@@ -36,11 +35,7 @@ like( $source, qr/_exec_switchboard_command|_builtin_helper_command/, 'bin/d2 ca
 my ( $d2_out, $d2_err, $d2_exit ) = capture {
     system( $^X, '-I', $lib, $d2, 'version' );
 };
-my ( $db_out, $db_err, $db_exit ) = capture {
-    system( $^X, '-I', $lib, $dashboard, 'version' );
-};
 is( $d2_exit >> 8, 0,        'd2 version exits cleanly' );
-is( $d2_out,       $db_out,  'd2 version output matches d2 version output' );
 like( $d2_out, qr/\A\d+\.\d+\s*\z/, 'd2 version prints the d2 version number' );
 
 # d2 forwards further arguments to the same command surface.
@@ -85,7 +80,7 @@ like(
         system( $^X, '-I', $lib, $d2, 'version' );
     };
     is( $gated_exit >> 8, 0,       'd2 version exits cleanly with a main-gate hook installed' );
-    is( $gated_out,       $db_out, 'd2 version prints the same version through the main gate' );
+    is( $gated_out,       $d2_out, 'd2 version prints the same version through the main gate' );
     is( $gated_err,       '',      'd2 version through the main gate writes nothing to stderr' );
 
     my @marker_lines = ();
@@ -97,7 +92,7 @@ like(
     # DD-835 (reverses DD-832): the hook's argv is the full command line as
     # typed - "version" is prepended, not stripped.
     is_deeply( \@marker_lines, ['HOOK-RAN version'],
-        'd2 inherits the main gate through its re-exec exactly once, not twice' );
+        'd2 runs the main gate exactly once, not twice' );
 }
 
 done_testing;
@@ -108,39 +103,39 @@ __END__
 
 =head1 NAME
 
-t/49-d2-entrypoint.t - regression contract for the real d2 short entrypoint
+t/49-d2-entrypoint.t - regression contract for the d2 entrypoint
 
 =head1 PURPOSE
 
 This test is the executable regression contract for C<bin/d2>. It verifies that
-C<d2> is shipped as a real, executable Perl entrypoint that re-execs its sibling
-C<d2> command rather than duplicating the switchboard body or existing
-only as a shell alias, and that C<d2> and C<d2> produce identical output
-for a representative command.
+C<d2> is shipped as a real, executable Perl entrypoint carrying the full
+switchboard body (not a shell alias and not a re-exec into a sibling
+entrypoint), that C<bin/dashboard> is gone, and that a representative
+command runs cleanly.
 
 =head1 WHY IT EXISTS
 
-C<d2> used to exist only as a shell function defined by the d2 shell
-bootstrap, so it was unavailable in scripts and fresh shells. This test exists
-so C<d2> stays a genuine installed command that behaves exactly like
-C<d2>, and so a future change cannot quietly turn it back into a
-shell-only alias or fork the command body.
+C<d2> used to be a thin wrapper that re-executed C<bin/dashboard>, and before
+that only a shell function defined by the d2 shell bootstrap, so it was
+unavailable in scripts and fresh shells. This test exists so C<d2> stays a
+genuine installed command and the only entrypoint, and so a future change
+cannot quietly turn it back into a shell-only alias, a wrapper, or a fork
+of the command body.
 
 =head1 WHEN TO USE
 
-Use this file when changing how C<d2> locates and re-enters the main
-C<d2> entrypoint, or when changing how C<d2> is packaged as an installed
-executable.
+Use this file when changing how C<d2> is packaged as an installed
+executable, or when changing the switchboard dispatch in C<bin/d2>.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/49-d2-entrypoint.t> while iterating on the short entrypoint.
+Run C<prove -lv t/49-d2-entrypoint.t> while iterating on the entrypoint.
 Keep it green under C<prove -lr t> before calling the work complete.
 
 =head1 WHAT USES IT
 
 Developers during TDD, the repository test suite, and the release gate all use
-this file to keep C<d2> a real, dashboard-equivalent command.
+this file to keep C<d2> the real, single CLI entrypoint.
 
 =head1 EXAMPLES
 

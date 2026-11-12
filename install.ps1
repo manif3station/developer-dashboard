@@ -1119,7 +1119,7 @@ Set-StepStatus -Id 'bootstrap_perl' -Status 'ok' -Detail 'cpanm, local::lib, GNU
 
 $dashboardCommand = Resolve-CommandPath -Names @('d2.bat', 'd2', 'd2.cmd')
 if ([string]::IsNullOrWhiteSpace($dashboardCommand)) {
-    $candidate = Join-Path $InstallRoot 'bin\dashboard.bat'
+    $candidate = Join-Path $InstallRoot 'bin\d2.bat'
     if (Test-Path $candidate) {
         $dashboardCommand = $candidate
     }
@@ -1152,7 +1152,7 @@ else {
 }
 $dashboardCommand = Resolve-CommandPath -Names @('d2.bat', 'd2', 'd2.cmd')
 if ([string]::IsNullOrWhiteSpace($dashboardCommand)) {
-    $candidate = Join-Path $InstallRoot 'bin\dashboard.bat'
+    $candidate = Join-Path $InstallRoot 'bin\d2.bat'
     if (-not (Test-Path $candidate)) {
         throw 'Developer Dashboard installed but d2 command is still unavailable on PATH'
     }
