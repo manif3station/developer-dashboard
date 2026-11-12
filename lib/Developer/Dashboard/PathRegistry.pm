@@ -106,7 +106,7 @@ sub unregister_named_path {
 
 # named_paths()
 # Returns the currently registered logical path aliases as plain path
-# strings for display (e.g. "dashboard path list"). DD-1005: a lazy-create
+# strings for display (e.g. "d2 path list"). DD-1005: a lazy-create
 # alias is stored internally as a metadata hash ({path=>,create=>1,mode=>});
 # this accessor collapses it to its bare "path" field so callers that only
 # ever expected a path string (aliases_table, prefix-matching completion)
@@ -128,7 +128,7 @@ sub named_paths {
 
 # all_paths() and all_path_aliases()
 # Return the public hash payloads for the same inventories printed by
-# dashboard paths and dashboard path list.
+# d2 paths and d2 path list.
 # Input: none.
 # Output: hash references describing resolved runtime roots and aliases.
 
@@ -416,7 +416,7 @@ sub bookmarks_root {
 }
 
 # all_paths()
-# Returns the full runtime path inventory used by C<dashboard paths>.
+# Returns the full runtime path inventory used by C<d2 paths>.
 # Input: none.
 # Output: hash reference describing the active runtime path set plus named aliases.
 sub all_paths {
@@ -464,7 +464,7 @@ sub all_paths {
 }
 
 # all_path_aliases()
-# Returns the runtime path inventory used by C<dashboard path list>.
+# Returns the runtime path inventory used by C<d2 path list>.
 # Input: none.
 # Output: hash reference of standard runtime aliases plus named aliases.
 sub all_path_aliases {
@@ -1447,7 +1447,7 @@ sub project_roots {
 # path getters - never to the class's other public methods (the constructor,
 # mutators like register_named_paths/unregister_named_path, or the
 # plural/hash-returning inventory methods like all_paths/all_path_aliases),
-# or a name typed straight from the CLI (dashboard path resolve/add) becomes
+# or a name typed straight from the CLI (d2 path resolve/add) becomes
 # an arbitrary method call on this object. Same fix shape as DD-868
 # (FileRegistry::resolve_file).
 my %RESOLVABLE_ACCESSOR = map { $_ => 1 } qw(
@@ -2177,7 +2177,7 @@ C<create =E<gt> 1> (see C<Developer::Dashboard::Config>'s
 save_global_path_alias()/save_skill_path_alias() C<%opts>), chmod'ing it to
 the alias's stored octal mode when one was given. named_paths() collapses
 such an alias back to a bare path string for display consumers
-(C<dashboard path list>, prefix completion) that have no use for the
+(C<d2 path list>, prefix completion) that have no use for the
 metadata; resolve_dir() itself always reads the raw internal registration,
 so the create/mode metadata is never lost between the two.
 

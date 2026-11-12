@@ -487,7 +487,7 @@ sub _is_dashboard_managed_helper {
     return 1 if $content =~ /^\Q@{[ _managed_helper_marker($name) ]}\E$/m;
     if ( $name eq '_dashboard-core' ) {
         return 1
-          if $content =~ /Missing built-in dashboard command/
+          if $content =~ /Missing built-in d2 command/
           && $content =~ /Developer::Dashboard::CLI::SeededPages/;
     }
     return 1
@@ -795,7 +795,7 @@ Build and seed the built-in private helper command files.
 
 =head1 PURPOSE
 
-This module owns the dashboard-managed private helper assets. It decides which built-in command names exist, stages the corresponding helper files under F<~/.developer-dashboard/cli/dd/>, and resolves the helper paths that the public C<dashboard> entrypoint should C<exec> into.
+This module owns the dashboard-managed private helper assets. It decides which built-in command names exist, stages the corresponding helper files under F<~/.developer-dashboard/cli/dd/>, and resolves the helper paths that the public C<d2> entrypoint should C<exec> into.
 
 =head1 WHY IT EXISTS
 
@@ -811,7 +811,7 @@ Call C<ensure_helpers> with the active paths object to stage or refresh managed 
 
 =head1 WHAT USES IT
 
-It is used by C<bin/dashboard>, by init/update flows that stage built-ins, by shell bootstrap generation, and by tests that verify helper extraction and private-helper packaging.
+It is used by C<bin/d2>, by init/update flows that stage built-ins, by shell bootstrap generation, and by tests that verify helper extraction and private-helper packaging.
 
 =head1 EXAMPLES
 

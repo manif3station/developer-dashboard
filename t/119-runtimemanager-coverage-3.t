@@ -120,7 +120,7 @@ my $manager = Developer::Dashboard::RuntimeManager->new(
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_windows_background_web_command = sub {
-        return ( 'perl.exe', 'dashboard', 'serve' );
+        return ( 'perl.exe', 'd2', 'serve' );
     };
     local *Developer::Dashboard::RuntimeManager::_spawn_windows_background_command = sub { return 7100 };
     local *Developer::Dashboard::RuntimeManager::_port_accepting_connections       = sub { return 1 };

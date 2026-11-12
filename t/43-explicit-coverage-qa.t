@@ -840,27 +840,27 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
 
     like(
         _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'files', args => [ '-o', 'yaml' ] ) } ),
-        qr/Usage: dashboard files \[-o json\|table\]/,
+        qr/Usage: d2 files \[-o json\|table\]/,
         'files rejects unsupported output formats explicitly',
     );
     like(
         _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'locate', '-o', 'yaml', 'plain.txt' ] ) } ),
-        qr/Usage: dashboard file locate \[-o json\|table\]/,
+        qr/Usage: d2 file locate \[-o json\|table\]/,
         'file locate rejects unsupported output formats explicitly',
     );
     like(
         _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'add', '-o', 'yaml', 'bad', '/tmp/bad.txt' ] ) } ),
-        qr/Usage: dashboard file add <name> <path> \[-c\|--create\[=MODE\]\] \[-o json\|table\]/,
+        qr/Usage: d2 file add <name> <path> \[-c\|--create\[=MODE\]\] \[-o json\|table\]/,
         'file add rejects unsupported output formats explicitly',
     );
     like(
         _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'del', '-o', 'yaml', 'bad' ] ) } ),
-        qr/Usage: dashboard file del <name> \[-o json\|table\]/,
+        qr/Usage: d2 file del <name> \[-o json\|table\]/,
         'file del rejects unsupported output formats explicitly',
     );
     like(
         _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'list', '-o', 'yaml' ] ) } ),
-        qr/Usage: dashboard file list \[-o json\|table\]/,
+        qr/Usage: d2 file list \[-o json\|table\]/,
         'file list rejects unsupported output formats explicitly',
     );
 
@@ -1013,27 +1013,27 @@ subtest 'CLI::Paths covers table defaults and output guards' => sub {
 
     like(
         _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'paths', args => [ '-o', 'yaml' ] ) } ),
-        qr/Usage: dashboard paths \[-o json\|table\]/,
+        qr/Usage: d2 paths \[-o json\|table\]/,
         'paths rejects unsupported output formats explicitly',
     );
     like(
         _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'locate', '-o', 'yaml', 'match-dir' ] ) } ),
-        qr/Usage: dashboard path locate \[-o json\|table\]/,
+        qr/Usage: d2 path locate \[-o json\|table\]/,
         'path locate rejects unsupported output formats explicitly',
     );
     like(
         _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'add', '-o', 'yaml', 'demo', $named_root ] ) } ),
-        qr/Usage: dashboard path add <name> <path> \[-c\|--create\[=MODE\]\] \[-o json\|table\]/,
+        qr/Usage: d2 path add <name> <path> \[-c\|--create\[=MODE\]\] \[-o json\|table\]/,
         'path add rejects unsupported output formats explicitly',
     );
     like(
         _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'del', '-o', 'yaml', 'demo' ] ) } ),
-        qr/Usage: dashboard path del <name> \[-o json\|table\]/,
+        qr/Usage: d2 path del <name> \[-o json\|table\]/,
         'path del rejects unsupported output formats explicitly',
     );
     like(
         _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'list', '-o', 'yaml' ] ) } ),
-        qr/Usage: dashboard path list \[-o json\|table\]/,
+        qr/Usage: d2 path list \[-o json\|table\]/,
         'path list rejects unsupported output formats explicitly',
     );
 
@@ -1158,7 +1158,7 @@ subtest 'CLI::Skills covers helper branches and table rendering' => sub {
         );
         is( $exit, 2, 'invalid install output returns the usage exit code' );
     };
-    like( $stderr_usage, qr/Usage: dashboard skills install/, 'invalid install output prints the usage message' );
+    like( $stderr_usage, qr/Usage: d2 skills install/, 'invalid install output prints the usage message' );
 
     my ( $stdout_uninstall ) = capture {
         my $exit = Developer::Dashboard::CLI::Skills::run_skills_command(
@@ -1242,7 +1242,7 @@ subtest 'CLI::Skills covers helper branches and table rendering' => sub {
         1;
     };
     ok( !$list_usage_ok, 'list with invalid output dies with a usage message' );
-    like( $@, qr/Usage: dashboard skills list/, 'list with invalid output prints the list usage message' );
+    like( $@, qr/Usage: d2 skills list/, 'list with invalid output prints the list usage message' );
 
     my ( $stdout_usage_json ) = capture {
         my $exit = Developer::Dashboard::CLI::Skills::run_skills_command(
@@ -1273,7 +1273,7 @@ subtest 'CLI::Skills covers helper branches and table rendering' => sub {
         1;
     };
     ok( !$usage_usage_ok, 'usage with invalid output dies with a usage message' );
-    like( $@, qr/Usage: dashboard skills usage/, 'usage with invalid output prints the usage message' );
+    like( $@, qr/Usage: d2 skills usage/, 'usage with invalid output prints the usage message' );
 
     my $install_table = '';
     my $install_exit = eval {

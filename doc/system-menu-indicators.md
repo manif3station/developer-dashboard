@@ -33,11 +33,11 @@ Example configuration:
 ```
 
 The projection is independent of AppKit, Windows notification-area APIs, and
-GTK. It does not launch the native UI by itself. `dashboard serve` launches its
+GTK. It does not launch the native UI by itself. `d2 serve` launches its
 foreground web-service process, which owns the menu worker for the service's
 lifetime and stops and joins that worker on normal server exit or error. A
 disabled or unsupported host selection does not load the native adapter, and
-the existing `dashboard ps1` output is unchanged. The native System::Menu
+the existing `d2 ps1` output is unchanged. The native System::Menu
 adapter starts the platform helper in a controlled GoRoutine worker and
 forwards the projected entries while owning helper shutdown. On Ubuntu,
 the helper uses Ayatana AppIndicator3 and a GTK menu; rendered status icons are

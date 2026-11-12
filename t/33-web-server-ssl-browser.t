@@ -20,7 +20,7 @@ use Local::BrowserProbe qw(browser_can_fetch_loopback);
 
 my $repo_root     = abs_path('.');
 my $repo_lib      = File::Spec->catdir( $repo_root, 'lib' );
-my $dashboard_bin = File::Spec->catfile( $repo_root, 'bin', 'dashboard' );
+my $dashboard_bin = File::Spec->catfile( $repo_root, 'bin', 'd2' );
 my $chromium_bin  = _find_command( qw(google-chrome-stable google-chrome chromium-browser chromium) );
 
 plan skip_all => 'SSL browser smoke requires Chromium on PATH'
@@ -66,7 +66,7 @@ eval {
         command => [ $^X, "-I$repo_lib", $dashboard_bin, 'init' ],
         cwd     => $project_root,
         env     => { HOME => $home_root },
-        label   => 'dashboard init for SSL browser smoke',
+        label   => 'd2 init for SSL browser smoke',
     );
     _write_global_config(
         home_root => $home_root,
@@ -315,7 +315,7 @@ sub _start_dashboard_server {
     my $running_helper = File::Spec->catfile(
         $args{home}, '.developer-dashboard', 'cli', 'dd', '_dashboard-core',
     );
-    die "dashboard init did not stage the SSL server helper '$running_helper': $!\n"
+    die "d2 init did not stage the SSL server helper '$running_helper': $!\n"
       if !-f $running_helper;
     my $launcher = q{
         my ($repo_lib, $dashboard_bin, $drop_harness, @arguments) = @ARGV;
@@ -433,14 +433,14 @@ __END__
 
 =head1 NAME
 
-t/33-web-server-ssl-browser.t - real Chromium browser smoke for dashboard serve --ssl
+t/33-web-server-ssl-browser.t - real Chromium browser smoke for d2 serve --ssl
 
 =head1 DESCRIPTION
 
-This test exercises the public HTTPS browser path for C<dashboard serve --ssl>.
+This test exercises the public HTTPS browser path for C<d2 serve --ssl>.
 It verifies that an untrusted browser reaches Chromium's privacy interstitial
 or reports its certificate-authority failure in headless diagnostics, instead
-of a broken reset, and that the real dashboard page loads once certificate
+of a broken reset, and that the real d2 page loads once certificate
 trust is bypassed locally for the test browser process. Chromium versions differ
 in whether C<--dump-dom> emits the interstitial markup or only reports
 C<ERR_CERT_AUTHORITY_INVALID> / C<net_error -202> on stderr.

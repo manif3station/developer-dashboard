@@ -361,7 +361,7 @@ subtest 'd2 path add writes a nested alias into the git-free ancestor skill conf
     my ( $list_out, $list_err ) = run_path( 'list', '-o', 'json' );
     is( $list_err, '', 'path list writes nothing to STDERR' );
     my $listed = json_decode($list_out);
-    is( $listed->{'foo.bar.something'}, '/foobar', 'dashboard path list shows the nested alias in its full JSON payload' );
+    is( $listed->{'foo.bar.something'}, '/foobar', 'd2 path list shows the nested alias in its full JSON payload' );
 
     remove_tree_quiet($skills_root);
 };
@@ -928,11 +928,11 @@ __END__
 =head1 NAME
 
 t/205-skill-depth-alias.t - skill-depth-prefixed dotted alias name support for
-dashboard path/file add and del
+d2 path/file add and del
 
 =head1 PURPOSE
 
-Covers DD-1004: C<dashboard path add>/C<dashboard file add> (and their C<del>
+Covers DD-1004: C<d2 path add>/C<d2 file add> (and their C<del>
 counterparts) now support a dotted alias name such as C<foo.bar.something>,
 resolving it against arbitrarily nested C<skills/foo/skills/bar/> directories
 and writing the alias into the correct ancestor skill's C<config/config.json>

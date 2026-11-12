@@ -428,7 +428,7 @@ It exists because prompt rendering is a product feature with its own ordering an
 
 =head1 WHEN TO USE
 
-Use this file when changing prompt shape, indicator ordering, icon/status rendering, compact versus extended prompt output, or the prompt command arguments exposed through C<dashboard ps1>.
+Use this file when changing prompt shape, indicator ordering, icon/status rendering, compact versus extended prompt output, or the prompt command arguments exposed through C<d2 ps1>.
 
 =head1 HOW TO USE
 
@@ -436,7 +436,7 @@ Construct it with the active paths and state stores, then call the prompt-render
 
 =head1 WHAT USES IT
 
-It is used by the C<dashboard ps1> helper, by generated shell bootstrap functions, by integration smoke runs that verify prompt text, and by prompt-focused regression tests.
+It is used by the C<d2 ps1> helper, by generated shell bootstrap functions, by integration smoke runs that verify prompt text, and by prompt-focused regression tests.
 
 =head1 EXAMPLES
 

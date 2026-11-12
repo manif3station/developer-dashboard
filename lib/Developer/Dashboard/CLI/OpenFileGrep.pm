@@ -19,7 +19,7 @@ sub grep_matching_files {
     my (%args) = @_;
     my $argv = $args{args} || [];
     die 'grep args must be an array reference' if ref($argv) ne 'ARRAY';
-    die "Usage: dashboard of grep <grep-options> <pattern> <path...>\n" if !@$argv;
+    die "Usage: d2 of grep <grep-options> <pattern> <path...>\n" if !@$argv;
 
     # -H and -n make grep output parseable even when searching one file or when
     # the caller omitted line numbers. Keeping all supplied arguments separate
@@ -62,7 +62,7 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard::CLI::OpenFileGrep - content-search adapter for dashboard of
+Developer::Dashboard::CLI::OpenFileGrep - content-search adapter for d2 of
 
 =head1 SYNOPSIS
 
@@ -71,7 +71,7 @@ Developer::Dashboard::CLI::OpenFileGrep - content-search adapter for dashboard o
 
 =head1 DESCRIPTION
 
-Runs the system C<grep> executable for the historical C<dashboard of grep>
+Runs the system C<grep> executable for the historical C<d2 of grep>
 mode and returns the unique files containing matches. Arguments remain an
 array rather than shell text, so patterns and paths are passed literally to
 the child process. C<-H> and C<-n> are added to make output consistently
@@ -80,7 +80,7 @@ identifiable when the search scope contains only one file.
 =head1 PURPOSE
 
 This module adapts content grep results to the file chooser used by the
-dashboard open-file command.
+d2 open-file command.
 
 =head1 WHY IT EXISTS
 
@@ -91,7 +91,7 @@ small and testable.
 
 =head1 WHEN TO USE
 
-Use this module when changing the `dashboard of grep` content-search
+Use this module when changing the `d2 of grep` content-search
 interface, grep process failure handling, or conversion of grep output into
 file matches.
 
@@ -104,7 +104,7 @@ arguments explicitly.
 
 =head1 WHAT USES IT
 
-C<Developer::Dashboard::CLI::OpenFile> dispatches the public C<dashboard of
+C<Developer::Dashboard::CLI::OpenFile> dispatches the public C<d2 of
 grep> form to this module, then sends the returned paths to the regular print
 or editor-selection flow.
 

@@ -94,7 +94,7 @@ t/35-js-fast-check.t - run the Scorecard-targeted fast-check property suite
 
 This test is the executable regression contract for the repository-side
 Scorecard and workflow guardrails, specifically the JavaScript C<fast-check>
-property suite that exercises the dashboard encode and decode path.
+property suite that exercises the d2 encode and decode path.
 
 =head1 WHY IT EXISTS
 
@@ -107,7 +107,7 @@ GitHub Actions only.
 =head1 WHEN TO USE
 
 Use this file when changing the Scorecard fuzz workflow, the npm property
-harness, or the dashboard encode and decode path covered by C<fast-check>.
+harness, or the d2 encode and decode path covered by C<fast-check>.
 
 =head1 HOW TO USE
 

@@ -94,7 +94,7 @@ t/42-helper-process-title.t - verifies staged helper processes advertise the pub
 =head1 PURPOSE
 
 This test protects the process-title contract for staged dashboard-managed
-helpers. When a helper such as C<dashboard skills install browser> is running,
+helpers. When a helper such as C<d2 skills install browser> is running,
 operators should see C<developer-dashboard skills install browser> in C<ps>
 output instead of the staged helper path under F<~/.developer-dashboard/cli/dd/>.
 
@@ -108,15 +108,15 @@ C<developer-dashboard ...> title.
 
 =head1 WHY IT EXISTS
 
-The public C<dashboard> entrypoint is intentionally thin and hands built-in
+The public C<d2> entrypoint is intentionally thin and hands built-in
 commands off to staged helpers. Without this regression test, operators can
 end up seeing an ugly staged-helper path in C<ps> output and have to guess
-which public dashboard command is actually running.
+which public d2 command is actually running.
 
 =head1 WHEN TO USE
 
 Use this test when changing staged helper dispatch, built-in command process
-titles, or the private helper runtime that sits behind C<dashboard>.
+titles, or the private helper runtime that sits behind C<d2>.
 
 =head1 WHAT USES IT
 

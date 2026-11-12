@@ -501,7 +501,7 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard::CLI::OpenFile - dashboard open-file command support
+Developer::Dashboard::CLI::OpenFile - d2 open-file command support
 
 =head1 SYNOPSIS
 
@@ -510,14 +510,14 @@ Developer::Dashboard::CLI::OpenFile - dashboard open-file command support
 
 =head1 DESCRIPTION
 
-Provides the shared implementation behind the built-in C<dashboard of> and
-C<dashboard open-file> command paths.
+Provides the shared implementation behind the built-in C<d2 of> and
+C<d2 open-file> command paths.
 
 =for comment FULL-POD-DOC START
 
 =head1 PURPOSE
 
-This module implements the search and resolution logic behind C<dashboard of> and C<dashboard open-file>. It can open direct paths, search within scopes, resolve Perl module names, resolve Java dotted class names through source trees and source archives, and rank file matches before opening or printing them.
+This module implements the search and resolution logic behind C<d2 of> and C<d2 open-file>. It can open direct paths, search within scopes, resolve Perl module names, resolve Java dotted class names through source trees and source archives, and rank file matches before opening or printing them.
 
 =head1 WHY IT EXISTS
 
@@ -538,7 +538,7 @@ match the candidate path, except when those remaining arguments join into one
 existing relative file path inside the resolved scope. In that exact-file case,
 the helper opens the scoped file directly instead of falling back to regex
 search. A single hit opens or prints that file, while multiple hits are ranked
-and shown as a chooser or plain list. C<dashboard of grep -nr PATTERN DIR>
+and shown as a chooser or plain list. C<d2 of grep -nr PATTERN DIR>
 instead searches file contents and opens each unique matching file; adding
 C<--print> before C<grep> prints those paths without launching an editor. The
 grep arguments are passed directly to the executable, not through a shell.
@@ -563,15 +563,15 @@ print-vs-editor flows.
 
 =head1 EXAMPLES
 
-  dashboard open-file path/to/file.txt
-  dashboard open-file lib 'OpenFile\.pm$'
-  dashboard of notes
-  dashboard of foobar 456.txt
-  dashboard of . "Ok\.js$"
-  dashboard open-file javax.jws.WebService
-  dashboard open-file --online javax.jws.WebService
-  dashboard of Developer::Dashboard::CLI::Paths
-  dashboard open-file --print bookmarks index
+  d2 open-file path/to/file.txt
+  d2 open-file lib 'OpenFile\.pm$'
+  d2 of notes
+  d2 of foobar 456.txt
+  d2 of . "Ok\.js$"
+  d2 open-file javax.jws.WebService
+  d2 open-file --online javax.jws.WebService
+  d2 of Developer::Dashboard::CLI::Paths
+  d2 open-file --print bookmarks index
 
 =for comment FULL-POD-DOC END
 

@@ -299,7 +299,7 @@ SKIP: {
 }
 
 # --------------------------------------------------------------------------
-# AC-1/AC-5 via the real CLI entry point: "dashboard path add" in all 4
+# AC-1/AC-5 via the real CLI entry point: "d2 path add" in all 4
 # --create syntax forms, proving the option parsing itself (not just the
 # storage layer already proven above).
 # --------------------------------------------------------------------------
@@ -327,7 +327,7 @@ SKIP: {
             );
         }
         my $decoded = eval { json_decode($stdout) };
-        ok( $decoded && $decoded->{create}, "CLI ($case): dashboard path add recorded create=>1" );
+        ok( $decoded && $decoded->{create}, "CLI ($case): d2 path add recorded create=>1" );
     }
 }
 
@@ -349,11 +349,11 @@ SKIP: {
         );
     }
     my $decoded = eval { json_decode($stdout) };
-    ok( $decoded && !$decoded->{create}, 'CLI: a plain dashboard path add with no -c/--create records no create flag' );
+    ok( $decoded && !$decoded->{create}, 'CLI: a plain d2 path add with no -c/--create records no create flag' );
 }
 
 # --------------------------------------------------------------------------
-# AC-1/AC-5 via the real CLI entry point for "dashboard file add" too,
+# AC-1/AC-5 via the real CLI entry point for "d2 file add" too,
 # mirroring the path-add CLI coverage above - exercises CLI::Files' own
 # _parse_create_option in all 4 syntax forms plus the not-given (undef) and
 # plain (no flag) cases.
@@ -491,7 +491,7 @@ SKIP: {
             );
             0;
         } ? 0 : 1;
-        ok( $died, "dashboard path add --create $bad dies rather than silently accepting an invalid octal mode" );
+        ok( $died, "d2 path add --create $bad dies rather than silently accepting an invalid octal mode" );
     }
 }
 
@@ -513,7 +513,7 @@ SKIP: {
         );
         0;
     } ? 0 : 1;
-    ok( $died, 'dashboard file add --create not-octal dies rather than silently accepting an invalid octal mode' );
+    ok( $died, 'd2 file add --create not-octal dies rather than silently accepting an invalid octal mode' );
 }
 
 done_testing();

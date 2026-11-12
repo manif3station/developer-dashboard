@@ -3740,7 +3740,7 @@ Fixes found by the hourly automated bug-hunt and shipped together, each with a r
   process discovery lagged behind the saved runtime metadata.
 - Root cause:
   `stop_web` only escalated to `KILL` when `running_web()` could still
-  rediscover the live pid, and it treated every `dashboard ajax:` process owned
+  rediscover the live pid, and it treated every `d2 ajax:` process owned
   by the current user as part of the web runtime being stopped.
 - Fix:
   web stop now keeps the saved managed pid as the reported lifecycle owner,

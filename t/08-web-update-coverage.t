@@ -264,9 +264,9 @@ my ( $saved_edit_code, undef, $saved_edit_body ) = @{ $app->handle( path => '/ap
 is( $saved_edit_code, 200, 'saved edit route responds with success' );
 like( $saved_edit_body, qr/Right Click Copy &amp; Share or Bookmark This Page/, 'saved edit route includes top chrome links' );
 my $saved_edit_chrome_count = () = $saved_edit_body =~ /class="dd-top-chrome"/g;
-is( $saved_edit_chrome_count, 1, 'regular dashboard page without skill pages renders top chrome once' );
+is( $saved_edit_chrome_count, 1, 'regular d2 page without skill pages renders top chrome once' );
 my $saved_edit_indicator_count = () = $saved_edit_body =~ /id="status-on-top"/g;
-is( $saved_edit_indicator_count, 1, 'regular dashboard page without skill pages renders top indicators once' );
+is( $saved_edit_indicator_count, 1, 'regular d2 page without skill pages renders top indicators once' );
 like( $saved_edit_body, qr{<form method="post" action="/app/sample/edit" id="instruction-form">}, 'saved edit route posts back to the named bookmark edit path' );
 like( $saved_edit_body, qr{<button type="button" class="chrome-button" id="play-button" data-play-url="/app/sample">Play</button>}, 'saved edit route exposes a saved-page play button that submits the split editor source into render mode' );
 my ( $saved_edit_post_without_instruction_code, undef, $saved_edit_post_without_instruction_body ) = @{ $app->handle(
@@ -753,7 +753,7 @@ PAGE
     my ( $ajax_singleton_code, undef, $ajax_singleton_body ) = @{ $app->handle( path => '/ajax/singleton-endpoint.txt', query => 'type=text&singleton=FOOBAR', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
     my $ajax_singleton_output = drain_stream_body($ajax_singleton_body);
     is( $ajax_singleton_code, 200, 'legacy ajax saved-file route responds successfully for singleton-managed requests' );
-    like( $ajax_singleton_output, qr/^dashboard ajax: FOOBAR$/m, 'legacy ajax saved-file route renames singleton-managed Perl workers before streaming output' );
+    like( $ajax_singleton_output, qr/^d2 ajax: FOOBAR$/m, 'legacy ajax saved-file route renames singleton-managed Perl workers before streaming output' );
 }
 
 {
@@ -774,7 +774,7 @@ PAGE
     }
     is_deeply(
         \@patterns,
-        [ '^dashboard ajax: BROWSER-STOP$', '^dashboard ajax: BROWSER-STOP$' ],
+        [ '^d2 ajax: BROWSER-STOP$', '^d2 ajax: BROWSER-STOP$' ],
         'singleton stop route and direct response target the matching saved ajax worker process title',
     );
 }

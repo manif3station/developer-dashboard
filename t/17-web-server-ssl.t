@@ -509,7 +509,7 @@ OPENSSL_CONFIG
 
 # Test 8: Command line --ssl flag parsing
 {
-    # This test is handled in bin/dashboard integration tests
+    # This test is handled in bin/d2 integration tests
     # Verify that the flag exists in the POD
     my $dashboard_pm = do {
         open my $fh, '<', 'lib/Developer/Dashboard.pm' or die "Cannot read: $!";

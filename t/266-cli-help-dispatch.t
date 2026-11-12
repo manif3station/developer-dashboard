@@ -32,7 +32,7 @@ sub run_cli {
 for my $command ( Developer::Dashboard::CLI::Help::command_names() ) {
     my ( $stdout, $stderr, $exit ) = run_cli( $command, '--help' );
     is( $exit, 0, "$command --help exits successfully" );
-    like( $stdout, qr/^Usage:\s+dashboard\s+\Q$command\E\b/m, "$command --help renders its own synopsis" );
+    like( $stdout, qr/^Usage:\s+d2\s+\Q$command\E\b/m, "$command --help renders its own synopsis" );
     is( $stderr, '', "$command --help is free from parser errors" );
 }
 
@@ -40,7 +40,7 @@ for my $alias ( sort keys %{ Developer::Dashboard::CLI::Help::aliases() } ) {
     my $canonical = Developer::Dashboard::CLI::Help::aliases()->{$alias};
     my ( $stdout, $stderr, $exit ) = run_cli( $alias, '--help' );
     is( $exit, 0, "$alias compatibility alias --help exits successfully" );
-    like( $stdout, qr/^Usage:\s+dashboard\s+\Q$canonical\E\b/m, "$alias compatibility alias resolves canonical help" );
+    like( $stdout, qr/^Usage:\s+d2\s+\Q$canonical\E\b/m, "$alias compatibility alias resolves canonical help" );
     is( $stderr, '', "$alias compatibility alias help has no parser errors" );
 }
 
@@ -51,25 +51,25 @@ for my $namespace ( Developer::Dashboard::CLI::Help::command_names() ) {
         my $qualified = join ' ', @parent, $action;
         my ( $stdout, $stderr, $exit ) = run_cli( @invocation );
         is( $exit, 0, "$qualified --help exits successfully" );
-        like( $stdout, qr/^Usage:\s+dashboard\s+\Q$qualified\E(?:\s|$)/m, "$qualified --help renders its own synopsis" );
+        like( $stdout, qr/^Usage:\s+d2\s+\Q$qualified\E(?:\s|$)/m, "$qualified --help renders its own synopsis" );
         is( $stderr, '', "$qualified --help is free from parser errors" );
     }
 }
 
 for my $case (
-    [ [ 'api', '--help' ],                     qr/^Usage: dashboard api/m, 'api --help' ],
-    [ [ 'file', '--help' ],                    qr/^Usage: dashboard file/m, 'file --help' ],
-    [ [ 'path', 'cdr', '--help' ],             qr/^Usage: dashboard path cdr/m, 'path cdr --help' ],
-    [ [ 'docker', 'development', 'enable', '--help' ], qr/^Usage: dashboard docker development enable/m, 'nested Docker action --help' ],
-    [ [ 'api', 'add', 'help' ],                qr/^Usage: dashboard api add/m, 'nested api add help' ],
-    [ [ 'api', 'help', 'add' ],                qr/^Usage: dashboard api add/m, 'api help add' ],
-    [ [ 'docker', 'help', 'development', 'enable' ], qr/^Usage: dashboard docker development enable/m, 'nested docker help action path' ],
-    [ [ 'logs', 'web', '--help' ],              qr/^Usage: dashboard log web/m, 'logs alias action help' ],
-    [ [ 'help', 'api', 'rm' ],                  qr/^Usage: dashboard api rm/m, 'dashboard help api rm' ],
-    [ [ 'help', 'version' ],                     qr/^Usage: dashboard version/m, 'dashboard help version' ],
-    [ [ 'help' ],                               qr/^Available built-in commands:/m, 'global dashboard help' ],
-    [ [ 'jq', '-h' ],                           qr/^Usage: dashboard jq/m, 'direct query helper -h' ],
-    [ [ 'ask', '--help' ],                      qr/^Usage: dashboard ask/m, 'ask --help remains supported' ],
+    [ [ 'api', '--help' ],                     qr/^Usage: d2 api/m, 'api --help' ],
+    [ [ 'file', '--help' ],                    qr/^Usage: d2 file/m, 'file --help' ],
+    [ [ 'path', 'cdr', '--help' ],             qr/^Usage: d2 path cdr/m, 'path cdr --help' ],
+    [ [ 'docker', 'development', 'enable', '--help' ], qr/^Usage: d2 docker development enable/m, 'nested Docker action --help' ],
+    [ [ 'api', 'add', 'help' ],                qr/^Usage: d2 api add/m, 'nested api add help' ],
+    [ [ 'api', 'help', 'add' ],                qr/^Usage: d2 api add/m, 'api help add' ],
+    [ [ 'docker', 'help', 'development', 'enable' ], qr/^Usage: d2 docker development enable/m, 'nested docker help action path' ],
+    [ [ 'logs', 'web', '--help' ],              qr/^Usage: d2 log web/m, 'logs alias action help' ],
+    [ [ 'help', 'api', 'rm' ],                  qr/^Usage: d2 api rm/m, 'd2 help api rm' ],
+    [ [ 'help', 'version' ],                     qr/^Usage: d2 version/m, 'd2 help version' ],
+    [ [ 'help' ],                               qr/^Available built-in commands:/m, 'global d2 help' ],
+    [ [ 'jq', '-h' ],                           qr/^Usage: d2 jq/m, 'direct query helper -h' ],
+    [ [ 'ask', '--help' ],                      qr/^Usage: d2 ask/m, 'ask --help remains supported' ],
 ) {
     my ( $args, $expected, $label ) = @{$case};
     my ( $stdout, $stderr, $exit ) = run_cli( @{$args} );
@@ -79,17 +79,17 @@ for my $case (
 }
 
 for my $entrypoint (
-    [ ['help'], 'dashboard help' ],
-    [ ['help', '--help'], 'dashboard help --help' ],
-    [ ['--help'], 'dashboard --help' ],
+    [ ['help'], 'd2 help' ],
+    [ ['help', '--help'], 'd2 help --help' ],
+    [ ['--help'], 'd2 --help' ],
     [ ['-h'], 'dashboard -h' ],
 ) {
     my ( $args, $label ) = @{$entrypoint};
     my ( $stdout, $stderr, $exit ) = run_cli( @{$args} );
     is( $exit, 0, "$label exits successfully" );
     like( $stdout, qr/^Available built-in commands:/m, "$label prints the concise command index" );
-    like( $stdout, qr/^  dashboard api\b/m, "$label includes built-in command usage" );
-    like( $stdout, qr/^  dashboard version\b/m, "$label includes the public version command" );
+    like( $stdout, qr/^  d2 api\b/m, "$label includes built-in command usage" );
+    like( $stdout, qr/^  d2 version\b/m, "$label includes the public version command" );
     cmp_ok( scalar( split /\n/, $stdout ), '<=', 100, "$label avoids dumping the full module POD" );
     is( $stderr, '', "$label emits no help errors" );
 }
@@ -102,12 +102,12 @@ ok( !-e File::Spec->catfile( $home, '.developer-dashboard', 'config', 'api.json'
 
 my ( $logs_help_out, $logs_help_err, $logs_help_exit ) = run_cli( 'logs', '--help' );
 is( $logs_help_exit, 0, 'd2 logs --help exits successfully' );
-like( $logs_help_out, qr/Usage: dashboard log \[-t\] \[-f\].*--tail.*\[-n/m, 'd2 logs --help documents timestamps, follow, and both tail forms' );
+like( $logs_help_out, qr/Usage: d2 log \[-t\] \[-f\].*--tail.*\[-n/m, 'd2 logs --help documents timestamps, follow, and both tail forms' );
 is( $logs_help_err, '', 'd2 logs --help emits no parser errors' );
 
 my ( $workspace_help_out, $workspace_help_err, $workspace_help_exit ) = run_cli( 'workspace', '--help' );
 is( $workspace_help_exit, 0, 'd2 workspace --help exits successfully' );
-like( $workspace_help_out, qr/Usage: dashboard workspace <name> \[-c\|-C\] \[-d\|--docker\]/,
+like( $workspace_help_out, qr/Usage: d2 workspace <name> \[-c\|-C\] \[-d\|--docker\]/,
     'd2 workspace --help documents directory change, explicit build, and both Docker option forms' );
 like( $workspace_help_out, qr/uppercase -C requests a cached build with live progress/,
     'd2 workspace --help explains opt-in builds and streamed progress' );
@@ -129,8 +129,8 @@ is( $grep_after_options_exit, $bsd_grep ? 2 : 0,
     'grep help following an internal open-file option reaches grep' );
 like( $bsd_grep ? $grep_after_options_err : $grep_after_options_out, qr/^[Uu]sage: grep/m,
     'grep help following --print renders native grep help' );
-unlike( $grep_after_options_out . $grep_after_options_err, qr/^Usage: dashboard of/m,
-    'grep help following --print is not intercepted as dashboard help' );
+unlike( $grep_after_options_out . $grep_after_options_err, qr/^Usage: d2 of/m,
+    'grep help following --print is not intercepted as d2 help' );
 is( $bsd_grep ? $grep_after_options_out : $grep_after_options_err, '',
     'grep help following --print emits no dashboard parser error' );
 
@@ -161,13 +161,13 @@ chmod 0755, $fake_docker or die "Unable to chmod $fake_docker: $!";
         [ [ 'docker', 'compose', 'config', '--help' ], qr/config --help\s*\n/, 'Docker Compose config --help' ],
         [ [ 'docker', 'compose', 'config', '-h' ], qr/config -h\s*\n/, 'Docker Compose config -h' ],
         [ [ 'docker', 'compose', 'help' ], qr/help\s*\n/, 'Docker Compose literal help' ],
-        [ [ 'docker', 'compose', '--service', 'dev', 'exec', 'dev', 'dashboard', 'of', 'grep', '--help' ], qr/exec dev dashboard of grep --help\s*\n/, 'nested external CLI help after Compose wrapper selectors' ],
+        [ [ 'docker', 'compose', '--service', 'dev', 'exec', 'dev', 'dashboard', 'of', 'grep', '--help' ], qr/exec dev d2 of grep --help\s*\n/, 'nested external CLI help after Compose wrapper selectors' ],
     ) {
         my ( $args, $expected, $label ) = @{$case};
         my ( $stdout, $stderr, $exit ) = run_cli( @{$args} );
         is( $exit, 0, "$label reaches the external Docker CLI successfully" );
         like( $stdout, $expected, "$label preserves the external CLI argv" );
-        is( $stderr, '', "$label does not print dashboard help or routing errors" );
+        is( $stderr, '', "$label does not print d2 help or routing errors" );
     }
 }
 

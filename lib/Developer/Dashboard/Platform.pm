@@ -655,7 +655,7 @@ Call C<resolve_runnable_file>, C<is_runnable_file>, or C<command_argv_for_path> 
 
 =head1 WHAT USES IT
 
-It is used by C<bin/dashboard>, skill dispatch, hook execution, private helper staging, and platform-specific tests that cover Unix and Windows command launch semantics.
+It is used by C<bin/d2>, skill dispatch, hook execution, private helper staging, and platform-specific tests that cover Unix and Windows command launch semantics.
 
 =head1 EXAMPLES
 

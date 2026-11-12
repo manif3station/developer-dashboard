@@ -506,7 +506,7 @@ PAGE
     is(
         $runner->_effective_interval_seconds( { name => 'system-temp', command => 'dashboard system-temp cpu', interval => 5 } ),
         30,
-        '_effective_interval_seconds throttles fast dashboard subcommand collectors to the default floor',
+        '_effective_interval_seconds throttles fast d2 subcommand collectors to the default floor',
     );
     is(
         $runner->_effective_interval_seconds( { name => 'system-temp', command => 'dashboard system-temp cpu', interval => 5, allow_fast_poll => 1 } ),
@@ -522,20 +522,20 @@ PAGE
     is(
         $runner->_effective_interval_seconds( { name => 'system-temp', command => 'dashboard system-temp cpu', interval => 5 } ),
         12,
-        '_effective_interval_seconds honours the dashboard collector interval floor environment override',
+        '_effective_interval_seconds honours the d2 collector interval floor environment override',
     );
     local $ENV{DEVELOPER_DASHBOARD_MIN_DASHBOARD_COMMAND_INTERVAL_SECONDS} = 0;
     is(
-        $runner->_effective_interval_seconds( { name => 'system-temp', command => q{/usr/local/bin/dashboard system-temp cpu}, interval => 5 } ),
+        $runner->_effective_interval_seconds( { name => 'system-temp', command => q{/usr/local/bin/d2 system-temp cpu}, interval => 5 } ),
         5,
-        '_effective_interval_seconds leaves quoted or absolute dashboard commands alone when the floor is disabled',
+        '_effective_interval_seconds leaves quoted or absolute d2 commands alone when the floor is disabled',
     );
     {
         local $ENV{DEVELOPER_DASHBOARD_MIN_DASHBOARD_COMMAND_INTERVAL_SECONDS} = 30;
         is(
             $runner->_effective_interval_seconds( { name => 'system-temp', command => 'dashboard system-temp cpu', interval => 45 } ),
             45,
-            '_effective_interval_seconds keeps dashboard subcommand collectors above the minimum interval unchanged',
+            '_effective_interval_seconds keeps d2 subcommand collectors above the minimum interval unchanged',
         );
     }
     ok( !$runner->_cron_due( undef, $cron_name ), '_cron_due rejects an empty cron expression instead of treating it as always due' );
@@ -848,7 +848,7 @@ PAGE
             return 7171;
         };
         is(
-            $runner->_start_loop_worker( { command => 'true' }, 'windows.worker', 'dashboard collector: windows.worker' ),
+            $runner->_start_loop_worker( { command => 'true' }, 'windows.worker', 'd2 collector: windows.worker' ),
             7171,
             '_start_loop_worker returns the detached Windows collector worker pid',
         );

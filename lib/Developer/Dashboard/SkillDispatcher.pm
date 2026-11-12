@@ -1162,7 +1162,7 @@ sub _load_skill_page {
 # Reads one skill dashboard instruction file using the existing text-mode
 # behavior required by the page parser. An optional close callback provides a
 # deterministic way to test close failures; normal callers use Perl's close.
-# Input: resolved skill dashboard file path and optional close coderef.
+# Input: resolved skill d2 file path and optional close coderef.
 # Output: complete instruction text scalar; open and close failures are fatal.
 sub _read_skill_page_instruction {
     my ( $self, $file, $close_callback ) = @_;
@@ -1586,7 +1586,7 @@ sub _nested_skill_path {
 }
 
 # _page_location($skill_name, $route_id, %args)
-# Resolves one skill dashboard file across every participating skill layer,
+# Resolves one skill d2 file across every participating skill layer,
 # refusing unsafe route segments. Browser-supplied ids use the shared path
 # validator; private inventory callers can reuse validated segments after
 # explicit per-segment separator, control-byte, and traversal checks.
@@ -2277,7 +2277,7 @@ Developer::Dashboard::SkillDispatcher - execute commands from installed skills
 
 =head1 DESCRIPTION
 
-Dispatches commands to and manages execution of installed dashboard skills.
+Dispatches commands to and manages execution of installed d2 skills.
 Handles:
 - Command execution with isolation
 - Hook file execution in sorted order
@@ -2338,7 +2338,7 @@ Construct it with a skill manager, call C<dispatch> for one command invocation, 
 
 =head1 WHAT USES IT
 
-It is used by dotted C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> dispatch routed through the C<skills> helper, by the skill bookmark web routes, by skill installation flows that later need execution, and by skill-system and web-route regression tests.
+It is used by dotted C<d2 E<lt>repo-nameE<gt>.E<lt>commandE<gt>> dispatch routed through the C<skills> helper, by the skill bookmark web routes, by skill installation flows that later need execution, and by skill-system and web-route regression tests.
 
 =head1 EXAMPLES
 

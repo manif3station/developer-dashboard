@@ -827,7 +827,7 @@ is( $runtime->_system_context( runtime_context => {}, source => '' )->{cwd}, '.'
         local *Developer::Dashboard::RuntimeManager::_pkill_perl = sub { push @patterns, $_[1]; return 1 };
         is( $runtime->_kill_saved_ajax_singleton('mysingle'), 1, '_kill_saved_ajax_singleton terminates matching workers for a real singleton' );
     }
-    is_deeply( \@patterns, ['^dashboard ajax: mysingle$'], '_kill_saved_ajax_singleton builds an anchored process pattern' );
+    is_deeply( \@patterns, ['^d2 ajax: mysingle$'], '_kill_saved_ajax_singleton builds an anchored process pattern' );
 }
 
 # ---- _query_string_from_params (L785 / L789) ---------------------------------

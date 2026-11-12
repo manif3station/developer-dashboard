@@ -35,7 +35,7 @@ use Developer::Dashboard::SkillManager;
 
 local $ENV{HOME} = tempdir( CLEANUP => 1 );
 my $repo_root = getcwd();
-my $repo_bin  = File::Spec->catfile( $repo_root, 'bin', 'dashboard' );
+my $repo_bin  = File::Spec->catfile( $repo_root, 'bin', 'd2' );
 my $test_cwd = tempdir( CLEANUP => 1 );
 chdir $test_cwd or die "Unable to chdir to $test_cwd: $!";
 my $test_repos = tempdir( CLEANUP => 1 );
@@ -120,7 +120,7 @@ SH
     0755,
 );
 _write_file(
-    File::Spec->catfile( $fake_bin, 'dashboard' ),
+    File::Spec->catfile( $fake_bin, 'd2' ),
     <<"SH",
 #!/bin/sh
 printf '%s\\n' "\$*" >> "$dashboard_log"
@@ -332,7 +332,7 @@ ok( -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'playwright' ), 'package.
 open my $dashboard_log_fh, '<', $dashboard_log or die "Unable to read $dashboard_log: $!";
 my @dashboard_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dashboard_log_fh>;
 close $dashboard_log_fh;
-is( $dashboard_steps[0], 'skills install dep-alpha', 'deferred ddfile installs dependent skills through dashboard skills install' );
+is( $dashboard_steps[0], 'skills install dep-alpha', 'deferred ddfile installs dependent skills through d2 skills install' );
 is( scalar @dashboard_steps, 1, 'private ddfile.local dependencies do not invoke the runtime-wide dashboard installer' );
 ok( -d File::Spec->catdir( $install->{path}, 'skills', 'dep-beta' ), 'ddfile.local dependencies install beneath the owning skill' );
 {
@@ -531,37 +531,37 @@ ok( $usage_with_collectors->{collectors}[0]{has_indicator}, 'usage reports when 
 my ( $cli_install_stdout, $cli_install_stderr, $cli_install_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'list' );
 };
-is( $cli_install_exit >> 8, 0, 'dashboard skills list exits cleanly' );
-like( $cli_install_stdout, qr/^Repo\s+Enabled\s+CLI\s+Pages\s+Docker\s+Collectors\s+Indicators/m, 'dashboard skills list defaults to table output with aligned headings' );
-like( $cli_install_stdout, qr/^alpha-skill\s+enabled\s+1\s+1\s+1\s+1\s+1/m, 'dashboard skills list default table renders readable aligned values' );
+is( $cli_install_exit >> 8, 0, 'd2 skills list exits cleanly' );
+like( $cli_install_stdout, qr/^Repo\s+Enabled\s+CLI\s+Pages\s+Docker\s+Collectors\s+Indicators/m, 'd2 skills list defaults to table output with aligned headings' );
+like( $cli_install_stdout, qr/^alpha-skill\s+enabled\s+1\s+1\s+1\s+1\s+1/m, 'd2 skills list default table renders readable aligned values' );
 
 my ( $cli_json_stdout, $cli_json_stderr, $cli_json_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'list', '-o', 'json' );
 };
-is( $cli_json_exit >> 8, 0, 'dashboard skills list -o json exits cleanly' );
+is( $cli_json_exit >> 8, 0, 'd2 skills list -o json exits cleanly' );
 my $cli_list = decode_json($cli_json_stdout);
-is( scalar( @{ $cli_list->{skills} } ), 1, 'dashboard skills list -o json reports installed skills' );
-ok( $cli_list->{skills}[0]{enabled}, 'dashboard skills list -o json reports enabled state in JSON output' );
+is( scalar( @{ $cli_list->{skills} } ), 1, 'd2 skills list -o json reports installed skills' );
+ok( $cli_list->{skills}[0]{enabled}, 'd2 skills list -o json reports enabled state in JSON output' );
 
 my ( $cli_usage_stdout, $cli_usage_stderr, $cli_usage_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'usage', 'alpha-skill' );
 };
-is( $cli_usage_exit >> 8, 0, 'dashboard skills usage exits cleanly' );
-like( $cli_usage_stdout, qr/^Skill:\s+alpha-skill/m, 'dashboard skills usage defaults to a readable summary' );
-like( $cli_usage_stdout, qr/^CLI Commands$/m, 'dashboard skills usage default output includes the CLI command section' );
-like( $cli_usage_stdout, qr/run-test\s+yes\s+1/m, 'dashboard skills usage default output includes per-command hook metadata' );
+is( $cli_usage_exit >> 8, 0, 'd2 skills usage exits cleanly' );
+like( $cli_usage_stdout, qr/^Skill:\s+alpha-skill/m, 'd2 skills usage defaults to a readable summary' );
+like( $cli_usage_stdout, qr/^CLI Commands$/m, 'd2 skills usage default output includes the CLI command section' );
+like( $cli_usage_stdout, qr/run-test\s+yes\s+1/m, 'd2 skills usage default output includes per-command hook metadata' );
 my ( $cli_usage_json_stdout, undef, $cli_usage_json_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'usage', 'alpha-skill', '-o', 'json' );
 };
-is( $cli_usage_json_exit >> 8, 0, 'dashboard skills usage -o json exits cleanly' );
+is( $cli_usage_json_exit >> 8, 0, 'd2 skills usage -o json exits cleanly' );
 my $cli_usage = decode_json($cli_usage_json_stdout);
-is( $cli_usage->{name}, 'alpha-skill', 'dashboard skills usage -o json returns detailed skill metadata' );
-ok( scalar( grep { $_->{name} eq 'run-test' && $_->{has_hooks} } @{ $cli_usage->{cli} } ), 'dashboard skills usage -o json includes per-command hook metadata' );
+is( $cli_usage->{name}, 'alpha-skill', 'd2 skills usage -o json returns detailed skill metadata' );
+ok( scalar( grep { $_->{name} eq 'run-test' && $_->{has_hooks} } @{ $cli_usage->{cli} } ), 'd2 skills usage -o json includes per-command hook metadata' );
 
 my ( $cli_table_stdout, $cli_table_stderr, $cli_table_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'list', '-o', 'table' );
 };
-is( $cli_table_exit >> 8, 0, 'dashboard skills list -o table exits cleanly' );
+is( $cli_table_exit >> 8, 0, 'd2 skills list -o table exits cleanly' );
 like( $cli_table_stdout, qr/Repo/i, 'table output includes a repo column heading' );
 like( $cli_table_stdout, qr/alpha-skill/, 'table output includes the installed skill name' );
 
@@ -690,10 +690,10 @@ PL
     my ( $dotted_stdout, $dotted_stderr, $dotted_exit ) = capture {
         system( $^X, '-I', 'lib', $repo_bin, 'env-layer-skill.show' );
     };
-    is( $dotted_exit >> 8, 0, 'dashboard <skill>.<command> loads runtime and skill env layers through the public dotted switchboard path' );
+    is( $dotted_exit >> 8, 0, 'd2 <skill>.<command> loads runtime and skill env layers through the public dotted switchboard path' );
     my $dotted_payload = decode_json($dotted_stdout);
-    is( $dotted_payload->{shared}, 'runtime-child', 'dashboard <skill>.<command> keeps the child runtime env override through the public path' );
-    is( $dotted_payload->{home_skill_precedence}, 'skill', 'dashboard <skill>.<command> lets skill env override a same-named home runtime value through the public path' );
+    is( $dotted_payload->{shared}, 'runtime-child', 'd2 <skill>.<command> keeps the child runtime env override through the public path' );
+    is( $dotted_payload->{home_skill_precedence}, 'skill', 'd2 <skill>.<command> lets skill env override a same-named home runtime value through the public path' );
     chdir $previous_cwd or die "Unable to chdir back to $previous_cwd: $!";
 }
 
@@ -756,7 +756,7 @@ PL
     my ( $nested_stdout, $nested_stderr, $nested_exit ) = capture {
         system( $^X, '-I', 'lib', $repo_bin, 'foo.bar.zzz.show' );
     };
-    is( $nested_exit >> 8, 0, 'dashboard <root>.<parent>.<leaf>.<command> loads nested skill env layers through the public dotted switchboard path' );
+    is( $nested_exit >> 8, 0, 'd2 <root>.<parent>.<leaf>.<command> loads nested skill env layers through the public dotted switchboard path' );
     my $nested_dotted_payload = decode_json($nested_stdout);
     is( $nested_dotted_payload->{version}, 'zzz', 'public nested skill dispatch keeps the leaf env value as the effective key' );
     is( $nested_dotted_payload->{foo_version}, 'foo', 'public nested skill dispatch preserves the root env value under the root alias' );
@@ -915,15 +915,15 @@ is_deeply(
 my ( $cli_disable_stdout, $cli_disable_stderr, $cli_disable_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'disable', 'alpha-skill' );
 };
-is( $cli_disable_exit >> 8, 0, 'dashboard skills disable exits cleanly for an already disabled skill' );
-like( $cli_disable_stdout, qr/^Skill\s+Status\s+Enabled/m, 'dashboard skills disable defaults to a table summary' );
-like( $cli_disable_stdout, qr/alpha-skill\s+disabled\s+no/, 'dashboard skills disable reports disabled state in the table summary' );
+is( $cli_disable_exit >> 8, 0, 'd2 skills disable exits cleanly for an already disabled skill' );
+like( $cli_disable_stdout, qr/^Skill\s+Status\s+Enabled/m, 'd2 skills disable defaults to a table summary' );
+like( $cli_disable_stdout, qr/alpha-skill\s+disabled\s+no/, 'd2 skills disable reports disabled state in the table summary' );
 my ( $cli_disable_json_stdout, undef, $cli_disable_json_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'disable', 'alpha-skill', '-o', 'json' );
 };
-is( $cli_disable_json_exit >> 8, 0, 'dashboard skills disable -o json exits cleanly' );
+is( $cli_disable_json_exit >> 8, 0, 'd2 skills disable -o json exits cleanly' );
 my $cli_disable = decode_json($cli_disable_json_stdout);
-ok( !$cli_disable->{enabled}, 'dashboard skills disable -o json reports disabled JSON state' );
+ok( !$cli_disable->{enabled}, 'd2 skills disable -o json reports disabled JSON state' );
 my $disabled_usage = $manager->usage('alpha-skill');
 ok( !$disabled_usage->{enabled}, 'usage still works for disabled skills and reports them as disabled' );
 
@@ -940,15 +940,15 @@ is_deeply(
 my ( $cli_enable_stdout, $cli_enable_stderr, $cli_enable_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'enable', 'alpha-skill' );
 };
-is( $cli_enable_exit >> 8, 0, 'dashboard skills enable exits cleanly for an already enabled skill' );
-like( $cli_enable_stdout, qr/^Skill\s+Status\s+Enabled/m, 'dashboard skills enable defaults to a table summary' );
-like( $cli_enable_stdout, qr/alpha-skill\s+enabled\s+yes/, 'dashboard skills enable reports enabled state in the table summary' );
+is( $cli_enable_exit >> 8, 0, 'd2 skills enable exits cleanly for an already enabled skill' );
+like( $cli_enable_stdout, qr/^Skill\s+Status\s+Enabled/m, 'd2 skills enable defaults to a table summary' );
+like( $cli_enable_stdout, qr/alpha-skill\s+enabled\s+yes/, 'd2 skills enable reports enabled state in the table summary' );
 my ( $cli_enable_json_stdout, undef, $cli_enable_json_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'enable', 'alpha-skill', '-o', 'json' );
 };
-is( $cli_enable_json_exit >> 8, 0, 'dashboard skills enable -o json exits cleanly' );
+is( $cli_enable_json_exit >> 8, 0, 'd2 skills enable -o json exits cleanly' );
 my $cli_enable = decode_json($cli_enable_json_stdout);
-ok( $cli_enable->{enabled}, 'dashboard skills enable -o json reports enabled JSON state' );
+ok( $cli_enable->{enabled}, 'd2 skills enable -o json reports enabled JSON state' );
 
 my $uninstall = $manager->uninstall('beta-skill');
 ok( !$uninstall->{error}, 'uninstall removes the targeted skill cleanly' ) or diag $uninstall->{error};
@@ -1077,13 +1077,13 @@ JSON
     my ( $layered_dotted_stdout, $layered_dotted_stderr, $layered_dotted_exit ) = capture {
         system( $^X, '-I', 'lib', $repo_bin, 'shared-skill.run-test' );
     };
-    is( $layered_dotted_exit >> 8, 0, 'dashboard <skill>.<command> resolves layered project-local skills' );
-    like( $layered_dotted_stdout, qr/home-layer/, 'dashboard <skill>.<command> falls back to the inherited base-layer skill command when the child-layer command file is missing' );
+    is( $layered_dotted_exit >> 8, 0, 'd2 <skill>.<command> resolves layered project-local skills' );
+    like( $layered_dotted_stdout, qr/home-layer/, 'd2 <skill>.<command> falls back to the inherited base-layer skill command when the child-layer command file is missing' );
     my ( $layered_inherited_stdout, $layered_inherited_stderr, $layered_inherited_exit ) = capture {
         system( $^X, '-I', 'lib', $repo_bin, 'home-only-skill.run-test' );
     };
-    is( $layered_inherited_exit >> 8, 0, 'dashboard <skill>.<command> resolves inherited home-layer skills from deeper layers' );
-    like( $layered_inherited_stdout, qr/home-only/, 'dashboard <skill>.<command> keeps inherited home-layer skills available' );
+    is( $layered_inherited_exit >> 8, 0, 'd2 <skill>.<command> resolves inherited home-layer skills from deeper layers' );
+    like( $layered_inherited_stdout, qr/home-only/, 'd2 <skill>.<command> keeps inherited home-layer skills available' );
     my $layered_bookmark_list = $layered_dispatcher->route_response( skill_name => 'shared-skill', route => 'bookmarks' );
     is( $layered_bookmark_list->[0], 200, 'skill bookmark listings fall back to inherited base-layer files when the child layer does not provide them' );
     is_deeply(
@@ -1107,28 +1107,28 @@ JSON
 my ( $singular_skill_stdout, $singular_skill_stderr, $singular_skill_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skill', 'list', '-o', 'json' );
 };
-is( $singular_skill_exit >> 8, 0, 'dashboard skill aliases the skills management command family' );
-is( $singular_skill_stderr, '', 'dashboard skill alias does not emit errors for management commands' );
+is( $singular_skill_exit >> 8, 0, 'd2 skill aliases the skills management command family' );
+is( $singular_skill_stderr, '', 'd2 skill alias does not emit errors for management commands' );
 my $singular_skill_list = decode_json($singular_skill_stdout);
-ok( scalar( grep { $_->{name} eq 'alpha-skill' } @{ $singular_skill_list->{skills} } ), 'dashboard skill list sees installed skills through the alias' );
+ok( scalar( grep { $_->{name} eq 'alpha-skill' } @{ $singular_skill_list->{skills} } ), 'd2 skill list sees installed skills through the alias' );
 
 my ( $dotted_skill_stdout, $dotted_skill_stderr, $dotted_skill_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'alpha-skill.run-test', 'cli-dot' );
 };
-is( $dotted_skill_exit >> 8, 0, 'dashboard <skill>.<command> dispatch exits cleanly' );
-like( $dotted_skill_stdout, qr/updated:cli-dot/, 'dashboard <skill>.<command> routes into the installed skill command' );
+is( $dotted_skill_exit >> 8, 0, 'd2 <skill>.<command> dispatch exits cleanly' );
+like( $dotted_skill_stdout, qr/updated:cli-dot/, 'd2 <skill>.<command> routes into the installed skill command' );
 my ( $dotted_skill_typo_stdout, $dotted_skill_typo_stderr, $dotted_skill_typo_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'alpha-skill.run-tset', 'cli-dot' );
 };
-is( $dotted_skill_typo_exit >> 8, 1, 'dashboard <skill>.<command> exits non-zero for an unknown dotted skill command' );
+is( $dotted_skill_typo_exit >> 8, 1, 'd2 <skill>.<command> exits non-zero for an unknown dotted skill command' );
 like( $dotted_skill_typo_stdout . $dotted_skill_typo_stderr, qr/Command 'run-tset' not found in skill 'alpha-skill'/, 'dashboard reports the missing dotted skill command explicitly' );
-like( $dotted_skill_typo_stdout . $dotted_skill_typo_stderr, qr/Did you mean:\s+dashboard alpha-skill\.run-test/s, 'dashboard suggests the closest installed dotted skill command when the command tail is mistyped' );
+like( $dotted_skill_typo_stdout . $dotted_skill_typo_stderr, qr/Did you mean:\s+d2 alpha-skill\.run-test/s, 'dashboard suggests the closest installed dotted skill command when the command tail is mistyped' );
 my ( $skill_which_stdout, $skill_which_stderr, $skill_which_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'which', 'alpha-skill.run-test' );
 };
-is( $skill_which_exit >> 8, 0, 'dashboard which <skill>.<command> exits cleanly' );
-like( $skill_which_stdout, qr/^COMMAND \Q@{[ File::Spec->catfile( $install->{path}, 'cli', 'run-test' ) ]}\E$/m, 'dashboard which <skill>.<command> reports the resolved skill command path' );
-like( $skill_which_stdout, qr/^HOOK \Q@{[ File::Spec->catfile( $install->{path}, 'cli', 'run-test.d', '00-pre.pl' ) ]}\E$/m, 'dashboard which <skill>.<command> reports the participating skill hook file' );
+is( $skill_which_exit >> 8, 0, 'd2 which <skill>.<command> exits cleanly' );
+like( $skill_which_stdout, qr/^COMMAND \Q@{[ File::Spec->catfile( $install->{path}, 'cli', 'run-test' ) ]}\E$/m, 'd2 which <skill>.<command> reports the resolved skill command path' );
+like( $skill_which_stdout, qr/^HOOK \Q@{[ File::Spec->catfile( $install->{path}, 'cli', 'run-test.d', '00-pre.pl' ) ]}\E$/m, 'd2 which <skill>.<command> reports the participating skill hook file' );
 my $skill_editor_log = File::Spec->catfile( $ENV{HOME}, 'skill-which-editor.log' );
 my $skill_editor = File::Spec->catfile( $ENV{HOME}, 'skill-which-editor' );
 _write_file(
@@ -1143,16 +1143,16 @@ my ( $skill_which_edit_stdout, $skill_which_edit_stderr, $skill_which_edit_exit 
     local $ENV{EDITOR} = $skill_editor;
     system( $^X, '-I', 'lib', $repo_bin, 'which', '--edit', 'alpha-skill.run-test' );
 };
-is( $skill_which_edit_exit >> 8, 0, 'dashboard which --edit <skill>.<command> exits cleanly' );
-is( $skill_which_edit_stdout, '', 'dashboard which --edit <skill>.<command> does not print inspection output before opening the file' );
-is( $skill_which_edit_stderr, '', 'dashboard which --edit <skill>.<command> keeps stderr clean' );
+is( $skill_which_edit_exit >> 8, 0, 'd2 which --edit <skill>.<command> exits cleanly' );
+is( $skill_which_edit_stdout, '', 'd2 which --edit <skill>.<command> does not print inspection output before opening the file' );
+is( $skill_which_edit_stderr, '', 'd2 which --edit <skill>.<command> keeps stderr clean' );
 open my $skill_editor_log_fh, '<', $skill_editor_log or die "Unable to read $skill_editor_log: $!";
 my $skill_editor_args = do { local $/; <$skill_editor_log_fh> };
 close $skill_editor_log_fh;
 is(
     $skill_editor_args,
     File::Spec->catfile( $install->{path}, 'cli', 'run-test' ) . "\n",
-    'dashboard which --edit <skill>.<command> opens the resolved skill command path through dashboard open-file',
+    'd2 which --edit <skill>.<command> opens the resolved skill command path through d2 open-file',
 );
 
 my $python_skill_repo = _create_skill_repo('python-dotted-skill');
@@ -1171,18 +1171,18 @@ my ( $python_dotted_stdout, $python_dotted_stderr, $python_dotted_exit ) = captu
     local $ENV{PATH} = $runtime_path;
     system( $^X, '-I', 'lib', $repo_bin, 'python-dotted-skill.bar', 'py-arg' );
 };
-is( $python_dotted_exit >> 8, 0, 'dashboard <skill>.<command> dispatch exits cleanly for cli/<command>.py' );
+is( $python_dotted_exit >> 8, 0, 'd2 <skill>.<command> dispatch exits cleanly for cli/<command>.py' );
 is( $python_dotted_stderr, '', 'python dotted skill dispatch keeps stderr clean' );
-like( $python_dotted_stdout, qr/^python-dotted:py-arg\r?\n\z/, 'dashboard <skill>.<command> runs cli/<command>.py through python' );
+like( $python_dotted_stdout, qr/^python-dotted:py-arg\r?\n\z/, 'd2 <skill>.<command> runs cli/<command>.py through python' );
 my ( $python_which_stdout, $python_which_stderr, $python_which_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'which', 'python-dotted-skill.bar' );
 };
-is( $python_which_exit >> 8, 0, 'dashboard which resolves dotted python skill commands' );
-is( $python_which_stderr, '', 'dashboard which keeps stderr clean for dotted python skill commands' );
+is( $python_which_exit >> 8, 0, 'd2 which resolves dotted python skill commands' );
+is( $python_which_stderr, '', 'd2 which keeps stderr clean for dotted python skill commands' );
 like(
     $python_which_stdout,
     qr/^COMMAND \Q@{[ File::Spec->catfile( $python_skill_install->{path}, 'cli', 'bar.py' ) ]}\E$/m,
-    'dashboard which reports the cli/<command>.py path for dotted python skill commands',
+    'd2 which reports the cli/<command>.py path for dotted python skill commands',
 );
 
 my $javascript_skill_repo = _create_skill_repo('javascript-dotted-skill');
@@ -1200,18 +1200,18 @@ SKIP: {
     my ( $javascript_dotted_stdout, $javascript_dotted_stderr, $javascript_dotted_exit ) = capture {
         system( $^X, '-I', 'lib', $repo_bin, 'javascript-dotted-skill.foo', 'js-arg' );
     };
-    is( $javascript_dotted_exit >> 8, 0, 'dashboard <skill>.<command> dispatch exits cleanly for cli/<command>.js' );
+    is( $javascript_dotted_exit >> 8, 0, 'd2 <skill>.<command> dispatch exits cleanly for cli/<command>.js' );
     is( $javascript_dotted_stderr, '', 'javascript dotted skill dispatch keeps stderr clean' );
-    like( $javascript_dotted_stdout, qr/^javascript-dotted:js-arg\r?\n\z/, 'dashboard <skill>.<command> runs cli/<command>.js through node' );
+    like( $javascript_dotted_stdout, qr/^javascript-dotted:js-arg\r?\n\z/, 'd2 <skill>.<command> runs cli/<command>.js through node' );
     my ( $javascript_which_stdout, $javascript_which_stderr, $javascript_which_exit ) = capture {
         system( $^X, '-I', 'lib', $repo_bin, 'which', 'javascript-dotted-skill.foo' );
     };
-    is( $javascript_which_exit >> 8, 0, 'dashboard which resolves dotted javascript skill commands' );
-    is( $javascript_which_stderr, '', 'dashboard which keeps stderr clean for dotted javascript skill commands' );
+    is( $javascript_which_exit >> 8, 0, 'd2 which resolves dotted javascript skill commands' );
+    is( $javascript_which_stderr, '', 'd2 which keeps stderr clean for dotted javascript skill commands' );
     like(
         $javascript_which_stdout,
         qr/^COMMAND \Q@{[ File::Spec->catfile( $javascript_skill_install->{path}, 'cli', 'foo.js' ) ]}\E$/m,
-        'dashboard which reports the cli/<command>.js path for dotted javascript skill commands',
+        'd2 which reports the cli/<command>.js path for dotted javascript skill commands',
     );
 }
 
@@ -1229,35 +1229,35 @@ PL
 my ( $nested_skill_stdout, $nested_skill_stderr, $nested_skill_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'alpha-skill.foo.foo', 'nested-arg' );
 };
-is( $nested_skill_exit >> 8, 0, 'dashboard <skill>.<nested-skill>.<command> dispatch exits cleanly' );
+is( $nested_skill_exit >> 8, 0, 'd2 <skill>.<nested-skill>.<command> dispatch exits cleanly' );
 like( $nested_skill_stdout, qr/nested:nested-arg/, 'dashboard dotted dispatch resolves nested skills/<repo>/cli commands inside an installed skill' );
 my ( $nested_which_stdout, $nested_which_stderr, $nested_which_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'which', 'alpha-skill.foo.foo' );
 };
-is( $nested_which_exit >> 8, 0, 'dashboard which <skill>.<nested-skill>.<command> exits cleanly' );
-like( $nested_which_stdout, qr/^COMMAND \Q@{[ File::Spec->catfile( $install->{path}, 'skills', 'foo', 'cli', 'foo' ) ]}\E$/m, 'dashboard which resolves nested skill commands to the deepest nested cli file' );
+is( $nested_which_exit >> 8, 0, 'd2 which <skill>.<nested-skill>.<command> exits cleanly' );
+like( $nested_which_stdout, qr/^COMMAND \Q@{[ File::Spec->catfile( $install->{path}, 'skills', 'foo', 'cli', 'foo' ) ]}\E$/m, 'd2 which resolves nested skill commands to the deepest nested cli file' );
 my ( $nested_which_edit_stdout, $nested_which_edit_stderr, $nested_which_edit_exit ) = capture {
     local $ENV{EDITOR} = $skill_editor;
     system( $^X, '-I', 'lib', $repo_bin, 'which', '--edit', 'alpha-skill.foo.foo' );
 };
-is( $nested_which_edit_exit >> 8, 0, 'dashboard which --edit <skill>.<nested-skill>.<command> exits cleanly' );
-is( $nested_which_edit_stdout, '', 'dashboard which --edit nested skill command does not print inspection output before opening the file' );
-is( $nested_which_edit_stderr, '', 'dashboard which --edit nested skill command keeps stderr clean' );
+is( $nested_which_edit_exit >> 8, 0, 'd2 which --edit <skill>.<nested-skill>.<command> exits cleanly' );
+is( $nested_which_edit_stdout, '', 'd2 which --edit nested skill command does not print inspection output before opening the file' );
+is( $nested_which_edit_stderr, '', 'd2 which --edit nested skill command keeps stderr clean' );
 open my $nested_editor_log_fh, '<', $skill_editor_log or die "Unable to read $skill_editor_log after nested which --edit: $!";
 my $nested_editor_args = do { local $/; <$nested_editor_log_fh> };
 close $nested_editor_log_fh;
 is(
     $nested_editor_args,
     File::Spec->catfile( $install->{path}, 'skills', 'foo', 'cli', 'foo' ) . "\n",
-    'dashboard which --edit nested skill command opens the deepest resolved nested skill path through dashboard open-file',
+    'd2 which --edit nested skill command opens the deepest resolved nested skill path through d2 open-file',
 );
 
 my ( $uninstall_stdout, $uninstall_stderr, $uninstall_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'uninstall', 'alpha-skill' );
 };
-is( $uninstall_exit >> 8, 0, 'dashboard skills uninstall exits cleanly' );
-like( $uninstall_stdout, qr/^Skill\s+Status/m, 'dashboard skills uninstall defaults to a table summary' );
-like( $uninstall_stdout, qr/alpha-skill\s+removed/, 'dashboard skills uninstall table summary reports the removed skill' );
+is( $uninstall_exit >> 8, 0, 'd2 skills uninstall exits cleanly' );
+like( $uninstall_stdout, qr/^Skill\s+Status/m, 'd2 skills uninstall defaults to a table summary' );
+like( $uninstall_stdout, qr/alpha-skill\s+removed/, 'd2 skills uninstall table summary reports the removed skill' );
 my @remaining_skills = map { $_->{name} } @{ $manager->list };
 ok( !grep { $_ eq 'alpha-skill' } @remaining_skills, 'uninstall removes the targeted base skill' );
 ok( grep { $_ eq 'home-only-skill' } @remaining_skills, 'uninstall preserves inherited home-only layered skills' );

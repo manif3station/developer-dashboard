@@ -562,7 +562,7 @@ t/113-cli-ask-coverage.t - branch and condition coverage for the ask CLI module
 
 =head1 PURPOSE
 
-This test drives the decision paths of the C<dashboard ask> implementation that
+This test drives the decision paths of the C<d2 ask> implementation that
 the behavioural ask tests never reach: the fallback seams of C<run_ask> (process
 environment, self-built layered config and path registry), blank-value handling
 in backend and API-key resolution, malformed Anthropic response payloads,

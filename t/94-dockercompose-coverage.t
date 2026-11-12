@@ -1188,12 +1188,12 @@ STUB
 {
     like(
         eval { $docker->enable_service_development(); 1 } ? '' : $@,
-        qr/\AUsage: dashboard docker development enable <service>/,
+        qr/\AUsage: d2 docker development enable <service>/,
         'development enable requires a service name',
     );
     like(
         eval { $docker->disable_service_development(); 1 } ? '' : $@,
-        qr/\AUsage: dashboard docker development disable <service>/,
+        qr/\AUsage: d2 docker development disable <service>/,
         'development disable requires a service name',
     );
 
@@ -1365,7 +1365,7 @@ STUB
     ok( ref $docker->list_services eq 'ARRAY', 'list_services defaults project_root to cwd' );
     chdir $old or die $!;
     eval { $docker->list_services( project_root => $repo, filter => 'bogus' ); 1 };
-    like( $@, qr/Usage: dashboard docker list/, 'invalid filter dies' );
+    like( $@, qr/Usage: d2 docker list/, 'invalid filter dies' );
 }
 
 # ---- opendir-failure paths via an unreadable directory --------------------
@@ -1611,9 +1611,9 @@ JSON
     eval { $docker->_service_disabled_marker_path(); 1 };
     like( $@, qr/Missing service/, 'marker path dies without service' );
     eval { $docker->disable_service(); 1 };
-    like( $@, qr/Usage: dashboard docker disable/, 'disable dies without service' );
+    like( $@, qr/Usage: d2 docker disable/, 'disable dies without service' );
     eval { $docker->enable_service(); 1 };
-    like( $@, qr/Usage: dashboard docker enable/, 'enable dies without service' );
+    like( $@, qr/Usage: d2 docker enable/, 'enable dies without service' );
 }
 
 # Problem 40 materializer/parser edge cases: the final service selection must
@@ -1951,9 +1951,9 @@ Put any resolver change back through the whole repository suite before release.
 
 Example 5:
 
-  dashboard docker development enable green
-  dashboard docker compose --dry-run config green
-  dashboard docker development disable green
+  d2 docker development enable green
+  d2 docker compose --dry-run config green
+  d2 docker development disable green
 
 Exercise the public opt-in marker command and inspect the base-plus-overlay
 resolution without starting containers.

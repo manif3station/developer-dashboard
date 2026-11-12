@@ -266,7 +266,7 @@ sub fail_first_template_new {
     is(
         $first_inc,
         File::Spec->catdir( $page_skill_root, 'lib' ),
-        'the exact skill path serving the dashboard page is the first runtime @INC entry',
+        'the exact skill path serving the d2 page is the first runtime @INC entry',
     );
 }
 

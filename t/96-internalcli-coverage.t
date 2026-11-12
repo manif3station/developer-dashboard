@@ -178,8 +178,8 @@ ok( _abs_existing_path($home) ne '', '_abs_existing_path canonicalizes an existi
 # _is_dashboard_managed_helper: core detection (line 488) + POD heuristic (492).
 # ---------------------------------------------------------------------------
 is( _is_dashboard_managed_helper( "random text\n", '_dashboard-core' ), 0, '_is_dashboard_managed_helper core: no legacy marker' );
-is( _is_dashboard_managed_helper( "Missing built-in dashboard command\nfoo\n", '_dashboard-core' ), 0, '_is_dashboard_managed_helper core: missing SeededPages marker' );
-ok( _is_dashboard_managed_helper( "Missing built-in dashboard command\nDeveloper::Dashboard::CLI::SeededPages\n", '_dashboard-core' ), '_is_dashboard_managed_helper core: both legacy markers present' );
+is( _is_dashboard_managed_helper( "Missing built-in d2 command\nfoo\n", '_dashboard-core' ), 0, '_is_dashboard_managed_helper core: missing SeededPages marker' );
+ok( _is_dashboard_managed_helper( "Missing built-in d2 command\nDeveloper::Dashboard::CLI::SeededPages\n", '_dashboard-core' ), '_is_dashboard_managed_helper core: both legacy markers present' );
 is( _is_dashboard_managed_helper( "LAZY-THIN-CMD only body\n", 'jq' ), 0, '_is_dashboard_managed_helper: LAZY marker without product name' );
 ok( _is_dashboard_managed_helper( "LAZY-THIN-CMD\nDeveloper Dashboard\n", 'jq' ), '_is_dashboard_managed_helper: both POD heuristics present' );
 is( _is_dashboard_managed_helper( "plain body\n", 'jq' ), 0, '_is_dashboard_managed_helper: unrelated content is unmanaged' );

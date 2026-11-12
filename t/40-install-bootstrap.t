@@ -24,7 +24,7 @@ my $brewfile   = File::Spec->catfile( $root, 'brewfile' );
 my $default_bootstrap_repository = 'https://github.com/manif3station/developer-dashboard.git';
 my $perlbrew_app_dist_url = 'https://cpan.metacpan.org/authors/id/G/GU/GUGOD/App-perlbrew-1.02.tar.gz';
 my $perlbrew_app_dist_basename = 'App-perlbrew-1.02.tar.gz';
-my $dashboard_entrypoint = _slurp( File::Spec->catfile( $root, 'bin', 'dashboard' ) );
+my $dashboard_entrypoint = _slurp( File::Spec->catfile( $root, 'bin', 'd2' ) );
 
 ok( -f $install_sh, 'install.sh exists at the repo root' );
 ok( -f $install_ps, 'install.ps1 exists at the repo root' );
@@ -42,17 +42,17 @@ like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/pure_install\s+::\
 like(
     $dashboard_entrypoint,
     qr/sub _builtin_helper_command/,
-    'bin/dashboard resolves built-in helpers through the command-aware switchboard helper dispatcher',
+    'bin/d2 resolves built-in helpers through the command-aware switchboard helper dispatcher',
 );
 like(
     $dashboard_entrypoint,
     qr/is_windows\(\)\s*&&\s*Developer::Dashboard::InternalCLI::_helper_uses_dashboard_core\(\$helper\)/,
-    'bin/dashboard routes Windows core-backed built-ins through the shared _dashboard-core helper directly',
+    'bin/d2 routes Windows core-backed built-ins through the shared _dashboard-core helper directly',
 );
 like(
     $dashboard_entrypoint,
     qr/Developer::Dashboard::InternalCLI::ensure_dashboard_core/,
-    'bin/dashboard stages the shared _dashboard-core helper before direct Windows built-in dispatch',
+    'bin/d2 stages the shared _dashboard-core helper before direct Windows built-in dispatch',
 );
 {
     my $makefile_text = _slurp( File::Spec->catfile( $root, 'Makefile.PL' ) );
@@ -74,7 +74,7 @@ like(
 {
     # Windows gmake runs the staging one-liner with no HOME in the process
     # environment and a perl whose getpwuid dies as unimplemented, so the
-    # recipe must fall back to USERPROFILE exactly like bin/dashboard does.
+    # recipe must fall back to USERPROFILE exactly like bin/d2 does.
     my $makefile_text = _slurp( File::Spec->catfile( $root, 'Makefile.PL' ) );
     my ($staging_code) = $makefile_text =~ /install-private-cli-tools :\n\t\$\(NOECHO\) \$\(PERL\) -e '([^']+)'/;
     ok( defined $staging_code, 'Makefile.PL carries the single-quoted install-private-cli-tools staging one-liner' );
@@ -243,9 +243,9 @@ like(
     like( $install_ps_text, qr/\$powershellCacheRoot = Join-Path\s+\$env:HOME\s+'\.developer-dashboard\\cache'/s, 'install.ps1 validates the same env:HOME-derived cache root that the generated profile will read' );
     like( $install_ps_text, qr/if\s+\(\[string\]::IsNullOrWhiteSpace\(\`\$env:HOME\)\)\s*\{\s*\`\$env:HOME = '\$profileRuntimeHome'/s, 'install.ps1 bakes the install-time runtime home into the managed profile block as a last-resort seed so the cache root is never joined against an empty HOME' );
     like( $install_ps_text, qr/Join-Path\s+\`\$ddCacheRoot\s+'powershell-env\.ps1'/s, 'install.ps1 points the managed profile at the cached local-lib environment script' );
-    like( $install_ps_text, qr/Join-Path\s+\`\$ddCacheRoot\s+'powershell-bootstrap\.ps1'/s, 'install.ps1 points the managed profile at the cached dashboard shell bootstrap script' );
+    like( $install_ps_text, qr/Join-Path\s+\`\$ddCacheRoot\s+'powershell-bootstrap\.ps1'/s, 'install.ps1 points the managed profile at the cached d2 shell bootstrap script' );
     like( $install_ps_text, qr/\.\s+\`\$ddEnvironmentCache.*?\.\s+\`\$ddBootstrapCache/s, 'install.ps1 dot-sources the cached environment before the cached shell bootstrap' );
-    like( $install_ps_text, qr/Run 'dashboard shell ps' to refresh them/, 'install.ps1 gives an actionable warning when either PowerShell startup cache file is unavailable' );
+    like( $install_ps_text, qr/Run 'd2 shell ps' to refresh them/, 'install.ps1 gives an actionable warning when either PowerShell startup cache file is unavailable' );
     like( $install_ps_text, qr/if\s+\(\[string\]::IsNullOrWhiteSpace\(\`\$env:HOME\)\s+-and\s+-not\s+\[string\]::IsNullOrWhiteSpace\(\`\$HOME\)\)\s*\{\s*\`\$env:HOME = \`\$HOME/s, 'install.ps1 seeds env:HOME from PowerShell HOME inside the managed profile block for future sessions' );
     like( $install_ps_text, qr/\$profilePerlRuntimePaths\s*=\s*\@/s, 'install.ps1 captures the resolved Strawberry Perl runtime directories before writing the managed PowerShell profile block' );
     like( $install_ps_text, qr/\$profileExtraRuntimePaths\s*=\s*\@/s, 'install.ps1 captures extra Windows runtime directories such as portable Node.js before writing the managed PowerShell profile block' );
@@ -253,23 +253,23 @@ like(
     like( $install_ps_text, qr/\`\$ddExtraRuntimePaths\s*=\s*\@/s, 'install.ps1 writes any extra portable Windows runtime directories into the managed PowerShell profile block for future sessions' );
     like( $install_ps_text, qr/foreach\s+\(\`\$ddPerlRuntimePath in \`\$ddPerlRuntimePaths\)/s, 'install.ps1 prepends the persisted Strawberry Perl runtime directories in future PowerShell sessions before resolving dashboard' );
     like( $install_ps_text, qr/foreach\s+\(\`\$ddExtraRuntimePath in \`\$ddExtraRuntimePaths\)/s, 'install.ps1 also prepends any persisted portable Windows runtime directories in future PowerShell sessions' );
-    unlike( $install_ps_text, qr/\$ddDashboardCandidate in \@\(\s*\(Join-Path\s+\`\$ddPerlBin\s+'dashboard\.bat'\),\s*\(Join-Path\s+\`\$ddPerlBin\s+'dashboard\.cmd'\),\s*\(Join-Path\s+\`\$ddPerlBin\s+'dashboard'\),\s*\(\(Get-Command dashboard -ErrorAction SilentlyContinue\)\.Source\)\s*\)/s, 'install.ps1 does not resolve dashboard commands inside the generated PowerShell profile block' );
-    unlike( $install_ps_text, qr/\$ddShellBootstrap\s*=\s*&\s+\`\$ddPerlCommand\.Source\s+\`\$ddDashboardCommand\s+shell\s+ps/s, 'install.ps1 does not launch Perl plus dashboard shell ps from the generated PowerShell profile' );
+    unlike( $install_ps_text, qr/\$ddDashboardCandidate in \@\(\s*\(Join-Path\s+\`\$ddPerlBin\s+'dashboard\.bat'\),\s*\(Join-Path\s+\`\$ddPerlBin\s+'dashboard\.cmd'\),\s*\(Join-Path\s+\`\$ddPerlBin\s+'dashboard'\),\s*\(\(Get-Command dashboard -ErrorAction SilentlyContinue\)\.Source\)\s*\)/s, 'install.ps1 does not resolve d2 commands inside the generated PowerShell profile block' );
+    unlike( $install_ps_text, qr/\$ddShellBootstrap\s*=\s*&\s+\`\$ddPerlCommand\.Source\s+\`\$ddDashboardCommand\s+shell\s+ps/s, 'install.ps1 does not launch Perl plus d2 shell ps from the generated PowerShell profile' );
     unlike( $install_ps_text, qr/\$ddShellBootstrapText\s*=\s*Join-ScriptText\s+-Value\s+\`\$ddShellBootstrap/s, 'install.ps1 does not leak installer-only Join-ScriptText helper calls into the generated PowerShell profile block' );
-    unlike( $install_ps_text, qr/\$ddShellBootstrapText\s*=\s*\(\(@\(\`\$ddShellBootstrap \| Where-Object \{ .*? \} \| ForEach-Object \{ .*? \}\)\) -join \[Environment\]::NewLine\)/s, 'install.ps1 no longer normalizes live dashboard shell output inside the generated PowerShell profile block' );
-    unlike( $install_ps_text, qr/Invoke-Expression\s+\`\$ddShellBootstrapText/s, 'install.ps1 does not evaluate live dashboard shell output during PowerShell profile startup' );
-    like( $install_ps_text, qr/Invoke-NativeCommand\s+-Label\s+'dashboard init'\s+-FilePath\s+\$dashboardCommand\s+-Arguments\s+\@\(\'init\'\).*?&\s+\$perlPath\s+\$dashboardCommand\s+shell\s+ps/s, 'install.ps1 initializes the dashboard runtime before asking perl plus the installed dashboard command for its PowerShell bootstrap on Windows' );
-    like( $install_ps_text, qr/\$dashboardShellBootstrapText\s*=\s*Join-ScriptText\s+-Value\s+\$dashboardShellBootstrap/s, 'install.ps1 normalizes the current-session dashboard shell ps output into one script string' );
+    unlike( $install_ps_text, qr/\$ddShellBootstrapText\s*=\s*\(\(@\(\`\$ddShellBootstrap \| Where-Object \{ .*? \} \| ForEach-Object \{ .*? \}\)\) -join \[Environment\]::NewLine\)/s, 'install.ps1 no longer normalizes live d2 shell output inside the generated PowerShell profile block' );
+    unlike( $install_ps_text, qr/Invoke-Expression\s+\`\$ddShellBootstrapText/s, 'install.ps1 does not evaluate live d2 shell output during PowerShell profile startup' );
+    like( $install_ps_text, qr/Invoke-NativeCommand\s+-Label\s+'d2 init'\s+-FilePath\s+\$dashboardCommand\s+-Arguments\s+\@\(\'init\'\).*?&\s+\$perlPath\s+\$dashboardCommand\s+shell\s+ps/s, 'install.ps1 initializes the dashboard runtime before asking perl plus the installed d2 command for its PowerShell bootstrap on Windows' );
+    like( $install_ps_text, qr/\$dashboardShellBootstrapText\s*=\s*Join-ScriptText\s+-Value\s+\$dashboardShellBootstrap/s, 'install.ps1 normalizes the current-session d2 shell ps output into one script string' );
     like( $install_ps_text, qr/\$powershellEnvironmentCache\s*=\s*Join-Path\s+\$powershellCacheRoot\s+'powershell-env\.ps1'/s, 'install.ps1 resolves the generated PowerShell environment cache before installing the managed profile block' );
     like( $install_ps_text, qr/\$powershellBootstrapCache\s*=\s*Join-Path\s+\$powershellCacheRoot\s+'powershell-bootstrap\.ps1'/s, 'install.ps1 resolves the generated PowerShell bootstrap cache before installing the managed profile block' );
     like( $install_ps_text, qr/&\s+\$perlPath\s+\$dashboardCommand\s+shell\s+ps.*?Test-Path\s+-LiteralPath\s+\$powershellEnvironmentCache\s+-PathType\s+Leaf.*?Test-Path\s+-LiteralPath\s+\$powershellBootstrapCache\s+-PathType\s+Leaf.*?Ensure-ProfileContains/s, 'install.ps1 generates and validates both non-empty PowerShell caches before writing the managed profile block' );
-    like( $install_ps_text, qr/PowerShell startup cache generation failed.*?dashboard shell ps/s, 'install.ps1 stops with a cache-refresh diagnostic instead of installing a profile backed by missing cache files' );
+    like( $install_ps_text, qr/PowerShell startup cache generation failed.*?d2 shell ps/s, 'install.ps1 stops with a cache-refresh diagnostic instead of installing a profile backed by missing cache files' );
     like( $install_ps_text, qr/Language\.Parser\]::ParseFile.*?powershellEnvironmentCache.*?powershellBootstrapCache/s, 'install.ps1 parses both generated PowerShell caches before installing the managed profile block' );
-    like( $install_ps_text, qr/catch\s*\{.*?PowerShell startup cache files could not be loaded.*?dashboard shell ps/s, 'install.ps1 generated profile reports an actionable refresh instruction when a non-empty cache file is corrupt' );
-    unlike( $install_ps_text, qr/Invoke-Expression\s+\(&\s+\$dashboardCommand\s+shell\s+ps\)/, 'install.ps1 no longer invokes dashboard shell ps directly without checking for empty output' );
+    like( $install_ps_text, qr/catch\s*\{.*?PowerShell startup cache files could not be loaded.*?d2 shell ps/s, 'install.ps1 generated profile reports an actionable refresh instruction when a non-empty cache file is corrupt' );
+    unlike( $install_ps_text, qr/Invoke-Expression\s+\(&\s+\$dashboardCommand\s+shell\s+ps\)/, 'install.ps1 no longer invokes d2 shell ps directly without checking for empty output' );
     unlike( $install_ps_text, qr/\$CpanTarget\s*=\s*if\s*\(\[string\]::IsNullOrWhiteSpace\(\$env:DD_INSTALL_CPAN_TARGET\)\)\s*\{\s*'Developer::Dashboard'\s*\}/, 'install.ps1 no longer defaults streamed Windows installs to the stale CPAN module name' );
     like( $install_ps_text, qr/cpanm.*--notest/s, 'install.ps1 installs Developer Dashboard with cpanm --notest on Windows' );
-    like( $install_ps_text, qr/dashboard init/, 'install.ps1 initializes the dashboard runtime after the Windows install' );
+    like( $install_ps_text, qr/d2 init/, 'install.ps1 initializes the dashboard runtime after the Windows install' );
     like( $install_ps_text, qr/\bshell\s+ps\b/, 'install.ps1 activates the PowerShell bootstrap after installation' );
     like( $install_ps_text, qr/Set-ExecutionPolicy\s+-Scope\s+CurrentUser\s+-ExecutionPolicy\s+RemoteSigned\s+-Force/s, 'install.ps1 enables a CurrentUser PowerShell execution policy that can load the generated profile in future sessions' );
     like( $install_ps_text, qr/ExecutionPolicyOverride/, 'install.ps1 treats the benign CurrentUser execution-policy override warning explicitly during streamed bootstrap runs' );
@@ -283,10 +283,10 @@ my @apt_packages  = _manifest_lines($aptfile);
 my @apk_packages  = _manifest_lines($apkfile);
 my @dnf_packages  = _manifest_lines($dnfile);
 my @brew_packages = _manifest_lines($brewfile);
-ok( scalar grep { $_ eq 'tmux' } @apt_packages,  'aptfile includes tmux because dashboard workspace depends on it' );
-ok( scalar grep { $_ eq 'tmux' } @apk_packages,  'apkfile includes tmux because dashboard workspace depends on it' );
-ok( scalar grep { $_ eq 'tmux' } @dnf_packages,  'dnfile includes tmux because dashboard workspace depends on it' );
-ok( scalar grep { $_ eq 'tmux' } @brew_packages, 'brewfile includes tmux because dashboard workspace depends on it' );
+ok( scalar grep { $_ eq 'tmux' } @apt_packages,  'aptfile includes tmux because d2 workspace depends on it' );
+ok( scalar grep { $_ eq 'tmux' } @apk_packages,  'apkfile includes tmux because d2 workspace depends on it' );
+ok( scalar grep { $_ eq 'tmux' } @dnf_packages,  'dnfile includes tmux because d2 workspace depends on it' );
+ok( scalar grep { $_ eq 'tmux' } @brew_packages, 'brewfile includes tmux because d2 workspace depends on it' );
 my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
     packages => \@apt_packages,
 );
@@ -332,7 +332,7 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "cpanm --no-wget --notest $target",
-            'dashboard init',
+            'd2 init',
         ],
         'install.sh follows the Fedora bootstrap flow in manifest order',
     );
@@ -350,7 +350,7 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
     );
     like(
         $bashrc_text,
-        qr/eval "\$\(\"[^\"]*\/dashboard" shell bash\)"/,
+        qr/eval "\$\(\"[^\"]*\/d2" shell bash\)"/,
         'install.sh appends the Developer Dashboard bash shell bootstrap to ~/.bashrc on Fedora',
     );
 }
@@ -390,7 +390,7 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "cpanm --no-wget --notest $target",
-            'dashboard init',
+            'd2 init',
         ],
         'install.sh follows the Alpine bootstrap flow in manifest order',
     );
@@ -406,7 +406,7 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
     );
     like(
         $profile_text,
-        qr/eval "\$\(\"[^\"]*\/dashboard" shell sh\)"/,
+        qr/eval "\$\(\"[^\"]*\/d2" shell sh\)"/,
         'install.sh appends the Developer Dashboard sh shell bootstrap to ~/.profile on Alpine',
     );
     like(
@@ -482,7 +482,7 @@ BASHRC
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "cpanm --no-wget --notest $target",
-            'dashboard init',
+            'd2 init',
         ],
         'install.sh follows the Debian-family bootstrap flow in manifest order',
     );
@@ -501,12 +501,12 @@ BASHRC
     );
     like(
         $bashrc_text,
-        qr/eval "\$\(\"[^\"]*\/dashboard" shell bash\)"/,
+        qr/eval "\$\(\"[^\"]*\/d2" shell bash\)"/,
         'install.sh appends the Developer Dashboard bash shell bootstrap to ~/.bashrc',
     );
     ok(
-        $bashrc_text =~ qr/\Q$local_lib_line\E\n.*eval "\$\(\"[^\"]*\/dashboard" shell bash\)".*\ncase \$- in/s
-          || $bashrc_text =~ qr/\Q$local_lib_line\E\n.*eval "\$\(\"[^\"]*\/dashboard" shell bash\)".*\n\[ -z "\$PS1" \] && return/s,
+        $bashrc_text =~ qr/\Q$local_lib_line\E\n.*eval "\$\(\"[^\"]*\/d2" shell bash\)".*\ncase \$- in/s
+          || $bashrc_text =~ qr/\Q$local_lib_line\E\n.*eval "\$\(\"[^\"]*\/d2" shell bash\)".*\n\[ -z "\$PS1" \] && return/s,
         'install.sh keeps dashboard-managed bash bootstrap lines ahead of the non-interactive return guard in ~/.bashrc',
     );
     like(
@@ -536,7 +536,7 @@ BASHRC
     );
     like(
         $stdout,
-        qr/Then verify with:\s+dashboard version/s,
+        qr/Then verify with:\s+d2 version/s,
         'install.sh tells the user how to verify the command is available after activation',
     );
     unlike(
@@ -584,7 +584,7 @@ SH
         { key => 'PATH',                     value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
         { key => 'SHELL',                    value => '/bin/bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE',   value => 'ubuntu' },
-        { key => 'DD_INSTALL_SHELL_COMMANDS', value => 'dashboard version; d2 version; dashboard skills install browser' },
+        { key => 'DD_INSTALL_SHELL_COMMANDS', value => 'd2 version; d2 version; d2 skills install browser' },
         { key => 'DD_INSTALL_SHELL_BIN',     value => $shell_runner },
       );
 
@@ -597,7 +597,7 @@ SH
     my @log_lines = _log_lines($log);
     like(
         join( "\n", @log_lines ),
-        qr/shell-runner -ilc \. "\Q$home\/.profile\E" .*dashboard version; d2 version; dashboard skills install browser/s,
+        qr/shell-runner -ilc \. "\Q$home\/.profile\E" .*d2 version; d2 version; d2 skills install browser/s,
         'install.sh dispatches post-install commands through the activated bash shell entry point',
     );
     like(
@@ -638,7 +638,7 @@ SH
         { key => 'SHELL',                      value => '' },
         { key => 'DD_INSTALL_PREFERRED_SHELL', value => 'bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE',     value => 'ubuntu' },
-        { key => 'DD_INSTALL_SHELL_COMMANDS',  value => 'dashboard version' },
+        { key => 'DD_INSTALL_SHELL_COMMANDS',  value => 'd2 version' },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
@@ -650,7 +650,7 @@ SH
     my @log_lines = _log_lines($log);
     like(
         join( "\n", @log_lines ),
-        qr/fake-bash -ilc \. "\Q$home\/.profile\E" .*dashboard version/s,
+        qr/fake-bash -ilc \. "\Q$home\/.profile\E" .*d2 version/s,
         'install.sh resolves the bash bootstrap target as the post-install runner instead of falling back to sh when SHELL is unset',
     );
     like(
@@ -691,7 +691,7 @@ SH
         { key => 'PATH',                      value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
         { key => 'SHELL',                     value => '/bin/sh' },
         { key => 'DD_INSTALL_OS_OVERRIDE',    value => 'alpine' },
-        { key => 'DD_INSTALL_SHELL_COMMANDS', value => 'dashboard version; d2 version' },
+        { key => 'DD_INSTALL_SHELL_COMMANDS', value => 'd2 version; d2 version' },
         { key => 'DD_INSTALL_SHELL_BIN',      value => $shell_runner },
       );
 
@@ -704,7 +704,7 @@ SH
     my @log_lines = _log_lines($log);
     like(
         join( "\n", @log_lines ),
-        qr/shell-runner -ic \. "\Q$home\/.profile\E" .*dashboard version; d2 version/s,
+        qr/shell-runner -ic \. "\Q$home\/.profile\E" .*d2 version; d2 version/s,
         'install.sh dispatches post-install commands through the activated sh shell entry point',
     );
     like(
@@ -758,7 +758,7 @@ SH
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
-            'dashboard init',
+            'd2 init',
         ],
         'install.sh avoids the conflicting Debian npm package when nodejs already ships the full Node toolchain and installs the local checkout directly',
     );
@@ -796,10 +796,11 @@ SH
             'brew install ' . join( ' ', @brew_packages ),
             'brew --prefix perl',
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
+            'brew --prefix openssl@3',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
-            'dashboard init',
+            'd2 init',
         ],
         'install.sh follows the macOS bootstrap flow in manifest order and installs the local checkout directly',
     );
@@ -808,7 +809,7 @@ SH
     ok( -f $zshrc, 'install.sh creates or updates ~/.zshrc for zsh users' );
     like(
         _slurp($zshrc),
-        qr/eval "\$\(\"[^\"]*\/dashboard" shell zsh\)"/,
+        qr/eval "\$\(\"[^\"]*\/d2" shell zsh\)"/,
         'install.sh appends the Developer Dashboard zsh shell bootstrap to ~/.zshrc',
     );
 }
@@ -852,10 +853,11 @@ SH
             'brew install ' . join( ' ', @brew_packages ),
             'brew --prefix perl',
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
+            'brew --prefix openssl@3',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
-            'dashboard init',
+            'd2 init',
         ],
         'install.sh downloads and runs the Homebrew bootstrap before the normal macOS package flow and installs the local checkout directly when brew is missing',
     );
@@ -896,12 +898,12 @@ SH
     ok( -f $zshrc, 'install.sh still targets ~/.zshrc when the preferred shell is zsh even if sh runs the installer' );
     like(
         _slurp($zshrc),
-        qr/eval "\$\(\"[^\"]*\/dashboard" shell zsh\)"/,
+        qr/eval "\$\(\"[^\"]*\/d2" shell zsh\)"/,
         'install.sh appends the zsh bootstrap to ~/.zshrc when the preferred shell is zsh',
     );
     unlike(
         ( -f $profile ? _slurp($profile) : '' ),
-        qr/eval "\$\(\"[^\"]*\/dashboard" shell sh\)"/,
+        qr/eval "\$\(\"[^\"]*\/d2" shell sh\)"/,
         'install.sh does not leak the fallback sh bootstrap into ~/.profile for zsh users',
     );
     like(
@@ -939,7 +941,7 @@ SH
     ok( -f $profile, 'install.sh falls back to ~/.profile for generic POSIX sh users' );
     like(
         _slurp($profile),
-        qr/eval "\$\(\"[^\"]*\/dashboard" shell sh\)"/,
+        qr/eval "\$\(\"[^\"]*\/d2" shell sh\)"/,
         'install.sh appends the Developer Dashboard POSIX shell bootstrap to ~/.profile',
     );
 }
@@ -983,7 +985,7 @@ SH
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "git clone --depth 1 --branch master $default_bootstrap_repository $checkout",
             'cpanm --no-wget --notest .',
-            'dashboard init',
+            'd2 init',
         ],
         'streamed install.sh falls back to the embedded Debian-family manifest content and installs the default dashboard checkout from GitHub master',
     );
@@ -1044,7 +1046,7 @@ SH
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
-            'dashboard init',
+            'd2 init',
         ],
         'install.sh switches to perlbrew before the local::lib bootstrap when Debian ships an older Perl and then installs the local checkout directly',
     );
@@ -1065,7 +1067,7 @@ SH
     );
     like(
         $bashrc_text,
-        qr/eval "\$\(\"[^\"]*\/dashboard" shell bash\)"/,
+        qr/eval "\$\(\"[^\"]*\/d2" shell bash\)"/,
         'install.sh appends the Developer Dashboard bash shell bootstrap after the perlbrew rescue path',
     );
     like(
@@ -1135,7 +1137,7 @@ SH
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
-            'dashboard init',
+            'd2 init',
         ],
         'install.sh activates the local App::perlbrew install before invoking perlbrew on Alpine and then installs the local checkout directly',
     );
@@ -1144,7 +1146,7 @@ SH
     my $profile_text = _slurp($profile);
     like(
         $profile_text,
-        qr/eval "\$\(\"[^\"]*\/dashboard" shell sh\)"/,
+        qr/eval "\$\(\"[^\"]*\/d2" shell sh\)"/,
         'install.sh keeps the shell bootstrap in the active Alpine profile after the perlbrew rescue path',
     );
     unlike(
@@ -1532,10 +1534,10 @@ exit 0
 SH
     );
     _write_executable(
-        File::Spec->catfile( $fake_bin, 'dashboard' ),
+        File::Spec->catfile( $fake_bin, 'd2' ),
         <<"SH",
 #!/bin/sh
-printf '%s\\n' "dashboard \$*" >> "$log"
+printf '%s\\n' "d2 \$*" >> "$log"
 exit 0
 SH
     );

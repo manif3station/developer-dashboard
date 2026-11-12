@@ -315,7 +315,7 @@ SKIP: {
 # ---------------------------------------------------------------------------
 # DD-852: a dashboard line BEFORE the guard AND another AFTER it (the mixed
 # case _bashrc_bootstrap_issue's own after-guard branch exists to detect and
-# `dashboard doctor --fix` is called to repair) must not corrupt the rewrite.
+# `d2 doctor --fix` is called to repair) must not corrupt the rewrite.
 # Removing the before-guard line shifts every later byte offset left; reusing
 # guard offsets computed BEFORE that removal then slices the wrong region of
 # the shortened text - manifesting as "substr outside of string"/"Use of
@@ -471,7 +471,7 @@ itself.
 
 The doctor is mostly defensive plumbing: guards for missing arguments, empty
 inputs, absent guards, duplicate roots, and file-system errors. Those branches
-are hard to reach from the higher-level C<dashboard doctor> command, so a
+are hard to reach from the higher-level C<d2 doctor> command, so a
 dedicated test builds the exact fixtures - unreadable files, read-only
 rewrites, empty helper bodies, injected roots, and passing/failing hook
 payloads - that make each side execute. Keeping them here stops the module's
@@ -481,7 +481,7 @@ payloads - that make each side execute. Keeping them here stops the module's
 
 Use this file when changing the runtime permission policy, the managed-helper
 drift audit, the bash bootstrap rewrite, the doctor report shape, or the set of
-roots that C<dashboard doctor> audits and repairs.
+roots that C<d2 doctor> audits and repairs.
 
 =head1 HOW TO USE
 

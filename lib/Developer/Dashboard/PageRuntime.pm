@@ -502,7 +502,7 @@ sub _skill_env_overlay {
 }
 
 # _code_env_overlay($page)
-# Loads the ordered skill environment for a dashboard page without changing the
+# Loads the ordered skill environment for a d2 page without changing the
 # web worker's process environment.
 # Input: page document carrying skill_layers or skill_path metadata.
 # Output: hash reference of environment keys added or overridden by skill env files.
@@ -1296,7 +1296,7 @@ sub _normalize_saved_ajax_singleton {
 sub _kill_saved_ajax_singleton {
     my ( $self, $singleton ) = @_;
     return 1 if !defined $singleton || $singleton eq '';
-    my $pattern = '^dashboard ajax: ' . $self->_quote_process_pattern_literal($singleton) . '$';
+    my $pattern = '^d2 ajax: ' . $self->_quote_process_pattern_literal($singleton) . '$';
     Developer::Dashboard::RuntimeManager->_pkill_perl($pattern);
     return 1;
 }
@@ -1364,7 +1364,7 @@ our $AJAX_STASH = {};
 our $AJAX_PARAMS = eval { json_decode($ajax_params_json) };
 $AJAX_PARAMS = {} if ref($AJAX_PARAMS) ne 'HASH';
 my $singleton = $ENV{DEVELOPER_DASHBOARD_AJAX_SINGLETON} || '';
-$0 = "dashboard ajax: $singleton" if $singleton ne '';
+$0 = "d2 ajax: $singleton" if $singleton ne '';
 
 sub stash {
     my ($input) = @_;

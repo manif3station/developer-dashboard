@@ -112,7 +112,7 @@ is( $runner->_schedule_mode( {} ), 'manual', 'nothing selects manual' );
     local *Developer::Dashboard::CollectorRunner::_spawn_windows_background_command = sub { return 4242 };
     my $pid = $runner->_start_windows_loop_process( job => { name => 's8-win', command => 'true' }, name => 's8-win' );
     is( $pid, 4242, 'the Windows loop launcher returns the spawned pid' );
-    is( $runner->loop_state('s8-win')->{process_name}, 'dashboard collector: s8-win', 'the Windows loop launcher defaults the process title' );
+    is( $runner->loop_state('s8-win')->{process_name}, 'd2 collector: s8-win', 'the Windows loop launcher defaults the process title' );
 }
 
 # --- loop child daemon setup failures ---------------------------------------
@@ -192,7 +192,7 @@ WORKER
         'a failing worker exits 255' );
     my $state = $runner->loop_state('s8-worker');
     is( $state->{pid}, $pid, 'the worker error state falls back to the worker pid' );
-    is( $state->{process_name}, 'dashboard collector: s8-worker', 'the worker error state falls back to the derived title' );
+    is( $state->{process_name}, 'd2 collector: s8-worker', 'the worker error state falls back to the derived title' );
     is( $state->{schedule}, 'manual', 'the worker error state records the resolved schedule' );
 }
 
@@ -203,7 +203,7 @@ WORKER
     local *Developer::Dashboard::CollectorRunner::_is_managed_loop     = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::_write_loop_state    = sub { return {} };
     my $pidfile = File::Spec->catfile( $home, 's8-adopt.pid' );
-    my %args = ( pidfile => $pidfile, name => 's8-adopt', title => 'dashboard collector: s8-adopt', interval => 1, schedule_mode => 'interval' );
+    my %args = ( pidfile => $pidfile, name => 's8-adopt', title => 'd2 collector: s8-adopt', interval => 1, schedule_mode => 'interval' );
     {
         local $FAIL{$pidfile} = 0;
         my $err = eval { $runner->_adopt_existing_loop_if_running(%args); 1 } ? '' : $@;
@@ -255,7 +255,7 @@ SKIP: {
     no warnings 'redefine';
     my $calls = 0;
     local *Developer::Dashboard::CollectorRunner::_read_proc_file      = sub { return 'x' };
-    local *Developer::Dashboard::CollectorRunner::_read_process_title  = sub { return 'dashboard collector: s8-ns' };
+    local *Developer::Dashboard::CollectorRunner::_read_process_title  = sub { return 'd2 collector: s8-ns' };
     local *Developer::Dashboard::CollectorRunner::_same_pid_namespace  = sub { return ++$calls >= 2 ? 1 : 0 };
     my $found = $runner->_find_running_loop('s8-ns');
     ok( $found, '_find_running_loop returns a title match from the same pid namespace' );

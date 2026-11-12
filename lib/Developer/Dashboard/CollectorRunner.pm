@@ -734,7 +734,7 @@ sub _is_dashboard_subcommand_collector {
     my $command = $job->{command};
     return 0 if !defined $command || $command eq '';
     return 1 if $command =~ /\A\s*(?:dashboard|d2)(?:\s|$)/;
-    return 1 if $command =~ /\A\s*(?:"[^"]*\/dashboard"|'[^']*\/dashboard'|[^\s]+\/dashboard)(?:\s|$)/;
+    return 1 if $command =~ /\A\s*(?:"[^"]*\/(?:dashboard|d2)"|'[^']*\/(?:dashboard|d2)'|[^\s]+\/(?:dashboard|d2))(?:\s|$)/;
     return 0;
 }
 
@@ -756,7 +756,7 @@ sub _start_loop_worker {
 # Output: never returns in normal operation.
 sub _run_loop_worker {
     my ( $self, $job, $name, $title, $loop_pid ) = @_;
-    $0 = "dashboard collector worker: $name";
+    $0 = "d2 collector worker: $name";
     setsid() if !is_windows();
     local $SIG{TERM} = 'DEFAULT';
     local $SIG{INT}  = 'DEFAULT';
@@ -1090,7 +1090,7 @@ sub _statefile {
 # Output: process title string.
 sub _process_title {
     my ( $self, $name ) = @_;
-    return "dashboard collector: $name";
+    return "d2 collector: $name";
 }
 
 # _is_managed_loop($pid, $name)
@@ -1154,7 +1154,7 @@ sub _find_running_loop {
         # per pid when cmdline is empty. On a host with hundreds of kernel
         # threads that made every collector start/check scan cost one subprocess
         # spawn per thread - reproduced live: 943 empty-cmdline /proc entries on
-        # one host made `dashboard serve --foreground` hang 90+ seconds with zero
+        # one host made `d2 serve --foreground` hang 90+ seconds with zero
         # output whenever any skill declared a collector. An empty cmdline can
         # never equal $title (a non-empty string), so skipping it here costs
         # nothing correct and removes the pathological cost entirely. Only a
@@ -1817,14 +1817,14 @@ Use this file when changing collector process spawning, pid validation, restart 
 Construct it with the path registry and collector store, then call the lifecycle methods for one collector name. Keep process-management behavior and TT-backed collector icon rendering here; the CLI wrappers should only parse arguments and print the returned state.
 
 For C<run_once>, a relative C<cwd> first checks built-in directory accessors,
-then configured aliases from merged dashboard config, then a qualified skill
+then configured aliases from merged d2 config, then a qualified skill
 C<Folder.pm> method (for example C<collectorpaths.workspace>). If no alias
 applies, an existing relative directory remains valid. Config aliases win over
 skill methods with the same name; skill aliases are read-only.
 
 =head1 WHAT USES IT
 
-It is used by the C<dashboard collector ...> command family, by runtime restart/stop flows that manage collectors together with the web process, and by collector/runtimemanager regression tests.
+It is used by the C<d2 collector ...> command family, by runtime restart/stop flows that manage collectors together with the web process, and by collector/runtimemanager regression tests.
 
 =head1 EXAMPLES
 

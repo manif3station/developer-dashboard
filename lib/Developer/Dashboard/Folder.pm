@@ -70,7 +70,7 @@ sub bookmarks {
 }
 
 # configs()
-# Returns the dashboard config directory.
+# Returns the d2 config directory.
 # Input: none.
 # Output: directory path string.
 sub configs {
@@ -79,7 +79,7 @@ sub configs {
 }
 
 # all()
-# Returns the full runtime path inventory exposed by C<dashboard paths>.
+# Returns the full runtime path inventory exposed by C<d2 paths>.
 # Input: none.
 # Output: hash reference describing the active runtime path set plus named aliases.
 sub all {
@@ -310,7 +310,7 @@ Configure and resolve compatibility folders.
 
 =head1 PURPOSE
 
-This module provides named folder resolution for runtime roots and configured aliases. It gives callers the same conceptual folder names exposed by C<dashboard paths> without forcing them to know the exact on-disk layout under the current runtime.
+This module provides named folder resolution for runtime roots and configured aliases. It gives callers the same conceptual folder names exposed by C<d2 paths> without forcing them to know the exact on-disk layout under the current runtime.
 
 =head1 WHY IT EXISTS
 
@@ -324,7 +324,7 @@ Use this file when a module, bookmark, or helper needs a named runtime directory
 
 Load C<Developer::Dashboard::Folder> and ask it for the named folder you need. Use it as the semantic folder layer above the lower-level path registry instead of hard-coding F<~/.developer-dashboard> descendants.
 
-When you need the complete resolved path payload that C<dashboard paths>
+When you need the complete resolved path payload that C<d2 paths>
 prints, call C<Developer::Dashboard::Folder-E<gt>all>. It returns the same
 hash shape as the CLI command.
 

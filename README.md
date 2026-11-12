@@ -43,8 +43,8 @@ cpanm --no-wget --notest Developer::Dashboard   # from CPAN
 ```
 
 ```sh
-dashboard init
-dashboard serve      # starts the web interface
+d2 init
+d2 serve      # starts the web interface
 ```
 
 ## What's inside
@@ -59,7 +59,7 @@ dashboard serve      # starts the web interface
 ## Repository map
 
 ```
-bin/         dashboard CLI entry points
+bin/         d2 CLI entry points
 lib/         Developer::Dashboard modules
 script/      helpers, including the README sync script
 share/       browser assets served by the web interface
@@ -144,7 +144,7 @@ snapshot as the installer rather than relying on an older published release.
 On Unix-like systems, the installer uses the package manifest for the host
 (Debian-family, Alpine, Fedora, or macOS) to install system prerequisites. It
 then prepares a user-local Perl environment, installs Developer Dashboard,
-configures shell integration, and runs `dashboard init`.
+configures shell integration, and runs `d2 init`.
 
 The installer displays progress and may ask for the operating-system password
 when a system package manager requires elevated access. It prepares the
@@ -166,20 +166,20 @@ installing the checkout and initialising the runtime.
 On Windows, `install.ps1` installs Git, Strawberry Perl, and Node.js when
 needed, then installs the dashboard and initialises its runtime. It configures
 the current user's PowerShell profile to load the generated environment and
-shell bootstrap files. Use `dashboard shell ps` to refresh those generated
+shell bootstrap files. Use `d2 shell ps` to refresh those generated
 PowerShell files later.
 
 Future PowerShell sessions do not rely on installer-only helper functions
 while loading the generated profile block.
 
 The generated bash, zsh, POSIX sh, and PowerShell bootstraps share the same
-tmux prompt behaviour. In a `dashboard workspace` session with
+tmux prompt behaviour. In a `d2 workspace` session with
 `DEVELOPER_DASHBOARD_TMUX_STATUS=1`, indicators appear on the first row of the
 two-line bottom status block. The second row keeps tmux's session and window
 list.
 
 The inline
-prompt suppresses indicator fragments with `dashboard ps1 --no-indicators`.
+prompt suppresses indicator fragments with `d2 ps1 --no-indicators`.
 
 Ordinary tmux sessions keep the normal inline prompt. Developer Dashboard
 does not edit the user's tmux config file to provide that behaviour, and it
@@ -213,13 +213,13 @@ local tree and installs that local checkout so the bootstrap installs the same
 snapshot that shipped the installer instead of an older CPAN release.
 
 The Windows smoke gate also checks that a new profile-loaded PowerShell
-session can resolve `dashboard`, print `dashboard version`, run
-`dashboard logs`, run `dashboard restart`, and install at least one real
+session can resolve `d2`, print `d2 version`, run
+`d2 logs`, run `d2 restart`, and install at least one real
 skill after that streamed bootstrap completes.
 
 The generated PowerShell shell
 bootstrap now forces UTF-8 console input and output encoding before it returns
-the multi-line prompt from `dashboard ps1`, so the prompt keeps the trailing
+the multi-line prompt from `d2 ps1`, so the prompt keeps the trailing
 command marker on the next line and preserves indicator plus branch glyphs
 such as heartbeat status and the trailing `🌿branch` fragment in normal
 Windows terminals.
@@ -274,33 +274,33 @@ undefined-variable warning.
 
 Initialise the runtime:
 
-    dashboard init
+    d2 init
 
 Inspect resolved paths:
 
-    dashboard paths
-    dashboard paths -o json
-    dashboard path resolve bookmarks_root
-    dashboard path add foobar /tmp/foobar
-    dashboard path add foobar /tmp/foobar -o json
-    dashboard path add .
-    dashboard path add scratch /tmp/scratch --create
-    dashboard path add scratch /tmp/scratch --create 0777
-    dashboard path del foobar
-    dashboard path rm foobar
-    dashboard files
-    dashboard files -o json
-    dashboard file add notes ~/notes.txt
-    dashboard file add notes ~/notes.txt -o json
-    dashboard file add scratch /tmp/scratch/notes.txt --create
-    dashboard file resolve notes
-    dashboard file del notes
-    dashboard which jq
-    dashboard which layered-tool
-    dashboard which nest.level1.level2.here
-    dashboard which --edit jq
+    d2 paths
+    d2 paths -o json
+    d2 path resolve bookmarks_root
+    d2 path add foobar /tmp/foobar
+    d2 path add foobar /tmp/foobar -o json
+    d2 path add .
+    d2 path add scratch /tmp/scratch --create
+    d2 path add scratch /tmp/scratch --create 0777
+    d2 path del foobar
+    d2 path rm foobar
+    d2 files
+    d2 files -o json
+    d2 file add notes ~/notes.txt
+    d2 file add notes ~/notes.txt -o json
+    d2 file add scratch /tmp/scratch/notes.txt --create
+    d2 file resolve notes
+    d2 file del notes
+    d2 which jq
+    d2 which layered-tool
+    d2 which nest.level1.level2.here
+    d2 which --edit jq
 
-Custom path aliases are stored in the effective dashboard config root so shell
+Custom path aliases are stored in the effective d2 config root so shell
 helpers such as `cdr foobar` and `which_dir foobar` keep working across
 sessions. Installed skills can also provide `lib/Folder.pm` with path methods:
 `cdr ch.workspace` checks the effective skill `config/config.json` alias
@@ -308,13 +308,13 @@ first, then loads `Folder.pm` and calls `Folder->workspace` only when no
 configured alias exists.
 
 If the module implements `Folder->__list__`, its
-list-context alias names are merged into `dashboard paths`, `dashboard path
+list-context alias names are merged into `d2 paths`, `d2 path
 list`, `cdr` completion, and `d2 ch.` shell completion.
 
 Typing a skill name
 followed by a dot offers that skill's config aliases and listed module aliases;
 only the named skill's module is loaded for this completion. That runtime merge
-is read-only; `dashboard path add` continues to write to config, and a config alias overrides a collision
+is read-only; `d2 path add` continues to write to config, and a config alias overrides a collision
 with a module method. When a project-local `./.developer-dashboard` tree exists, alias
 writes go there first; otherwise they go to the home runtime.
 
@@ -331,14 +331,14 @@ runtime remains portable across different developer accounts. Re-adding an
 existing alias updates it without error, and deleting a missing alias is also
 safe.
 
-For `dashboard paths`, the global alias view and skill-qualified aliases
+For `d2 paths`, the global alias view and skill-qualified aliases
 share one installed-skill configuration inventory. Each participating skill's
 layered `config/config.json` data is read once for that operation, preserving
 home-to-project precedence while avoiding a second filesystem scan.
 
-The machine-readable `dashboard paths -o json` route does not load terminal
+The machine-readable `d2 paths -o json` route does not load terminal
 table-rendering helpers. Human-readable output still loads those helpers on
-demand, so `dashboard paths` and `dashboard path list` retain their table
+demand, so `d2 paths` and `d2 path list` retain their table
 format without paying that import cost when only JSON is requested.
 
 Runtime-layer ownership checks also canonicalise a candidate only once when
@@ -346,7 +346,7 @@ testing it against multiple layers. Each root remains freshly canonicalised
 and compared at a path-component boundary, preserving symlink-aware security
 checks while avoiding repeated candidate resolution.
 
-The aggregate `dashboard paths` inventory shares its runtime-layer candidate
+The aggregate `d2 paths` inventory shares its runtime-layer candidate
 list only for the duration of that one inventory call. This avoids repeating
 the same ancestor scan across its permission checks without retaining a stale
 layer list for later operations; a subsequent lookup discovers newly created
@@ -367,7 +367,7 @@ Developer Dashboard now uses one CLI output contract for operator-facing
 built-ins. By default, inventory and mutation commands print a human-readable
 summary table. When a script or LLM needs the full raw payload, pass
 `-o json`. Shell-plumbing commands that need one stable direct value such as
-`dashboard path resolve`, `dashboard path project-root`, `cdr`, and
+`d2 path resolve`, `d2 path project-root`, `cdr`, and
 `which_dir` keep their direct output contracts instead of forcing a summary
 table.
 
@@ -412,17 +412,17 @@ Examples:
 
 Use `Developer::Dashboard::Folder` for runtime path helpers. It resolves the
 same runtime, bookmark, config, and configured alias names exposed by
-`dashboard paths`, and therefore backs the same folder-oriented flow that
+`d2 paths`, and therefore backs the same folder-oriented flow that
 `cdr` and `which_dir` use, including names such as `docker`, without relying on
 unscoped CPAN-global module names.
 
-`dashboard path add .` saves the current working directory under its basename.
-`dashboard path add <name> .` uses the current working directory as the
-target for an explicit alias. `dashboard path del .` and `dashboard path rm .`
+`d2 path add .` saves the current working directory under its basename.
+`d2 path add <name> .` uses the current working directory as the
+target for an explicit alias. `d2 path del .` and `d2 path rm .`
 remove the alias that points at the current working directory instead of
 treating `.` as a literal error token.
 
-`dashboard path add <name> <path> -c|--create[=MODE]` (DD-1005)
+`d2 path add <name> <path> -c|--create[=MODE]` (DD-1005)
 marks the alias as lazily creatable: the first time `cdr`, a workspace
 route, or any direct Perl caller resolves it and the target directory does
 not yet exist, it is created (with parents) before being returned - chmod'd
@@ -433,22 +433,22 @@ umask-governed default otherwise.
 An alias saved without `-c`/`--create`
 behaves exactly as before this feature existed.
 
-`dashboard file add`
+`d2 file add`
 accepts the identical flag, but since a file alias points at a file rather
 than a directory, "lazy create" there means only the file's PARENT
 directory chain is created - the file itself is left absent for the
 caller to write.
 
 Use `Developer::Dashboard::File` for runtime file helpers. It resolves the
-same built-in and config-backed file aliases exposed by `dashboard files` and
-`dashboard file list`, supports direct reads and writes through one public
+same built-in and config-backed file aliases exposed by `d2 files` and
+`d2 file list`, supports direct reads and writes through one public
 wrapper, and keeps file alias behaviour parallel with the folder/path contract.
 
 It is the file-side twin of the existing Folder contract in the same way that
-`dashboard of` and `dashboard open-file` are the file-side twins of
+`d2 of` and `d2 open-file` are the file-side twins of
 `cdr` and `which_dir`.
 
-If you need the whole `dashboard paths` payload in Perl, call
+If you need the whole `d2 paths` payload in Perl, call
 `Developer::Dashboard::Folder->all` or
 `Developer::Dashboard::PathRegistry->all_paths` instead of rebuilding the
 hash by hand. If you need a fresh path registry object from that public Folder
@@ -464,16 +464,16 @@ the result is discarded at the operation boundary so later operations see
 runtime-layer creation and removal. If you need a collector store from the same Folder-derived runtime roots, call
 `Developer::Dashboard::Collector->new_from_all_folders`.
 
-If you need the whole `dashboard files` payload in Perl, call
+If you need the whole `d2 files` payload in Perl, call
 `Developer::Dashboard::File->all` or
 `Developer::Dashboard::FileRegistry->all_files` instead of rebuilding the
 hash by hand.
 
-File aliases follow the same effective-config write rules as path aliases. `dashboard file add <name> <path>` writes to the deepest
+File aliases follow the same effective-config write rules as path aliases. `d2 file add <name> <path>` writes to the deepest
 participating config layer, keeps `$HOME/...` storage portable when the
 target lives under the current home directory, updates existing aliases
-idempotently, and lets `dashboard file resolve <name>`,
-`dashboard of <name>`, or
+idempotently, and lets `d2 file resolve <name>`,
+`d2 of <name>`, or
 `Developer::Dashboard::File->resolve($name)` read that alias back later.
 
 When the alias name is a valid Perl method token,
@@ -482,24 +482,24 @@ When the alias name is a valid Perl method token,
 When the alias
 is numeric such as `123`, use a scalar method name like
 `my $name = 123; Developer::Dashboard::File->$name()` because bare
-`->123` is not valid Perl syntax. `dashboard files` prints the full
+`->123` is not valid Perl syntax. `d2 files` prints the full
 built-in plus configured file inventory as a table by default, while
-`dashboard file list` prints only the named configured file aliases.
+`d2 file list` prints only the named configured file aliases.
 
 Use
 `-o json` with either command when you need the full raw payload.
 
-`dashboard of` and `dashboard open-file` now treat configured file aliases
+`d2 of` and `d2 open-file` now treat configured file aliases
 as direct file targets before they fall back to Perl-module, Java-class, or
 regex search behaviour. If the first token resolves as a saved path alias and
 the remaining tokens join into one existing relative file path inside that
-aliased directory, `dashboard of <path-alias> <relative-file>`
+aliased directory, `d2 of <path-alias> <relative-file>`
 opens that exact file instead of treating the remaining tokens as regex
 patterns.
 
 That means flows such as
-`dashboard file add 123 /tmp/123.txt` followed by `dashboard of 123`, or
-`dashboard path add foobar .` followed by `dashboard of foobar 456.txt`, now
+`d2 file add 123 /tmp/123.txt` followed by `d2 of 123`, or
+`d2 path add foobar .` followed by `d2 of foobar 456.txt`, now
 resolve the exact configured or scoped file target directly.
 
 The hashed `state_root`, `collectors_root`, `indicators_root`, and
@@ -516,7 +516,7 @@ For each path-registry instance, the account name used in the state-root path
 is reused while the relevant environment values stay unchanged; changes to
 those values are detected and resolved again.
 
-Use `dashboard which <target>` to inspect what `dashboard` would
+Use `d2 which <target>` to inspect what `d2` would
 execute before you run it. The command prints one
 `COMMAND /full/path` line for the resolved file and then one
 `HOOK /full/path` line for each participating hook in runtime execution
@@ -527,16 +527,16 @@ such as `layered-tool`, single-level skill commands such as
 `example-skill.somecmd`, and multi-level nested skill commands such as
 `nest.level1.level2.here`.
 
-If you add `--edit`, `dashboard which` skips the
-inspection output and re-enters `dashboard open-file` with the resolved
+If you add `--edit`, `d2 which` skips the
+inspection output and re-enters `d2 open-file` with the resolved
 command file path so the normal editor-selection behaviour is reused.
 
 Render shell bootstrap for bash, zsh, POSIX sh, or PowerShell:
 
-    dashboard shell bash
-    dashboard shell zsh
-    dashboard shell sh
-    dashboard shell ps
+    d2 shell bash
+    d2 shell zsh
+    d2 shell sh
+    d2 shell ps
 
 The generated zsh bootstrap now loads `compinit` before any `compdef`
 registration, so a fresh macOS zsh shell can evaluate it without raising
@@ -544,8 +544,8 @@ registration, so a fresh macOS zsh shell can evaluate it without raising
 
 Audit runtime permissions:
 
-    dashboard doctor
-    dashboard doctor --fix
+    d2 doctor
+    d2 doctor --fix
 
 The doctor command also checks staged helper drift under
 `~/.developer-dashboard/cli/dd/` and repairs dashboard-managed helper content
@@ -556,36 +556,36 @@ previously appended after the non-interactive `return` guard in
 
 Resolve or open files from the CLI:
 
-    dashboard of --print My::Module
-    dashboard open-file --print com.example.App
-    dashboard open-file --print javax.jws.WebService
-    dashboard of --print notes
-    dashboard of --print . 'Ok\.js$'
-    dashboard of --print foobar 456.txt
-    dashboard open-file --print path/to/file.txt
-    dashboard open-file --print bookmarks index
+    d2 of --print My::Module
+    d2 open-file --print com.example.App
+    d2 open-file --print javax.jws.WebService
+    d2 of --print notes
+    d2 of --print . 'Ok\.js$'
+    d2 of --print foobar 456.txt
+    d2 open-file --print path/to/file.txt
+    d2 open-file --print bookmarks index
 
 Query structured files from the CLI:
 
-    printf '{"alpha":{"beta":2}}' | dashboard jq alpha.beta
-    printf 'alpha:\n  beta: 3\n' | dashboard yq alpha.beta
-    printf '[alpha]\nbeta = 4\n' | dashboard tomq alpha.beta
-    printf 'alpha.beta=5\n' | dashboard propq alpha.beta
-    dashboard jq file.json '$d'
+    printf '{"alpha":{"beta":2}}' | d2 jq alpha.beta
+    printf 'alpha:\n  beta: 3\n' | d2 yq alpha.beta
+    printf '[alpha]\nbeta = 4\n' | d2 tomq alpha.beta
+    printf 'alpha.beta=5\n' | d2 propq alpha.beta
+    d2 jq file.json '$d'
 
 Start the local app:
 
-    dashboard serve
+    d2 serve
 
 Open the root path with no bookmark path to get the free-form bookmark editor directly. The browser now splits bookmark sections into separate editor blocks instead of making you manage one long source textarea by hand, but it still saves the same on-disk bookmark file format behind the scenes.
 
-If you start the web service with `dashboard serve --no-editor` or `dashboard serve --no-endit`, the browser stays read-only instead and direct editor/source routes are blocked.
+If you start the web service with `d2 serve --no-editor` or `d2 serve --no-endit`, the browser stays read-only instead and direct editor/source routes are blocked.
 
-If you start it with `dashboard serve --no-indicators` or `dashboard serve --no-indicator`, the right-top browser chrome is cleared while normal page rendering still works.
+If you start it with `d2 serve --no-indicators` or `d2 serve --no-indicator`, the right-top browser chrome is cleared while normal page rendering still works.
 
 Stop the local app and collector loops:
 
-    dashboard stop
+    d2 stop
 
 Interactive terminal runs now print a task board on `stderr` first, then
 mark each stop step as it finishes so the command does not appear hung while
@@ -593,7 +593,7 @@ the runtime waits for managed shutdown.
 
 Restart the local app and configured collector loops:
 
-    dashboard restart
+    d2 restart
 
 Interactive restarts print a task board on `stderr`. The active step is
 highlighted, and completed or failed steps receive a status marker. The final
@@ -604,11 +604,11 @@ iSH Perl builds that do not accept signal names such as `TERM`.
 
 Create a helper login user:
 
-    dashboard auth add-user <username> <password>
+    d2 auth add-user <username> <password>
 
 Remove a helper login user:
 
-    dashboard auth remove-user helper
+    d2 auth remove-user helper
 
 Helper sessions show a Logout link in the page chrome. Logging out removes both
 the helper session and that helper account. Helper page views also show the
@@ -619,29 +619,29 @@ Exact-loopback admin requests do not show a Logout link.
 
 List the effective machine-auth API registry:
 
-    dashboard api
-    dashboard api ls
-    dashboard api ls --key helper-bot
-    dashboard api ls --key helper-bot -o json
+    d2 api
+    d2 api ls
+    d2 api ls --key helper-bot
+    d2 api ls --key helper-bot -o json
 
 Create or update one API group from a raw secret:
 
-    dashboard api add --key helper-bot --secret raw-secret
-    dashboard api add --key helper-bot --secret rotated-secret
-    dashboard api add --key helper-bot --secret raw-secret --route /ajax/health --route /ajax/healthz
-    dashboard api add --key helper-bot --maybe-secret raw-secret --route /ajax/health --route /ajax/healthz
+    d2 api add --key helper-bot --secret raw-secret
+    d2 api add --key helper-bot --secret rotated-secret
+    d2 api add --key helper-bot --secret raw-secret --route /ajax/health --route /ajax/healthz
+    d2 api add --key helper-bot --maybe-secret raw-secret --route /ajax/health --route /ajax/healthz
 
 Add one exact saved Ajax route to an existing API group:
 
-    dashboard api add --key helper-bot --route /ajax/health
-    dashboard api add --key helper-bot --route /ajax/healthz
+    d2 api add --key helper-bot --route /ajax/health
+    d2 api add --key helper-bot --route /ajax/healthz
 
 Remove one route or remove the whole API group:
 
-    dashboard api rm --key helper-bot --route /ajax/healthz
-    dashboard api rm --key helper-bot
+    d2 api rm --key helper-bot --route /ajax/healthz
+    d2 api rm --key helper-bot
 
-The `dashboard api` command manages the deepest writable runtime
+The `d2 api` command manages the deepest writable runtime
 `config/api.json` layer under `DD-OOP-LAYERS`. Listing shows the effective
 merged registry from home through the active child layer together with any
 installed-skill API fragments that contribute saved Ajax machine auth.
@@ -661,7 +661,7 @@ the requested routes.
 The saved JSON keeps the digest under `secret` plus the
 exact allowed saved Ajax routes under `ajax`.
 
-`dashboard api add` accepts
+`d2 api add` accepts
 one or more repeated `--route` flags, so one command can create the key,
 hash the secret, and register multiple exact routes at once. Adding the same
 route twice is a no-op. Removing an inherited API group from a deeper child
@@ -672,33 +672,33 @@ without editing the parent file.
 
 Create a starter page document:
 
-    dashboard page new sample "Sample Page"
+    d2 page new sample "Sample Page"
 
 Save a page:
 
-    dashboard page new sample "Sample Page" | dashboard page save sample
+    d2 page new sample "Sample Page" | d2 page save sample
 
 List saved pages:
 
-    dashboard page list
+    d2 page list
 
 Render a saved page:
 
-    dashboard page render sample
+    d2 page render sample
 
-`dashboard page render` now uses the same page-runtime preparation path as
+`d2 page render` now uses the same page-runtime preparation path as
 the browser route, so saved bookmark TT such as `[% title %]` and
 `[% stash.foo %]` is rendered there too instead of only working under
 `/app/<id>`.
 
 Encode and decode transient pages:
 
-    dashboard page show sample | dashboard page encode
-    dashboard page show sample | dashboard page encode | dashboard page decode
+    d2 page show sample | d2 page encode
+    d2 page show sample | d2 page encode | d2 page decode
 
 Run a page action:
 
-    dashboard action run system-status paths
+    d2 action run system-status paths
 
 Bookmark documents use the original separator-line format with directive
 headers such as `TITLE:`, `STASH:`, `HEAD:`, `HTML:`, and `CODE1:`.
@@ -774,7 +774,7 @@ encodes or stores `print 123;` for the Ajax worker to execute.
 
 Ensure the home config file exists without seeding collectors:
 
-    dashboard config init
+    d2 config init
 
 If `config/config.json` is missing, that command creates it as:
 
@@ -785,20 +785,20 @@ left untouched.
 
 List collector status:
 
-    dashboard collector list
-    dashboard collector status shell.example
+    d2 collector list
+    d2 collector status shell.example
 
 Inspect collector logs:
 
-    dashboard collector log
-    dashboard collector log shell.example
+    d2 collector log
+    d2 collector log shell.example
 
-`dashboard collector log` prints the known collector log streams.
-`dashboard collector log <name>` prints one collector transcript.
+`d2 collector log` prints the known collector log streams.
+`d2 collector log <name>` prints one collector transcript.
 
 If a configured collector has not run yet, the command prints an explicit
 no-log message instead of blank output.
-`dashboard collector status <name>` now also exposes watchdog
+`d2 collector status <name>` now also exposes watchdog
 metadata for managed loops, including `watchdog_restart_count`,
 `watchdog_last_unexpected_stop_at`, `watchdog_last_restart_at`, and
 `watchdog_attention_required`, so repeated collector crashes are visible
@@ -858,7 +858,7 @@ directory accessor such as `home`, a configured `path_aliases` name, or a
 skill-qualified `Folder.pm` alias such as `collectorpaths.workspace`. Config
 aliases take precedence over skill-provided aliases. The latter are resolved
 read-only from the installed skill's `lib/Folder.pm` using the same method
-rules as `dashboard path resolve`.
+rules as `d2 path resolve`.
 
 The built-in `housekeeper` collector is always present even when
 `config/config.json` is otherwise empty. It runs every `900` seconds with
@@ -883,8 +883,8 @@ fragment behind.
 
 Run it on demand with:
 
-    dashboard housekeeper
-    dashboard collector run housekeeper
+    d2 housekeeper
+    d2 collector run housekeeper
 
 If you need different cadence or behaviour, define your own collector named
 `housekeeper` in config. That override now inherits the built-in `code` and
@@ -951,7 +951,7 @@ same collector is still active.
 active, but only until `multiple` active runs are already in flight.
 - When `mode` is `multiple` and `multiple` is omitted, the runtime uses
 `2`.
-- Collectors whose `command` re-enters `dashboard` or `d2` through a shell
+- Collectors whose `command` re-enters `d2` through a shell
 path now have a safety floor of `30` seconds even if config asks for a
 smaller interval, because those recursive dashboard collectors are materially
 heavier than direct shell probes. Set `allow_fast_poll` or
@@ -970,7 +970,7 @@ also removed instead of lingering as if it were still active.
     collector.
 
 - Stopping a singleton collector loop also terminates the long-running command
-currently owned by that loop, so `dashboard stop collector foo` does not leave
+currently owned by that loop, so `d2 stop collector foo` does not leave
 the old worker command alive behind the stopped dispatcher.
 
 Collector indicators follow the collector exit code automatically: `0`
@@ -1008,11 +1008,11 @@ renders `[% a %]` into the live icon `123`.
 
 Later config-sync passes keep
 the configured `icon_template` metadata and the already-rendered live
-`icon`, so commands such as `dashboard indicator list` and `dashboard ps1`
+`icon`, so commands such as `d2 indicator list` and `d2 ps1`
 do not revert the persisted icon back to raw `[% ... %]` text between runs. The blank-environment integration flow also keeps a regression for mixed
 collector health: one intentionally broken Perl collector must stay red
 without stopping a second healthy collector from staying green in
-`dashboard indicator list`, `dashboard ps1`, and `/system/status`.
+`d2 indicator list`, `d2 ps1`, and `/system/status`.
 
 ## Docker Compose
 
@@ -1020,33 +1020,33 @@ Show the Docker command reference without starting or inspecting containers:
 
     d2 docker --help
 
-Both `dashboard docker --help` and `d2 docker --help` print the available
+Both `d2 docker --help` and `d2 docker --help` print the available
 Compose and service-management commands. The shell completion list includes
 `compose`, `list`, `enable`, `disable`, and `development`; after
 `docker development`, completion offers `enable` and `disable`.
 
 Inspect the resolved compose stack without running Docker:
 
-    dashboard docker compose --dry-run config
+    d2 docker compose --dry-run config
 
 Include addons or modes:
 
-    dashboard docker compose --addon mailhog --mode dev up -d
-    dashboard docker compose config green
-    dashboard docker compose config
-    dashboard docker list
-    dashboard docker list --disabled
-    dashboard docker list --enabled
-    dashboard docker disable green
-    dashboard docker enable green
-    dashboard docker development enable green
-    dashboard docker development disable green
+    d2 docker compose --addon mailhog --mode dev up -d
+    d2 docker compose config green
+    d2 docker compose config
+    d2 docker list
+    d2 docker list --disabled
+    d2 docker list --enabled
+    d2 docker disable green
+    d2 docker enable green
+    d2 docker development enable green
+    d2 docker development disable green
 
 The resolver also supports isolated service folders without adding entries to
 dashboard JSON config. If
 `./.developer-dashboard/config/docker/green/compose.yml` exists in the current
 project it wins; otherwise the resolver falls back to
-`~/.developer-dashboard/config/docker/green/compose.yml`. `dashboard docker compose config` and operational commands first resolve the
+`~/.developer-dashboard/config/docker/green/compose.yml`. `d2 docker compose config` and operational commands first resolve the
 base Compose config, including configured non-service project/addon/mode
 files, and read its resulting `services:` map.
 
@@ -1072,8 +1072,8 @@ the development file is ignored even when present.
 If the marker exists but the development
 file does not, only the base is loaded and no error is raised. Toggle
 development mode without creating or deleting the file manually with
-`dashboard docker development enable <service>` or
-`dashboard docker development disable <service>`.
+`d2 docker development enable <service>` or
+`d2 docker development disable <service>`.
 
 A newly enabled
 marker is written under the selected home runtime: `~/.developer-dashboard`
@@ -1082,13 +1082,13 @@ across active layers.
 
 To toggle the disabled marker without
 creating or deleting the file manually, use
-`dashboard docker disable <service>` or
-`dashboard docker enable <service>`. The disable toggle uses the same
+`d2 docker disable <service>` or
+`d2 docker enable <service>`. The disable toggle uses the same
 selected home runtime root.
 
-`dashboard docker enable <service>` removes
+`d2 docker enable <service>` removes
 every `disabled.yml` marker for that service across active layers. To inspect the effective marker state without walking the folders manually,
-use `dashboard docker list`.
+use `d2 docker list`.
 
 Add `--disabled` to show only disabled
 services or `--enabled` to show only enabled services.
@@ -1233,9 +1233,9 @@ a known image build; `latest` follows successful master builds.
 
 Render prompt text directly:
 
-    dashboard ps1 --jobs 2
+    d2 ps1 --jobs 2
 
-`dashboard ps1` now follows the original `~/bin/ps1` shape more closely: a
+`d2 ps1` now follows the original `~/bin/ps1` shape more closely: a
 `(YYYY-MM-DD HH:MM:SS)` timestamp prefix, dashboard status and workspace info, a
 bracketed working directory, an optional jobs suffix, and a trailing
 `🌿branch` marker when git metadata is available. The prompt helper reads the
@@ -1249,7 +1249,7 @@ paths identify the same directory.
 
 If the workspace workflow seeded
 `WORKSPACE_REF` or the older
-`TICKET_REF` into the current tmux session, `dashboard ps1` also reads that
+`TICKET_REF` into the current tmux session, `d2 ps1` also reads that
 context from tmux when the shell environment does not already export it, but it
 skips that tmux probe entirely when the shell is not inside tmux. The branch marker preserves every component of a local branch such as
 `team/feature`.
@@ -1262,15 +1262,15 @@ redundant `origin/` prefix omitted.
 Packed and loose refs are both recognised,
 while symlinked refs are not followed. When no matching remote ref exists, it
 keeps the short commit id. All generated shell adapters
-call this same `dashboard ps1` renderer, so the branch label is consistent in
+call this same `d2 ps1` renderer, so the branch label is consistent in
 Bash, Zsh, sh, and PowerShell.
 
 Generate shell bootstrap:
 
-    dashboard shell bash
-    dashboard shell zsh
-    dashboard shell sh
-    dashboard shell ps
+    d2 shell bash
+    d2 shell zsh
+    d2 shell sh
+    d2 shell ps
 
 The generated shell helper keeps the same bookmark-aware `cdr`, `dd_cdr`,
 `d2`,
@@ -1293,16 +1293,15 @@ The generated prompt adapters handle job counts by shell:
 The shell checks compare canonical paths, so equivalent macOS paths such as
 `/var/...` and `/private/var/...` are treated as the same location.
 
-`d2` is a real, installed short command for `dashboard`, shipped in the same
-`bin` directory and re-execing the `dashboard` entrypoint, so you can run
-`d2 version`, `d2 doctor`, or `d2 docker compose ps` without typing the full
-command name -- in scripts and fresh shells as well as interactively, without
-depending on the shell bootstrap.
+`d2` is the command. It is a real, installed command shipped in `bin`, so
+you can run `d2 version`, `d2 doctor`, or `d2 docker compose ps` -- in
+scripts and fresh shells as well as interactively, without depending on the
+shell bootstrap.
 
-The same generated bootstrap also wires live tab completion for `dashboard`
-and `d2`. Bash registers `_dashboard_complete`, zsh registers
+The same generated bootstrap also wires live tab completion for `d2`.
+Bash registers `_dashboard_complete`, zsh registers
 `_dashboard_complete_zsh`, and PowerShell registers
-`Register-ArgumentCompleter` for both command names. Completion candidates
+`Register-ArgumentCompleter` for the command name. Completion candidates
 come from the live runtime instead of a hardcoded shell list, so built-in
 commands, layered custom CLI commands, and installed dotted skill commands
 all show up in suggestions.
@@ -1324,11 +1323,11 @@ instead of a bare `perl -MJSON::XS ...` call. That keeps `cdr` and
 `~/perl5` XS stack do not belong to the same Perl build.
 
 The generated
-`d2` shortcut re-enters the `dashboard` script directly instead of
+`d2` shortcut re-enters the `d2` script directly instead of
 hardcoding the current Perl binary path, so the shortcut still works when the
 bootstrap is loaded by a shell whose preferred Perl lives somewhere else.
 
-On Windows, `dashboard shell` auto-selects PowerShell by default, and
+On Windows, `d2 shell` auto-selects PowerShell by default, and
 interpreter-backed runtime entrypoints such as collector `command` strings,
 trusted command actions, saved Ajax files, custom CLI commands, hook files,
 and update scripts now resolve `.ps1`, `.cmd`, `.bat`, and `.pl`
@@ -1346,7 +1345,7 @@ host smoke in the source checkout, and a host-side rerun helper that delegates
 to the QEMU launcher for release-grade Windows compatibility claims. The
 supported baseline on Windows is PowerShell plus Strawberry Perl. Git Bash is
 optional. Scoop is optional. They are setup helpers, not runtime requirements
-for the installed `dashboard` command.
+for the installed `d2` command.
 
 In the Dockur-backed path, the launcher
 stages the Strawberry Perl MSI from the Linux host into the OEM bundle and can
@@ -1400,7 +1399,7 @@ link, and the current date/time in the same spirit as the old local dashboard ch
 
 The displayed address is discovered from the machine interfaces, preferring a VPN-style address when one is active, and the date/time is refreshed in the browser with JavaScript.
 
-`dashboard serve --no-indicators` and `dashboard serve --no-indicator` clear that whole top-right browser-only area without changing the terminal prompt or `/system/status`. The bookmark editor also follows the old auto-submit flow, but now it waits
+`d2 serve --no-indicators` and `d2 serve --no-indicator` clear that whole top-right browser-only area without changing the terminal prompt or `/system/status`. The bookmark editor also follows the old auto-submit flow, but now it waits
 until focus leaves the whole editor form instead of firing every time you move
 between section blocks.
 
@@ -1433,7 +1432,7 @@ The default web bind is `0.0.0.0:7890`. Trust is still decided from the request 
 aliases such as macOS `/var/...` versus `/private/var/...` do not break
 layer discovery, deepest-layer writes, or layered bookmark/nav lookup.
 The CLI path helpers follow the same portability rule: commands such as
-`dashboard path project-root` may surface the canonical filesystem path, and
+`d2 path project-root` may surface the canonical filesystem path, and
 the supported contract treats macOS aliases such as `/var/...` and
 `/private/var/...` as the same project root instead of different repos.
 
@@ -1445,22 +1444,22 @@ by real path identity instead of raw string spelling.
 
 The runtime manager follows the older local-service pattern:
 
-- `dashboard serve` starts the web service in the background by default
+- `d2 serve` starts the web service in the background by default
 - On POSIX, background web startup launches the private `web-foreground`
 helper through GoRoutine's shell-free process API. The runtime records the
 listener only after the configured port accepts connections; if readiness
 times out, it terminates and reaps the child and reports its exit status and
 log paths.
-- `dashboard serve` starts the configured collector loops alongside the web
+- `d2 serve` starts the configured collector loops alongside the web
 service, so a plain serve keeps collectors and the web runtime under the same
 lifecycle action
-- `dashboard serve --foreground` keeps the web service attached to the terminal
-- `dashboard serve --ssl` enables HTTPS in Starman with the generated local
+- `d2 serve --foreground` keeps the web service attached to the terminal
+- `d2 serve --ssl` enables HTTPS in Starman with the generated local
 certificate and key, keeps that certificate on a browser-correct SAN profile
 covering localhost, loopback IPs, the concrete non-wildcard bind host, and any
 configured `web.ssl_subject_alt_names`, regenerates older dashboard certs when
 they are stale, redirects non-HTTPS requests to the matching `https://...`
-URL, and reuses the saved SSL setting on later `dashboard restart` runs unless
+URL, and reuses the saved SSL setting on later `d2 restart` runs unless
 you override it
 - In SSL mode, the public frontend starts `web-ssl-backend-foreground` with
 GoRoutine's shell-free OS-process API. Accepted client sockets are handled by
@@ -1474,29 +1473,29 @@ reader thread per pipe because `IO::Select` cannot reliably report anonymous
 pipe readiness there. Chunks and read errors pass through a bounded event
 queue; interrupted reads are retried, and a disconnected writer or fatal stream
 error terminates the child and joins both readers before returning.
-- `dashboard serve --no-editor` and `dashboard serve --no-endit` keep the
+- `d2 serve --no-editor` and `d2 serve --no-endit` keep the
 browser in read-only mode by hiding Share, Play, and View Source chrome,
 denying `/app/<id>/edit`, `/app/<id>/source`, and
 bookmark-save POST routes with `403`, and persisting that read-only flag for
-later `dashboard restart` runs until `dashboard serve --editor` turns it back
+later `d2 restart` runs until `d2 serve --editor` turns it back
 off
-- `dashboard serve --no-indicators` and `dashboard serve --no-indicator` keep
+- `d2 serve --no-indicators` and `d2 serve --no-indicator` keep
 normal page rendering and left-side page chrome intact while clearing the
 whole top-right browser-only chrome area, including the status strip,
 username, host or IP link, and live date-time line, and persisting that flag
-for later `dashboard restart` runs until `dashboard serve --indicators`
+for later `d2 restart` runs until `d2 serve --indicators`
 turns it back off
-- `dashboard serve logs` prints the web-service runtime log captured in the
-dashboard log file. `-t` prefixes lines with UTC timestamps, `--tail N`,
+- `d2 serve logs` prints the web-service runtime log captured in the
+d2 log file. `-t` prefixes lines with UTC timestamps, `--tail N`,
 `--tail=N`, and `-n N` limit the initial output, and `-f` follows appended
-lines. For example, `dashboard serve logs -t --tail 100 -f` starts with the
+lines. For example, `d2 serve logs -t --tail 100 -f` starts with the
 final 100 lines and then follows new output.
-- `dashboard serve workers N` saves the default Starman worker count and starts
+- `d2 serve workers N` saves the default Starman worker count and starts
 the web service immediately when it is currently stopped; `--host HOST` and
 `--port PORT` can steer that auto-start path, and both
-`dashboard serve --workers N` and `dashboard restart --workers N` can still
+`d2 serve --workers N` and `d2 restart --workers N` can still
 override the worker count for one run
-- `dashboard stop` stops both the web service and managed collector loops and,
+- `d2 stop` stops both the web service and managed collector loops and,
 prints the final lifecycle summary as a terminal table by default or JSON with
 `-o json`; on an interactive terminal it also prints the full stop task board
 on `stderr` before work starts so each shutdown step becomes visible instead
@@ -1512,12 +1511,12 @@ of silent waiting.
     stale collector process rewriting loop state while the next restart is proving
     the new pid.
 
-- `dashboard stop web` only stops the managed web service
-- `dashboard stop collector` only stops managed collector loops
-- `dashboard stop collector <name>` only stops the requested managed
+- `d2 stop web` only stops the managed web service
+- `d2 stop collector` only stops managed collector loops
+- `d2 stop collector <name>` only stops the requested managed
 collector loop, and collector-name shell completion suggests registered
 collector names
-- `dashboard restart` stops both, starts configured collector loops again, then
+- `d2 restart` stops both, starts configured collector loops again, then
 starts the web service, prints the final lifecycle summary as a terminal table
 by default or JSON with `-o json`, and only reports success after the
 replacement collector loops and web runtime become visible and survive a short
@@ -1534,9 +1533,9 @@ pid and an accepting listener on the requested port.
     not accidentally kill or adopt a container-owned web listener or collector
     loop
 
-- `dashboard restart web` only restarts the managed web service
-- `dashboard restart collector` only restarts managed collector loops
-- `dashboard restart collector <name>` only restarts the requested
+- `d2 restart web` only restarts the managed web service
+- `d2 restart collector` only restarts managed collector loops
+- `d2 restart collector <name>` only restarts the requested
 collector loop, including an on-demand manual collector by converting it into
 a managed interval loop, and collector-name shell completion suggests
 registered collector names
@@ -1545,11 +1544,11 @@ unexpectedly after startup, the watchdog restarts it automatically, records
 the restart attempt in collector status/logs, and after too many crashes
 inside the watchdog window marks the collector `attention_required` so the
 operator sees an explicit problem instead of infinite silent restart churn
-- `dashboard log` and `dashboard logs` print the combined dashboard web log
+- `d2 log` and `d2 logs` print the combined dashboard web log
 plus collector logs
-- `dashboard logs --tail 100` or `dashboard logs --tail=100` prints only the
+- `d2 logs --tail 100` or `d2 logs --tail=100` prints only the
 last 100 lines of the combined output. The same `--tail` option accepts both
-spellings for `dashboard log web`, `dashboard log collector`, and a named
+spellings for `d2 log web`, `d2 log collector`, and a named
 collector log. `-n N` remains a compatible short form. `--tail=0` prints no
 lines; negative or non-integer counts are rejected with usage information.
 
@@ -1557,14 +1556,14 @@ lines; negative or non-integer counts are rejected with usage information.
     the recorded run timestamp; raw web output, which has no stored per-line event
     time, uses the time it is read. `-f` follows new lines from web logs, one
     collector, all collectors, or the combined view. Flags may be combined, so
-    `dashboard logs -f -t --tail 50` starts with the last 50 combined lines and
+    `d2 logs -f -t --tail 50` starts with the last 50 combined lines and
     continues following both sources.
 
-- `dashboard log web` prints only the dashboard web log and supports `-t`,
+- `d2 log web` prints only the dashboard web log and supports `-t`,
 `--tail N`, `--tail=N`, `-n N`, and `-f`
-- `dashboard log collector` prints only collector logs and accepts `-t`,
+- `d2 log collector` prints only collector logs and accepts `-t`,
 `-f`, and the same trailing-line limit
-- `dashboard log collector <name>` prints only the requested collector
+- `d2 log collector <name>` prints only the requested collector
 log, accepts `-t`, `-f`, `--tail N`, and `--tail=N`, and collector-name
 shell completion suggests registered collector names
 - interactive restart and stop task boards mark the active step with a blue
@@ -1610,19 +1609,19 @@ and Docker compose overlays.
 
 Run your user-provided update command:
 
-    dashboard update
+    d2 update
 
 If `./.developer-dashboard/cli/update` or
 `./.developer-dashboard/cli/update/run` exists in the current project it is
-used first; otherwise the home runtime fallback is used. `dashboard update`
+used first; otherwise the home runtime fallback is used. `d2 update`
 runs that command after any sorted hook files from `update/` or `update.d`.
 
-Re-running `dashboard init` keeps an existing
+Re-running `d2 init` keeps an existing
 `~/.developer-dashboard/config/config.json` intact. If the file is missing,
 init creates it as `{}`. The command refreshes dashboard-managed helpers in
 `~/.developer-dashboard/cli/dd/` and preserves user-owned saved pages.
 
-When `dashboard init` refreshes a dashboard-managed helper or shipped
+When `d2 init` refreshes a dashboard-managed helper or shipped
 starter file, it compares the existing content against the shipped content by
 MD5 inside Perl first. If the content already matches, init skips the copy
 instead of rewriting the file unnecessarily.
@@ -1630,20 +1629,20 @@ instead of rewriting the file unnecessarily.
 When bookmark `HTML:` or shared `nav/*.tt` fragments hit a Template Toolkit
 syntax error, render mode now shows a visible `runtime-error` block instead
 of leaking the raw `[% ... %]` source into the browser or
-`dashboard page render` output.
+`d2 page render` output.
 
-Home helper staging is non-destructive too. `dashboard init` may add or
+Home helper staging is non-destructive too. `d2 init` may add or
 update dashboard-managed built-in helpers only under
 `~/.developer-dashboard/cli/dd/`. User commands and hook directories stay in
 `~/.developer-dashboard/cli/` and in child-layer
 `./.developer-dashboard/cli/` roots, and init must not overwrite or delete
 those user-space files while refreshing the home-only dd namespace.
 
-The public `dashboard` entrypoint also stays thin for all built-in commands. It only stages and execs helper assets from `share/private-cli/`: dedicated
-helper bodies for `dashboard jq`, `dashboard yq`, `dashboard of`,
-`dashboard open-file`, `dashboard workspace`, `dashboard path`,
-`dashboard paths`, `dashboard file`, `dashboard files`, and
-`dashboard ps1`, plus thin wrappers for the
+The public `d2` entrypoint also stays thin for all built-in commands. It only stages and execs helper assets from `share/private-cli/`: dedicated
+helper bodies for `d2 jq`, `d2 yq`, `d2 of`,
+`d2 open-file`, `d2 workspace`, `d2 path`,
+`d2 paths`, `d2 file`, `d2 files`, and
+`d2 ps1`, plus thin wrappers for the
 remaining built-ins that hand off to the shared private
 `_dashboard-core` runtime.
 
@@ -1651,7 +1650,7 @@ The shipped starter bookmark source lives under
 `share/seeded-pages/`, and the shipped helper scripts live under
 `share/private-cli/`, so neither bookmark bodies nor helper script bodies
 are embedded directly in the command script. Installed copies resolve the same seeded pages and helper assets from the
-distribution share directory, so `dashboard init` works after a `cpanm`
+distribution share directory, so `d2 init` works after a `cpanm`
 install and not just from a source checkout.
 
 Those helper-backed built-ins
@@ -1659,18 +1658,18 @@ also rewrite their live process title to `developer-dashboard ...`, so
 process listings stay aligned with the public command names instead of
 exposing the staged helper path.
 
-When `dashboard` re-execs a Perl-backed helper or hook, it also forces the
+When `d2` re-execs a Perl-backed helper or hook, it also forces the
 same active dashboard `lib/` root into that child Perl process. That keeps
 thin switchboard handoff on the current checkout code instead of drifting onto
 an older installed `Developer::Dashboard` copy that may also be visible in
 `PERL5LIB`.
 
-`dashboard cpan <Module...>` installs optional Perl modules into the
+`d2 cpan <Module...>` installs optional Perl modules into the
 active runtime-local `./.developer-dashboard/local` tree and appends matching
 `requires 'Module';` lines to `./.developer-dashboard/cpanfile`.
 
 The command
-stays implemented in the `dashboard` entrypoint rather than introducing a
+stays implemented in the d2 entrypoint rather than introducing a
 separate CPAN manager product module, and saved Ajax workers infer the
 same runtime-local `local/lib/perl5` path directly from the active runtime
 root. When the requested modules include `DBD::*`, the command also installs
@@ -1685,23 +1684,23 @@ Extend dashboard with isolated skill packages:
 Install a skill from either a Git repository URL or a local checked-out skill
 repository:
 
-    dashboard skills install browser
-    dashboard skills install foo/bar
-    dashboard skills install git@github.com:user/example-skill.git
-    dashboard skills install https://github.com/user/example-skill.git
-    dashboard skills install /absolute/path/to/example-skill
-    dashboard skills install --notest browser
-    dashboard skills install -b main git@github.com:user/example-skill.git
-    dashboard skills install browser foo/bar git@github.com:user/example-skill.git
-    dashboard skills install --ddfile
-    dashboard skill list
+    d2 skills install browser
+    d2 skills install foo/bar
+    d2 skills install git@github.com:user/example-skill.git
+    d2 skills install https://github.com/user/example-skill.git
+    d2 skills install /absolute/path/to/example-skill
+    d2 skills install --notest browser
+    d2 skills install -b main git@github.com:user/example-skill.git
+    d2 skills install browser foo/bar git@github.com:user/example-skill.git
+    d2 skills install --ddfile
+    d2 skill list
 
 Bare one-word skill names are expanded against the official
 `https://github.com/manif3station/` GitHub base, so
-`dashboard skills install browser` clones
+`d2 skills install browser` clones
 `https://github.com/manif3station/browser`. Two-part `owner/repo`
 shorthand is expanded against GitHub too, so
-`dashboard skills install foo/bar` clones `https://github.com/foo/bar`.
+`d2 skills install foo/bar` clones `https://github.com/foo/bar`.
 
 Full URLs such as `https://github.com/user/example-skill.git` and
 `git@github.com:user/example-skill.git` are used exactly as supplied. Use `-b <branch>` or `--branch <branch>` to select a remote
@@ -1729,11 +1728,11 @@ work starts, and registers every source once. The default install summary is a t
 Use `-o json` when a script needs the
 raw result payload.
 
-`dashboard skill` is
-accepted as a singular alias for the `dashboard skills` management command
-family, so `dashboard skill list` and `dashboard skill install browser` are
+`d2 skill` is
+accepted as a singular alias for the `d2 skills` management command
+family, so `d2 skill list` and `d2 skill install browser` are
 equivalent to the plural form. It does not replace dotted skill execution;
-installed skill commands still run as `dashboard <skill>.<command>`.
+installed skill commands still run as `d2 <skill>.<command>`.
 
 For Perl commands, the `lib/` directory of the skill layer providing the
 command is the first module search path in the child process `@INC`. Other
@@ -1748,7 +1747,7 @@ by the remaining skill layers. A skill can therefore use a module such as
 Git sources are cloned. Direct local checked-out directories are synced in
 place instead of recloned, using `rsync` when it is available and the
 built-in Perl tree-copy fallback when it is not. That means
-`dashboard skills install` also acts as reinstall and update for an already
+`d2 skills install` also acts as reinstall and update for an already
 installed skill.
 
 A direct local directory is only accepted when it is a
@@ -1761,7 +1760,7 @@ In a home-only session that is
 `~/.developer-dashboard/skills/<repo-name>/`. In a deeper project
 layer that already has its own `.developer-dashboard/`, the install target
 becomes
-`<that-layer>/.developer-dashboard/skills/<repo-name>/`. Each explicit `dashboard skills install <source>`, including every
+`<that-layer>/.developer-dashboard/skills/<repo-name>/`. Each explicit `d2 skills install <source>`, including every
 source in a multi-source command, also registers that exact source in
 `~/.developer-dashboard/ddfile` unless it is already listed there.
 
@@ -1772,7 +1771,7 @@ existing entries, so users who keep the dashboard runtime in Git do not
 accidentally track cloned skill trees. The installer also honors an existing
 `~/.developer-dashboard/.gitiignore` spelling as a compatibility safety net.
 
-Calling bare `dashboard skills install` with no source reads that root
+Calling bare `d2 skills install` with no source reads that root
 `ddfile` and reinstalls every listed skill as an update batch, showing the
 same progress rundown and before/after version table.
 
@@ -1784,7 +1783,7 @@ installable entries, the command returns an explicit error telling the user to
 install a skill first or pass a skill source.
 
 When an operator later runs
-`dashboard skills uninstall <repo-name>`, the home root
+`d2 skills uninstall <repo-name>`, the home root
 `ddfile` now drops any exact source lines that resolve back to that repo name
 while leaving comments and unrelated entries untouched.
 
@@ -1800,7 +1799,7 @@ Developer Dashboard does not merge the skill's `cli/`, `dashboards/`,
 `cpanfile.local`, or Docker files into the
 normal runtime folders.
 
-`dashboard skills install --ddfile` reads dependency manifests from the
+`d2 skills install --ddfile` reads dependency manifests from the
 current directory instead of taking one explicit skill source. If `ddfile`
 exists there, each listed source installs into the base home-layer skills root
 at `~/.developer-dashboard/skills/<repo-name>/` even when the command
@@ -1812,9 +1811,9 @@ exists there, each listed source installs into the current directory's nested
 the command processes `ddfile` first and `ddfile.local` second.
 
 Repeated
-`dashboard skills install --ddfile` runs also act as reinstall and refresh
+`d2 skills install --ddfile` runs also act as reinstall and refresh
 for already-installed targets, just like repeated explicit
-`dashboard skills install <source>` runs. Interactive `dashboard skills install` runs also print a task board on
+`d2 skills install <source>` runs. Interactive `d2 skills install` runs also print a task board on
 `stderr`; multi-source and bare update-all installs show one task for every
 source before any clone or dependency step starts.
 
@@ -1835,7 +1834,7 @@ detail window that keeps the newest progress lines under the active task in
 blue and leaves failure detail lines visible in red when a manifest step stops
 with an error.
 
-Installed dotted skill commands such as `dashboard demo-skill.foo` now hand
+Installed dotted skill commands such as `d2 demo-skill.foo` now hand
 control to the real skill command after hook processing instead of wrapping
 the main command in an extra capture layer. That keeps interactive prompting
 behaviour intact for commands that print a prompt and then read from standard
@@ -1860,8 +1859,8 @@ override.
 
 List installed skills:
 
-    dashboard skills list
-    dashboard skills list -o json
+    d2 skills list
+    d2 skills list -o json
 
 The default output is a padded table with the columns `Repo`, `Enabled`,
 `CLI`, `Pages`, `Docker`, `Collectors`, and `Indicators`. The
@@ -1881,8 +1880,8 @@ where each item reports:
 
 Inspect one installed skill:
 
-    dashboard skills usage example-skill
-    dashboard skills usage example-skill -o json
+    d2 skills usage example-skill
+    d2 skills usage example-skill -o json
 
 The default output is a readable multi-section summary. It still returns the
 installed skill state even when the skill is disabled, including:
@@ -1898,28 +1897,28 @@ usage data.
 
 Update registered skills to their latest versions:
 
-    dashboard skills install
+    d2 skills install
 
 Disable a skill without uninstalling it:
 
-    dashboard skills disable example-skill
+    d2 skills disable example-skill
 
 Disabling keeps the checkout in its current layered skills root but removes it
 from normal runtime lookup. That means:
 
-- `dashboard <repo-name>.<command>` stop dispatching into that
+- `d2 <repo-name>.<command>` stop dispatching into that
 skill
 - `/app/<repo-name>` and `/app/<repo-name>/<page>`
 stop serving that skill's pages
 - skill collectors, docker roots, config, and shared nav stop joining the
 active runtime
-- `dashboard skills list` and
-`dashboard skills usage <repo-name>` still report the installed skill
+- `d2 skills list` and
+`d2 skills usage <repo-name>` still report the installed skill
 so it can be inspected and re-enabled later
 
 Enable a previously disabled skill:
 
-    dashboard skills enable example-skill
+    d2 skills enable example-skill
 
 Enabling removes the local disabled marker and restores the skill to command
 dispatch, browser routes, collector loading, docker lookup, config merge, and
@@ -1927,17 +1926,17 @@ shared nav rendering.
 
 Execute a skill command:
 
-    dashboard example-skill.somecmd arg1 arg2
+    d2 example-skill.somecmd arg1 arg2
 
 The dotted form is the public route. If `example-skill` is installed and
-ships `cli/somecmd`, `dashboard example-skill.somecmd` resolves the correct
+ships `cli/somecmd`, `d2 example-skill.somecmd` resolves the correct
 layered skill command. If the active child layer for that same repo omits
 `cli/somecmd`, the command falls back to the nearest inherited skill layer
 that still provides it.
 
 That same dotted dispatch also applies to runtime-backed command files such as
 `cli/report.py` and `cli/webhook.js`. In those cases the resolved skill
-command still runs through the same public `dashboard <skill>.<command>`
+command still runs through the same public `d2 <skill>.<command>`
 route, with Python-backed files launched through `python` and JavaScript-backed
 files launched through `node`.
 
@@ -1946,8 +1945,8 @@ If the skill command itself lives below nested
 public form keeps walking those nested skill roots until it resolves the final
 `cli/<cmd>` file. For example:
 
-    dashboard nest.level1.level2.here
-    dashboard which nest.level1.level2.here
+    d2 nest.level1.level2.here
+    d2 which nest.level1.level2.here
 
 The first command executes the nested skill command. The second prints the
 resolved nested `cli/here` file plus any matching hook files that would run
@@ -1956,15 +1955,15 @@ before it.
 Nested skill trees under `skills/<repo>/cli/` stay reachable through
 that same public dotted route, including multiple nested levels. For example,
 if `example-skill` ships `skills/foo/skills/bar/cli/baz`, then
-`dashboard example-skill.foo.bar.baz` resolves the nested command through the
+`d2 example-skill.foo.bar.baz` resolves the nested command through the
 installed skill tree.
 
 A nested skill can also expose its default command as `cli/__init__` (with any
 supported executable extension). Naming that nested skill directly invokes
 its initializer, including at multiple nested levels:
 
-    dashboard example-skill.foo
-    dashboard example-skill.foo.bar
+    d2 example-skill.foo
+    d2 example-skill.foo.bar
 
 When a deeper nested skill has its own initializer, it takes precedence over
 an ancestor skill's generic initializer. Explicit command files are resolved
@@ -1976,7 +1975,7 @@ main command.
 
 Uninstall a skill:
 
-    dashboard skills uninstall example-skill
+    d2 skills uninstall example-skill
 
 Each installed skill lives under
 `<participating-layer>/.developer-dashboard/skills/<repo-name>/`
@@ -2055,7 +2054,7 @@ with:
 
     Optional skill install workflow run before `ddfile`, using `make`,
     `make test` when a `test` or `tests` target exists unless
-    `dashboard skills install --notest` is used, `make install`, and
+    `d2 skills install --notest` is used, `make install`, and
     `make clean` when a `clean` target exists
 
 - **dnfile**
@@ -2086,7 +2085,7 @@ with:
     `<skill-root>/perl5`
 
 Skills are completely isolated from the main dashboard runtime and from other
-skills. Removing a skill is simple: `dashboard skills uninstall <repo-name>`
+skills. Removing a skill is simple: `d2 skills uninstall <repo-name>`
 cleanly removes only that skill's directory and unregisters matching install
 sources from the home root `ddfile`.
 
@@ -2123,7 +2122,7 @@ Skill fleet integration:
 
 - collectors declared in a skill `config/config.json` join the same managed
 fleet used by the system config
-- `dashboard serve`, `dashboard restart`, and `dashboard stop` manage those
+- `d2 serve`, `d2 restart`, and `d2 stop` manage those
 skill collectors together with the system-owned collectors
 - skill collector names are normalised to
 `<repo-name>.<collector-name>` so collector process titles,
@@ -2185,13 +2184,13 @@ Skill dependency and docker layering:
 
 - if a `ddfile` exists, each listed dependency is installed after package and
 language dependency manifests through
-`dashboard skills install <dependency>` while already-installed or
+`d2 skills install <dependency>` while already-installed or
 in-flight skills are skipped to avoid loops
 - if a `ddfile.local` exists under an installed skill, each listed dependency
 is then installed into that owning skill's private
 `skills/<repo-name>/` tree, separate from the runtime-wide skills
 inventory
-- if an operator runs `dashboard skills install --ddfile` inside a directory
+- if an operator runs `d2 skills install --ddfile` inside a directory
 that contains `ddfile`, every listed source is reinstalled or refreshed into
 the base `~/.developer-dashboard/skills/` root
 - if that same directory also contains `ddfile.local`, every listed source is
@@ -2220,7 +2219,7 @@ row when both the manifest exists and the host is macOS
 - if a `Makefile` exists, Dashboard runs it after the Perl dependency
 manifests and before any deferred `ddfile` processing, using `make`,
 `make test` when a `test` or `tests` target exists unless
-`dashboard skills install --notest` was requested, `make install`, and
+`d2 skills install --notest` was requested, `make install`, and
 `make clean` when a `clean` target exists; interactive progress output only
 shows this row when the file exists
 - if a `package.json` exists, its Node dependencies are installed into
@@ -2255,7 +2254,7 @@ root.
 
 Skill commands are file-based
 commands run through the dotted
-`dashboard <repo-name>.<command>` form.
+`d2 <repo-name>.<command>` form.
 
 Skill hook files live
 under `cli/<command>.d/`, skill app pages render from
@@ -2264,7 +2263,7 @@ the older `/skill/<repo-name>/bookmarks/<id>` route still
 resolves direct bookmark renders. If `config/config.json` declares
 collectors, those collectors join the normal managed fleet under
 repo-qualified names such as `example-skill.status`, which means
-`dashboard serve`, `dashboard restart`, and `dashboard stop` treat them the
+`d2 serve`, `d2 restart`, and `d2 stop` treat them the
 same way they treat system-owned collectors.
 
 If `config/api.json` declares API
@@ -2282,7 +2281,7 @@ configuration merge keys such as `_example-skill`.
 
 The guide describes automatic dependency installation order:
 `aptfile -` apkfile -> dnfile -> wingetfile -> brewfile -> package.json -> requirements.txt -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local>.
-The explicit `dashboard skills install --ddfile` option handles the deferred
+The explicit `d2 skills install --ddfile` option handles the deferred
 `ddfile -` ddfile.local> pass separately.
 
 It also explains shared and skill-local dependency directories, the install
@@ -2297,10 +2296,10 @@ skill's root-to-leaf `.env` and `.env.pl` files. For example,
 the child process; neither leaks into the long-lived web worker or other
 requests.
 
-For operators rather than authors, `dashboard skills list`,
-`dashboard skills usage <repo-name>`,
-`dashboard skills disable <repo-name>`, and
-`dashboard skills enable <repo-name>` are the supported controls for
+For operators rather than authors, `d2 skills list`,
+`d2 skills usage <repo-name>`,
+`d2 skills disable <repo-name>`, and
+`d2 skills enable <repo-name>` are the supported controls for
 inventorying and toggling installed skills without deleting their isolated
 runtime trees.
 
@@ -2411,13 +2410,13 @@ workflow for every repo
 
 Run the web interface with:
 
-    dashboard serve
+    d2 serve
 
 By default it listens on `0.0.0.0:7890`, so you can open it in a browser at:
 
     http://127.0.0.1:7890/
 
-Run `dashboard serve --ssl` to enable HTTPS with a generated self-signed
+Run `d2 serve --ssl` to enable HTTPS with a generated self-signed
 certificate under `~/.developer-dashboard/certs/`, then open:
 
     https://127.0.0.1:7890/
@@ -2436,18 +2435,18 @@ rotated forward automatically when they no longer match that expected profile.
 Browsers still show the normal self-signed certificate warning until you trust
 the generated certificate locally.
 
-Run `dashboard serve --no-editor` or `dashboard serve --no-endit` to keep
+Run `d2 serve --no-editor` or `d2 serve --no-endit` to keep
 the browser in read-only mode. That hides the Share, Play, and View Source
 links, blocks bookmark editor and source routes with `403`, blocks
 bookmark-save POST requests even if someone tries to hit them directly, and
-persists the mode so later `dashboard restart` runs stay read-only until you
-switch it back with `dashboard serve --editor`.
+persists the mode so later `d2 restart` runs stay read-only until you
+switch it back with `d2 serve --editor`.
 
-Run `dashboard serve --no-indicators` or `dashboard serve --no-indicator` to
+Run `d2 serve --no-indicators` or `d2 serve --no-indicator` to
 clear the whole top-right browser chrome area. That hides the browser-only
 indicator strip, username, host or IP link, and live date-time line without
-changing `/system/status` or terminal prompt output such as `dashboard ps1`,
-and persists the mode until `dashboard serve --indicators` turns it back on.
+changing `/system/status` or terminal prompt output such as `d2 ps1`,
+and persists the mode until `d2 serve --indicators` turns it back on.
 
 For example, if you want the same dashboard cert to work for one local
 `/etc/hosts` alias and one LAN IP, keep the runtime config like this:
@@ -2471,7 +2470,7 @@ treated as local-admin when they still arrive from loopback
 - helper access is for everyone else, including non-loopback IPs and other
 machines on the network
 - the loopback-admin shortcut applies only to direct (plain HTTP) connections;
-under `dashboard serve --ssl` the public front-proxy relays TLS to an internal
+under `d2 serve --ssl` the public front-proxy relays TLS to an internal
 loopback backend, so every backend connection looks like loopback and cannot
 prove the real client is local -- in that mode the shortcut is disabled and
 even loopback HTTPS requests require a helper login
@@ -2540,9 +2539,9 @@ store stdout, stderr, exit code, and timestamps as file-backed runtime data.
 That prepared state drives indicators. Indicators are the short status records
 used by:
 
-- the shell prompt rendered by `dashboard ps1`
+- the shell prompt rendered by `d2 ps1`
 - the top-right status strip in the web interface
-- CLI inspection commands such as `dashboard indicator list`
+- CLI inspection commands such as `d2 indicator list`
 
 This matters because prompt and browser status should be cheap to render. Instead of re-running a Docker check, VPN probe, or project health command
 every time the prompt draws, a collector prepares the answer once and the rest
@@ -2562,7 +2561,7 @@ checks one root resolution and one physical file read per indicator, next-sync
 visibility of an external state change, and correct inventory after retirement.
 
 Workspace sessions use a
-two-line bottom status block: the first row is the dashboard indicator strip
+two-line bottom status block: the first row is the d2 indicator strip
 with the trailing date-time segment, and the second row keeps tmux's normal
 session and indexed window list. Ordinary tmux sessions keep the normal
 inline prompt.
@@ -2608,7 +2607,7 @@ starts the menu only when an indicator is enabled for the current host and
 keeps the helper active for the foreground web-service lifetime. It stops and
 joins the GoRoutine worker when the service returns or fails; disabled or
 unsupported platform settings do not load the native adapter. The existing
-`dashboard ps1` output remains unchanged.
+`d2 ps1` output remains unchanged.
 
 The native System::Menu adapter starts the platform helper in a controlled
 GoRoutine worker. On Ubuntu, the helper uses Ayatana AppIndicator3 and a GTK
@@ -2638,7 +2637,7 @@ The pieces are designed to reinforce each other:
 - path aliases, open-file helpers, and data query commands shorten the jump from
 I know what I need to I am at the file or value now
 - Docker Compose helpers keep recurring container workflows behind the same
-`dashboard` entrypoint
+`d2` entrypoint
 
 That combination makes the dashboard useful as a real daily base instead of
 just another utility script.
@@ -2716,7 +2715,7 @@ The runtime has a few shared parts:
 
 - Web and command interfaces
 
-    Provide the local browser UI and the `dashboard` command line entry point over
+    Provide the local browser UI and the `d2` command line entry point over
     the same runtime data.
 
 - Skills and extensions
@@ -2753,8 +2752,8 @@ The distribution supports these compatibility-style customisation variables:
 
 ## Transient Web Token Policy
 
-Transient page tokens still exist for CLI workflows such as `dashboard page encode`
-and `dashboard page decode`, but browser routes that execute a transient payload
+Transient page tokens still exist for CLI workflows such as `d2 page encode`
+and `d2 page decode`, but browser routes that execute a transient payload
 from `token=` or `atoken=` are disabled by default.
 
 That means links such as:
@@ -2866,7 +2865,7 @@ deepest active child layer, and installed skills contribute their own layered
 `config/api.json` fragments for skill-local saved Ajax routes.
 
 The built-in
-`dashboard api` command is the supported way to inspect or update the writable
+`d2 api` command is the supported way to inspect or update the writable
 runtime layer for that registry.
 
 An entry carrying `"disabled": true` (or the same flag under `_disabled`)
@@ -2883,10 +2882,10 @@ If a saved handler also needs refresh-safe process reuse, pass
 `singleton => 'NAME'` in the `Ajax` helper.
 
 The generated URL carries the singleton name, and the worker runs as
-`dashboard ajax: NAME`. A refreshed request replaces the older matching
+`d2 ajax: NAME`. A refreshed request replaces the older matching
 worker.
 
-`dashboard stop` and `dashboard restart` also stop singleton Ajax workers.
+`d2 stop` and `d2 restart` also stop singleton Ajax workers.
 Closing a browser tab sends a `pagehide` cleanup request to
 `/ajax/singleton/stop?singleton=NAME`.
 
@@ -2965,7 +2964,7 @@ Unknown top-level subcommands can be provided by executable files under
 the current working directory's `./.developer-dashboard/cli` first, then the
 nearest git-backed project runtime `./.developer-dashboard/cli` when it is a
 different directory, and then `~/.developer-dashboard/cli`. For example,
-`dashboard foobar a b` will exec the first matching
+`d2 foobar a b` will exec the first matching
 `cli/foobar` with `a b` as argv, while preserving stdin, stdout, and
 stderr.
 
@@ -2974,19 +2973,19 @@ A direct custom command can also be stored as an executable
 `cli/<command>.java`, `cli/<command>.sh`,
 `cli/<command>.bash`, `cli/<command>.ps1`,
 `cli/<command>.cmd`, or `cli/<command>.bat`, and
-`dashboard <command>` resolves the same logical command name to
+`d2 <command>` resolves the same logical command name to
 those files.
 
 Concrete source-backed examples:
 
-    dashboard hi
-    dashboard foo
+    d2 hi
+    d2 foo
 
-If `cli/hi.go` is executable, `dashboard hi` runs it through `go run`.
-If `cli/report.py` is executable, `dashboard report` runs it through `python`.
+If `cli/hi.go` is executable, `d2 hi` runs it through `go run`.
+If `cli/report.py` is executable, `d2 report` runs it through `python`.
 
-If `cli/webhook.js` is executable, `dashboard webhook` runs it through `node`.
-If `cli/foo.java` is executable, `dashboard foo` compiles it with `javac`
+If `cli/webhook.js` is executable, `d2 webhook` runs it through `node`.
+If `cli/foo.java` is executable, `d2 foo` compiles it with `javac`
 into an isolated temp directory and then runs the declared main class with
 `java`.
 
@@ -2998,7 +2997,7 @@ runtime CLI layer and then invoke the switchboard:
     chmod +x ~/.developer-dashboard/cli/update
     printf '#!/bin/sh\nprintf "before update\\n"\n' > ~/.developer-dashboard/cli/update.d/01-log
     chmod +x ~/.developer-dashboard/cli/update.d/01-log
-    perl -Ilib bin/dashboard update
+    perl -Ilib bin/d2 update
 
 The command file is user-provided, not a built-in. The hook runs before it;
 project-local runtime layers take precedence over the home layer.
@@ -3006,7 +3005,7 @@ project-local runtime layers take precedence over the home layer.
 If a user mistypes a command, dashboard now prints an explicit unknown-command
 error together with the closest matching public command before the usual usage
 summary. The same guidance also applies to dotted skill commands, so
-`dashboard alpha-skill.run-tset` suggests the nearest installed dotted skill
+`d2 alpha-skill.run-tset` suggests the nearest installed dotted skill
 command instead of only dumping generic help.
 
 ## Built-in command help and completion
@@ -3029,7 +3028,7 @@ preserved. The global help form and command help include actionable usage and
 the available action/options where applicable.
 
 The same catalogue supplies TAB candidates for public commands, nested actions,
-and supported option flags. Bash and zsh call the live `dashboard complete`
+and supported option flags. Bash and zsh call the live `d2 complete`
 helper, so their candidates stay aligned with the command catalogue rather than
 maintaining separate shell-side action lists. Existing dynamic completions for
 skills, workspace sessions, collectors, and workspace path aliases remain
@@ -3072,10 +3071,10 @@ Hook output streams to the terminal and is also accumulated as JSON in
 `RESULT`.
 
 If that JSON grows too large for a safe
-`exec()` environment, `dashboard` spills it into `RESULT_FILE` and
+`exec()` environment, `d2` spills it into `RESULT_FILE` and
 `Developer::Dashboard::Runtime::Result` reads the same logical payload from
 there so later hooks and the final command still see the same result set
-without tripping `Argument list too long`. Built-in commands such as `dashboard jq`
+without tripping `Argument list too long`. Built-in commands such as `d2 jq`
 use the same hook directory.
 
 A
@@ -3184,7 +3183,7 @@ chain and deeper runtime layers after it. Therefore a nested command such as
 `d2 foo.bar.bob` receives home defaults, then the `foo` and `bar` skill
 overrides, then any nearer project runtime values.
 
-For nested skill commands such as `dashboard foo.bar.zzz.show`, the skill env
+For nested skill commands such as `d2 foo.bar.zzz.show`, the skill env
 chain expands from the root nested skill to the leaf skill before the command
 runs:
 
@@ -3260,7 +3259,7 @@ counterpart.
 
 ## Open File Commands
 
-`dashboard of` is the shorthand name for `dashboard open-file`.
+`d2 of` is the shorthand name for `d2 open-file`.
 
 These commands support:
 
@@ -3270,10 +3269,10 @@ These commands support:
 the running Perl's `@INC`
 - Java class names such as `com.example.App` or `javax.jws.WebService`
 - recursive regex searches inside a resolved directory alias or path
-- recursive content searches with `dashboard of grep -nr <pattern>
+- recursive content searches with `d2 of grep -nr <pattern>
 <directory>`
 
-Without `--print`, `dashboard of` and `dashboard open-file` now behave like
+Without `--print`, `d2 of` and `d2 open-file` now behave like
 the older picker workflow again: one unique match opens directly in
 `--editor`, `VISUAL`, `EDITOR`, or `vim` as the final fallback, and
 multiple matches render a numbered prompt. At that prompt you can press Enter
@@ -3282,11 +3281,11 @@ numbers such as `1,3`, or use a range such as `2-5`.
 
 Scoped searches also
 rank exact helper/script names before broader regex hits, so
-`dashboard of . jq` lists `jq` and `jq.js` ahead of `jquery.js`.
+`d2 of . jq` lists `jq` and `jq.js` ahead of `jquery.js`.
 
 Every
 scoped search token is treated as a case-insensitive regex, so
-`dashboard of . 'Ok\.js$'` matches `ok.js` but not `ok.json`. Content grep passes arguments directly to the system `grep` executable (no
+`d2 of . 'Ok\.js$'` matches `ok.js` but not `ok.json`. Content grep passes arguments directly to the system `grep` executable (no
 shell expansion), adds filename and line-number output for reliable file
 selection, then opens the unique matching files using the same chooser. Add
 `--print` before `grep` to print the unique paths without opening an editor.
@@ -3309,21 +3308,21 @@ These built-in commands parse structured text and can then either extract a
 dotted path or evaluate a Perl expression against the decoded document through
 `$d`:
 
-- `dashboard jq [path] [file]` for JSON
-- `dashboard yq [path] [file]` for YAML
-- `dashboard tomq [path] [file]` for TOML
-- `dashboard propq [path] [file]` for Java properties
-- `dashboard iniq [path] [file]` for INI
-- `dashboard csvq [path] [file]` for CSV
-- `dashboard xmlq [path] [file]` for XML
+- `d2 jq [path] [file]` for JSON
+- `d2 yq [path] [file]` for YAML
+- `d2 tomq [path] [file]` for TOML
+- `d2 propq [path] [file]` for Java properties
+- `d2 iniq [path] [file]` for INI
+- `d2 csvq [path] [file]` for CSV
+- `d2 xmlq [path] [file]` for XML
 
 If the selected value is a hash or array, the command prints canonical JSON.
 If the selected value is a scalar, it prints the scalar plus a trailing
 newline.
 
 The file path and query text are order-independent, and `$d` selects the
-whole parsed document. For example, `cat file.json | dashboard jq '$d'` and
-`dashboard jq file.json '$d'` return the same result.
+whole parsed document. For example, `cat file.json | d2 jq '$d'` and
+`d2 jq file.json '$d'` return the same result.
 
 If the query text uses
 `$d` inside a Perl expression, the command evaluates that expression against
@@ -3337,7 +3336,7 @@ The same contract applies to
 elements decode into nested hashes and arrays, repeated sibling tags become
 arrays, attributes live under `_attributes`, and mixed text lives under
 `_text`. That means `printf '<root`&lt;value>demo&lt;/value>&lt;/root>' | dashboard
-xmlq root.value> prints `demo`, while `dashboard xmlq feed.xml '$d'` prints
+xmlq root.value> prints `demo`, while `d2 xmlq feed.xml '$d'` prints
 the full decoded XML tree as canonical JSON.
 
 # FAQ
@@ -3362,7 +3361,7 @@ What remains intentionally lightweight is breadth, not architecture:
 ## How is the browser UI served?
 
 The browser UI runs as the dashboard web service you start with
-`dashboard serve`. Internally that service is a PSGI application served
+`d2 serve`. Internally that service is a PSGI application served
 through the shipped web runtime, while CLI-only commands continue to work
 without keeping the browser service running.
 
@@ -3394,12 +3393,12 @@ The project uses `JSON::XS` for JSON encoding and decoding, including shell help
 The project uses `Capture::Tiny` for command-output capture via `capture`,
 with exit codes returned from the capture block rather than read separately.
 It uses `LWP::UserAgent` for real outbound HTTP in active runtime paths such
-as the Java source lookup or mirror path behind `dashboard of` and
-`dashboard open-file`.
+as the Java source lookup or mirror path behind `d2 of` and
+`d2 open-file`.
 
 # EMBEDDING IN PERL CODE
 
-Perl code that wants the same runtime the `dashboard`/`d2` command line
+Perl code that wants the same runtime the `d2`/`d2` command line
 resolves - a configured path alias, or the output of any other subcommand -
 does not need to build a path registry, file registry, and config loader by
 hand. `use Developer::Dashboard` exports `d2()`, a memoised runtime handle
@@ -3408,15 +3407,15 @@ scoped to the current working directory:
     use Developer::Dashboard;
 
     my $foo = d2->paths->{foo};                    # in-process, no subprocess
-    my $out = d2->doctor->();                       # shells to `dashboard doctor`
-    my $lst = d2->collector->list->();               # `dashboard collector.list`
+    my $out = d2->doctor->();                       # shells to `d2 doctor`
+    my $lst = d2->collector->list->();               # `d2 collector.list`
     my $res = d2->run( 'tira.ticket.show', '--ref', 'DD-726' );
                                                       # run() takes words separately
 
-`d2->paths` resolves in-process, the same table `dashboard paths`
+`d2->paths` resolves in-process, the same table `d2 paths`
 prints. Any other bareword method name starts a **lazy chain** that mirrors
 the CLI's own dotted dispatch at arbitrary depth - `d2->foo->bar->()`
-runs `dashboard foo.bar` - and **nothing executes until the chain is
+runs `d2 foo.bar` - and **nothing executes until the chain is
 terminated with a call**, the trailing `->()`.
 
 An un-terminated chain is
@@ -3534,8 +3533,8 @@ Build a distribution archive:
 
 Run the checkout's command line interface:
 
-    perl -Ilib bin/dashboard help
-    perl -Ilib bin/dashboard version
+    perl -Ilib bin/d2 help
+    perl -Ilib bin/d2 version
 
 When documentation changes, regenerate this README from the main POD:
 

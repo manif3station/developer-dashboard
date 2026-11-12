@@ -16,7 +16,7 @@ use Time::HiRes qw(sleep);
 
 my $repo_root     = abs_path('.');
 my $repo_lib      = File::Spec->catdir( $repo_root, 'lib' );
-my $dashboard_bin = File::Spec->catfile( $repo_root, 'bin', 'dashboard' );
+my $dashboard_bin = File::Spec->catfile( $repo_root, 'bin', 'd2' );
 my $chromium_bin  = _find_command( qw(google-chrome-stable google-chrome chromium-browser chromium) );
 my $timeout_bin   = _find_command('timeout');
 
@@ -44,7 +44,7 @@ eval {
         command => [ $^X, "-I$repo_lib", $dashboard_bin, 'init' ],
         cwd     => $project_root,
         env     => { HOME => $home_root },
-        label   => 'dashboard init for no-editor browser smoke',
+        label   => 'd2 init for no-editor browser smoke',
     );
     _run_command(
         command => [ 'sh', '-lc', qq{$^X -I"$repo_lib" "$dashboard_bin" page new readonly "Read Only" | $^X -I"$repo_lib" "$dashboard_bin" page save readonly} ],
@@ -301,7 +301,7 @@ sub _stop_dashboard_server {
             command => [ $^X, "-I$args{repo_lib}", $args{dashboard_bin}, 'stop' ],
             cwd     => $args{cwd},
             env     => { HOME => $args{home} },
-            label   => 'dashboard stop for no-editor browser smoke',
+            label   => 'd2 stop for no-editor browser smoke',
         );
         1;
     };
@@ -374,7 +374,7 @@ __END__
 =head1 DESCRIPTION
 
 This test verifies the browser-visible happy and sad paths for
-C<dashboard serve --no-editor>. It confirms that a saved page still renders in
+C<d2 serve --no-editor>. It confirms that a saved page still renders in
 Chromium while the Share, Play, and View Source chrome is hidden, and it also
 confirms that direct browser requests to the saved bookmark edit and source
 routes return the explicit read-only denial instead of exposing bookmark
@@ -397,7 +397,7 @@ the repository gate.
 
 =head1 WHEN TO USE
 
-Use this file when changing C<dashboard serve>, bookmark editor exposure, top
+Use this file when changing C<d2 serve>, bookmark editor exposure, top
 chrome links, or read-only browser behavior.
 
 =head1 HOW TO USE

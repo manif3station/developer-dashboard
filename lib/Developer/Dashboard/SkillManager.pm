@@ -53,7 +53,7 @@ sub new {
 }
 
 # install_progress_tasks()
-# Returns the ordered task list shown for one dashboard skills install run.
+# Returns the ordered task list shown for one d2 skills install run.
 # Input: none.
 # Output: array reference of progress task hashes.
 sub install_progress_tasks {
@@ -520,7 +520,7 @@ sub _root_ddfile_has_sources {
 # _register_root_ddfile_source($source)
 # Appends one explicit skill install source to the home root ddfile unless the
 # same non-comment source is already present.
-# Input: source string exactly as supplied to dashboard skills install.
+# Input: source string exactly as supplied to d2 skills install.
 # Output: hash ref with ddfile path and boolean registered status, or an error hash.
 sub _register_root_ddfile_source {
     my ( $self, $source ) = @_;
@@ -1691,7 +1691,7 @@ sub _install_skill_dependency_manifest {
             eval {
                 chdir $skills_root or die "Unable to chdir to $skills_root for $manifest_name dependency install: $!";
                 ( $stdout, $stderr, $status ) = capture {
-                    system( 'dashboard', 'skills', 'install', $dependency );
+                    system( 'd2', 'skills', 'install', $dependency );
                 };
                 chdir $cwd or die "Unable to chdir back to $cwd after $manifest_name dependency install: $!";
                 1;
@@ -2723,7 +2723,7 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard::SkillManager - manage installed dashboard skills
+Developer::Dashboard::SkillManager - manage installed d2 skills
 
 =head1 SYNOPSIS
 
@@ -2738,7 +2738,7 @@ Developer::Dashboard::SkillManager - manage installed dashboard skills
 
 =head1 DESCRIPTION
 
-Manages the lifecycle of installed dashboard skills:
+Manages the lifecycle of installed d2 skills:
 - Install: Clone Git repositories as skills
 - Uninstall: Remove skills completely
 - Update: Pull latest changes from skill repositories
@@ -2765,7 +2765,7 @@ refusal instead of removing or writing outside the skills tree.
 
 =head1 PURPOSE
 
-This module installs, updates, removes, and lists dashboard skills. It manages the on-disk skill roots under the active C<DD-OOP-LAYERS> chain, clones or updates Git-backed skill repos, prepares the expected directory layout, and helps the rest of the runtime locate the effective skill for one repo name from deepest layer back to home. Remote clones accept an optional branch; fresh installs try C<master> then C<main>, while reinstall keeps the currently checked-out named branch unless explicitly overridden.
+This module installs, updates, removes, and lists d2 skills. It manages the on-disk skill roots under the active C<DD-OOP-LAYERS> chain, clones or updates Git-backed skill repos, prepares the expected directory layout, and helps the rest of the runtime locate the effective skill for one repo name from deepest layer back to home. Remote clones accept an optional branch; fresh installs try C<master> then C<main>, while reinstall keeps the currently checked-out named branch unless explicitly overridden.
 
 =head1 WHY IT EXISTS
 
@@ -2777,11 +2777,11 @@ Use this file when changing skill install/update/uninstall behavior, the expecte
 
 =head1 HOW TO USE
 
-Construct it with the active paths and, optionally, C<clone_branch =E<gt> $branch>. Call the install/update/uninstall/list methods from the C<dashboard skills> helper or from tests. Leave command execution and hook handling to C<Developer::Dashboard::SkillDispatcher>.
+Construct it with the active paths and, optionally, C<clone_branch =E<gt> $branch>. Call the install/update/uninstall/list methods from the C<d2 skills> helper or from tests. Leave command execution and hook handling to C<Developer::Dashboard::SkillDispatcher>.
 
 =head1 WHAT USES IT
 
-It is used by the C<dashboard skills> command family, by the skill dispatcher, by release metadata that documents the isolated skill layout, and by skill lifecycle tests.
+It is used by the C<d2 skills> command family, by the skill dispatcher, by release metadata that documents the isolated skill layout, and by skill lifecycle tests.
 
 =head1 EXAMPLES
 
@@ -2811,7 +2811,7 @@ Put any module-level change back through the entire repository suite before rele
 
 Example 5:
 
-  dashboard skills install --ddfile
+  d2 skills install --ddfile
 
 Drive an explicit manifest install from the current directory, where F<ddfile>
 targets the base home-layer F<~/.developer-dashboard/skills/> root and
@@ -2819,7 +2819,7 @@ F<ddfile.local> targets the current directory's nested C<skills/> tree.
 
 Example 6:
 
-  dashboard skills install -b main git@github.com:user/example-skill.git
+  d2 skills install -b main git@github.com:user/example-skill.git
 
 Install one remote skill from the named branch. Without C<-b>, a fresh
 checkout tries C<master> then C<main>; reinstall preserves the installed

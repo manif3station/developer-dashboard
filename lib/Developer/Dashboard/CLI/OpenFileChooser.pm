@@ -41,7 +41,7 @@ sub _editor_supports_tabs {
 #
 # Deliberately NOT a bare "is STDIN a tty" check: this command's chooser is
 # designed to be answered non-interactively by piping an answer ahead of
-# time (e.g. `printf '2\n' | dashboard of ...`), which is real, documented,
+# time (e.g. `printf '2\n' | d2 of ...`), which is real, documented,
 # already-tested behavior (t/05-cli-smoke.t) - a tty-only check would wrongly
 # treat that legitimate piped answer as "nobody is coming" and skip reading
 # it. The actual hang this guards against is narrower: a STDIN connection
@@ -179,7 +179,7 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard::CLI::OpenFileChooser - interactive match chooser and editor selection for dashboard of
+Developer::Dashboard::CLI::OpenFileChooser - interactive match chooser and editor selection for d2 of
 
 =head1 SYNOPSIS
 
@@ -197,7 +197,7 @@ multi-match chooser prompt itself.
 
 =head1 PURPOSE
 
-When C<dashboard of> resolves more than one matching file and C<--print> was
+When C<d2 of> resolves more than one matching file and C<--print> was
 not given, this module decides how to present the choice (a numbered list),
 how to read an answer safely without hanging on a STDIN that will never send
 one, how to parse that answer into a selection (single index, comma list, or

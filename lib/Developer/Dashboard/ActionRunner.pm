@@ -516,7 +516,7 @@ Construct and execute actions.
 
 =head1 PURPOSE
 
-This module validates and executes page actions. It decides whether a page action is a built-in dashboard action or an explicit command action, enforces the saved-page trust rules, captures command output, and returns structured result hashes for the page runtime and web routes.
+This module validates and executes page actions. It decides whether a page action is a built-in d2 action or an explicit command action, enforces the saved-page trust rules, captures command output, and returns structured result hashes for the page runtime and web routes.
 
 =head1 WHY IT EXISTS
 

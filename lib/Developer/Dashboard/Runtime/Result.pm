@@ -345,7 +345,7 @@ sub _clear_channel_file {
 }
 
 # _command_name()
-# Resolves the current dashboard command name for RESULT reports.
+# Resolves the current d2 command name for RESULT reports.
 # Derives the command name from $0 first, then falls back to
 # DEVELOPER_DASHBOARD_COMMAND env var if $0 is not valid.
 # Handles special case where $0 basename is 'run' (directory-backed custom command).
@@ -356,12 +356,12 @@ sub _command_name {
     if ( $script eq '' ) {
         my $name = $ENV{DEVELOPER_DASHBOARD_COMMAND} || '';
         return $name if $name ne '';
-        return 'dashboard';
+        return 'd2';
     }
 
     my $normalized = $script;
     $normalized =~ s{[\\/]+\z}{} if $normalized !~ m{\A(?:[\\/]|[A-Za-z]:[\\/]?)\z};
-    return 'dashboard' if $normalized eq '' || $normalized eq '/' || $normalized eq '\\' || $normalized =~ m{\A[A-Za-z]:[\\/]?\z};
+    return 'd2' if $normalized eq '' || $normalized eq '/' || $normalized eq '\\' || $normalized =~ m{\A[A-Za-z]:[\\/]?\z};
 
     # $normalized is a non-root path here (line above returns for empty/root/drive
     # forms), so basename always yields a non-empty, non-separator component; the
@@ -376,7 +376,7 @@ sub _command_name {
 
     my $name = $ENV{DEVELOPER_DASHBOARD_COMMAND} || '';
     return $name if $name ne '';
-    return 'dashboard';
+    return 'd2';
 }
 
 1;
@@ -402,7 +402,7 @@ Developer::Dashboard::Runtime::Result - helper accessors for dashboard hook RESU
 
 =head1 DESCRIPTION
 
-This module decodes the hook-result payload populated by C<dashboard> command
+This module decodes the hook-result payload populated by C<d2> command
 hook execution. Small payloads stay inline in C<RESULT>. Oversized payloads
 spill into C<RESULT_FILE> before later C<exec()> calls would hit the kernel
 arg/env limit. The helper accessors hide that transport detail and provide one
@@ -456,7 +456,7 @@ the explicit stop marker.
 
 =head1 WHAT USES IT
 
-It is used by C<bin/dashboard> command-hook priming, custom CLI hook scripts,
+It is used by C<bin/d2> command-hook priming, custom CLI hook scripts,
 update hooks, skill hook dispatch, and tests that cover result overflow,
 previous-hook chaining, and explicit stop-marker behavior.
 

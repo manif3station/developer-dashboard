@@ -63,12 +63,12 @@ local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
 my $repo_root = File::Spec->rel2abs('.');
 my $repo_lib = File::Spec->catdir( $repo_root, 'lib' );
 chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
-my $dashboard_bin = File::Spec->catfile( $repo_root, 'bin', 'dashboard' );
+my $dashboard_bin = File::Spec->catfile( $repo_root, 'bin', 'd2' );
 my ( $seed_init_stdout, $seed_init_stderr, $seed_init_exit ) = capture {
     system( $^X, "-I$repo_lib", $dashboard_bin, 'init' );
 };
-is( $seed_init_exit, 0, 'dashboard init exits cleanly for web app fixture setup' );
-is( $seed_init_stderr, '', 'dashboard init does not emit stderr for web app fixture setup' );
+is( $seed_init_exit, 0, 'd2 init exits cleanly for web app fixture setup' );
+is( $seed_init_stderr, '', 'd2 init does not emit stderr for web app fixture setup' );
 
 my $paths = Developer::Dashboard::PathRegistry->new;
 my $store = Developer::Dashboard::PageStore->new(paths => $paths);

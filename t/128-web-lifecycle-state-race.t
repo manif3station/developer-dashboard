@@ -62,7 +62,7 @@ sub capture_warnings {
 
 # spawn_managed_web()
 # Starts a second process that looks exactly like a managed dashboard web
-# service: it carries the "dashboard web: HOST:PORT" process title and holds a
+# service: it carries the "d2 web: HOST:PORT" process title and holds a
 # real TCP listener on the reported port. A readiness file replaces the
 # inherited pipe so the fixture uses the same native process API on every OS.
 # Input: none.
@@ -79,7 +79,7 @@ sub spawn_managed_web {
             Proto => 'tcp', ReuseAddr => 1,
         ) or die "Unable to bind managed web stand-in: $!";
         my $bound = $socket->sockport;
-        $0 = "dashboard web: 0.0.0.0:$bound";
+        $0 = "d2 web: 0.0.0.0:$bound";
         open my $ready_fh, '>', $ready_file or die "Unable to create readiness file: $!";
         print {$ready_fh} "$bound\n" or die "Unable to write bound port: $!";
         close $ready_fh or die "Unable to close readiness file: $!";
@@ -190,7 +190,7 @@ sub complete_state {
         host         => '0.0.0.0',
         pid          => $web_pid,
         port         => $web_port,
-        process_name => "dashboard web: 0.0.0.0:$web_port",
+        process_name => "d2 web: 0.0.0.0:$web_port",
         started_at   => '2026-07-30T00:00:00Z',
         status       => 'running',
         workers      => 1,

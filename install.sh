@@ -905,6 +905,37 @@ resolve_perl() {
     fail "Perl $MIN_PERL_VERSION or newer is required."
 }
 
+# On macOS, Homebrew's default `openssl` formula is now OpenSSL 4.x, and
+# Net::SSLeay (needed by LWP::Protocol::https) cannot build against it.
+# Point the compiler, the linker and pkg-config at the Homebrew openssl@3
+# keg instead, using the same four exports a developer would put in their
+# shell profile. A no-op on other platforms and when openssl@3 is missing.
+export_darwin_openssl_env() {
+    [ "$PLATFORM" = "darwin" ] || return 0
+    command -v brew >/dev/null 2>&1 || return 0
+
+    openssl_prefix=$(brew --prefix openssl@3 2>/dev/null || true)
+    if [ -z "$openssl_prefix" ] || [ ! -d "$openssl_prefix" ]; then
+        say "Homebrew openssl@3 was not found; building without OpenSSL 3 flags."
+        return 0
+    fi
+
+    CPPFLAGS="-I$openssl_prefix/include"
+    LDFLAGS="-L$openssl_prefix/lib"
+    OPENSSL_PREFIX="$openssl_prefix"
+    PKG_CONFIG_PATH="$openssl_prefix/lib/pkgconfig"
+    export CPPFLAGS LDFLAGS OPENSSL_PREFIX PKG_CONFIG_PATH
+
+    if [ -n "${RC_FILE:-}" ]; then
+        write_rc_line "$RC_FILE" 'export CPPFLAGS="-I$(brew --prefix openssl@3)/include"'
+        write_rc_line "$RC_FILE" 'export LDFLAGS="-L$(brew --prefix openssl@3)/lib"'
+        write_rc_line "$RC_FILE" 'export OPENSSL_PREFIX="$(brew --prefix openssl@3)"'
+        write_rc_line "$RC_FILE" 'export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig"'
+    fi
+
+    say "Using Homebrew openssl@3 ($openssl_prefix) for native builds."
+}
+
 run_cpanm() {
     cpanm_script=${CPANM_SCRIPT:-$(command -v cpanm)}
     [ -n "$cpanm_script" ] || fail "Missing required command: cpanm"
@@ -914,6 +945,7 @@ run_cpanm() {
 bootstrap_local_lib() {
     require_command cpanm
     resolve_perl
+    export_darwin_openssl_env
 
     mkdir -p "$INSTALL_ROOT"
     run_cpanm --notest --local-lib-contained "$INSTALL_ROOT" local::lib App::cpanminus File::ShareDir::Install
@@ -1005,11 +1037,11 @@ shell_command_runner() {
 }
 
 write_dashboard_shell_bootstrap() {
-    DASHBOARD_BIN="$INSTALL_ROOT/bin/dashboard"
+    DASHBOARD_BIN="$INSTALL_ROOT/bin/d2"
     if [ ! -x "$DASHBOARD_BIN" ]; then
-        DASHBOARD_BIN=$(command -v dashboard || true)
+        DASHBOARD_BIN=$(command -v d2 || true)
     fi
-    [ -n "$DASHBOARD_BIN" ] || fail "Developer Dashboard was installed but the dashboard command could not be located"
+    [ -n "$DASHBOARD_BIN" ] || fail "Developer Dashboard was installed but the d2 command could not be located"
     [ -x "$DASHBOARD_BIN" ] || fail "Developer Dashboard was installed but $DASHBOARD_BIN is not executable"
 
     SHELL_BOOTSTRAP_LINE=$(printf 'eval "$("%s" shell %s)"' "$DASHBOARD_BIN" "$(shell_bootstrap_target)")
@@ -1061,8 +1093,8 @@ handoff_to_activated_shell() {
 }
 
 initialize_dashboard() {
-    require_command dashboard
-    dashboard init
+    require_command d2
+    d2 init
 }
 
 main() {
@@ -1120,7 +1152,7 @@ main() {
     say "Run this now in your current shell:"
     say "  . \"$ACTIVATION_FILE\""
     say "Then verify with:"
-    say "  dashboard version"
+    say "  d2 version"
 }
 
 main "$@"

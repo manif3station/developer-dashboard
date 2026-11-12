@@ -85,7 +85,7 @@ is( Developer::Dashboard::Folder->bookmarks, $paths->dashboards_root, 'Folder bo
 is( Developer::Dashboard::Folder->bookmarks_root, $paths->dashboards_root, 'Folder AUTOLOAD resolves bookmarks_root through the legacy bookmarks alias' );
 is( Developer::Dashboard::Folder->configs, $paths->config_root, 'Folder configs resolves config root' );
 is( Developer::Dashboard::Folder->config_root, $paths->config_root, 'Folder AUTOLOAD resolves config_root through the legacy configs alias' );
-is_deeply( Developer::Dashboard::Folder->all, $paths->all_paths, 'Folder all returns the full dashboard paths inventory' );
+is_deeply( Developer::Dashboard::Folder->all, $paths->all_paths, 'Folder all returns the full d2 paths inventory' );
 ok( -d Developer::Dashboard::Folder->postman, 'Folder postman creates the neutral postman directory' );
 
 my $cd_result = Developer::Dashboard::Folder->cd(
@@ -387,7 +387,7 @@ PERL
     is( $stderr, '', '_run_saved_ajax_perl_file keeps stderr empty for a successful saved Ajax Perl wrapper run' );
     like( $stdout, qr/^from-file$/m, '_run_saved_ajax_perl_file loads params from the file-backed JSON payload' );
     like( $stdout, qr/^foo=from-file$/m, '_run_saved_ajax_perl_file loads QUERY_STRING from the file-backed payload when needed' );
-    like( $stdout, qr/^dashboard ajax: coverage-wrapper$/m, '_run_saved_ajax_perl_file applies the saved Ajax singleton process title inside the wrapper' );
+    like( $stdout, qr/^d2 ajax: coverage-wrapper$/m, '_run_saved_ajax_perl_file applies the saved Ajax singleton process title inside the wrapper' );
     like( $stdout, qr/^yes$/m, '_run_saved_ajax_perl_file keeps stash writes available to later wrapper code' );
     like( $stdout, qr/^ok$/m, '_run_saved_ajax_perl_file keeps void stash writes available to later wrapper code' );
 }
@@ -611,8 +611,8 @@ PERL
         );
         is( $stream_result->{exit_code}, 0, 'stream_saved_ajax_file succeeds when singleton replacement is enabled' );
     }
-    is_deeply( \@patterns, ['^dashboard ajax: FOOBAR$'], 'stream_saved_ajax_file kills matching singleton Ajax workers before starting a replacement' );
-    like( $streamed, qr/^dashboard ajax: FOOBAR$/m, 'stream_saved_ajax_file renames the saved Perl Ajax worker to the singleton process title' );
+    is_deeply( \@patterns, ['^d2 ajax: FOOBAR$'], 'stream_saved_ajax_file kills matching singleton Ajax workers before starting a replacement' );
+    like( $streamed, qr/^d2 ajax: FOOBAR$/m, 'stream_saved_ajax_file renames the saved Perl Ajax worker to the singleton process title' );
 }
 {
     my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'stream-timing.pl' );

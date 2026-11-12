@@ -93,7 +93,7 @@ my $manager = Developer::Dashboard::RuntimeManager->new(
 
 is(
     $manager->_collector_supervisor_process_title,
-    'dashboard collector supervisor',
+    'd2 collector supervisor',
     'collector supervisor uses the expected process title',
 );
 like(
@@ -128,7 +128,7 @@ is( $manager->_collector_supervisor_poll_interval, 5, 'collector supervisor poll
 
 ok(
     $manager->_looks_like_collector_supervisor_process(
-        { pid => $$, args => 'dashboard collector supervisor' }
+        { pid => $$, args => 'd2 collector supervisor' }
     ),
     'collector supervisor title records are recognized',
 );
@@ -146,7 +146,7 @@ ok(
 );
 ok(
     !$manager->_looks_like_collector_supervisor_process(
-        { pid => $$, args => 'dashboard collector start alpha' }
+        { pid => $$, args => 'd2 collector start alpha' }
     ),
     'unrelated collector commands are not mistaken for the supervisor',
 );
@@ -265,7 +265,7 @@ ok(
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub {
-        return 'dashboard collector supervisor';
+        return 'd2 collector supervisor';
     };
     ok( $manager->_is_collector_supervisor($$), 'collector supervisor title fallback detects the process' );
 }
@@ -283,7 +283,7 @@ ok(
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub {
-        return 'dashboard collector start alpha';
+        return 'd2 collector start alpha';
     };
     ok( !$manager->_is_collector_supervisor($$), 'collector supervisor detection rejects unrelated processes' );
 }

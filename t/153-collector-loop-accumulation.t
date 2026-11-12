@@ -526,7 +526,7 @@ sub _read_optional_file {
 # permanent state of a kernel thread (kworker, ksoftirqd, etc), never a race.
 # Falling back to `ps -o args= -p $pid` for every such PID makes the scan cost
 # one subprocess spawn per kernel thread on the host - reproduced live: a host
-# with 943 empty-cmdline /proc entries made `dashboard serve --foreground` hang
+# with 943 empty-cmdline /proc entries made `d2 serve --foreground` hang
 # for 90+ seconds with zero output whenever any skill declared a collector,
 # because starting/checking that collector calls this exact scan.
 #

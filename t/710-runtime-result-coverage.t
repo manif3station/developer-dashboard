@@ -170,15 +170,15 @@ sub scripted {
 # report() and last_result() accept being called as a class method or function.
 {
     local $ENV{RESULT} = encode_json( { '00-a.pl' => { exit_code => 0 } } );
-    local $0 = '/usr/bin/dashboard';
-    like( $P->report(), qr/dashboard Run Report/, 'report as a class method strips the package name' );
+    local $0 = '/usr/bin/d2';
+    like( $P->report(), qr/d2 Run Report/, 'report as a class method strips the package name' );
     like( Developer::Dashboard::Runtime::Result::report( command => 'x' ), qr/x Run Report/, 'report as a function honours the command override' );
-    like( Developer::Dashboard::Runtime::Result::report(), qr/dashboard Run Report/, 'report with no arguments works' );
+    like( Developer::Dashboard::Runtime::Result::report(), qr/d2 Run Report/, 'report with no arguments works' );
     my @warnings;
     {
         local $SIG{__WARN__} = sub { push @warnings, @_ };
-        like( Developer::Dashboard::Runtime::Result::report(undef), qr/dashboard Run Report/, 'report tolerates an undef leading argument' );
-        like( Developer::Dashboard::Runtime::Result::report( [1] ), qr/dashboard Run Report/, 'report ignores a reference leading argument' );
+        like( Developer::Dashboard::Runtime::Result::report(undef), qr/d2 Run Report/, 'report tolerates an undef leading argument' );
+        like( Developer::Dashboard::Runtime::Result::report( [1] ), qr/d2 Run Report/, 'report ignores a reference leading argument' );
     }
     like( join( '', @warnings ), qr/Odd number of elements in hash assignment/, 'a malformed argument list is reported as an odd-elements warning' );
     like( join( '', @warnings ), qr/Reference found where even-sized list expected/, 'a reference argument is reported as a reference-found warning' );

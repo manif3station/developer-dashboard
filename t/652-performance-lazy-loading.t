@@ -10,7 +10,7 @@ use lib 'lib';
 use Developer::Dashboard::CLI::Paths ();
 
 my $repo = abs_path('.');
-my $entrypoint = File::Spec->catfile( $repo, 'bin', 'dashboard' );
+my $entrypoint = File::Spec->catfile( $repo, 'bin', 'd2' );
 my $path_registry = File::Spec->catfile( $repo, 'lib', 'Developer', 'Dashboard', 'PathRegistry.pm' );
 my $internal_cli = File::Spec->catfile( $repo, 'lib', 'Developer', 'Dashboard', 'InternalCLI.pm' );
 my $version_module = File::Spec->catfile( $repo, 'lib', 'Developer', 'Dashboard', 'Version.pm' );
@@ -20,7 +20,7 @@ my $ps1_helper = File::Spec->catfile( $repo, 'share', 'private-cli', 'ps1' );
 my $entrypoint_source = _read_file($entrypoint);
 ok(
     index( $entrypoint_source, 'use Developer::Dashboard::Platform' ) < 0,
-    'the dashboard switchboard does not eagerly load platform helpers',
+    'the d2 switchboard does not eagerly load platform helpers',
 );
 ok(
     index( $entrypoint_source, 'require Developer::Dashboard::Platform' ) >= 0,
@@ -573,7 +573,7 @@ parser behavior.
 
 =head1 WHEN TO USE
 
-Run this test when changing lightweight imports in C<bin/dashboard>,
+Run this test when changing lightweight imports in C<bin/d2>,
 C<Developer::Dashboard::CLI::Paths>, or C<Developer::Dashboard::PathRegistry>,
 or C<share/private-cli/paths>, or when investigating startup-time regressions
 in those paths.
@@ -601,14 +601,14 @@ Checks the import contracts and version-command behavior.
 
 Example 2:
 
-  NYTPROF=file=nytprof.out:stmts=0:subs=1 perl -d:NYTProf bin/dashboard version
+  NYTPROF=file=nytprof.out:stmts=0:subs=1 perl -d:NYTProf bin/d2 version
 
 Profiles a lightweight command after the test protects its expected dispatch
 behavior.
 
 Example 3:
 
-  dashboard paths -o json
+  d2 paths -o json
 
 Emits machine-readable paths without loading terminal table renderers. Default
 human-readable paths output continues to load its renderer lazily.

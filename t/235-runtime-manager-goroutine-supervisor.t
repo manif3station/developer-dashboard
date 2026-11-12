@@ -152,7 +152,7 @@ if ( defined $start_web_background ) {
     local *Developer::Dashboard::RuntimeManager::_runtime_poll_interval = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return (4321) };
     local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 1 };
-    local *Developer::Dashboard::RuntimeManager::_web_process_title = sub { return 'dashboard web: 127.0.0.1:7890' };
+    local *Developer::Dashboard::RuntimeManager::_web_process_title = sub { return 'd2 web: 127.0.0.1:7890' };
     local *Developer::Dashboard::RuntimeManager::_write_web_state = sub {
         my ( undef, $state ) = @_;
         $written_state = { %{$state} };

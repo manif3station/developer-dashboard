@@ -184,8 +184,8 @@ sub dies_like {
 }
 
 for my $case (
-    [ [ '--unknown' ], qr/Usage: dashboard upgrade \[--dry-run\]/, 'unsupported options fail with upgrade usage' ],
-    [ ['operand'],     qr/Usage: dashboard upgrade \[--dry-run\]/, 'positional operands fail with upgrade usage' ],
+    [ [ '--unknown' ], qr/Usage: d2 upgrade \[--dry-run\]/, 'unsupported options fail with upgrade usage' ],
+    [ ['operand'],     qr/Usage: d2 upgrade \[--dry-run\]/, 'positional operands fail with upgrade usage' ],
   )
 {
     my $error = '';
@@ -316,7 +316,7 @@ for my $case (
     is(
         $ua->agent,
         "Developer-Dashboard/$Developer::Dashboard::CLI::Upgrade::VERSION upgrade",
-        'the production downloader identifies the installed dashboard version',
+        'the production downloader identifies the installed d2 version',
     );
     is( $ua->timeout, 60, 'the production downloader has a bounded timeout' );
     is( $ua->max_size, 512_000, 'the production downloader bounds installer size' );
@@ -402,7 +402,7 @@ is(
 );
 
 my $repo_root = abs_path( File::Spec->catdir( dirname(__FILE__), '..' ) );
-my $dashboard = File::Spec->catfile( $repo_root, 'bin', 'dashboard' );
+my $dashboard = File::Spec->catfile( $repo_root, 'bin', 'd2' );
 my $d2 = File::Spec->catfile( $repo_root, 'bin', 'd2' );
 my $lib = File::Spec->catdir( $repo_root, 'lib' );
 my $home = tempdir( CLEANUP => 1 );
@@ -414,11 +414,11 @@ my ( $d2_out, $d2_err, $d2_status ) = capture {
     local $ENV{HOME} = $home;
     system $^X, '-I', $lib, $d2, 'upgrade', '--dry-run';
 };
-is( $dashboard_status >> 8, 0, 'dashboard upgrade --dry-run dispatches successfully' );
-is( $dashboard_err, '', 'dashboard upgrade --dry-run emits no stderr' );
+is( $dashboard_status >> 8, 0, 'd2 upgrade --dry-run dispatches successfully' );
+is( $dashboard_err, '', 'd2 upgrade --dry-run emits no stderr' );
 is( $d2_status >> 8, 0, 'd2 upgrade --dry-run reaches the same built-in command' );
 is( $d2_err, '', 'd2 upgrade --dry-run emits no stderr' );
-is( $d2_out, $dashboard_out, 'd2 upgrade output is identical to dashboard upgrade output' );
+is( $d2_out, $dashboard_out, 'd2 upgrade output is identical to d2 upgrade output' );
 like( $dashboard_out, qr/^Developer Dashboard upgrade plan$/m, 'the public command prints the upgrade plan' );
 
 ok(
@@ -434,12 +434,12 @@ __END__
 
 =head1 NAME
 
-t/136-upgrade-cli.t - acceptance contract for dashboard and d2 self-upgrade
+t/136-upgrade-cli.t - acceptance contract for d2 self-upgrade
 
 =head1 PURPOSE
 
 This test is the automated BDD and ATDD contract for the first-class
-C<dashboard upgrade> and C<d2 upgrade> command. It verifies that the command
+C<d2 upgrade> and C<d2 upgrade> command. It verifies that the command
 selects the canonical platform installer, validates downloaded content, and
 runs it without shell-string interpolation.
 

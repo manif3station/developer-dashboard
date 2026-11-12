@@ -1059,7 +1059,7 @@ sub _ssl_subject_alt_name_is_ip {
 
 # _ssl_cert_has_expected_profile($cert_file)
 # Checks whether one generated certificate matches the browser-safe localhost
-# leaf-certificate profile required by dashboard serve --ssl.
+# leaf-certificate profile required by d2 serve --ssl.
 # Input: certificate file path string.
 # Output: boolean true when the certificate already contains the required SAN,
 # key-usage, extended-key-usage, and non-CA extensions.
@@ -1236,7 +1236,7 @@ Construct it with the backend app object, path registry, and desired host, port,
 
 =head1 WHAT USES IT
 
-It is used by C<dashboard serve>, C<dashboard restart>, C<app.psgi> smoke paths, SSL/browser regression tests, and contributors verifying security headers and HTTPS behavior.
+It is used by C<d2 serve>, C<d2 restart>, C<app.psgi> smoke paths, SSL/browser regression tests, and contributors verifying security headers and HTTPS behavior.
 
 =head1 EXAMPLES
 

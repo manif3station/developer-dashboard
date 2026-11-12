@@ -310,19 +310,19 @@ my $P = 'Developer::Dashboard::Runtime::Result';
 # ---------------------------------------------------------------------------
 {
     local $0 = '/';
-    is( Developer::Dashboard::Runtime::Result::_command_name(), 'dashboard', 'a root slash script path resolves to the default command name' );
+    is( Developer::Dashboard::Runtime::Result::_command_name(), 'd2', 'a root slash script path resolves to the default command name' );
 }
 {
     local $0 = '///';
-    is( Developer::Dashboard::Runtime::Result::_command_name(), 'dashboard', 'a slash-only script path normalizes to the default command name' );
+    is( Developer::Dashboard::Runtime::Result::_command_name(), 'd2', 'a slash-only script path normalizes to the default command name' );
 }
 {
     local $0 = "\\";
-    is( Developer::Dashboard::Runtime::Result::_command_name(), 'dashboard', 'a backslash-only script path resolves to the default command name' );
+    is( Developer::Dashboard::Runtime::Result::_command_name(), 'd2', 'a backslash-only script path resolves to the default command name' );
 }
 {
     local $0 = 'C:';
-    is( Developer::Dashboard::Runtime::Result::_command_name(), 'dashboard', 'a bare drive script path resolves to the default command name' );
+    is( Developer::Dashboard::Runtime::Result::_command_name(), 'd2', 'a bare drive script path resolves to the default command name' );
 }
 {
     local $0 = '/opt/tools/run';
@@ -331,12 +331,12 @@ my $P = 'Developer::Dashboard::Runtime::Result';
 {
     delete local $ENV{DEVELOPER_DASHBOARD_COMMAND};
     local $0 = '/run';
-    is( Developer::Dashboard::Runtime::Result::_command_name(), 'dashboard', 'a run wrapper whose parent is the root falls back to the default command name' );
+    is( Developer::Dashboard::Runtime::Result::_command_name(), 'd2', 'a run wrapper whose parent is the root falls back to the default command name' );
 }
 {
     delete local $ENV{DEVELOPER_DASHBOARD_COMMAND};
     local $0 = '/\\/run';
-    is( Developer::Dashboard::Runtime::Result::_command_name(), 'dashboard', 'a run wrapper whose parent basename is a bare separator falls back to the default command name' );
+    is( Developer::Dashboard::Runtime::Result::_command_name(), 'd2', 'a run wrapper whose parent basename is a bare separator falls back to the default command name' );
 }
 
 done_testing;
