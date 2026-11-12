@@ -168,7 +168,7 @@ sub base_args {
         $run_lifecycle->( command => 'restart', args => [], %a );
     };
     is( $rc, 0, 'lifecycle default scope all, table output, restart' );
-    like( $out, qr/web.*dashboard.*restarted/s, 'table renders the restart result' );
+    like( $out, qr/web.*d2.*restarted/s, 'table renders the restart result' );
 }
 
 {
@@ -290,7 +290,7 @@ sub base_args {
         web        => { status => 'up', pid => 1, details => '' },
         collectors => [ { name => 'a', status => 'up', pid => 2, details => '' } ],
     } );
-    like( $table, qr/web.*dashboard.*up.*1.*-/s,     'falsy web details render as -' );
+    like( $table, qr/web.*d2.*up.*1.*-/s,     'falsy web details render as -' );
     like( $table, qr/collector.*a.*up.*2.*-/s,       'falsy collector details render as -' );
 }
 
@@ -299,7 +299,7 @@ sub base_args {
         web        => { status => '', pid => 1, details => 'ok' },
         collectors => [ { name => '', status => '', pid => 2, details => 'ok' } ],
     } );
-    like( $table, qr/web.*dashboard.*-.*1.*ok/s, 'falsy web status renders as -' );
+    like( $table, qr/web.*d2.*-.*1.*ok/s, 'falsy web status renders as -' );
     like( $table, qr/collector.*-.*-.*2.*ok/s,   'falsy collector name and status render as -' );
 }
 
@@ -308,7 +308,7 @@ sub base_args {
         web        => { status => 'up', details => 'ok' },
         collectors => [ { name => 'a', status => 'up', details => 'ok' } ],
     } );
-    like( $table, qr/web.*dashboard.*up.*-.*ok/s,      'an undef web pid renders as -' );
+    like( $table, qr/web.*d2.*up.*-.*ok/s,      'an undef web pid renders as -' );
     like( $table, qr/collector.*a.*up.*-.*ok/s,        'an undef collector pid renders as -' );
 }
 
@@ -419,7 +419,7 @@ is_deeply(
         { web => "web entry\n", 'collector:alpha' => '', 'collector:beta' => undef },
         'all',
     );
-    like( $combined_output, qr/=== dashboard web ===\nweb entry/, 'combined rendering preserves the web header and body' );
+    like( $combined_output, qr/=== d2 web ===\nweb entry/, 'combined rendering preserves the web header and body' );
     like( $combined_output, qr/No log entries are available yet for collector 'alpha'/, 'combined rendering includes empty collector placeholders' );
     like( $combined_output, qr/No log entries are available yet for collector 'beta'/, 'combined rendering normalizes an undefined source' );
 }
@@ -719,7 +719,7 @@ is( $tail_log_text->( "\n", 1 ), "\n", 'tailing a blank newline preserves the ne
     my %a = base_args( runtime => Test::RC::Runtime->new( web_log_result => "web body\n" ) );
     my ( $out, $err, $rc ) = capture { $run_log->( args => [], %a ); };
     is( $rc, 0, 'log all scope returns 0' );
-    like( $out, qr/=== dashboard web ===/, 'all scope prints the web header' );
+    like( $out, qr/=== d2 web ===/, 'all scope prints the web header' );
 }
 
 {
@@ -736,7 +736,7 @@ is( $tail_log_text->( "\n", 1 ), "\n", 'tailing a blank newline preserves the ne
     );
     my ( $out, $err, $rc ) = capture { $run_log->( args => [], %a ); };
     is( $rc, 0, 'all scope with an undef web log still returns 0' );
-    unlike( $out, qr/=== dashboard web ===/, 'an undef web log omits the web header' );
+    unlike( $out, qr/=== d2 web ===/, 'an undef web log omits the web header' );
     like( $out, qr/collector line/,          'the collector log still prints' );
 }
 
@@ -744,7 +744,7 @@ is( $tail_log_text->( "\n", 1 ), "\n", 'tailing a blank newline preserves the ne
     my %a = base_args( runtime => Test::RC::Runtime->new( web_log_result => '' ) );
     my ( $out, $err, $rc ) = capture { $run_log->( args => [], %a ); };
     is( $rc, 0, 'all scope with an empty-string web log still returns 0' );
-    unlike( $out, qr/=== dashboard web ===/, 'an empty-string web log omits the web header' );
+    unlike( $out, qr/=== d2 web ===/, 'an empty-string web log omits the web header' );
 }
 
 {
@@ -878,7 +878,7 @@ is( $tail_log_text->( "\n", 1 ), "\n", 'tailing a blank newline preserves the ne
 
 {
     my $table = $summary_table->( { web => { status => 'up', pid => 1, details => 'ok' } } );
-    like( $table, qr/web.*dashboard.*up.*1.*ok/s, 'summary table renders a web row' );
+    like( $table, qr/web.*d2.*up.*1.*ok/s, 'summary table renders a web row' );
 }
 
 {

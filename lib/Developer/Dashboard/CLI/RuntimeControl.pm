@@ -235,7 +235,7 @@ sub _render_log_sources {
     }
     my @parts;
     my $web_log = $sources->{web};
-    push @parts, "=== dashboard web ===\n$web_log" if defined $web_log && $web_log ne '';
+    push @parts, "=== d2 web ===\n$web_log" if defined $web_log && $web_log ne '';
     my @names = sort map { s/^collector://r } grep { /^collector:/ } keys %$sources;
     my $collector_log = @names
       ? join "\n", map {
@@ -438,7 +438,7 @@ sub _lifecycle_summary_table {
     if ( my $web = $result->{web} ) {
         push @rows, [
             'web',
-            'dashboard',
+            'd2',
             $web->{status} || '-',
             defined $web->{pid} ? $web->{pid} : '-',
             $web->{details} || '-',

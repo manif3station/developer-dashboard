@@ -1078,7 +1078,7 @@ if ( !$UNDER_COVER ) {
     ok( $top_level_restart_web->{web_pid}, 'd2 restart web returns the managed web pid in JSON mode' );
     my $top_level_stop_web = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' stop web" );
     like( $top_level_stop_web, qr/Component\s+Target\s+Status/, 'd2 stop web prints a table summary by default' );
-    like( $top_level_stop_web, qr/web\s+dashboard\s+stopped/, 'd2 stop web reports the web row in the summary table' );
+    like( $top_level_stop_web, qr/web\s+d2\s+stopped/, 'd2 stop web reports the web row in the summary table' );
 }
 
 my $bookmarks_root = _run("$perl -I'$lib' '$dashboard' path resolve bookmarks_root");
