@@ -2153,7 +2153,9 @@ sub _all_installed_skill_names {
     my ($self) = @_;
     my @names;
     for my $skill_root ( $self->{manager}{paths}->installed_skill_roots ) {
-        my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
+        # File::Spec returns backslash-separated native paths on Windows.
+        # File::Basename recognizes the host separator on every platform.
+        my $skill_name = basename($skill_root);
         next if !defined $skill_name;
         push @names, $self->_descendant_skill_names( $skill_name, $skill_root );
     }

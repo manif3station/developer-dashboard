@@ -1552,6 +1552,18 @@ SH
     is( $runner_sh[1], 'runner.sh', 'command_argv_for_path keeps the shell-script path when dispatching through an available POSIX shell on Windows' );
     like( $runner_sh[0], qr{(?:^|/)sh$}, 'command_argv_for_path resolves .sh scripts through an available POSIX shell on Windows' );
     {
+        open my $fh, '>', 'runner-no-extension' or die $!;
+        print {$fh} "#!/bin/sh\necho extensionless-ok\n";
+        close $fh;
+    }
+    ok( is_runnable_file('runner-no-extension'),
+        'Windows recognizes an extensionless shell-shebang skill command' );
+    my @extensionless_sh = command_argv_for_path('runner-no-extension');
+    like( $extensionless_sh[0], qr{(?:^|/)sh$},
+        'Windows executes extensionless shell shebangs through a POSIX shell, not Perl' );
+    is( $extensionless_sh[1], 'runner-no-extension',
+        'Windows preserves a relative extensionless shell-script path' );
+    {
         open my $fh, '>', 'runner.js' or die $!;
         print {$fh} "console.log('win-ok');\n";
         close $fh;

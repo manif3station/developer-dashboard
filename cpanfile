@@ -34,6 +34,8 @@ requires 'HTTP::Tiny', '0.096';
 requires 'HTTP::Request';
 requires 'LWP::Protocol::https', '6.07';
 requires 'LWP::UserAgent', '6.83';
+# Prevent historical and 2026-10 CA-bundle vulnerability resolutions.
+requires 'Mozilla::CA', '20261020';
 requires 'Template', '3.103';
 requires 'URI', '5.36';
 requires 'URI::Escape', '5.36';

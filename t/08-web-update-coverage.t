@@ -112,7 +112,11 @@ my $app = Developer::Dashboard::Web::App->new(
 
 my $skill_manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 my $dancer_skill_repo = _create_dancer_route_skill_repo('dancer-route-skill');
-my $dancer_skill_install = $skill_manager->install( 'file://' . $dancer_skill_repo );
+my $dancer_skill_uri_path = $dancer_skill_repo;
+# Git requires a valid file URI, not file://C:\\... on Windows.
+$dancer_skill_uri_path =~ s{\\}{/}g if $^O eq 'MSWin32';
+my $dancer_skill_url = ( $^O eq 'MSWin32' ? 'file:///' : 'file://' ) . $dancer_skill_uri_path;
+my $dancer_skill_install = $skill_manager->install($dancer_skill_url);
 ok( !$dancer_skill_install->{error}, 'dancer route skill installs cleanly for PSGI route coverage' )
   or diag $dancer_skill_install->{error};
 

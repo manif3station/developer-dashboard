@@ -4356,8 +4356,21 @@ sub _serve_static_file_from_roots {
     for my $public_dir (@public_roots) {
         my $candidate = File::Spec->catfile( $public_dir, $filename );
         my $real_path = File::Spec->rel2abs($candidate);
-        my $quoted_public = quotemeta($public_dir);
-        next if $real_path !~ /^$quoted_public(?:\/|\z)/;
+        if (is_windows()) {
+            # rel2abs uses native backslashes on Windows; a forward-slash-only
+            # suffix check rejects every legitimate child file as a 404.
+            # The later realpath containment guard still checks symlinks.
+            my $root_path = File::Spec->rel2abs($public_dir);
+            my ( $file_cmp, $root_cmp ) = ( lc $real_path, lc $root_path );
+            $file_cmp =~ s{\\}{/}g;
+            $root_cmp =~ s{\\}{/}g;
+            $root_cmp =~ s{/$}{} if $root_cmp ne '/';
+            next if index( $file_cmp, $root_cmp . '/' ) != 0;
+        }
+        else {
+            my $quoted_public = quotemeta($public_dir);
+            next if $real_path !~ /^$quoted_public(?:\/|\z)/;
+        }
         next if !-f $candidate || !_file_is_readable($candidate);
         $file_path = $candidate;
         last;

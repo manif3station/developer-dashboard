@@ -3712,10 +3712,16 @@ sub _run {
         # The Windows Perl executable is a native drive path. A POSIX shell
         # strips its unquoted backslashes (C:\\... becomes C:...), so quote
         # the executable while leaving the command's shell operators intact.
+        # Git Bash uses /d/... rather than D:\\... as an executable path.
+        # Replace both quoted and bare native Perl invocations, preserving
+        # shell operators and ordinary native paths passed as Perl arguments.
         my $shell_perl = $perl;
+        $shell_perl =~ s{\\}{/}g;
+        $shell_perl =~ s{\A([A-Za-z]):}{'/' . lc($1)}e;
         $shell_perl =~ s/'/'"'"'/g;
         $shell_perl = "'$shell_perl'";
-        $cmd =~ s/(?<!['"])\Q$perl\E(?=\s)/$shell_perl/g;
+        $cmd =~ s/'\Q$perl\E'/$shell_perl/g;
+        $cmd =~ s/(?<![\w'"])\Q$perl\E(?=\s)/$shell_perl/g;
     }
     my $child_perl5opt = join ' ', grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
     my $runtime_command = (
@@ -3726,6 +3732,11 @@ sub _run {
           && $cmd =~ /\Q'$runtime_dd_cli_root\E\/(?:_dashboard-core|doctor|serve|restart|stop)\b/
     );
     my ( $stdout, $stderr, $exit_code ) = capture {
+        # Git Bash rewrites URL-like command arguments such as /ajax/health to
+        # Windows filesystem paths before handing them to native Strawberry
+        # Perl. Disable that conversion only for this Windows shell fixture.
+        local $ENV{MSYS_NO_PATHCONV} = '1' if $^O eq 'MSWin32';
+        local $ENV{MSYS2_ARG_CONV_EXCL} = '*' if $^O eq 'MSWin32';
         if ($runtime_command) {
             local $ENV{PERL5OPT};
             local $ENV{HARNESS_PERL_SWITCHES};
