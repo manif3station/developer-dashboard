@@ -18,6 +18,12 @@ ok defined(&Developer::Dashboard::GoRoutine::process_exited),
 my $invalid_process = eval { Developer::Dashboard::GoRoutine::process_exited(0); 1 };
 ok( !$invalid_process, 'process_exited rejects the reserved zero process id' );
 like( $@, qr/invalid GoRoutine child process identifier/, 'invalid process id failure is explicit' );
+my $invalid_wait = eval { Developer::Dashboard::GoRoutine::wait_process(0); 1 };
+ok( !$invalid_wait, 'wait_process rejects the reserved zero process id' );
+like( $@, qr/invalid GoRoutine child process identifier/, 'invalid wait process id failure is explicit' );
+my $huge_wait = eval { Developer::Dashboard::GoRoutine::wait_process(4294967296); 1 };
+ok( !$huge_wait, 'wait_process rejects a process id above the Windows DWORD range' );
+like( $@, qr/invalid GoRoutine child process identifier/, 'oversized wait process id failure is explicit' );
 
 my $dir = tempdir( CLEANUP => 1 );
 my $stdout = File::Spec->catfile( $dir, 'stdout.txt' );
@@ -139,6 +145,18 @@ ok( Developer::Dashboard::GoRoutine::process_exited($long_child),
   'process_exited observes termination without reaping the child' );
 my $terminated = Developer::Dashboard::GoRoutine::wait_process($long_child);
 ok( $terminated >= 128, 'terminated child returns a signal-derived exit status' );
+
+SKIP: {
+    skip 'already-reaped wait_process behaviour is Windows-only', 2 if $^O ne 'MSWin32';
+    my $reaped_child = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'exit 0;' ],
+        { cwd => $dir, stdout => $stdout, stderr => $stderr },
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($reaped_child), 0,
+      'first wait_process collects the child exit status' );
+    is( Developer::Dashboard::GoRoutine::wait_process($reaped_child), 255,
+      'wait_process on an already-reaped child reports the unknown exit status' );
+}
 
 SKIP: {
     skip 'named POSIX signal handling is unavailable on Windows', 4 if $^O eq 'MSWin32';

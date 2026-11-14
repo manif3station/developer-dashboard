@@ -146,6 +146,15 @@ is( $probe_exit, 0, 'ATDD: launcher keeps inherited and local-lib probe modules 
 is( $probe_stdout, "inherited\n", 'BDD: inherited module path wins over a stale local-lib copy' );
 is( $probe_stderr, '', 'BDD: launcher emits no errors for local modules' );
 
+my $child_exit;
+{
+    ( undef, undef, $child_exit ) = capture {
+        system( $^X, $runner, '-e', 'exit 3;' );
+        return $? >> 8;
+    };
+}
+is( $child_exit, 3, 'ATDD: launcher exits with the child Perl exit status' );
+
 {
     local $ENV{HOME} = $home;
     local $ENV{PERL5LIB} = $inherited_lib;

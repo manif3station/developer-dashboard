@@ -90,23 +90,41 @@ int
 wait_process(pid)
     UV pid
   CODE:
+    if (pid == 0)
+        croak("invalid GoRoutine child process identifier");
 #ifdef _WIN32
     {
+        if (pid > (UV)0xFFFFFFFFUL)
+            croak("invalid GoRoutine child process identifier");
         HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
                                      FALSE, (DWORD)pid);
         DWORD wait_result, exit_code = 0;
-        if (process == NULL)
-            croak("unable to open GoRoutine child process (Windows error %lu)",
-                  (unsigned long)GetLastError());
-        wait_result = WaitForSingleObject(process, INFINITE);
-        if (wait_result != WAIT_OBJECT_0 || !GetExitCodeProcess(process, &exit_code)) {
+        if (process == NULL) {
             DWORD error = GetLastError();
-            CloseHandle(process);
-            croak("unable to wait for GoRoutine child process (Windows error %lu)",
-                  (unsigned long)error);
+            if (error == ERROR_INVALID_PARAMETER) {
+                /* The child has already exited and been reaped: the spawn
+                   layer closes its own process handle at spawn time, so no
+                   process object remains to open. Treat the child as exited.
+                   No exit code survives to report, so return the
+                   unknown-status code the POSIX branch uses when the wait
+                   status cannot be determined. */
+                RETVAL = 255;
+            }
+            else
+                croak("unable to open GoRoutine child process (Windows error %lu)",
+                      (unsigned long)error);
         }
-        CloseHandle(process);
-        RETVAL = (int)exit_code;
+        else {
+            wait_result = WaitForSingleObject(process, INFINITE);
+            if (wait_result != WAIT_OBJECT_0 || !GetExitCodeProcess(process, &exit_code)) {
+                DWORD error = GetLastError();
+                CloseHandle(process);
+                croak("unable to wait for GoRoutine child process (Windows error %lu)",
+                      (unsigned long)error);
+            }
+            CloseHandle(process);
+            RETVAL = (int)exit_code;
+        }
     }
 #else
     {
