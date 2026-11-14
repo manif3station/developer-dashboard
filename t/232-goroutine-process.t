@@ -141,6 +141,18 @@ my $terminated = Developer::Dashboard::GoRoutine::wait_process($long_child);
 ok( $terminated >= 128, 'terminated child returns a signal-derived exit status' );
 
 SKIP: {
+    skip 'already-reaped wait_process behaviour is Windows-only', 2 if $^O ne 'MSWin32';
+    my $reaped_child = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'exit 0;' ],
+        { cwd => $dir, stdout => $stdout, stderr => $stderr },
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($reaped_child), 0,
+      'first wait_process collects the child exit status' );
+    is( Developer::Dashboard::GoRoutine::wait_process($reaped_child), 255,
+      'wait_process on an already-reaped child reports the unknown exit status' );
+}
+
+SKIP: {
     skip 'named POSIX signal handling is unavailable on Windows', 4 if $^O eq 'MSWin32';
     for my $signal_name (qw(HUP INT)) {
         my $signal_child = Developer::Dashboard::GoRoutine::spawn(

@@ -1367,6 +1367,8 @@ C<process_running($pid)> reports whether the process appears live.
 C<process_exited($pid)> checks completion without reaping a POSIX child, which
 allows a supervisor to poll safely before collecting its exit result.
 C<wait_process($pid)> waits for and returns the shell-style exit status.
+On Windows, waiting for a child that has already exited and been reaped
+returns 255 because no exit code survives to report.
 C<terminate_process($pid, $signal)> sends C<TERM>, C<KILL>, C<HUP>, or C<INT>
 on POSIX. Windows supports C<TERM> and C<KILL>, mapped to native process
 termination because POSIX signal handlers are unavailable there. Unsupported
