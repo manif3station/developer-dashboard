@@ -257,7 +257,12 @@ sub _current_perl_command {
 # Builds literal Perl -I arguments for string-valued entries in the current
 # interpreter's @INC, preserving its active module search path in native child
 # processes that cannot inherit in-memory use lib changes. Relative entries are
-# made absolute against the directory that loaded this helper.
+# made absolute against the directory that loaded this helper. Every path is
+# canonicalised (File::Spec->canonpath): on Windows @INC routinely mixes
+# separators, because Strawberry Perl and local::lib PERL5LIB entries use
+# forward slashes (e.g. C:\...\try\lib\perl5/MSWin32-x64-multi-thread), while
+# the spawned child must receive the native form the dashboard's own path
+# comparisons and the t/236 contract expect.
 # Input: none; reads the current interpreter's @INC.
 # Output: list of -I<path> argument strings; reference hooks are omitted because
 #         they are not filesystem paths and cannot be passed to another Perl.
@@ -267,6 +272,7 @@ sub _perl_library_args {
     return map {
         my $path = $_;
         $path = File::Spec->rel2abs( $path, $base ) if !File::Spec->file_name_is_absolute($path);
+        $path = File::Spec->canonpath($path);
         "-I$path";
     } grep { defined && !ref && length } @INC;
 }

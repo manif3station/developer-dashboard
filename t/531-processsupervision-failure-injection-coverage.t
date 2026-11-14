@@ -115,6 +115,20 @@ my $self = bless {}, 'Developer::Dashboard::ProcessSupervision';
     );
 }
 
+# Non-canonical @INC entries are canonicalised: on Windows Strawberry Perl
+# and local::lib PERL5LIB entries mix separators
+# (C:\...\try\lib\perl5/MSWin32-x64-multi-thread), and the spawned child must
+# receive the native form.
+{
+    local $Developer::Dashboard::ProcessSupervision::PERL_LIBRARY_BASE = '';
+    local @INC = ('/tmp//double-slash-lib');
+    is_deeply(
+        [ $self->_perl_library_args ],
+        [ '-I' . File::Spec->canonpath('/tmp//double-slash-lib') ],
+        '_perl_library_args canonicalises non-canonical @INC entries',
+    );
+}
+
 {
     no warnings 'redefine';
     local $Developer::Dashboard::ProcessSupervision::PERL_LIBRARY_BASE = '';
