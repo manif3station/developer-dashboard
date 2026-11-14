@@ -191,10 +191,13 @@ sub _write_local_lib_runner {
       "my \@prefix = \$is_test_harness ? \@test_lib_paths : ();\n",
       "if (\$^O eq 'darwin') { require Cwd; \@inherited = map { Cwd::abs_path(\$_) // \$_ } \@inherited; \@local_lib_paths = map { Cwd::abs_path(\$_) // \$_ } \@local_lib_paths; \@test_lib_paths = map { Cwd::abs_path(\$_) // \$_ } \@test_lib_paths; }\n",
       "\$ENV{PERL5LIB} = join \$Config{path_sep}, \@prefix, \@inherited, \@local_lib_paths;\n",
-      "my \$perl = \$^X;\nexec { \$perl } \$perl, \@ARGV;\n",
-      "die \"Unable to execute \$perl: \$!\\n\";\n",
+      "my \$perl = \$^X;\n",
+      "my \$status = system { \$perl } \$perl, \@ARGV;\n",
+      "die \"Unable to execute \$perl: \$!\\n\" if \$status == -1;\n",
+      "die \"\$perl terminated by signal \" . ( \$status & 127 ) . \"\\n\" if \$status & 127;\n",
+      "exit( \$status >> 8 );\n",
       "__END__\n\n=head1 NAME\n\n.dd-perl5lib-runner.pl - portable local Perl library launcher\n\n",
-      "=head1 DESCRIPTION\n\nPreserves inherited PERL5LIB entries before optional local::lib fallback paths, then replaces itself with the active Perl interpreter and forwards all arguments. When MakeMaker invokes Test::Harness, it prepends the distribution's absolute blib/lib and blib/arch paths so subprocesses load the current build and its matching XS object. Keeping these active paths ahead of local fallbacks prevents stale XS binaries from shadowing modules compatible with the active interpreter. It is generated beside the Makefile and removed by the clean target.\n\n",
+      "=head1 DESCRIPTION\n\nPreserves inherited PERL5LIB entries before optional local::lib fallback paths, then runs the active Perl interpreter as a child process and forwards all arguments, exiting with the child's exit status. When MakeMaker invokes Test::Harness, it prepends the distribution's absolute blib/lib and blib/arch paths so subprocesses load the current build and its matching XS object. Keeping these active paths ahead of local fallbacks prevents stale XS binaries from shadowing modules compatible with the active interpreter. It is generated beside the Makefile and removed by the clean target.\n\n",
       "=head1 EXAMPLE\n\n  perl .dd-perl5lib-runner.pl -MModule::Name -e 'print qq(ok\\n)'\n\n=cut\n",
       or die "Unable to write $runner: $!";
     close $fh or die "Unable to close $runner: $!";
