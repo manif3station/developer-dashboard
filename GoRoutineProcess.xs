@@ -90,8 +90,12 @@ int
 wait_process(pid)
     UV pid
   CODE:
+    if (pid == 0)
+        croak("invalid GoRoutine child process identifier");
 #ifdef _WIN32
     {
+        if (pid > (UV)0xFFFFFFFFUL)
+            croak("invalid GoRoutine child process identifier");
         HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
                                      FALSE, (DWORD)pid);
         DWORD wait_result, exit_code = 0;

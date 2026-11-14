@@ -18,6 +18,12 @@ ok defined(&Developer::Dashboard::GoRoutine::process_exited),
 my $invalid_process = eval { Developer::Dashboard::GoRoutine::process_exited(0); 1 };
 ok( !$invalid_process, 'process_exited rejects the reserved zero process id' );
 like( $@, qr/invalid GoRoutine child process identifier/, 'invalid process id failure is explicit' );
+my $invalid_wait = eval { Developer::Dashboard::GoRoutine::wait_process(0); 1 };
+ok( !$invalid_wait, 'wait_process rejects the reserved zero process id' );
+like( $@, qr/invalid GoRoutine child process identifier/, 'invalid wait process id failure is explicit' );
+my $huge_wait = eval { Developer::Dashboard::GoRoutine::wait_process(4294967296); 1 };
+ok( !$huge_wait, 'wait_process rejects a process id above the Windows DWORD range' );
+like( $@, qr/invalid GoRoutine child process identifier/, 'oversized wait process id failure is explicit' );
 
 my $dir = tempdir( CLEANUP => 1 );
 my $stdout = File::Spec->catfile( $dir, 'stdout.txt' );
