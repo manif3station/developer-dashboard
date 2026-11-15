@@ -861,6 +861,18 @@ sub _stream_saved_ajax_windows {
     # while a reader is blocked, which panics the interpreter with
     # COND_DESTROY on Windows. The main thread dequeues continuously, and
     # saved-Ajax payloads are small, so an unbounded queue is safe here.
+    # Save the standard handles before spawning the readers: on Windows a
+    # reader thread's interpreter cleanup can close the process-wide handles
+    # it inherited, leaving STDOUT/STDERR invalid in the main thread
+    # afterwards. Capture::Tiny then fails with "Bad file descriptor" when
+    # _run_single_block tries to capture a code block, the block never runs,
+    # and the ajax endpoint is never created (404). Dup them first so they
+    # can be restored after the join.
+    my ( $saved_stdout, $saved_stderr );
+    if ( is_windows() ) {
+        open( $saved_stdout, '>&STDOUT' ) or undef $saved_stdout;
+        open( $saved_stderr, '>&STDERR' ) or undef $saved_stderr;
+    }
     my @readers;
     for my $stream ( [ o => $stdout ], [ e => $stderr ] ) {
         my ( $label, $fh ) = @{$stream};
@@ -972,6 +984,22 @@ sub _stream_saved_ajax_windows {
     # is still blocked on it, and the interpreter panics with COND_DESTROY
     # on Windows instead of returning the error.
     $_->join for @readers;
+    if ( is_windows() ) {
+        # Restore the standard handles if a reader thread's cleanup closed
+        # them: without this, the next Capture::Tiny capture in
+        # _run_single_block fails with "Bad file descriptor", the code block
+        # never runs, and the ajax endpoint is never created (404).
+        if ( defined $saved_stdout && !defined fileno(STDOUT) ) {
+            open( STDOUT, '>&', $saved_stdout )
+              or warn "could not restore STDOUT after saved-Ajax stream: $!\n";
+        }
+        if ( defined $saved_stderr && !defined fileno(STDERR) ) {
+            open( STDERR, '>&', $saved_stderr )
+              or warn "could not restore STDERR after saved-Ajax stream: $!\n";
+        }
+        close $saved_stdout if defined $saved_stdout;
+        close $saved_stderr if defined $saved_stderr;
+    }
     die $fatal_error if defined $fatal_error;
 
     return {
