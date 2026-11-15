@@ -758,7 +758,20 @@ is( $runtime->_system_context( runtime_context => {}, source => '' )->{cwd}, '.'
 
     my $shebang = write_file( File::Spec->catfile( $home, 'sheb.dat' ), "#!/bin/sh\necho hi\n" );
     chmod 0700, $shebang or die $!;
-    is_deeply( [ $runtime->_saved_ajax_command( path => $shebang ) ], [$shebang], '_saved_ajax_command executes a shebang file directly' );
+    if ( $^O eq 'MSWin32' ) {
+        # CreateProcess cannot execute a shebang file directly on Windows;
+        # the command routes through the resolved POSIX shell instead, and
+        # the script still runs.
+        my @shebang_cmd = $runtime->_saved_ajax_command( path => $shebang );
+        is( scalar @shebang_cmd, 2, '_saved_ajax_command routes a shebang file through a shell on Windows' );
+        like( $shebang_cmd[1], qr/sheb\.dat\z/, '_saved_ajax_command passes the shebang file to the shell on Windows' );
+        my ( $shebang_out, undef, $shebang_exit ) = capture { system @shebang_cmd; return $? >> 8; };
+        is( $shebang_exit, 0, '_saved_ajax_command runs a shebang file through the shell on Windows' );
+        is( $shebang_out, "hi\n", '_saved_ajax_command streams the shebang file output on Windows' );
+    }
+    else {
+        is_deeply( [ $runtime->_saved_ajax_command( path => $shebang ) ], [$shebang], '_saved_ajax_command executes a shebang file directly' );
+    }
 
     my $plain = write_file( File::Spec->catfile( $home, 'plain.dat' ), "just text\n" );
     is( ( $runtime->_saved_ajax_command( path => $plain ) )[0], $^X, '_saved_ajax_command bootstraps a non-shebang extensionless file through Perl' );
