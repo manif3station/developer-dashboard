@@ -404,8 +404,31 @@ my $source_page = Developer::Dashboard::PageDocument->new(
 # ps fallback with undef, populated, and blank output (lines 309, 310, 311).
 # ---------------------------------------------------------------------------
 {
-    my $state = $runner->_read_process_state($$);
-    ok( defined $state && $state =~ /^\S$/, '_read_process_state() reads the live procfs one-letter state' );
+    # There is no procfs and no ps on Windows, so a state the product
+    # cannot read is undef there (the callers treat it as unknown); on a
+    # Unix host the current process always has a readable state.
+    if ( $^O eq 'MSWin32' ) {
+        is( $runner->_read_process_state($$), undef, '_read_process_state() returns undef on Windows, where there is no procfs and no ps' );
+    }
+    else {
+        my $state = $runner->_read_process_state($$);
+        ok( defined $state && $state =~ /^\S$/, '_read_process_state() reads the live procfs one-letter state' );
+    }
+}
+{
+    # Windows branch: with no procfs entry for the pid and no ps on
+    # Windows, the reader returns undef without spawning ps at all.
+    # Proved on Linux by localizing the platform (pid 999998 has no
+    # procfs entry there, so the ps path is the one taken); on Windows
+    # the branch is live.
+    no warnings 'redefine';
+    my $capture_called = 0;
+    local *Developer::Dashboard::ActionRunner::capture = sub (&) { $capture_called++; return ( "S\n", '', 0 ) };
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_read_process_state(999998), undef, 'on Windows _read_process_state() returns undef without spawning ps' );
+    }
+    is( $capture_called, 0, 'on Windows _read_process_state() does not spawn ps at all' );
 }
 {
     no warnings 'redefine';

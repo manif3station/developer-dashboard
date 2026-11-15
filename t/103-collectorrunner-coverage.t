@@ -494,8 +494,31 @@ SKIP: {
 # _read_process_title: proc cmdline path, then the ps fallback under a mocked
 # capture so every exit-code and defined-title branch is exercised.
 {
-    my $title = $runner->_read_process_title($$);
-    ok( defined $title && $title ne '', '_read_process_title reads the current process cmdline' );
+    # There is no procfs and no ps on Windows, so a title the product
+    # cannot read is undef there (the callers treat it as unknown); on a
+    # Unix host the current process always has a readable cmdline.
+    if ( $^O eq 'MSWin32' ) {
+        is( $runner->_read_process_title($$), undef, '_read_process_title returns undef on Windows, where there is no procfs and no ps' );
+    }
+    else {
+        my $title = $runner->_read_process_title($$);
+        ok( defined $title && $title ne '', '_read_process_title reads the current process cmdline' );
+    }
+}
+{
+    # Windows branch: with procfs mocked away and no ps on Windows, the
+    # reader returns undef without spawning ps at all. Proved on Linux
+    # by mocking the procfs read and localizing the platform; on Windows
+    # the branch is live.
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return undef };
+    my $capture_called = 0;
+    local *Developer::Dashboard::CollectorRunner::capture = sub { $capture_called++; return ( 'ps-title   ', '', 0 ) };
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_read_process_title($$), undef, 'on Windows _read_process_title returns undef without spawning ps' );
+    }
+    is( $capture_called, 0, 'on Windows _read_process_title does not spawn ps at all' );
 }
 {
     no warnings 'redefine';

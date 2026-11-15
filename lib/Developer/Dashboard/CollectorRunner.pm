@@ -1304,6 +1304,16 @@ sub _read_process_title {
         return $cmdline;
     }
 
+    if ( is_windows() ) {
+        # ps does not exist on Windows, and there is no Windows-native
+        # command-line reader in this layer, so a title that procfs did
+        # not supply is simply unavailable. Callers already treat undef
+        # as unknown; spawning cmd.exe for a ps that can never exist
+        # would only waste a process and surface its "not recognized"
+        # text through the capture.
+        return;
+    }
+
     my ( $title, undef, $exit_code ) = capture {
         system 'ps', '-o', 'args=', '-p', $pid;
         return $? >> 8;
@@ -1335,6 +1345,13 @@ sub _read_process_state {
     my $stat = $self->_read_proc_file($proc);
     if ( defined $stat && $stat ne '' && $stat =~ /^\d+\s+\(.*\)\s+(\S)/s ) {
         return $1;
+    }
+
+    if ( is_windows() ) {
+        # As _read_process_title above: ps does not exist on Windows, so
+        # a state that procfs did not supply is simply unavailable and
+        # the callers treat undef as unknown.
+        return;
     }
 
     my ( $state, undef, $exit_code ) = capture {

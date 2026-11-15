@@ -12,7 +12,7 @@ use File::Spec;
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 use Developer::Dashboard::JSON qw(json_encode);
-use Developer::Dashboard::Platform qw(shell_command_argv);
+use Developer::Dashboard::Platform qw(is_windows shell_command_argv);
 use Developer::Dashboard::TimeUtils qw(_now_iso8601);
 
 # new(%args)
@@ -343,6 +343,15 @@ sub _read_process_state {
         local $/;
         my $stat = scalar <$fh>;
         return $1 if $stat =~ /^\d+\s+\(.*\)\s+(\S)/s;
+    }
+
+    if ( is_windows() ) {
+        # ps does not exist on Windows, so a state that procfs did not
+        # supply is simply unavailable. Callers already treat undef as
+        # unknown; spawning cmd.exe for a ps that can never exist would
+        # only waste a process and surface its "not recognized" text
+        # through the capture.
+        return;
     }
 
     my ( $stdout, undef, $exit_code ) = capture {

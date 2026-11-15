@@ -92,6 +92,20 @@ my $self = bless {}, 'Developer::Dashboard::ProcessSupervision';
     ok( !scalar( grep { $_ !~ /^\d+$/ } @fds ), 'descriptor listing is numeric only' );
 }
 
+# Windows branch: with no /proc or /dev/fd, the descriptor listing probes
+# the CRT descriptor table instead, so it still includes the standard
+# descriptors. Proved on Linux by localizing the platform; on Windows the
+# branch is live.
+{
+    my @win_fds;
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        @win_fds = $self->_open_file_descriptors;
+    }
+    ok( scalar( grep { $_ == 0 } @win_fds ), 'on Windows the descriptor listing still includes stdin' );
+    ok( !scalar( grep { $_ !~ /^\d+$/ } @win_fds ), 'on Windows the descriptor listing is numeric only' );
+}
+
 # Simulate procfs/devfs listing the same descriptor more than once. This
 # reaches the deduplication branch independent of host descriptor layout.
 {

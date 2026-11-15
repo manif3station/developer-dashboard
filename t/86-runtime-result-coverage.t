@@ -17,6 +17,13 @@ BEGIN {
     *CORE::GLOBAL::chmod = sub {
         my ( $mode, @files ) = @_;
         push @DD621_CHMOD_CALLS, [ $mode, @files ];
+        # Windows has no fchmod, so a handle-form chmod (File::Temp's
+        # tempfile hardening and _open_channel_file) dies unimplemented
+        # there; Unix modes are not a Windows security control, so treat
+        # the handle form as a successful no-op instead of reaching
+        # CORE::chmod. Path-form chmod still passes through. Same shape
+        # as t/710.
+        return 1 if $^O eq 'MSWin32' && @files == 1 && ref $files[0];
         return CORE::chmod( $mode, @files );
     };
 }
@@ -272,8 +279,18 @@ my $P = 'Developer::Dashboard::Runtime::Result';
     my ( $fh, $fd_path ) = Developer::Dashboard::Runtime::Result::_open_channel_file();
     umask($old_umask);
     my $mode = ( stat($fh) )[2] & 07777;
-    is( sprintf( '%04o', $mode ), '0600',
-        '_open_channel_file creates the RESULT tempfile at exactly 0600, even under a permissive umask' );
+    # The file's mode is a Unix property: on Windows chmod is a no-op and
+    # the stat mode is whatever the filesystem reports, so the exact
+    # 0600 end state cannot be asserted there. The explicit chmod call
+    # itself is still recorded and asserted below, which is the point of
+    # this block.
+    if ( $^O eq 'MSWin32' ) {
+        pass('_open_channel_file creates the RESULT tempfile (mode is not a Windows property)');
+    }
+    else {
+        is( sprintf( '%04o', $mode ), '0600',
+            '_open_channel_file creates the RESULT tempfile at exactly 0600, even under a permissive umask' );
+    }
     # File::Temp's own tempfile() already issues its own internal chmod on
     # the path as part of creation, so the call count alone cannot prove
     # _open_channel_file's OWN explicit chmod fired - it targets the
