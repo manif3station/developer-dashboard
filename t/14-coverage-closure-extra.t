@@ -531,9 +531,20 @@ SKIP: {
     # passed on immediate re-run. The assertion is unchanged (the orphan
     # must end up dead); only the waiting is tolerant, and the poll exits
     # at once when the orphan is gone.
+    # A zombie counts as dead: kill(0) still succeeds on an unreaped
+    # zombie, so without this the poll can expire (10s) even though the
+    # orphan is already dead — it failed again on ARM64 under full-suite
+    # load, where the reap lags stop_loop's bounded waits. /proc is
+    # Linux-only; elsewhere the kill(0) check above is the only signal.
     my $orphan_dead = 0;
     for ( 1 .. 100 ) {
         if ( !kill( 0, $orphan ) ) { $orphan_dead = 1; last; }
+        if ( open my $st, '<', "/proc/$orphan/stat" ) {
+            my $stat = <$st>;
+            close $st;
+            my ($state) = defined $stat ? $stat =~ /.*\)\s+(\w)/ : ();
+            if ( defined $state && $state eq 'Z' ) { $orphan_dead = 1; last; }
+        }
         select undef, undef, undef, 0.1;
     }
     ok( $orphan_dead, 'stop_loop sweeps orphaned worker subtrees left behind by a crashed loop with a stale pidfile' );
