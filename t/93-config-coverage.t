@@ -1342,6 +1342,7 @@ sub dies_like {
     my $layer_api = File::Spec->catfile( $layer_config_root, 'api.json' );
     $layer_config->_write_json_atomic( $layer_api, json_encode( { keys => [ { id => 'probe', secret_digest => 'deadbeef' } ] } ) );
 
+    skip 'Unix permission modes are not a Windows security control', 2 if $^O eq 'MSWin32';
     is( sprintf( '%04o', ( stat $layer_api )[2] & 07777 ), '0600',
         'api.json in a project-local layer is written 0600, not left at the umask default (DD-784)' );
     is( sprintf( '%04o', ( stat $layer_config_root )[2] & 07777 ), '0700',

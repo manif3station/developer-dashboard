@@ -1422,6 +1422,7 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
     my $copy_target = File::Spec->catfile( $copy_target_root, 'nested', 'source.txt' );
     ok( -f $copy_target, '_copy_tree_contents creates the target parent directory and copies the source file' );
     my $copied_mode = ( stat $copy_target )[2] & 07777;
+    skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
     is( sprintf( '%04o', $copied_mode ), '0600', '_copy_tree_contents applies the requested file mode to copied targets' );
 
     my @events;
