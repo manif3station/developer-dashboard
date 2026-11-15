@@ -1302,8 +1302,18 @@ sub _normalize_home_path {
     return $path if !defined $home || $home eq '';
     return '$HOME' if $path eq $home;
 
-    my $home_prefix = $home . '/';
-    return '$HOME/' . substr( $path, length($home_prefix) ) if index( $path, $home_prefix ) == 0;
+    # The portable prefix uses a forward slash, but on Windows both the
+    # home and the path use backslashes, so the prefix never matches unless
+    # both are folded to one separator first. The fold is Windows-only: on
+    # Unix a backslash can be a legitimate filename character.
+    my $flat_home = $home;
+    my $flat_path = $path;
+    if ( $^O eq 'MSWin32' ) {
+        $flat_home =~ s{\\}{/}g;
+        $flat_path =~ s{\\}{/}g;
+    }
+    my $home_prefix = $flat_home . '/';
+    return '$HOME/' . substr( $flat_path, length($home_prefix) ) if index( $flat_path, $home_prefix ) == 0;
 
     return $path;
 }
