@@ -37,7 +37,18 @@ ok( $pid, 'a supervisor started' );
 
 for ( 1 .. 200 ) { last if $runner->_is_managed_loop( $pid, $name ); Time::HiRes::sleep(0.05) }
 
-kill 'TERM', $pid;
+# On Windows, Perl kill TERM ends a process without delivering the signal,
+# so the loop's SIGTERM handler never runs and the loop survives the kill,
+# orphaned, holding the harness pipe open. The product's stop path is the
+# only stop that can record the signal there (stop_loop writes the same
+# record the handler writes on Unix), so exercise that path on Windows and
+# keep the raw signal on Unix, where the handler is what is under test.
+if ( $^O eq 'MSWin32' ) {
+    $runner->stop_loop($name);
+}
+else {
+    kill 'TERM', $pid;
+}
 
 my $said = '';
 for ( 1 .. 60 ) {
@@ -73,8 +84,12 @@ like( $said, qr/received by pid \d+/, 'and which process received it, so the rec
         Time::HiRes::sleep(0.05);
     }
 
-    is( $runner->_read_process_state($zombie), 'Z', 'the fixture really is a zombie, not merely a dead pid' );
-    ok( kill( 0, $zombie ), 'kill 0 reports the zombie as present - which is why it is the wrong question' );
+    SKIP: {
+        skip 'Windows has no zombie process state: an exited child keeps no process-table entry once its handles close', 2
+          if $^O eq 'MSWin32';
+        is( $runner->_read_process_state($zombie), 'Z', 'the fixture really is a zombie, not merely a dead pid' );
+        ok( kill( 0, $zombie ), 'kill 0 reports the zombie as present - which is why it is the wrong question' );
+    }
     is( $runner->_pid_is_running($zombie), 0, 'the runner does NOT report a zombie as running' );
     is( $runner->_is_managed_loop( $zombie, $name ), 0, 'and does not mistake one for a managed collector loop' );
 

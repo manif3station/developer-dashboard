@@ -1344,6 +1344,13 @@ select STDERR;
 $| = 1;
 select $old_stdout;
 
+# On Windows, STDOUT and STDERR start in text (:crlf) mode, so every "\n"
+# a skill script prints becomes "\r\n" in the streamed response body. The
+# response must carry the script's bytes unchanged on every platform, so
+# switch both handles to binary mode here, before the script runs.
+binmode STDOUT if $^O eq 'MSWin32';
+binmode STDERR if $^O eq 'MSWin32';
+
 my $ajax_params_json = $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS} || '{}';
 if ( ( $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE} || '' ) ne '' ) {
     open my $params_fh, '<:raw', $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE}

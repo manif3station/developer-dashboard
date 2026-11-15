@@ -758,6 +758,15 @@ sub _run_loop_worker {
     my ( $self, $job, $name, $title, $loop_pid ) = @_;
     $0 = "d2 collector worker: $name";
     setsid() if !is_windows();
+    # The worker inherits its standard handles from the native spawn layer, and
+    # on Windows those handles have no Perl file descriptor behind them, so
+    # Capture::Tiny's >&STDOUT duplication inside a job fails with
+    # 'Inappropriate I/O control operation' and the job records that error
+    # instead of its own output. Re-open the handles to the same log files the
+    # spawn layer already targets, exactly as the daemonized loop child already
+    # does for itself, so the worker has real descriptors before it runs.
+    open STDOUT, '>>', $self->{files}->collector_log or die $!;
+    open STDERR, '>>', $self->{files}->collector_log . '.stderr' or die $!;
     local $SIG{TERM} = 'DEFAULT';
     local $SIG{INT}  = 'DEFAULT';
     local $SIG{HUP}  = 'DEFAULT';
@@ -950,6 +959,21 @@ sub stop_loop {
             last if !$self->_pid_is_running($pid);
             sleep 0.1;
         }
+        # On Windows the loop's SIGTERM handler can never run (Perl kill TERM
+        # terminates the process without delivering the signal), so the record
+        # that distinguishes 'told to stop' from 'crashed' would never be
+        # written. The stopper records it here, in the same words the handler
+        # uses on Unix, so the collector log keeps the same meaning.
+        if ( is_windows() ) {
+            eval {
+                $self->{collectors}->append_log_entry(
+                    $name,
+                    happened_at => _now_iso8601( tz => "local" ),
+                    source      => 'loop stopped by signal',
+                    error       => "SIGTERM received by pid $pid",
+                );
+            };
+        }
         kill 9, -$pid if !is_windows();
         kill 9, $pid  if $self->_pid_is_running($pid);
         for ( 1 .. 20 ) {
@@ -1104,8 +1128,15 @@ sub _is_managed_loop {
     my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_LOOP_NAME' );
     return 1 if defined $marker && $marker eq $name;
     my $title = $self->_read_process_title($pid);
-    return 0 if !defined $title || $title eq '';
-    return $title eq $self->_process_title($name) ? 1 : 0;
+    return 1 if defined $title && $title ne '' && $title eq $self->_process_title($name);
+    return 0 if defined $title && $title ne '';
+    # On Windows /proc and ps are both unavailable, so a loop's title is never
+    # observable and this check would always answer false, leaving every
+    # caller that polls it to spin until its retry budget runs out. Fall back
+    # to the persisted loop state, the same identity check start_loop already
+    # relies on there: a live pid recorded with this name and title, whose
+    # state has not marked it stopped.
+    return $self->_state_confirms_managed_loop( $name, $pid ) ? 1 : 0;
 }
 
 # Default Linux procfs root. A test may use a private directory to exercise
