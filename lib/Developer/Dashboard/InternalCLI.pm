@@ -300,7 +300,10 @@ sub _replace_helper_file {
 
     my $error = $!;
     require Developer::Dashboard::Platform;
-    if ( Developer::Dashboard::Platform::is_windows() && -e $target ) {
+    if ( Developer::Dashboard::Platform::is_windows() && -e $target && !-d $target ) {
+        # A directory target cannot be unlinked for the retry: report the
+        # rename failure (and clean up the temp file below) instead of dying
+        # on the unlink with a misleading "Unable to remove ... Is a directory".
         _unlink_path($target)
           or die "Unable to remove $target before Windows helper replace retry: $!";
         sleep 0.05;
@@ -489,7 +492,10 @@ sub _helper_uses_dashboard_core {
 sub _is_dashboard_managed_helper {
     my ( $content, $name ) = @_;
     return 0 if !defined $content;
-    return 1 if $content =~ /^\Q@{[ _managed_helper_marker($name) ]}\E$/m;
+    # The ownership marker is matched against content read :raw, and a helper
+    # file written in text mode carries "\r\n" line endings on Windows; the
+    # "\r" before the newline would break a bare "$" anchor, so allow it.
+    return 1 if $content =~ /^\Q@{[ _managed_helper_marker($name) ]}\E\r?$/m;
     if ( $name eq '_dashboard-core' ) {
         return 1
           if $content =~ /Missing built-in d2 command/
@@ -529,10 +535,15 @@ sub _helper_install_root {
 sub _is_managed_helper_target {
     my ( $paths, $target ) = @_;
     return 0 if !$paths || !defined $target || $target eq '';
-    my $root = File::Spec->rel2abs( _helper_install_root($paths) );
-    my $path = File::Spec->rel2abs($target);
+    # Canonicalise both spellings: rel2abs can return forward slashes on
+    # Windows while the managed root is a File::Spec backslash spelling, so
+    # a forward-slash prefix check would never match a Windows path. The
+    # match requires a separator after the root, so a sibling such as
+    # "dd-evil" is never mistaken for a child of "dd".
+    my $root = File::Spec->canonpath( File::Spec->rel2abs( _helper_install_root($paths) ) );
+    my $path = File::Spec->canonpath( File::Spec->rel2abs($target) );
     return 1 if $path eq $root;
-    return index( $path, $root . '/' ) == 0;
+    return $path =~ /^\Q$root\E[\/\\]/ ? 1 : 0;
 }
 
 # _managed_helper_file_current($path, $name)
@@ -549,7 +560,9 @@ sub _managed_helper_file_current {
     my $content = do { local $/; <$fh> };
     close $fh or die "Unable to close $path: $!";
     return 0 if !_is_dashboard_managed_helper( $content, $name );
-    return $content =~ /^\Q@{[ _managed_helper_version_marker() ]}\E$/m ? 1 : 0;
+    # As in _is_dashboard_managed_helper: content read :raw from a
+    # text-mode-written helper carries "\r\n" on Windows, so allow the "\r".
+    return $content =~ /^\Q@{[ _managed_helper_version_marker() ]}\E\r?$/m ? 1 : 0;
 }
 
 # _helper_asset_path($name)
