@@ -721,7 +721,14 @@ if ( !$UNDER_COVER ) {
     like( decode( 'UTF-8', $status_response->content ), qr/"alias"\s*:\s*"🔑"/, 'live foreground runtime syncs configured collector indicator icons into system status' );
     ok( Developer::Dashboard::GoRoutine::terminate_process( $live_status_pid, 'TERM' ),
         'live foreground status process stops through the GoRoutine process API' );
-    is( Developer::Dashboard::GoRoutine::wait_process($live_status_pid), 0,
+
+    # On Windows there is no signal delivery to another process, so
+    # terminate_process ends it with TerminateProcess and the exit code is
+    # the XS's 128+signal convention (143 for TERM, as on Unix when a
+    # process dies by SIGTERM). A clean 0 is only possible where the
+    # process can catch SIGTERM and exit itself.
+    my $expected_reap = $^O eq 'MSWin32' ? 143 : 0;
+    is( Developer::Dashboard::GoRoutine::wait_process($live_status_pid), $expected_reap,
         'live foreground status process shuts down cleanly and is reaped through the GoRoutine process API' );
 }
 my $dashboard_log_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'logs', 'dashboard.log' );
