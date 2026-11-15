@@ -229,6 +229,30 @@ subtest 'paths reuses one nested-skill inventory for configured and Folder.pm al
     like( $out, qr/\A\{/, 'the path list still emits its JSON payload' );
 };
 
+subtest 'nested skill discovery resolves backslash-spelled Windows roots' => sub {
+    my $registry = Developer::Dashboard::PathRegistry->new( home => $home );
+    {
+        no warnings qw(once redefine);
+        local *Developer::Dashboard::PathRegistry::installed_skill_roots = sub {
+            return ( 'C:\skills\alpha-skill', 'C:\skills\beta-skill' );
+        };
+        my @entries = $registry->nested_skill_entries;
+        is_deeply( [ map { $_->{segments} } @entries ], [ ['alpha-skill'], ['beta-skill'] ],
+            'backslash-spelled Windows skill roots resolve their names' );
+        is_deeply( [ map { $_->{dir} } @entries ], [ 'C:\skills\alpha-skill', 'C:\skills\beta-skill' ],
+            'backslash-spelled Windows skill roots keep their directories' );
+    }
+    {
+        no warnings qw(once redefine);
+        local *Developer::Dashboard::PathRegistry::installed_skill_roots = sub {
+            return ( 'alpha-skill', 'C:\\' );
+        };
+        my @entries = $registry->nested_skill_entries;
+        is_deeply( \@entries, [],
+            'skill roots without an extractable name are skipped instead of producing a phantom alias' );
+    }
+};
+
 subtest 'path dispatch reports usage for missing verbs and operands' => sub {
     my $no_action = eval { $run->( command => 'path', args => [] ); 1 };
     is( $no_action, undef, 'an empty path argument list falls through to the dispatch usage error' );
@@ -425,6 +449,17 @@ subtest 'Folder.pm alias validation reports malformed providers and unsafe layou
     is( $entries_without_segments[0]{name}, '',
         'a skill entry without segments defaults to an empty name safely' );
     @entries = ();
+
+    my @entries_with_bad_segments = $folder_entries->(
+        $paths,
+        [
+            { segments => [undef, 'work'], dir => $home },
+            { segments => ['', 'work'],    dir => $home },
+            { segments => ['good'],        dir => $home },
+        ],
+    );
+    is_deeply( [ map { $_->{name} } @entries_with_bad_segments ], ['good'],
+        'skill entries with an undef or empty name segment are skipped instead of producing a phantom alias' );
 
     my $missing_entry = eval { Developer::Dashboard::CLI::Paths::_load_skill_folder_module(undef); 1 };
     is( $missing_entry, undef, '_load_skill_folder_module rejects a non-hash entry' );
