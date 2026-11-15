@@ -538,7 +538,16 @@ sub _skill_folder_entries {
             file => File::Spec->catfile( $lib, 'Folder.pm' ),
             lib  => $lib,
         }
-    } grep { !$_->{disabled} } @nested_entries;
+    } grep {
+        !$_->{disabled}
+          # An entry whose segments carry an undef or empty name cannot form
+          # a real alias: the join warned and produced a phantom alias such
+          # as '.work'. Skip it here so a malformed inventory from any source
+          # can never resurface it. An entry with no segments key at all
+          # keeps its established empty name.
+          && ( !defined $_->{segments}
+            || !grep { !defined $_ || $_ eq '' } @{ $_->{segments} } )
+    } @nested_entries;
 }
 
 # _load_skill_folder_module($entry)
