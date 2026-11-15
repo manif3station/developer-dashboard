@@ -47,7 +47,13 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
 # false on the ARM64 box, so the qemu skips below were dead code.)
 # Output: boolean true when the first argv token names a qemu emulator.
 sub _running_under_qemu {
-    for my $path ( '/proc/' . getppid() . '/cmdline', '/proc/self/cmdline' ) {
+    # getppid() is unimplemented on Strawberry Perl (Windows), so it must
+    # never be called where /proc does not exist: the parent path is built
+    # only when /proc is a directory. On Windows only /proc/self/cmdline
+    # is tried, which is unreadable, so this returns 0 without dying.
+    my @paths = ('/proc/self/cmdline');
+    unshift @paths, '/proc/' . getppid() . '/cmdline' if -d '/proc';
+    for my $path (@paths) {
         next if !-r $path;
         open my $fh, '<', $path or next;
         local $/;
