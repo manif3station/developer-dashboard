@@ -423,6 +423,7 @@ ok(
             stdin  => File::Spec->devnull(),
             stdout => $files->collector_log,
             stderr => $files->collector_log . '.stderr',
+            env    => { DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR => 1 },
         },
         'collector supervisor start redirects helper standard streams',
     );

@@ -527,7 +527,15 @@ sub _start_windows_loop_process {
     );
 
     my @command = $self->_windows_background_loop_command($name);
-    my $pid = $self->_spawn_windows_background_command(@command);
+    # The loop's identity marker travels in the INITIAL environ, not in a
+    # post-exec $ENV assignment: the kernel environ block is fixed at exec,
+    # so a variable assigned after startup is invisible to /proc readers on
+    # every platform. The marker is what identifies the loop where its $0
+    # title cannot be observed (Windows, and qemu user-mode emulation, where
+    # the guest's $0 write never reaches the host's /proc). Workers are NOT
+    # given it: _run_loop_child deletes it from %ENV before spawning any,
+    # so a worker can never be mistaken for its supervisor by this test.
+    my $pid = $self->_spawn_windows_background_command( @command, { env => { DEVELOPER_DASHBOARD_LOOP_NAME => $name } } );
     die "Unable to launch collector '$name' on Windows\n" if !$pid;
 
     $self->_write_loop_state(
@@ -578,7 +586,16 @@ sub _run_loop_child {
         $self->_close_inherited_fds( close_ipc => 1 );
     }
 
-    $ENV{DEVELOPER_DASHBOARD_LOOP_NAME}   = $name;
+    # The identity marker is NOT assigned here any more. It arrives in the
+    # child's INITIAL environ (see _start_windows_loop_process): the kernel
+    # environ block is fixed at exec, so a post-exec $ENV assignment is
+    # invisible to /proc readers and the marker was a dead recognition path.
+    # It is deleted from %ENV instead, before any worker is spawned, so a
+    # worker forked from this loop cannot inherit it and be mistaken for a
+    # second supervisor by the marker test. The loop's own /proc environ
+    # block still shows it - that block is the initial one, unaffected by
+    # this delete.
+    delete $ENV{DEVELOPER_DASHBOARD_LOOP_NAME};
     $ENV{DEVELOPER_DASHBOARD_LOOP_STATUS} = 'running';
     $0 = $title;
     local $SIGNAL_RUNNER    = $self;
@@ -1181,13 +1198,14 @@ sub _is_managed_loop {
     return 1 if defined $marker && $marker eq $name;
     my $title = $self->_read_process_title($pid);
     return 1 if defined $title && $title ne '' && $title eq $self->_process_title($name);
-    return 0 if defined $title && $title ne '';
-    # On Windows /proc and ps are both unavailable, so a loop's title is never
-    # observable and this check would always answer false, leaving every
-    # caller that polls it to spin until its retry budget runs out. Fall back
-    # to the persisted loop state, the same identity check start_loop already
-    # relies on there: a live pid recorded with this name and title, whose
-    # state has not marked it stopped.
+    # A non-matching title NO LONGER ends the check. On Windows /proc and ps
+    # are both unavailable, so a loop's title is never observable - and under
+    # qemu user-mode emulation the title IS observable but wrong, because the
+    # guest's $0 write never reaches the host's /proc and the cmdline still
+    # shows the emulator-prefixed spawn argv. Both are the same situation:
+    # the title cannot confirm the loop, so fall through to the persisted
+    # loop state, which requires pid+name+process_name to match and still
+    # answers 0 for a foreign pid.
     return $self->_state_confirms_managed_loop( $name, $pid ) ? 1 : 0;
 }
 
@@ -1226,6 +1244,18 @@ sub _find_running_loop {
     # on it found two "supervisors" four pids apart: the loop and the command it
     # had just spawned. A supervisor sets its own title; a worker does not carry
     # its parent's.
+    #
+    # That inheritance hazard is gone now: the loop carries the marker in its
+    # INITIAL environ (see _start_windows_loop_process) and _run_loop_child
+    # deletes it from %ENV before spawning any worker, so no worker ever
+    # carries it. The marker is therefore a safe second identity below, and
+    # it is the one that works where the title cannot be observed at all -
+    # under qemu user-mode emulation the guest's $0 write never reaches the
+    # host's /proc, so the title check can never match there. A third
+    # identity covers a loop started without the marker (by hand, or by an
+    # older version): its helper command shape, collector-loop-foreground
+    # --name <name>, is still visible in the spawn argv under qemu, and a
+    # worker's command (collector-worker-foreground) never matches it.
     my $title = $self->_process_title($name);
     for my $pid (@candidates) {
         next if $pid == $$;
@@ -1248,11 +1278,20 @@ sub _find_running_loop {
         next if defined $cmdline && $cmdline eq '';
 
         my $running = $self->_read_process_title($pid);
-        next if !defined $running || $running ne $title;
+        next if !defined $running || $running eq '';
         # A process carrying this collector's exact title while living in a
         # DIFFERENT pid namespace cannot be constructed from a test without a
         # container runtime.
-        return $pid if $self->_same_pid_namespace($pid);
+        return $pid if $running eq $title && $self->_same_pid_namespace($pid);
+        # The loop's helper command shape, visible in the spawn argv even
+        # where the $0 title is not (qemu user-mode emulation).
+        return $pid
+          if $running =~ /collector-loop-foreground\s+--name\s+\Q$name\E(?:\s|\z)/
+          && $self->_same_pid_namespace($pid);
+        # The pre-exec identity marker, safe here because the loop deletes
+        # it from %ENV before spawning workers, so no worker carries it.
+        my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_LOOP_NAME' );
+        return $pid if defined $marker && $marker eq $name && $self->_same_pid_namespace($pid);
     }
     return;
 }
@@ -1502,21 +1541,30 @@ sub _windows_background_worker_command {
 }
 
 
-# _spawn_windows_background_command(@command)
+# _spawn_windows_background_command(@command[, \%options])
 # Launches one detached background Windows helper command and returns the
 # spawned pid.
-# Input: command list.
+# Input: command list, plus an optional trailing options hashref. The only
+# option read today is `env`, extra environment variables merged into the
+# child's INITIAL environ at spawn time (see GoRoutine::spawn) - the one
+# place a process identity marker is visible to /proc readers, because a
+# post-exec $ENV assignment never reaches the kernel environ block.
 # Output: spawned pid integer.
 sub _spawn_windows_background_command {
     my ( $self, @command ) = @_;
     require Developer::Dashboard::GoRoutine;
     my $stdout_log = $self->{files}->collector_log;
+    my $options = {};
+    if ( @command && ref( $command[-1] ) eq 'HASH' ) {
+        $options = pop @command;
+    }
     my $pid = Developer::Dashboard::GoRoutine::spawn(
         \@command,
         {
             stdin  => File::Spec->devnull(),
             stdout => $stdout_log,
             stderr => $stdout_log . '.stderr',
+            ( defined $options->{env} ? ( env => $options->{env} ) : () ),
         },
     );
     die "Unable to launch detached collector process\n" if !$pid;

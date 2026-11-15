@@ -127,6 +127,7 @@ if ( defined $start_web_background ) {
             stdin  => File::Spec->devnull(),
             stdout => '/tmp/dkt016-supervisor.log',
             stderr => '/tmp/dkt016-supervisor.log.stderr',
+            env    => { DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR => 1 },
         },
         'collector supervisor redirects the helper standard streams to its log',
     );
