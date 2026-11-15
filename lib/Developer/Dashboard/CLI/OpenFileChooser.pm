@@ -70,6 +70,20 @@ sub _stdin_has_pending_input {
     my $fileno = fileno(STDIN);
     return 1 if !defined $fileno || $fileno < 0;
 
+    if ( $^O eq 'MSWin32' ) {
+        # On Windows IO::Select only works for real sockets, so the call
+        # below returns 0 immediately for a regular file (which never
+        # blocks) and never waits out the timeout for a pipe, which is
+        # exactly backwards. Answer the two cases Windows can answer
+        # natively and leave anything else (a socket) to IO::Select.
+        return 1 if -f STDIN;
+        if ( -p STDIN ) {
+            my $ready = _windows_stdin_pipe_ready($timeout_seconds);
+            return $ready if defined $ready;
+            return 1;    # the native check is unavailable: fall back to the ordinary blocking read
+        }
+    }
+
     # select(2) - and therefore IO::Select - is only reliably usable on
     # non-socket handles (a console, a pipe, STDIN itself) on Unix-family
     # platforms; on Windows it is documented to work only for real sockets,
@@ -88,6 +102,37 @@ sub _stdin_has_pending_input {
     };
     return 1 if !defined $ready;    # IO::Select misbehaving on this platform: fall back to the ordinary blocking read
     return $ready;
+}
+
+# _windows_stdin_pipe_ready($timeout_seconds)
+# Polls a Windows named-pipe STDIN for waiting data with PeekNamedPipe, which
+# is the Windows-native readiness check for a pipe: select() cannot wait on
+# one. A closed writer (broken pipe) counts as ready, because a read then
+# returns end-of-file at once instead of blocking.
+# Input: how many seconds to wait for data before giving up.
+# Output: true when data is waiting or the pipe is at end-of-file, false
+# when the timeout expires with nothing waiting, or undef when the native
+# check cannot run at all.
+sub _windows_stdin_pipe_ready {
+    my ($timeout_seconds) = @_;
+    my $handle = eval {
+        require Win32API::File;
+        my $os_handle = Win32API::File::GetOsFHandle( fileno(STDIN) );
+        die "unable to resolve the STDIN operating-system handle\n" if !$os_handle;
+        $os_handle;
+    };
+    return if $@ || !$handle;
+    require Time::HiRes;
+    my $deadline = Time::HiRes::time() + $timeout_seconds;
+    while (1) {
+        my $buffer = '';
+        my ( $bytes_read, $bytes_available, $bytes_left );
+        my $ok = Win32API::File::PeekNamedPipe( $handle, $buffer, 1, $bytes_read, $bytes_available, $bytes_left );
+        return 1 if !$ok;    # writer closed: a read returns end-of-file at once
+        return 1 if ( $bytes_available || 0 ) > 0;
+        return 0 if Time::HiRes::time() >= $deadline;
+        Time::HiRes::sleep(0.01);
+    }
 }
 
 # _stdin_is_tty()

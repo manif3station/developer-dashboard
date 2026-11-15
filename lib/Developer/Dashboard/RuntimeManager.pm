@@ -618,6 +618,14 @@ sub _wait_for_any_child_process {
 # Output: number of child processes reaped.
 sub _reap_any_child_processes {
     my ($self) = @_;
+    if ( is_windows() ) {
+        # waitpid(-1) cannot see GoRoutine (CreateProcess) children, so
+        # there is no wait-any equivalent on Windows. The spawn registry
+        # knows every GoRoutine child this process started; reap the ones
+        # that have already exited from there instead.
+        require Developer::Dashboard::GoRoutine;
+        return Developer::Dashboard::GoRoutine::reap_any_exited();
+    }
     my $count = 0;
     while (1) {
         my $reaped = $self->_wait_for_any_child_process(1);

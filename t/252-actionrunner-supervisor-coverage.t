@@ -21,6 +21,25 @@ my $run = sub {
     );
 };
 
+# _deliver_stop_signal($signal)
+# Delivers a stop signal to this process the way the supervisor under test
+# would see it: by invoking the installed handler directly. A real self-kill
+# would do the same on Unix, but on Windows kill TERM/INT to the test
+# process itself produces a console-break event that kills the process with
+# SIGBREAK instead of invoking the Perl handler, because a CreateProcess
+# child has no console to deliver the event to. The supervisor's poll loop
+# only ever reads the flag the handler sets, so invoking it directly
+# exercises the same branch deterministically on every platform.
+sub _deliver_stop_signal {
+    my ($signal) = @_;
+    if ( ref( $SIG{$signal} ) eq 'CODE' ) {
+        $SIG{$signal}->();
+        return;
+    }
+    kill $signal, $$ if $^O ne 'MSWin32';
+    return;
+}
+
 for my $payload (
     '[]',
     json_encode({}),
@@ -103,7 +122,7 @@ for my $payload (
     local *Developer::Dashboard::GoRoutine::process_exited = sub {
         if ($first_poll) {
             $first_poll = 0;
-            kill 'TERM', $$;
+            _deliver_stop_signal('TERM');
             return 0;
         }
         return 1;
@@ -123,7 +142,7 @@ for my $payload (
     local *Developer::Dashboard::GoRoutine::process_exited = sub {
         if ($first_poll) {
             $first_poll = 0;
-            kill 'TERM', $$;
+            _deliver_stop_signal('TERM');
         }
         return 0;
     };
@@ -144,7 +163,7 @@ for my $payload (
     local *Developer::Dashboard::GoRoutine::process_exited = sub {
         if ($first_poll) {
             $first_poll = 0;
-            kill 'INT', $$;
+            _deliver_stop_signal('INT');
             return 0;
         }
         return 1;

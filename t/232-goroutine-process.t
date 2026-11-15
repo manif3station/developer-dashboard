@@ -233,6 +233,96 @@ sub _windows_handle_count {
             'repeated failed stdout opens leak no handles' );
     }
 }
+# Windows-branch proofs: the spawn wrapper, the registry and
+# reap_any_exited are Windows-only, so they are exercised here on Linux by
+# localizing $^O to 'MSWin32' for the spawn and the checks. The native
+# spawn underneath is still the POSIX one, so this proves the Perl wrapper
+# logic (env merge, registry existence, registry reap) rather than the
+# Windows process API; the Win32::Process handle open itself can only be
+# proven on the box.
+{
+    # Env merge: the native Windows spawn ignores the env option, so the
+    # wrapper merges the overrides into the parent environment for the
+    # duration of the spawn and the child inherits them.
+    local $ENV{DASHBOARD_GOROUTINE_INHERITED_VALUE} = 'inherited-value';
+    my $win_env_output = File::Spec->catfile( $dir, 'win-environment.txt' );
+    {
+        local $^O = 'MSWin32';
+        my $win_env_child = Developer::Dashboard::GoRoutine::spawn(
+            [ $^X, '-e', 'print join q{|}, @ENV{qw(DASHBOARD_GOROUTINE_INHERITED_VALUE DASHBOARD_GOROUTINE_CHILD_VALUE)};' ],
+            {
+                cwd    => $dir,
+                stdout => $win_env_output,
+                stderr => $stderr,
+                env    => { DASHBOARD_GOROUTINE_CHILD_VALUE => 'explicit-child-value' },
+            },
+        );
+        is( Developer::Dashboard::GoRoutine::wait_process($win_env_child), 0,
+          'on Windows the environment override child exits successfully' );
+    }
+    open my $win_env_fh, '<', $win_env_output
+      or die "Unable to read child environment output '$win_env_output': $!";
+    is( scalar(<$win_env_fh>), 'inherited-value|explicit-child-value',
+      'on Windows spawn merges explicit child environment overrides' );
+    close $win_env_fh or die "Unable to close child environment output '$win_env_output': $!";
+}
+{
+    # Registry existence: on Windows the native process_running is
+    # liveness, so an exited child reports 0 and wait_process can no
+    # longer find it (255). The wrapper keeps a handle open in the
+    # registry until wait_process collects the child, so process_running
+    # reports existence and the real code survives.
+    my $win_completed;
+    {
+        local $^O = 'MSWin32';
+        $win_completed = Developer::Dashboard::GoRoutine::spawn(
+            [ $^X, '-e', 'exit 9;' ],
+            { cwd => $dir, stdout => $stdout, stderr => $stderr },
+        );
+    }
+    my $win_deadline = time() + 2;
+    while ( !Developer::Dashboard::GoRoutine::process_exited($win_completed)
+        && time() < $win_deadline )
+    {
+        select undef, undef, undef, 0.01;
+    }
+    ok( Developer::Dashboard::GoRoutine::process_exited($win_completed),
+      'on Windows process_exited observes a completed child without reaping it' );
+    {
+        local $^O = 'MSWin32';
+        is( Developer::Dashboard::GoRoutine::process_running($win_completed), 1,
+          'on Windows a completed unreaped child retains process existence until wait_process' );
+        is( Developer::Dashboard::GoRoutine::wait_process($win_completed), 9,
+          'on Windows wait_process returns the real exit code of a completed child' );
+        is( Developer::Dashboard::GoRoutine::process_running($win_completed), 0,
+          'on Windows a reaped child is reported as not running' );
+    }
+}
+{
+    # Registry reap: waitpid(-1) has no Windows equivalent, so the
+    # runtime reaps through the registry instead.
+    my $win_reap_child;
+    {
+        local $^O = 'MSWin32';
+        $win_reap_child = Developer::Dashboard::GoRoutine::spawn(
+            [ $^X, '-e', 'exit 0;' ],
+            { cwd => $dir, stdout => $stdout, stderr => $stderr },
+        );
+    }
+    my $win_reap_deadline = time() + 2;
+    while ( !Developer::Dashboard::GoRoutine::process_exited($win_reap_child)
+        && time() < $win_reap_deadline )
+    {
+        select undef, undef, undef, 0.01;
+    }
+    {
+        local $^O = 'MSWin32';
+        is( Developer::Dashboard::GoRoutine::reap_any_exited(), 1,
+          'on Windows reap_any_exited reaps one exited spawned child' );
+        is( Developer::Dashboard::GoRoutine::process_running($win_reap_child), 0,
+          'on Windows a registry-reaped child is reported as not running' );
+    }
+}
 
 done_testing;
 
