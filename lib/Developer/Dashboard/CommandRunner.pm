@@ -36,7 +36,21 @@ sub run_command {
     # sub returns, regardless of the exit code already captured in this sub's
     # own return value.
     local $?;
-    my $cmd        = $args{source};
+    my $cmd              = $args{source};
+    my $inline_perl_file;
+
+    # On Windows, PowerShell -Command quoting does not survive a double-quoted
+    # -e script: the Win32 command-line construction mangles the nested
+    # quotes before PowerShell ever sees them, so the child perl receives an
+    # empty program ("syntax error at -e line 1, at EOF"). Run the script from
+    # a temp file instead; the file is removed below once the child has run.
+    if ( is_windows() ) {
+        my $rewritten = _windows_perl_inline_command($cmd);
+        if ( defined $rewritten ) {
+            $cmd              = $rewritten->{command};
+            $inline_perl_file = $rewritten->{file};
+        }
+    }
     my $cwd        = $args{cwd};
     my $env        = ref( $args{env} ) eq 'HASH' ? $args{env} : {};
     my $timeout_ms = $args{timeout_ms} || 30_000;
@@ -84,8 +98,29 @@ sub run_command {
     };
     alarm(0);
     unlink $pidfile;
+    unlink $inline_perl_file if defined $inline_perl_file && $inline_perl_file ne '';
     chdir $old or die "Unable to restore cwd to $old: $!";
     return ( $stdout, $stderr, $exit_code, $timed_out );
+}
+
+# _windows_perl_inline_command($command)
+# Rewrites a Windows perl -e invocation into a temp .pl file invocation, so
+# the script survives the PowerShell -Command quoting that mangles nested
+# double quotes. Only the exact <perl> [-flags] -e "<code>" shape is
+# rewritten; anything else passes through untouched (undef).
+# Input: shell command string.
+# Output: { command => ..., file => ... } hash ref, or undef.
+sub _windows_perl_inline_command {
+    my ($command) = @_;
+    return if !defined $command;
+    return if $command !~ /\A\s*(\S*perl(?:\.exe)?)\s+((?:-\S+\s+)*)-e\s+"(.*)"\s*\z/s;
+    my ( $perl, $flags, $code ) = ( $1, $2, $3 );
+    $flags =~ s/\s+\z//;
+    my ( $fh, $file ) = tempfile( 'dashboard-perl-inline-XXXXXX', SUFFIX => '.pl', TMPDIR => 1, UNLINK => 0 );
+    print {$fh} $code or die "Unable to write $file: $!";
+    close $fh or die "Unable to close $file: $!";
+    my $rewritten = join ' ', grep { $_ ne '' } ( $perl, $flags, $file );
+    return { command => $rewritten, file => $file };
 }
 
 # await_windows_command($pidfile, $timeout_ms, @command_argv)

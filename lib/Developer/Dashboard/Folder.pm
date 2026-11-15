@@ -222,7 +222,7 @@ sub locate {
                 no_chdir => 1,
                 wanted   => sub {
                     return if !-d $_;
-                    my $path = $File::Find::name;
+                    my $path = File::Spec->canonpath($File::Find::name);
                     for my $part (@parts) {
                         return if $path !~ /\Q$part\E/i;
                     }

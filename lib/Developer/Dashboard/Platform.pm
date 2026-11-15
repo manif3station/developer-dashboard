@@ -218,11 +218,8 @@ sub command_argv_for_path {
         my $first_line = <$shebang_fh> // '';
         close $shebang_fh or die "Unable to close $resolved: $!";
         if ( $first_line =~ m{\A\#!\s*(?:/usr/bin/env\s+|/bin/)(sh|bash)(?:\s|\z)} ) {
-            my $shell = $1;
-            my $shell_path = $resolved;
-            $shell_path =~ s{\\}{/}g;
-            $shell_path =~ s{\A([A-Za-z]):}{'/' . lc($1)}e;
-            return ( _posix_shell_binary($shell), $shell_path );
+            my $shell = _posix_shell_binary($1);
+            return ( $shell, _path_for_posix_shell( $shell, $resolved ) );
         }
     }
 
@@ -323,8 +320,10 @@ sub _is_windows_runnable_candidate {
     return 1 if $path =~ /\.(?:pl|ps1)\z/i;
     return 1 if $path =~ /\.py\z/i && ( command_in_path('python') || command_in_path('python3') );
     return 1 if $path =~ /\.js\z/i && command_in_path('node');
+    return 1 if $path =~ /\.go\z/i;
+    return 1 if $path =~ /\.java\z/i;
     return 1 if $path =~ /\.(?:com|exe|bat|cmd)\z/i;
-    return 1 if $path =~ /\.(?:sh|bash)\z/i && ( command_in_path('bash') || command_in_path('sh') );
+    return 1 if $path =~ /\.(?:sh|bash)\z/i && ( command_in_path('bash') || command_in_path('sh') || _git_for_windows_shell('sh') );
     return 1 if _has_shebang($path);
     return 0;
 }
@@ -407,7 +406,79 @@ sub _cmd_binary {
 # Output: executable path or command name string.
 sub _posix_shell_binary {
     my ($preferred) = @_;
-    return command_in_path($preferred) || command_in_path('sh') || $preferred;
+    return command_in_path($preferred)
+      || command_in_path('sh')
+      || _git_for_windows_shell($preferred)
+      || _git_for_windows_shell('sh')
+      || $preferred;
+}
+
+# _git_for_windows_shell($preferred)
+# Resolves a POSIX shell from a Git for Windows install, if one is present.
+# Git for Windows ships sh.exe and bash.exe in <root>\usr\bin, but that
+# directory is not on PATH, so a plain PATH lookup never finds them and
+# every shell-script invocation failed with 'sh' is not recognized.
+# Input: preferred shell name such as sh or bash.
+# Output: absolute shell path string, or undef.
+sub _git_for_windows_shell {
+    my ($preferred) = @_;
+    for my $root ( _git_for_windows_roots() ) {
+        my $shell = File::Spec->catfile( $root, 'usr', 'bin', "$preferred.exe" );
+        return $shell if -f $shell;
+    }
+    return;
+}
+
+# _git_for_windows_roots()
+# Lists candidate Git for Windows install roots: the install that owns the
+# git on PATH, plus the conventional %ProgramFiles% locations. A candidate
+# only counts when it actually contains usr/bin/sh.exe.
+# Input: none.
+# Output: install-root path strings.
+sub _git_for_windows_roots {
+    my @roots;
+    my %seen;
+    my $git = command_in_path('git');
+    if ( defined $git && $git ne '' ) {
+        my ( $volume, $dirs ) = File::Spec->splitpath( $git, 1 );
+        my @parts = grep { $_ ne '' } File::Spec->splitdir($dirs);
+        # git.exe lives in <root>\cmd, <root>\bin or <root>\mingw64\bin.
+        pop @parts while @parts && $parts[-1] =~ /\A(?:cmd|bin|mingw64|mingw32)\z/i;
+        my $root = File::Spec->catdir( $volume . File::Spec->rootdir(), @parts );
+        push @roots, $root if !$seen{$root}++;
+    }
+    for my $program_files ( grep { defined && $_ ne '' } $ENV{ProgramFiles}, $ENV{'ProgramFiles(x86)'} ) {
+        my $root = File::Spec->catdir( $program_files, 'Git' );
+        push @roots, $root if !$seen{$root}++;
+    }
+    return grep { -f File::Spec->catfile( $_, 'usr', 'bin', 'sh.exe' ) } @roots;
+}
+
+# _is_msys_shell($binary)
+# Detects whether one resolved shell binary is an MSYS shell (Git for
+# Windows), which spells Windows paths /c/... . A Cygwin or other sh lives
+# elsewhere and must not get the MSYS spelling.
+# Input: resolved shell binary path string.
+# Output: boolean true when the binary is a Git for Windows MSYS shell.
+sub _is_msys_shell {
+    my ($binary) = @_;
+    return 0 if !defined $binary || $binary eq '';
+    return $binary =~ m{[\\/]usr[\\/]bin[\\/](?:sh|bash)(?:\.exe)?\z}i ? 1 : 0;
+}
+
+# _path_for_posix_shell($shell, $path)
+# Spells one native path the way the resolved POSIX shell expects it. An
+# MSYS shell (Git for Windows) takes /c/... spellings; any other shell gets
+# the native path unchanged, which both MSYS and Cygwin convert themselves.
+# Input: resolved shell binary path plus native file path.
+# Output: path string as the shell should receive it.
+sub _path_for_posix_shell {
+    my ( $shell, $path ) = @_;
+    return $path if !_is_msys_shell($shell);
+    my $msys = $path;
+    $msys =~ s{\\}{/}g;
+    $msys =~ s{\A([A-Za-z]):}{'/' . lc($1)}e;
+    return $msys;
 }
 
 # _module_lib_root()

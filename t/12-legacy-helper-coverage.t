@@ -400,12 +400,25 @@ like( "$@", qr/Invalid ajax singleton name/, '_normalize_saved_ajax_singleton re
     print {$fh} "#!/bin/sh\nprintf 'ok\\n'\n";
     close $fh;
     chmod 0700, $shebang_file or die $!;
-    is_deeply( [ $runtime->_saved_ajax_command( path => $shebang_file ) ], [ $shebang_file ], '_saved_ajax_command executes shebang saved Ajax files directly' );
+    if ( $^O eq 'MSWin32' ) {
+        # CreateProcess cannot execute a shebang file directly on Windows;
+        # the command routes through the resolved POSIX shell instead, and
+        # the script still runs.
+        my @shebang_cmd = $runtime->_saved_ajax_command( path => $shebang_file );
+        is( scalar @shebang_cmd, 2, '_saved_ajax_command routes shebang saved Ajax files through a shell on Windows' );
+        like( $shebang_cmd[1], qr/shebang-handler\z/, '_saved_ajax_command passes the shebang file to the shell on Windows' );
+        my ( $shebang_out, undef, $shebang_exit ) = capture { system @shebang_cmd; return $? >> 8; };
+        is( $shebang_exit, 0, '_saved_ajax_command runs a shebang saved Ajax file through the shell on Windows' );
+        is( $shebang_out, "ok\n", '_saved_ajax_command streams the shebang saved Ajax file output on Windows' );
+    }
+    else {
+        is_deeply( [ $runtime->_saved_ajax_command( path => $shebang_file ) ], [ $shebang_file ], '_saved_ajax_command executes shebang saved Ajax files directly' );
+    }
 }
 {
     my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'process-runner.pl' );
     open my $fh, '>', $saved_path or die $!;
-    print {$fh} "print qq{process-out\\n}; warn qq{process-err\\n}; system 'sh', '-c', 'printf \"child-out\\\\n\"; printf \"child-err\\\\n\" >&2'; die qq{process-die\\n};";
+    print {$fh} "print qq{process-out\\n}; warn qq{process-err\\n}; if (\$^O eq 'MSWin32') { system 'cmd', '/d', '/c', 'echo child-out & echo child-err 1>&2'; } else { system 'sh', '-c', 'printf \"child-out\\\\n\"; printf \"child-err\\\\n\" >&2'; } die qq{process-die\\n};";
     close $fh;
     chmod 0700, $saved_path or die $!;
     my $streamed = '';

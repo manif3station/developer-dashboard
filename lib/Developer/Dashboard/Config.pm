@@ -1318,8 +1318,8 @@ sub _expand_config_path {
 
     my $home = $self->{paths}->home;
     return $home if defined $home && $path eq '$HOME';
-    return $home . substr( $path, 5 ) if defined $home && $path =~ /^\$HOME(?=\/)/;
-    return $home . substr( $path, 1 ) if defined $home && $path =~ /^~/;
+    return File::Spec->canonpath( $home . substr( $path, 5 ) ) if defined $home && $path =~ /^\$HOME(?=\/)/;
+    return File::Spec->canonpath( $home . substr( $path, 1 ) ) if defined $home && $path =~ /^~/;
 
     return $path;
 }

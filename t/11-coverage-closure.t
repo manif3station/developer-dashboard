@@ -248,7 +248,7 @@ my $saved_page = Developer::Dashboard::PageDocument->new(
     title       => 'Saved Page',
     layout      => { body => 'saved body' },
     actions     => [
-        { id => 'alias-run', kind => 'command', command => 'printf alias-ok', cwd => 'home' },
+        { id => 'alias-run', kind => 'command', command => $^O eq 'MSWin32' ? 'echo alias-ok' : 'printf alias-ok', cwd => 'home' },
     ],
     permissions => {},
 );
