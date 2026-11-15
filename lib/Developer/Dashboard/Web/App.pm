@@ -4133,10 +4133,17 @@ sub _ip_pairs_from_ip {
     # caller's exit status.
     local $?;
     return () if !command_in_path('ip');
-    my ( $stdout, undef, $exit_code ) = capture {
-        system 'ip', '-o', '-4', 'addr', 'show', 'up', 'scope', 'global';
-        return $? >> 8;
+    # IP discovery is best effort: a capture failure (for example a bad
+    # file descriptor being duplicated while the caller renders a page)
+    # must not kill the render, so fall back to no addresses and let the
+    # caller use the host or loopback address instead.
+    my ( $stdout, undef, $exit_code ) = eval {
+        capture {
+            system 'ip', '-o', '-4', 'addr', 'show', 'up', 'scope', 'global';
+            return $? >> 8;
+        };
     };
+    return () if $@;
     return () if $exit_code != 0 || !defined $stdout || $stdout eq '';
     my @pairs;
     for my $line ( split /\n/, $stdout ) {
@@ -4159,10 +4166,16 @@ sub _ip_pairs_from_ipconfig {
     # caller's exit status.
     local $?;
     return () if !command_in_path('ipconfig');
-    my ( $stdout, undef, $exit_code ) = capture {
-        system 'ipconfig';
-        return $? >> 8;
+    # Same best-effort guard as _ip_pairs_from_ip: a capture failure
+    # must not kill the caller (this is the call that killed t/105
+    # after 387 passing subtests when the descriptor was unusable).
+    my ( $stdout, undef, $exit_code ) = eval {
+        capture {
+            system 'ipconfig';
+            return $? >> 8;
+        };
     };
+    return () if $@;
     return () if $exit_code != 0 || !defined $stdout || $stdout eq '';
     my @pairs;
     my $iface = '';
@@ -4193,10 +4206,15 @@ sub _ip_pairs_from_ifconfig {
     # caller's exit status.
     local $?;
     return () if !command_in_path('ifconfig');
-    my ( $stdout, undef, $exit_code ) = capture {
-        system 'ifconfig';
-        return $? >> 8;
+    # Same best-effort guard as _ip_pairs_from_ip: a capture failure
+    # must not kill the caller.
+    my ( $stdout, undef, $exit_code ) = eval {
+        capture {
+            system 'ifconfig';
+            return $? >> 8;
+        };
     };
+    return () if $@;
     return () if $exit_code != 0 || !defined $stdout || $stdout eq '';
     my @pairs;
     my $iface = '';
