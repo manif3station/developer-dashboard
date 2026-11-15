@@ -150,8 +150,14 @@ sub command_in_path {
         }
     }
 
+    # DD-765 follow-up: File::Spec::Win32::path() prepends '.' to the list,
+    # and File::Spec rewrites empty PATH entries to '.' on Unix, so without
+    # this guard the caller's cwd is searched as if it were on PATH - the
+    # same dot-in-PATH hazard the bare-name check above was written to
+    # close, reached through the platform path list instead.
     for my $dir ( File::Spec->path ) {
         next if !defined $dir || $dir eq '';
+        next if $dir eq '.' || File::Spec->canonpath($dir) eq '.';
         for my $candidate ( _path_candidates( File::Spec->catfile( $dir, $name ) ) ) {
             return $candidate if -f $candidate;
         }
@@ -440,7 +446,7 @@ sub _git_for_windows_roots {
     my %seen;
     my $git = command_in_path('git');
     if ( defined $git && $git ne '' ) {
-        my ( $volume, $dirs ) = File::Spec->splitpath( $git, 1 );
+        my ( $volume, $dirs ) = File::Spec->splitpath($git);
         my @parts = grep { $_ ne '' } File::Spec->splitdir($dirs);
         # git.exe lives in <root>\cmd, <root>\bin or <root>\mingw64\bin.
         pop @parts while @parts && $parts[-1] =~ /\A(?:cmd|bin|mingw64|mingw32)\z/i;

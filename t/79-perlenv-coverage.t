@@ -7,6 +7,7 @@ use utf8;
 use Test::More;
 use Config ();
 use Cwd qw(getcwd);
+use File::Path qw(make_path);
 use File::Temp qw(tempdir);
 use File::Spec;
 
@@ -31,7 +32,8 @@ END { chdir $orig_cwd if defined $orig_cwd; }
 # ---------------------------------------------------------------------------
 # path_separator(): the MSWin32 arm is only reachable when $^O reports Windows.
 # ---------------------------------------------------------------------------
-is( Developer::Dashboard::PerlEnv::path_separator(), ':', 'path_separator is colon off Windows' );
+my $platform_sep = $^O eq 'MSWin32' ? ';' : ':';
+is( Developer::Dashboard::PerlEnv::path_separator(), $platform_sep, 'path_separator matches the platform separator' );
 {
     local $^O = 'MSWin32';
     is( Developer::Dashboard::PerlEnv::path_separator(), ';', 'path_separator is semicolon on Windows' );
@@ -65,12 +67,62 @@ is( Developer::Dashboard::PerlEnv::path_separator(), ':', 'path_separator is col
 {
     local %Config::Config = %Config::Config;
     $Config::Config{sh} = '';
-    is( Developer::Dashboard::PerlEnv::current_shell_bin_dir(), '', 'current_shell_bin_dir is empty when the shell path is empty' );
+    my $dir = Developer::Dashboard::PerlEnv::current_shell_bin_dir();
+    if ( $^O eq 'MSWin32' ) {
+        # On Windows the configured shell is the platform shell, so an
+        # empty $Config{sh} still resolves through powershell.
+        ok( $dir ne '' && -d $dir, 'current_shell_bin_dir falls back to the platform shell on Windows when the shell path is empty' );
+    }
+    else {
+        is( $dir, '', 'current_shell_bin_dir is empty when the shell path is empty' );
+    }
 }
 {
     local %Config::Config = %Config::Config;
     $Config::Config{sh} = '/nonexistent-perlenv-xyz/foo/sh';
-    is( Developer::Dashboard::PerlEnv::current_shell_bin_dir(), '', 'current_shell_bin_dir is empty when the shell dir does not exist' );
+    my $dir = Developer::Dashboard::PerlEnv::current_shell_bin_dir();
+    if ( $^O eq 'MSWin32' ) {
+        # Same fallback: a $Config{sh} that names a Unix shell which does
+        # not exist on Windows is not an empty shell.
+        ok( $dir ne '' && -d $dir, 'current_shell_bin_dir falls back to the platform shell on Windows when the shell dir does not exist' );
+    }
+    else {
+        is( $dir, '', 'current_shell_bin_dir is empty when the shell dir does not exist' );
+    }
+}
+
+# ---------------------------------------------------------------------------
+# current_shell_bin_dir(): the Windows fallback, forced with the established
+# local $OS_NAME override so the branch is covered on Linux too.
+# ---------------------------------------------------------------------------
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    local %Config::Config = %Config::Config;
+    $Config::Config{sh} = '/nonexistent-perlenv-xyz/foo/sh';
+    my $root  = tempdir( CLEANUP => 1 );
+    my $psdir = File::Spec->catdir( $root, 'System32', 'WindowsPowerShell', 'v1.0' );
+    make_path($psdir);
+    open my $ps, '>', File::Spec->catfile( $psdir, 'powershell.exe' ) or die $!;
+    close $ps or die $!;
+    local $ENV{SystemRoot} = $root;
+    local $ENV{PATH}       = $root;    # no powershell on PATH: the SystemRoot fallback must find it
+    is(
+        Developer::Dashboard::PerlEnv::current_shell_bin_dir(),
+        File::Spec->canonpath($psdir),
+        'current_shell_bin_dir falls back to the platform shell on Windows when the configured shell does not resolve'
+    );
+}
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    local %Config::Config = %Config::Config;
+    $Config::Config{sh} = '/nonexistent-perlenv-xyz/foo/sh';
+    local $ENV{SystemRoot} = tempdir( CLEANUP => 1 );    # empty: no powershell under it
+    local $ENV{PATH}       = tempdir( CLEANUP => 1 );    # empty: no powershell on PATH either
+    is(
+        Developer::Dashboard::PerlEnv::current_shell_bin_dir(),
+        '',
+        'current_shell_bin_dir is empty on Windows when no platform shell resolves'
+    );
 }
 
 # ---------------------------------------------------------------------------
@@ -190,8 +242,9 @@ my $p5b = File::Spec->catdir( $home, 'p5b' );
     is_deeply( [ grep { $_ eq $p5a } @list ], [$p5a], 'perl5lib_list honours an explicit path separator' );
 }
 {
-    # Leading empty split field (":<dir>") must be dropped.
-    my @list = $M->perl5lib_list( env => { PERL5LIB => ":$p5a" }, extra => [] );
+    # Leading empty split field ("<sep><dir>") must be dropped; the fixture
+    # uses the platform separator so the empty field is real on Windows too.
+    my @list = $M->perl5lib_list( env => { PERL5LIB => "$platform_sep$p5a" }, extra => [] );
     ok( ( grep { $_ eq $p5a } @list ), 'perl5lib_list keeps a real inherited path' );
     ok( ( !grep { $_ eq '' } @list ), 'perl5lib_list drops empty PERL5LIB fields' );
 }
@@ -292,7 +345,7 @@ my $p5b = File::Spec->catdir( $home, 'p5b' );
 }
 {
     my $str   = $M->perl5lib_env( env => {}, existing => [ $p5a, $p5b ] );
-    my @parts = split /:/, $str;
+    my @parts = split /\Q$platform_sep\E/, $str;
     is_deeply( [ @parts[ -2, -1 ] ], [ $p5a, $p5b ], 'perl5lib_env joins with the default separator' );
 }
 
@@ -301,8 +354,11 @@ my $p5b = File::Spec->catdir( $home, 'p5b' );
 # fields, non-directory entries, and an empty interpreter directory.
 # ---------------------------------------------------------------------------
 {
-    my $str = $M->path_with_current_perl( env => { PATH => $p5a }, path_sep => ':' );
-    ok( ( grep { $_ eq $p5a } split /:/, $str ), 'path_with_current_perl honours an explicit separator' );
+    # The explicit separator is ',' here rather than ':': a Windows path
+    # carries a drive-letter colon, so splitting a ':'-joined value would
+    # shatter the paths themselves and prove nothing on Windows.
+    my $str = $M->path_with_current_perl( env => { PATH => $p5a }, path_sep => ',' );
+    ok( ( grep { $_ eq $p5a } split /,/, $str ), 'path_with_current_perl honours an explicit separator' );
 }
 {
     my $str = $M->path_with_current_perl( env => {} );
@@ -310,19 +366,19 @@ my $p5b = File::Spec->catdir( $home, 'p5b' );
 }
 {
     my $str = $M->path_with_current_perl( env => { PATH => File::Spec->catdir( $home, 'no_such_path' ) } );
-    ok( ( !grep { $_ eq File::Spec->catdir( $home, 'no_such_path' ) } split /:/, $str ), 'path_with_current_perl drops non-directory PATH entries' );
+    ok( ( !grep { $_ eq File::Spec->catdir( $home, 'no_such_path' ) } split /\Q$platform_sep\E/, $str ), 'path_with_current_perl drops non-directory PATH entries' );
 }
 {
-    my $str = $M->path_with_current_perl( env => { PATH => ":$p5a" } );
-    ok( ( grep { $_ eq $p5a } split /:/, $str ), 'path_with_current_perl keeps a real inherited PATH entry' );
-    ok( ( !grep { $_ eq '' } split /:/, $str ), 'path_with_current_perl drops empty PATH fields' );
+    my $str = $M->path_with_current_perl( env => { PATH => "$platform_sep$p5a" } );
+    ok( ( grep { $_ eq $p5a } split /\Q$platform_sep\E/, $str ), 'path_with_current_perl keeps a real inherited PATH entry' );
+    ok( ( !grep { $_ eq '' } split /\Q$platform_sep\E/, $str ), 'path_with_current_perl drops empty PATH fields' );
 }
 {
     # An empty interpreter directory ($^X empty) makes the first candidate the
     # empty string, exercising the $path eq '' skip arm.
     local $^X = '';
     my $str = $M->path_with_current_perl( env => { PATH => $p5a } );
-    ok( ( grep { $_ eq $p5a } split /:/, $str ), 'path_with_current_perl skips an empty interpreter directory' );
+    ok( ( grep { $_ eq $p5a } split /\Q$platform_sep\E/, $str ), 'path_with_current_perl skips an empty interpreter directory' );
 }
 
 # ---------------------------------------------------------------------------
@@ -331,7 +387,7 @@ my $p5b = File::Spec->catdir( $home, 'p5b' );
 {
     my $child = $M->dashboard_child_env( env => { PATH => $p5a, PERL5LIB => $p5b } );
     ok( exists $child->{PATH} && exists $child->{PERL5LIB}, 'dashboard_child_env builds PATH and PERL5LIB from an explicit env' );
-    ok( ( grep { $_ eq $p5a } split /:/, $child->{PATH} ), 'dashboard_child_env carries the explicit PATH entry through' );
+    ok( ( grep { $_ eq $p5a } split /\Q$platform_sep\E/, $child->{PATH} ), 'dashboard_child_env carries the explicit PATH entry through' );
 }
 {
     my $child = $M->dashboard_child_env();
@@ -345,7 +401,7 @@ my $p5b = File::Spec->catdir( $home, 'p5b' );
     my %env   = ( PERL5LIB => $p5b );
     my $value = $M->bootstrap_perl5lib( env => \%env, existing => [$p5a] );
     is( $env{PERL5LIB}, $value, 'bootstrap_perl5lib writes the value back into an explicit env hash' );
-    ok( ( grep { $_ eq $p5a } split /:/, $value ), 'bootstrap_perl5lib includes the supplied existing path' );
+    ok( ( grep { $_ eq $p5a } split /\Q$platform_sep\E/, $value ), 'bootstrap_perl5lib includes the supplied existing path' );
 }
 {
     local $ENV{PERL5LIB};
