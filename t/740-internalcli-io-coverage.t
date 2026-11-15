@@ -152,6 +152,16 @@ ok( length call( 'helper_content', 'jq' ), 'helper_content still reads normally'
         local $UNLINK_FAIL{$target} = 1;
         like( eval { call( '_remove_retired_managed_helper', paths => $paths, name => 'skill' ); 1 } ? '' : $@, qr/Unable to remove retired helper/, 'retired helper removal dies on unlink failure' );
     }
+    {
+        # The same removal with CRLF fixture bytes: on Windows a helper
+        # file is written in text mode, so the managed-marker check must
+        # still recognise it and the unlink failure must still be
+        # reported instead of the file being silently skipped.
+        my $crlf_target = File::Spec->catfile( $root, 'skill-crlf' );
+        wf( $crlf_target, "#!/usr/bin/env perl\r\n" . call( '_managed_helper_marker', 'skill-crlf' ) . "\r\nbody\r\n" );
+        local $UNLINK_FAIL{$crlf_target} = 1;
+        like( eval { call( '_remove_retired_managed_helper', paths => $paths, name => 'skill-crlf' ); 1 } ? '' : $@, qr/Unable to remove retired helper/, 'retired helper removal dies on unlink failure with CRLF fixture bytes' );
+    }
 }
 
 # _remove_legacy_managed_flat_helpers.
