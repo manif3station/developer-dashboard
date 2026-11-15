@@ -470,10 +470,15 @@ sub _managed_helper_version_marker {
 # built-in command name to the shared _dashboard-core runtime.
 # Input: helper name string.
 # Output: boolean true when the helper delegates into _dashboard-core.
+# The complete helper belongs here: it is only a thin exec wrapper around
+# the core, so on Windows bin/d2 must bypass it (a staged wrapper's exec
+# hand-off silently ends the process there) and the core must be staged for
+# it (on a fresh home no earlier command has staged the core yet, so the
+# wrapper's exec failed to open it).
 sub _helper_uses_dashboard_core {
     my ($name) = @_;
     return 0 if !defined $name || $name eq '';
-    return $name =~ /\A(?:encode|decode|indicator|collector|config|auth|api|ask|init|cpan|page|action|docker|serve|stop|restart|log|shell|doctor|housekeeper|skills|which)\z/ ? 1 : 0;
+    return $name =~ /\A(?:encode|decode|indicator|collector|complete|config|auth|api|ask|init|cpan|page|action|docker|serve|stop|restart|log|shell|doctor|housekeeper|skills|which)\z/ ? 1 : 0;
 }
 
 # _is_dashboard_managed_helper($content, $name)
