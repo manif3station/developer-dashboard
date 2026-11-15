@@ -465,6 +465,18 @@ sub _exec_replacement {
     my ( $self, $command, $args ) = @_;
     my @command = @{ $self->_arrayref_or_empty($command) };
     my @args = @{ $self->_arrayref_or_empty($args) };
+    if ( $^O eq 'MSWin32' ) {
+        # Perl's exec() does not wait for the child on Windows: the parent
+        # exits at once and the skill's output races with (and is lost after)
+        # the caller's capture closing, so the command must be run with
+        # system() and the parent must exit with the child's status itself
+        # (the same system+exit shape the switchboard and staged helpers
+        # already use on Windows).
+        system @command, @args;
+        my $status = $?;
+        my $exit_code = $status > 255 ? $status >> 8 : $status;
+        exit $exit_code;
+    }
     if ( !exec @command, @args ) {
         my $error = "$!";
         return $error;
