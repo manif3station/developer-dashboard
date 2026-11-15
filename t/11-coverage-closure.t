@@ -106,8 +106,40 @@ print {$repo_cfg_fh} <<'JSON';
 JSON
 close $repo_cfg_fh;
 
-open my $docker_bin_fh, '>', File::Spec->catfile( $bin, 'docker' ) or die $!;
-print {$docker_bin_fh} <<"SH";
+if ( $^O eq 'MSWin32' ) {
+    # Windows has no sh, and an extensionless 'docker' file is not an
+    # executable Windows recognises (PATHEXT needs .exe/.bat/.cmd), so
+    # the shell stub below would die with "'docker' is not recognized".
+    # Write a docker.cmd batch stub instead; 'docker' resolves to it
+    # via PATHEXT. It mirrors the shell stub: print ARGS/DEBUG/MODE when
+    # the -f file is a merged compose file, else a fake compose config.
+    open my $docker_bin_fh, '>', File::Spec->catfile( $bin, 'docker.cmd' ) or die $!;
+    print {$docker_bin_fh} <<'BAT';
+@echo off
+setlocal enabledelayedexpansion
+set "merged_file="
+set "previous="
+for %%A in (%*) do (
+    if "!previous!"=="-f" set "merged_file=%%A"
+    set "previous=%%A"
+)
+echo !merged_file! | findstr /C:"merged-compose-" >nul 2>&1
+if !errorlevel!==0 (
+    echo ARGS:%*
+    echo DEBUG:%DEBUG_ENABLED%
+    echo MODE:%APP_MODE%
+) else (
+    echo services:
+    echo   app: {}
+    echo   worker: {}
+)
+endlocal
+BAT
+    close $docker_bin_fh;
+}
+else {
+    open my $docker_bin_fh, '>', File::Spec->catfile( $bin, 'docker' ) or die $!;
+    print {$docker_bin_fh} <<"SH";
 #!/bin/sh
 last=''
 merged_file=''
@@ -128,9 +160,11 @@ case "\$merged_file" in
     ;;
 esac
 SH
-close $docker_bin_fh;
-chmod 0755, File::Spec->catfile( $bin, 'docker' );
-local $ENV{PATH} = $bin . ':' . ( $ENV{PATH} || '' );
+    close $docker_bin_fh;
+    chmod 0755, File::Spec->catfile( $bin, 'docker' );
+}
+my $path_sep = $^O eq 'MSWin32' ? ';' : ':';
+local $ENV{PATH} = $bin . $path_sep . ( $ENV{PATH} || '' );
 
 my $paths = Developer::Dashboard::PathRegistry->new(
     home            => $home,
