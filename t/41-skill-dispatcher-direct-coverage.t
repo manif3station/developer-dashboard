@@ -74,7 +74,12 @@ is( $watcher_chdir_status, 0,
         my ($self) = @_;
         my @entries;
         for my $root ( @{ $self->{installed} || [] } ) {
-            my ($name) = $root =~ m{/([^/]+)\z};
+            # The last path component is the skill name. Match either
+            # separator: installed roots are File::Spec spellings, so a
+            # forward-slash pattern never matches a backslash-spelled
+            # Windows root and the entry was skipped, leaving the
+            # aggregate nav snapshot empty.
+            my ($name) = $root =~ m{[\\/]+([^\\/]+)\z};
             next if !defined $name;
             push @entries, {
                 skill_name => $name,
@@ -663,6 +668,47 @@ is_deeply( { $dispatcher->_skill_nav_route_ids('') }, {},
     ok( exists $updated_inventory{'inventory-added.tt'}, 'nav inventory notices a newly added route' );
     is( $inventory_scans, 3, 'changed directory metadata triggers only the affected nav-root rescan' );
     unlink $inventory_added_file or die "Unable to remove inventory nav fixture '$inventory_added_file': $!";
+}
+
+{
+    # On Windows, directory timestamps move coarsely, so a file added in the
+    # same tick leaves the directory stat identity unchanged and the
+    # inventory kept serving a stale file list. Freeze the directory stats
+    # to model that and prove the child names in the fingerprint still
+    # invalidate the inventory. This is a Linux model of Windows-only
+    # behaviour: it still needs a box solo run to prove on the Windows box
+    # itself.
+    my $frozen_dispatcher = Developer::Dashboard::SkillDispatcher->new(
+        manager => Local::SkillManager->new( paths => $paths ),
+        paths   => $paths,
+    );
+    my $original_relative_files = Developer::Dashboard::SkillDispatcher->can('_relative_files');
+    my $frozen_scans = 0;
+    my $real_stat = Time::HiRes->can('stat');
+    my %frozen_stats;
+    no warnings qw(redefine once);
+    local *Developer::Dashboard::SkillDispatcher::_relative_files = sub {
+        $frozen_scans++;
+        return $original_relative_files->(@_);
+    };
+    local *Time::HiRes::stat = sub {
+        my ($path) = @_;
+        return wantarray ? @{ $frozen_stats{$path} } : 1 if exists $frozen_stats{$path};
+        return $real_stat->(@_);
+    };
+    my %first_frozen = $frozen_dispatcher->_skill_nav_route_ids('layered');
+    is( $frozen_scans, 2, 'frozen-stat first layered nav inventory scans each contributing nav root once' );
+    for my $entry ( values %{ $frozen_dispatcher->{_skill_nav_inventory_cache}{entries} } ) {
+        for my $directory ( @{ $entry->{directories} } ) {
+            $frozen_stats{ $directory->[0] } = [ $real_stat->( $directory->[0] ) ];
+        }
+    }
+    my $frozen_added_file = File::Spec->catfile( $leaf_skill, 'dashboards', 'nav', 'frozen-added.tt' );
+    _write_file( $frozen_added_file, '<div>frozen route</div>\n' );
+    my %updated_frozen = $frozen_dispatcher->_skill_nav_route_ids('layered');
+    ok( exists $updated_frozen{'frozen-added.tt'}, 'nav inventory notices a newly added route when the directory stat cannot move' );
+    is( $frozen_scans, 3, 'frozen directory stat still triggers only the affected nav-root rescan' );
+    unlink $frozen_added_file or die "Unable to remove frozen inventory nav fixture '$frozen_added_file': $!";
 }
 
 {
