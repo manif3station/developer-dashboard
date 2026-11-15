@@ -181,14 +181,20 @@ sub ticket_environment {
 # Selects the directory tmux should use for its server socket when /tmp is not
 # writable in a container or other restricted runtime.
 # Input: optional tmpdir, fallback, and is_writable callback for deterministic
-# tests; otherwise checks /tmp and /dev/shm directly and honors TMUX_TMPDIR.
+# tests; otherwise checks /tmp and /dev/shm directly on Unix, or the platform
+# temp directory for both on Windows, and honors TMUX_TMPDIR.
 # Output: an explicit socket directory, or undef to keep tmux's /tmp default.
 sub _tmux_socket_directory {
     my (%args) = @_;
     return $ENV{TMUX_TMPDIR} if defined $ENV{TMUX_TMPDIR} && $ENV{TMUX_TMPDIR} ne '';
 
-    my $tmpdir      = $args{tmpdir}   || '/tmp';
-    my $fallback    = $args{fallback} || '/dev/shm';
+    # The Unix defaults do not exist on Windows, where /tmp is not writable
+    # (or present) and /dev/shm never exists, so the check below died before
+    # tmux was even reached. On Windows the platform temp directory is both
+    # the default and the fallback; tmux keeps its own default when it is
+    # writable, and an explicit tmpdir or fallback argument still wins.
+    my $tmpdir   = $args{tmpdir}   || ( $^O eq 'MSWin32' ? File::Spec->tmpdir() : '/tmp' );
+    my $fallback = $args{fallback} || ( $^O eq 'MSWin32' ? File::Spec->tmpdir() : '/dev/shm' );
     my $is_writable = $args{is_writable};
     if ( !defined $is_writable ) {
         $is_writable = sub { return -w $_[0] };
