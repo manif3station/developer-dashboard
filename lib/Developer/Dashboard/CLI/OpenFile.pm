@@ -301,9 +301,12 @@ sub _resolve_open_file_matches {
             wanted   => sub {
                 return if !-f $_;
                 # File::Find joins with forward slashes even on Windows, so
-                # canonicalise the hit: matches are compared and displayed
-                # against File::Spec spellings.
-                my $path = File::Spec->canonpath( $File::Find::name );
+                # canonicalise absolute hits: matches are compared and
+                # displayed against File::Spec spellings. A leading ./ is
+                # kept verbatim - the chooser displays it and passes it to
+                # the editor, and canonpath would strip it.
+                my $path = $File::Find::name;
+                $path = File::Spec->canonpath($path) if $path !~ m{\A\./};
                 my $relative = File::Spec->abs2rel( $path, $scope );
                 $relative =~ s{\A\.[/\\]}{};
                 for my $regex (@regexes) {
