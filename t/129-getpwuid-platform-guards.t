@@ -169,7 +169,8 @@ print "HOME=", $manager->{paths}->home, "\n";
 print "STATE_USER=", $manager->{paths}->_state_root_user, "\n";
 PERL
 
-    my ( $stdout, $stderr, $exit ) = capture {
+    my $child_exit;
+    my ( $stdout, $stderr ) = capture {
         local %ENV = %ENV;
         delete $ENV{HOME};
         delete $ENV{DD_STATE_ROOT_USER};
@@ -178,16 +179,27 @@ PERL
         delete $ENV{USERNAME};
         $ENV{USERPROFILE} = $profile_home;
         system( $^X, '-I' . $repo_lib, '-e', $prelude . $child );
-        $?;
+        $child_exit = $?;
     };
 
-    is( $exit >> 8, 0, 'both fallback chains run to completion under a getpwuid that dies' )
+    # Capture::Tiny returns only stdout and stderr, so the list assignment
+    # above cannot carry the exit code; read it from the lexical the block
+    # filled in instead of trusting an undef $exit.
+    is( $child_exit >> 8, 0, 'both fallback chains run to completion under a getpwuid that dies' )
       or diag $stderr;
     is( $stderr, '', 'the dying passwd lookup leaks no warnings or errors' );
+
+    # On Windows the child writes through a :crlf STDOUT, so each printed
+    # line ends in \r\n. The contract here is about which home and user the
+    # fallbacks resolve, not about the child platform's line ending, so
+    # normalise before matching.
+    $stdout =~ s/\r\n/\n/g;
     like( $stdout, qr/^HOME=\Q$profile_home\E$/m,
-        'the skill manager home falls back to USERPROFILE when getpwuid dies' );
+        'the skill manager home falls back to USERPROFILE when getpwuid dies' )
+      or diag $stdout;
     like( $stdout, qr/^STATE_USER=user$/m,
-        'the state-root user falls back to the literal when getpwuid dies' );
+        'the state-root user falls back to the literal when getpwuid dies' )
+      or diag $stdout;
 }
 
 done_testing();
