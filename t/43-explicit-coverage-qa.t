@@ -21,7 +21,35 @@ use Developer::Dashboard::CLI::Progress ();
 use Developer::Dashboard::CLI::Skills ();
 use Developer::Dashboard::File ();
 use Developer::Dashboard::FileRegistry ();
+use Developer::Dashboard::PerlEnv;
 use Developer::Dashboard::SkillManager ();
+
+# The platform PATH separator: a ':' join mangles drive-letter entries on
+# Windows, so a fake bin directory prepended with ':' is never reached.
+my $path_sep = Developer::Dashboard::PerlEnv::path_separator();
+
+# _write_stub($path, $shell_body, $cmd_body): writes a fake executable stub
+# runnable on this platform at $path. On Windows the stub is the .cmd form
+# (a #!/bin/sh script cannot run where there is no sh), found by the product
+# through PATHEXT; on Unix it is the shell script itself, made executable.
+# The .cmd body is given alongside the shell body so the two stay visibly
+# in step.
+sub _write_stub {
+    my ( $path, $shell_body, $cmd_body ) = @_;
+    if ( $^O eq 'MSWin32' ) {
+        my ( $vol, $dir, $file ) = File::Spec->splitpath($path);
+        $path = File::Spec->catpath( $vol, $dir, "$file.cmd" );
+        open my $fh, '>', $path or die "Unable to write $path: $!";
+        print {$fh} $cmd_body;
+        close $fh or die "Unable to close $path: $!";
+        return $path;
+    }
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    print {$fh} $shell_body;
+    close $fh or die "Unable to close $path: $!";
+    chmod 0755, $path or die "Unable to chmod $path: $!";
+    return $path;
+}
 
 {
     package TestCoveragePaths;
@@ -1458,14 +1486,13 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
     open my $make_fh, '>', $makefile or die $!;
     print {$make_fh} "install:\n\t\@true\n";
     close $make_fh;
-    my $make_bin = File::Spec->catfile( $make_root, 'make' );
-    open my $bin_fh, '>', $make_bin or die $!;
-    print {$bin_fh} "#!/bin/sh\n";
-    print {$bin_fh} "exit 1\n";
-    close $bin_fh;
-    chmod 0755, $make_bin or die $!;
+    _write_stub(
+        File::Spec->catfile( $make_root, 'make' ),
+        "#!/bin/sh\nexit 1\n",
+        "\@echo off\nexit /b 1\n",
+    );
     local *Developer::Dashboard::SkillManager::_makefile_targets = sub { return ('install'); };
-    local $ENV{PATH} = join ':', $make_root, ( $ENV{PATH} || '' );
+    local $ENV{PATH} = join $path_sep, $make_root, ( $ENV{PATH} || '' );
     my $make_failure = $manager->_install_skill_makefile($make_root);
     like(
         $make_failure->{error},
@@ -1478,17 +1505,12 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
     open my $named_make_fh, '>', $named_makefile or die $!;
     print {$named_make_fh} "install:\n\t\@true\n";
     close $named_make_fh;
-    my $named_make_bin = File::Spec->catfile( $named_make_root, 'make' );
-    open my $named_bin_fh, '>', $named_make_bin or die $!;
-    print {$named_bin_fh} "#!/bin/sh\n";
-    print {$named_bin_fh} "if [ \"\${1:-default}\" = \"install\" ]; then\n";
-    print {$named_bin_fh} "  echo install failed >&2\n";
-    print {$named_bin_fh} "  exit 1\n";
-    print {$named_bin_fh} "fi\n";
-    print {$named_bin_fh} "exit 0\n";
-    close $named_bin_fh;
-    chmod 0755, $named_make_bin or die $!;
-    local $ENV{PATH} = join ':', $named_make_root, ( $ENV{PATH} || '' );
+    _write_stub(
+        File::Spec->catfile( $named_make_root, 'make' ),
+        "#!/bin/sh\nif [ \"\${1:-default}\" = \"install\" ]; then\n  echo install failed >&2\n  exit 1\nfi\nexit 0\n",
+        "\@echo off\nif \"%1\"==\"install\" echo install failed 1>&2\nif \"%1\"==\"install\" exit /b 1\nexit /b 0\n",
+    );
+    local $ENV{PATH} = join $path_sep, $named_make_root, ( $ENV{PATH} || '' );
     my $named_make_failure = $manager->_install_skill_makefile($named_make_root);
     like(
         $named_make_failure->{error},
@@ -1501,27 +1523,27 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
     open my $winget_fh, '>', $wingetfile or die $!;
     print {$winget_fh} "Git.Git\n";
     close $winget_fh;
-    my $winget_bin = File::Spec->catfile( $winget_root, 'winget' );
-    open my $winget_bin_fh, '>', $winget_bin or die $!;
-    print {$winget_bin_fh} "#!/bin/sh\n";
-    print {$winget_bin_fh} "echo winget-ok\n";
-    print {$winget_bin_fh} "echo winget-warn >&2\n";
-    print {$winget_bin_fh} "exit 0\n";
-    close $winget_bin_fh;
-    chmod 0755, $winget_bin or die $!;
-    local $ENV{PATH} = join ':', $winget_root, ( $ENV{PATH} || '' );
+    my $winget_base = File::Spec->catfile( $winget_root, 'winget' );
+    _write_stub(
+        $winget_base,
+        "#!/bin/sh\necho winget-ok\necho winget-warn >&2\nexit 0\n",
+        "\@echo off\necho winget-ok\necho winget-warn 1>&2\nexit /b 0\n",
+    );
+    local $ENV{PATH} = join $path_sep, $winget_root, ( $ENV{PATH} || '' );
     local *Developer::Dashboard::SkillManager::_is_windows = sub { 1 };
     my $winget_ok = $manager->_install_skill_wingetfile($winget_root);
     ok( $winget_ok->{success}, '_install_skill_wingetfile succeeds on Windows when winget exits cleanly' );
-    is( $winget_ok->{stdout}, "winget-ok\n", '_install_skill_wingetfile returns streamed winget stdout without folding the progress banner into the result payload' );
+    # cmd.exe echo writes CRLF where sh writes LF; the assertion is about the
+    # streamed content, not the line ending, so normalise before comparing.
+    ( my $winget_stdout = $winget_ok->{stdout} ) =~ s/\r\n/\n/g;
+    is( $winget_stdout, "winget-ok\n", '_install_skill_wingetfile returns streamed winget stdout without folding the progress banner into the result payload' );
     like( $winget_ok->{stderr}, qr/winget-warn/, '_install_skill_wingetfile returns combined stderr from winget' );
 
-    open my $winget_fail_fh, '>', $winget_bin or die $!;
-    print {$winget_fail_fh} "#!/bin/sh\n";
-    print {$winget_fail_fh} "echo broken-winget >&2\n";
-    print {$winget_fail_fh} "exit 1\n";
-    close $winget_fail_fh;
-    chmod 0755, $winget_bin or die $!;
+    _write_stub(
+        $winget_base,
+        "#!/bin/sh\necho broken-winget >&2\nexit 1\n",
+        "\@echo off\necho broken-winget 1>&2\nexit /b 1\n",
+    );
     my $winget_fail = $manager->_install_skill_wingetfile($winget_root);
     like(
         $winget_fail->{error},

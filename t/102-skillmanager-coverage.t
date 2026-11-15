@@ -16,6 +16,7 @@ use lib 'lib';
 
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Platform ();
+use Developer::Dashboard::PerlEnv;
 use Developer::Dashboard::SkillManager;
 use Developer::Dashboard::GoRoutine ();
 
@@ -47,21 +48,28 @@ my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
 chdir $home or die "Unable to chdir to $home: $!";
 
+# The platform PATH separator: a ':' join mangles drive-letter entries on
+# Windows, so a fake bin directory prepended with ':' is never reached.
+my $path_sep = Developer::Dashboard::PerlEnv::path_separator();
+
 # A stub PATH so external dependency commands never touch the real system.
+# Every stub is written by _stub/_stub_exit, which produce a .cmd file on
+# Windows (a #!/bin/sh script cannot run where there is no sh) and the
+# shell script itself on Unix.
 my $fake_bin = tempdir( CLEANUP => 1 );
-_stub( 'cpanm',      "#!/bin/sh\nexit 0\n" );
-_stub( 'apt-get',    "#!/bin/sh\nexit 0\n" );
-_stub( 'apk',        "#!/bin/sh\nif [ \"\$1\" = info ]; then exit 1; fi\nexit 0\n" );
-_stub( 'dnf',        "#!/bin/sh\nexit 0\n" );
-_stub( 'brew',       "#!/bin/sh\nexit 0\n" );
-_stub( 'winget',     "#!/bin/sh\nexit 0\n" );
-_stub( 'dpkg-query', "#!/bin/sh\nexit 1\n" );
-_stub( 'rpm',        "#!/bin/sh\nexit 1\n" );
-_stub( 'sudo',       "#!/bin/sh\nexec \"\$@\"\n" );
-_stub( 'd2',  "#!/bin/sh\nexit 0\n" );
-_stub( 'make',       "#!/bin/sh\nexit 0\n" );
-_stub( 'docker',     "#!/bin/sh\nexit 0\n" );
-_stub( 'rsync',      "#!/bin/sh\nexit 0\n" );
+_stub_exit( 'cpanm',      0 );
+_stub_exit( 'apt-get',    0 );
+_stub( 'apk', "#!/bin/sh\nif [ \"\$1\" = info ]; then exit 1; fi\nexit 0\n", "\@echo off\nif \"%1\"==\"info\" exit /b 1\nexit /b 0\n" );
+_stub_exit( 'dnf',        0 );
+_stub_exit( 'brew',       0 );
+_stub_exit( 'winget',     0 );
+_stub_exit( 'dpkg-query', 1 );
+_stub_exit( 'rpm',        1 );
+_stub( 'sudo', "#!/bin/sh\nexec \"\$@\"\n", "\@echo off\n%*\n" );
+_stub_exit( 'd2',     0 );
+_stub_exit( 'make',   0 );
+_stub_exit( 'docker', 0 );
+_stub_exit( 'rsync',  0 );
 _stub(
     'npx',
     <<'SH',
@@ -73,10 +81,21 @@ for spec in "$@"; do
 done
 exit 0
 SH
+    <<'CMD',
+@echo off
+shift
+shift
+shift
+:next
+if "%~1"=="" exit /b 0
+for /f "tokens=1 delims=@" %%n in ("%~1") do mkdir "%CD%\node_modules\%%n" 2>nul
+shift
+goto next
+CMD
 );
-_stub( 'python',  "#!/bin/sh\nexit 0\n" );
-_stub( 'python3', "#!/bin/sh\nexit 0\n" );
-local $ENV{PATH} = "$fake_bin:" . ( $ENV{PATH} || '' );
+_stub_exit( 'python',  0 );
+_stub_exit( 'python3', 0 );
+local $ENV{PATH} = "$fake_bin$path_sep" . ( $ENV{PATH} || '' );
 
 my $paths   = Developer::Dashboard::PathRegistry->new( home => $home );
 my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
@@ -873,11 +892,10 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     # Failure paths: the package manager exits non-zero.
     my $failbin = tempdir( CLEANUP => 1 );
     for my $cmd (qw(apk dnf winget brew apt-get docker cpanm npx python make dpkg-query)) {
-        _spew( File::Spec->catfile( $failbin, $cmd ), "#!/bin/sh\nexit 7\n" );
-        chmod 0755, File::Spec->catfile( $failbin, $cmd );
+        _stub_at( File::Spec->catfile( $failbin, $cmd ), "#!/bin/sh\nexit 7\n", "\@echo off\nexit /b 7\n" );
     }
     {
-        local $ENV{PATH} = "$failbin:$ENV{PATH}";
+        local $ENV{PATH} = "$failbin$path_sep$ENV{PATH}";
         {
             local $ENV{DD_TEST_OS} = 'linux';
             local $ENV{DD_TEST_ALPINE} = 1;
@@ -991,22 +1009,20 @@ my $repos = tempdir( CLEANUP => 1 );
     _run_or_die( 'git', 'clone', '--quiet', $main_repo, $head_target );
     {
         my $fake_git = tempdir( CLEANUP => 1 );
-        _spew( File::Spec->catfile( $fake_git, 'git' ), "#!/bin/sh\nprintf 'HEAD\\n'\n" );
-        chmod 0755, File::Spec->catfile( $fake_git, 'git' );
-        local $ENV{PATH} = "$fake_git:$ENV{PATH}";
+        _stub_at( File::Spec->catfile( $fake_git, 'git' ), "#!/bin/sh\nprintf 'HEAD\\n'\n", "\@echo off\necho HEAD\n" );
+        local $ENV{PATH} = "$fake_git$path_sep$ENV{PATH}";
         is( $manager->_current_installed_skill_branch($head_target), undef,
             'branch lookup treats a successful detached HEAD response as unnamed' );
     }
     for my $probe (
-        [ 'empty', "#!/bin/sh\nexit 0\n", 'successful empty branch output' ],
-        [ 'stdout', "#!/bin/sh\necho branch-stdout\nexit 1\n", 'branch failure with stdout only' ],
-        [ 'silent', "#!/bin/sh\nexit 1\n", 'silent branch failure' ],
+        [ 'empty', "#!/bin/sh\nexit 0\n", "\@echo off\nexit /b 0\n", 'successful empty branch output' ],
+        [ 'stdout', "#!/bin/sh\necho branch-stdout\nexit 1\n", "\@echo off\necho branch-stdout\nexit /b 1\n", 'branch failure with stdout only' ],
+        [ 'silent', "#!/bin/sh\nexit 1\n", "\@echo off\nexit /b 1\n", 'silent branch failure' ],
     ) {
-        my ( $label, $script, $description ) = @{$probe};
+        my ( $label, $script, $cmd_script, $description ) = @{$probe};
         my $fake_git = tempdir( CLEANUP => 1 );
-        _spew( File::Spec->catfile( $fake_git, 'git' ), $script );
-        chmod 0755, File::Spec->catfile( $fake_git, 'git' );
-        local $ENV{PATH} = "$fake_git:$ENV{PATH}";
+        _stub_at( File::Spec->catfile( $fake_git, 'git' ), $script, $cmd_script );
+        local $ENV{PATH} = "$fake_git$path_sep$ENV{PATH}";
         my $branch_result = $manager->_current_installed_skill_branch($head_target);
         is( $branch_result, undef, "$description is handled without inventing a current branch ($label)" )
           if $label eq 'empty';
@@ -1936,9 +1952,8 @@ my $repos = tempdir( CLEANUP => 1 );
 {
     local $ENV{DEVELOPER_DASHBOARD_SKILL_INSTALL_TIMEOUT_MS} = 200;
     my $bin = tempdir( CLEANUP => 1 );
-    _spew( File::Spec->catfile( $bin, 'npx' ), "#!/bin/sh\nsleep 30\n" );
-    chmod 0755, File::Spec->catfile( $bin, 'npx' );
-    local $ENV{PATH} = "$bin:$ENV{PATH}";
+    _stub_at( File::Spec->catfile( $bin, 'npx' ), "#!/bin/sh\nsleep 30\n", "\@echo off\ntimeout /t 30 /nobreak >nul\n" );
+    local $ENV{PATH} = "$bin$path_sep$ENV{PATH}";
 
     my $skill = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'node-hang' );
     make_path($skill);
@@ -2451,9 +2466,31 @@ done_testing;
 
 # _stub($name, $body): writes an executable stub into the fake PATH bin.
 sub _stub {
-    my ( $name, $body ) = @_;
-    my $path = File::Spec->catfile( $fake_bin, $name );
-    _spew( $path, $body );
+    my ( $name, $shell_body, $cmd_body ) = @_;
+    return _stub_at( File::Spec->catfile( $fake_bin, $name ), $shell_body, $cmd_body );
+}
+
+# _stub_exit($name, $code): a fake-bin stub that just exits with $code.
+sub _stub_exit {
+    my ( $name, $code ) = @_;
+    return _stub( $name, "#!/bin/sh\nexit $code\n", "\@echo off\nexit /b $code\n" );
+}
+
+# _stub_at($path, $shell_body, $cmd_body): writes a fake executable stub
+# runnable on this platform at $path. On Windows the stub is the .cmd form
+# (a #!/bin/sh script cannot run where there is no sh), found by the
+# product's direct system() call through PATHEXT; on Unix it is the shell
+# script itself, made executable. The .cmd body is given alongside the
+# shell body so the two stay visibly in step.
+sub _stub_at {
+    my ( $path, $shell_body, $cmd_body ) = @_;
+    if ( $^O eq 'MSWin32' ) {
+        my ( $vol, $dir, $file ) = File::Spec->splitpath($path);
+        $path = File::Spec->catpath( $vol, $dir, "$file.cmd" );
+        _spew( $path, $cmd_body );
+        return $path;
+    }
+    _spew( $path, $shell_body );
     chmod 0755, $path or die "Unable to chmod $path: $!";
     return $path;
 }

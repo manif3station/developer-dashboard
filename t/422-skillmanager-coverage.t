@@ -13,6 +13,11 @@ use lib 'lib';
 
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SkillManager;
+use Developer::Dashboard::PerlEnv;
+
+# The platform PATH separator: a ':' join mangles drive-letter entries on
+# Windows, so a fake bin directory prepended with ':' is never reached.
+my $path_sep = Developer::Dashboard::PerlEnv::path_separator();
 
 sub spew {
     my ( $path, $content ) = @_;
@@ -27,6 +32,23 @@ sub spew {
 sub fake_git {
     my ($body) = @_;
     my $dir = tempdir( CLEANUP => 1 );
+    if ( $^O eq 'MSWin32' ) {
+        # A #!/bin/sh stub cannot run where there is no sh: on Windows the
+        # stub is a .cmd file and the product's direct system() call finds
+        # it through PATHEXT. The bodies used here are tiny; translate them
+        # explicitly and die loudly on any body without a translation rather
+        # than writing a stub that silently never runs.
+        my %cmd_body = (
+            'exit 1'                   => "\@echo off\nexit /b 1\n",
+            'exit 0'                   => "\@echo off\nexit /b 0\n",
+            'echo broken >&2; exit 1' => "\@echo off\necho broken 1>&2\nexit /b 1\n",
+            'echo HEAD'                => "\@echo off\necho HEAD\n",
+        );
+        my $cmd = $cmd_body{$body};
+        die "fake_git has no .cmd translation for shell body: $body" if !defined $cmd;
+        spew( File::Spec->catfile( $dir, 'git.cmd' ), $cmd );
+        return $dir;
+    }
     my $git = File::Spec->catfile( $dir, 'git' );
     spew( $git, "#!/bin/sh\n$body\n" );
     chmod 0755, $git or die $!;
@@ -80,7 +102,7 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 # Silent git failures fall back to the generic messages.
 {
     my $silent = fake_git('exit 1');
-    local $ENV{PATH} = "$silent:$ENV{PATH}";
+    local $ENV{PATH} = "$silent$path_sep$ENV{PATH}";
     my $dir = File::Spec->catdir( $home, 'gitish' );
     make_path( File::Spec->catdir( $dir, '.git' ) );
     like( $manager->_current_installed_skill_branch($dir)->{error}, qr/git could not report the current branch/, 'a silent git failure reports the generic branch message' );
@@ -90,7 +112,7 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 # Empty git output means no named branch.
 {
     my $empty = fake_git('exit 0');
-    local $ENV{PATH} = "$empty:$ENV{PATH}";
+    local $ENV{PATH} = "$empty$path_sep$ENV{PATH}";
     my $dir = File::Spec->catdir( $home, 'gitish' );
     is( $manager->_current_installed_skill_branch($dir), undef, 'empty git output means no named branch' );
 }
@@ -105,13 +127,13 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 
     {
         my $failing = fake_git( 'echo broken >&2; exit 1' );
-        local $ENV{PATH} = "$failing:$ENV{PATH}";
+        local $ENV{PATH} = "$failing$path_sep$ENV{PATH}";
         like( $inst->install('https://example.invalid/sticky.git')->{error}, qr/Unable to detect current branch/, 'install surfaces a branch-detection error for an existing checkout' );
     }
 
     {
         my $detached = fake_git( 'echo HEAD' );
-        local $ENV{PATH} = "$detached:$ENV{PATH}";
+        local $ENV{PATH} = "$detached$path_sep$ENV{PATH}";
         my $selected = 'unset';
         no warnings 'redefine';
         local *Developer::Dashboard::SkillManager::_clone_skill_source = sub { $selected = $_[3]; return { error => 'intercepted' } };
