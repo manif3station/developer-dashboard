@@ -264,7 +264,10 @@ my $manager = $SM->new( paths => $paths );
 
 # Timeout / streaming edge cases.
 {
-    my $out = $manager->_run_streaming_command( command => [ 'sh', '-c', 'echo hi' ], cwd => $home );
+    # 'sh' is not on PATH on Windows; cmd.exe is the local equivalent for a
+    # trivial echo command.
+    my $echo_cmd = $^O eq 'MSWin32' ? [ 'cmd', '/d', '/c', 'echo hi' ] : [ 'sh', '-c', 'echo hi' ];
+    my $out = $manager->_run_streaming_command( command => $echo_cmd, cwd => $home );
     is( $out->{exit}, 0, 'streaming command with a cwd runs' );
 
     {
@@ -279,7 +282,8 @@ my $manager = $SM->new( paths => $paths );
     {
         no warnings 'redefine';
         local *Developer::Dashboard::SkillManager::_drain_ready_handle = sub { die "boom\n" };
-        eval { $manager->_run_streaming_command( command => [ 'sh', '-c', 'echo hi; sleep 1' ], timeout_ms => 5000 ) };
+        my $sleep_cmd = $^O eq 'MSWin32' ? [ 'cmd', '/d', '/c', 'echo hi' ] : [ 'sh', '-c', 'echo hi; sleep 1' ];
+        eval { $manager->_run_streaming_command( command => $sleep_cmd, timeout_ms => 5000 ) };
         is( $@, "boom\n", 'a non-timeout error inside the timed read loop is rethrown' );
     }
 

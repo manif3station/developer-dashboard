@@ -719,7 +719,7 @@ HTML: <script>var configs = {};</script>
 CODE1: Ajax jvar => 'configs.demo.endpoint', type => 'text', file => 'process-endpoint.json', code => q{
 print "perl-start\n";
 warn "perl-warn\n";
-system 'sh', '-c', 'printf "child-out\n"; printf "child-err\n" >&2';
+if ( $^O eq 'MSWin32' ) { system 'cmd', '/d', '/c', 'echo child-out & echo child-err 1>&2'; } else { system 'sh', '-c', 'printf "child-out\n"; printf "child-err\n" >&2'; }
 die "perl-die\n";
 };
 PAGE

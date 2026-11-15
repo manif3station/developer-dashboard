@@ -457,7 +457,15 @@ subtest '_run_cli reports an unexecutable command distinctly' => sub {
     like( $missing_err, qr/Can't exec "dd-ask-no-such-command-42"/, 'the exec failure is reported in the captured standard error' );
     like( $teed, qr/Can't exec "dd-ask-no-such-command-42"/, 'the live tee echoes the exec failure instead of leaking it into the test output' );
 
-    my ( $stdout, $stderr, $exit ) = $run->( [ $^X, '-e', 'print "ran\n"' ] );
+    # A quoted -e script does not survive Win32 command-line construction
+    # (win32 system() re-splits an argument holding spaces and double
+    # quotes), so the probe runs from a temp file instead.
+    my $probe_dir = tempdir( CLEANUP => 1 );
+    my $probe     = File::Spec->catfile( $probe_dir, 'ran.pl' );
+    open my $probe_fh, '>', $probe or die "Unable to write $probe: $!";
+    print {$probe_fh} "print \"ran\\n\";\n" or die "Unable to write $probe: $!";
+    close $probe_fh or die "Unable to close $probe: $!";
+    my ( $stdout, $stderr, $exit ) = $run->( [ $^X, $probe ] );
     is( $exit,   0,       'a real command reports its shifted exit status' );
     is( $stdout, "ran\n", 'a real command has its stdout captured' );
 };

@@ -28,6 +28,7 @@ use Developer::Dashboard::CLI::OpenFileJavaSource qw(
 );
 use Developer::Dashboard::CLI::OpenFileUtil qw(_unique_matches _unique_existing_dirs);
 use Developer::Dashboard::Config;
+use Developer::Dashboard::Platform qw(command_argv_for_path is_windows);
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 
@@ -478,6 +479,19 @@ sub _command_exit {
 # Output: never returns during normal command execution.
 sub _command_exec {
     my (@command) = @_;
+    if ( is_windows() && @command && -f $command[0] ) {
+        # On Windows, CreateProcess cannot execute a POSIX shell script
+        # directly; route it through the resolved POSIX shell instead, keeping
+        # any extra arguments as the script's own argv.
+        my $lower = lc $command[0];
+        my $is_shell = $lower =~ /\.(?:sh|bash)\z/;
+        if ( !$is_shell && open my $shebang_fh, '<', $command[0] ) {
+            my $first = <$shebang_fh> // '';
+            close $shebang_fh;
+            $is_shell = $first =~ m{\A\#!\s*(?:/usr/bin/env\s+|/bin/)(?:sh|bash)(?:\s|\z)} ? 1 : 0;
+        }
+        @command = ( command_argv_for_path( $command[0] ), @command[ 1 .. $#command ] ) if $is_shell;
+    }
     _exec_raw(@command);
 
     # Reached only when exec() fails to replace the process image. The raw
