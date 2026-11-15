@@ -279,26 +279,52 @@ sub _run_command_hook_streaming {
     STDOUT->autoflush(1);
     STDERR->autoflush(1);
 
-    while ( my @ready = $selector->can_read ) {
-        for my $fh (@ready) {
-            my $buffer = '';
-            my $read = sysread( $fh, $buffer, 8192 );
-            if ( !defined $read || $read == 0 ) {
-                $selector->remove($fh);
-                close $fh;
-                next;
-            }
+    # On Windows IO::Select only works for real sockets, so can_read over
+    # the open3 pipes returns at once with nothing ready and the hook's
+    # output is silently lost. Drain both pipes with reader threads there
+    # instead; the select loop below stays for every other platform.
+    my $drained = 0;
+    if ( $^O eq 'MSWin32' ) {
+        require Developer::Dashboard::StreamDrain;
+        $drained = Developer::Dashboard::StreamDrain::_drain_child_streams_windows(
+            undef,
+            $stdout,
+            $stderr,
+            sub {
+                my ( $is_stdout, $chunk ) = @_;
+                if ($is_stdout) {
+                    print STDOUT $chunk if $stream;
+                    $stdout_text .= $chunk;
+                }
+                else {
+                    print STDERR $chunk if $stream;
+                    $stderr_text .= $chunk;
+                }
+            },
+        );
+    }
+    if ( !$drained ) {
+        while ( my @ready = $selector->can_read ) {
+            for my $fh (@ready) {
+                my $buffer = '';
+                my $read = sysread( $fh, $buffer, 8192 );
+                if ( !defined $read || $read == 0 ) {
+                    $selector->remove($fh);
+                    close $fh;
+                    next;
+                }
 
-            if ( fileno($fh) == $stdout_fd ) {
-                print STDOUT $buffer if $stream;
-                $stdout_text .= $buffer;
-                next;
-            }
+                if ( fileno($fh) == $stdout_fd ) {
+                    print STDOUT $buffer if $stream;
+                    $stdout_text .= $buffer;
+                    next;
+                }
 
-            if ( fileno($fh) == $stderr_fd ) {
-                print STDERR $buffer if $stream;
-                $stderr_text .= $buffer;
-                next;
+                if ( fileno($fh) == $stderr_fd ) {
+                    print STDERR $buffer if $stream;
+                    $stderr_text .= $buffer;
+                    next;
+                }
             }
         }
     }
