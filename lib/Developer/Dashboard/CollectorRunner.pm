@@ -916,6 +916,18 @@ sub _terminate_loop_workers {
         elsif ( $self->_pid_is_running($pid) ) {
             kill 9, $pid;
         }
+        # Wait, bounded, for the kill to take effect and the child to be
+        # reapable before the single reap below: signal delivery and
+        # process death lag under slow scheduling (qemu user-mode
+        # emulation), so a lone non-blocking reap here can miss a child
+        # that dies a moment later and leave it an unreaped zombie even
+        # though this function promises to stop AND reap every worker.
+        # _pid_is_running attempts a reap on each check, so this loop both
+        # waits and reaps; it exits at once when the child is gone.
+        for ( 1 .. 20 ) {
+            last if !$self->_pid_is_running($pid);
+            sleep 0.1;
+        }
         $self->_reap_child_process($pid);
         delete $active_workers->{$pid};
     }
