@@ -336,6 +336,11 @@ sub _windows_backend {
                     for my $active_handle (@handles) {
                         if ( !_xs_win32_close_change($active_handle) ) {
                             my $close_code = _xs_win32_last_error();
+                            # ERROR_INVALID_HANDLE (6): the handle is already
+                            # gone (its directory was deleted), so there is
+                            # nothing left to clean up; a dead handle is not
+                            # a cleanup failure.
+                            next if $close_code == 6;
                             $error .= "; cleanup failed (GetLastError=$close_code)";
                         }
                     }
@@ -355,11 +360,19 @@ sub _windows_backend {
                 next if defined $state && $state == 258;
                 if ( !defined $state || $state == 0xffffffff ) {
                     my $code = _xs_win32_last_error();
+                    # ERROR_INVALID_HANDLE (6): the watched directory was
+                    # deleted (tempdir cleanup) and the notification handle
+                    # died with it. That is a change, not a watcher failure:
+                    # report the snapshot invalid and let the caller's
+                    # portable validation see the directory is gone, instead
+                    # of disabling the watcher with a native error.
+                    return ( 0, undef ) if $code == 6;
                     return ( undef, "WaitForSingleObject failed (GetLastError=$code)" );
                 }
                 if ( $state == 0 ) {
                     if ( !_xs_win32_next_change($handle) ) {
                         my $code = _xs_win32_last_error();
+                        return ( 0, undef ) if $code == 6;
                         return ( undef, "FindNextChangeNotification failed (GetLastError=$code)" );
                     }
                     $changed = 1;
@@ -378,6 +391,10 @@ sub _windows_backend {
             for my $handle ( @{ $watch->{handles} } ) {
                 if ( !_xs_win32_close_change($handle) ) {
                     my $code = _xs_win32_last_error();
+                    # ERROR_INVALID_HANDLE (6): the handle is already gone
+                    # (its directory was deleted), so there is nothing left
+                    # to close; a dead handle is not a close failure.
+                    next if $code == 6;
                     $! = $code;
                     push @errors, "FindCloseChangeNotification failed (GetLastError=$code)";
                     $closed = 0;

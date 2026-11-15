@@ -2017,14 +2017,24 @@ sub _skill_nav_route_ids {
 # _skill_nav_directory_fingerprint($directory)
 # Builds a high-resolution identity for one directory in a cached nav inventory.
 # Input: directory path string.
-# Output: NUL-separated stat identity or undef when the directory cannot be statted.
+# Output: NUL-separated stat identity, or undef when the directory cannot be statted.
 sub _skill_nav_directory_fingerprint {
     my ($directory) = @_;
     return if !defined $directory || $directory eq '';
     my @stat = Time::HiRes::stat($directory);
     return if !@stat;
     return if !-d $directory;
-    return join "\0", @stat[ 0, 1, 2, 7, 9, 10 ];
+    my $identity = join "\0", @stat[ 0, 1, 2, 7, 9, 10 ];
+    # Directory timestamps move coarsely on Windows: a file added in the same
+    # tick leaves the stat identity unchanged, so the inventory kept serving
+    # a stale file list. Fold the sorted child entry names into the
+    # fingerprint so an add, removal or rename invalidates it even when the
+    # directory timestamp does not move. The inventory only lists file ids,
+    # so content changes are the file-level fingerprint's job, not this one.
+    opendir my $dh, $directory or return $identity;
+    my @children = sort grep { $_ ne '.' && $_ ne '..' } readdir $dh;
+    closedir $dh;
+    return $identity . "\0" . join( "\0", @children );
 }
 
 # _skill_nav_inventory($nav_root)
