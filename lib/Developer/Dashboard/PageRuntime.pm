@@ -890,36 +890,14 @@ sub _stream_saved_ajax_windows {
     my ( $saved_status, $terminated_status, $disconnected, $terminated );
     my $stream_error = '';
     my $fatal_error;
-    # Bounded wait after the worker exits: once the child is gone, its pipes
-    # must close and the readers must send their close events. If they do
-    # not within a grace period, the stream is stuck (a descendant holding a
-    # pipe open, or a reader wedged), so stop waiting instead of looping
-    # forever. dequeue_timed is also rate-limited: on Windows it can return
-    # immediately instead of waiting out its timeout, which turns this loop
-    # into a busy spin at a full core.
-    my $exited_timeouts = 0;
     eval {
         while (%open_stream) {
             my $event = $queue->dequeue_timed(0.25);
             if ( !defined $event ) {
                 my ( $child_exited, $status ) = $self->_saved_ajax_child_exited($pid);
                 $saved_status = $status if $child_exited && !defined $saved_status;
-                if ($child_exited) {
-                    $exited_timeouts++;
-                    if ( $exited_timeouts >= 40 ) {
-                        $stream_error = 'Saved-Ajax stream did not close after the worker exited';
-                        last;
-                    }
-                }
-                else {
-                    $exited_timeouts = 0;
-                }
-                # Rate-limit the poll so a dequeue_timed that returns at
-                # once instead of waiting cannot spin this loop.
-                select( undef, undef, undef, 0.05 );
                 next;
             }
-            $exited_timeouts = 0;
 
             my $type = substr( $event, 0, 1 );
             my $label = substr( $event, 1, 1 );
@@ -966,19 +944,9 @@ sub _stream_saved_ajax_windows {
         if ( $disconnected || $stream_error ne '' ) {
             $self->_terminate_saved_ajax_process( $pid, undef, \$terminated_status );
             $terminated = 1;
-            # Bounded drain: after termination the readers must close. If
-            # they do not within a grace period, stop waiting instead of
-            # looping forever on a pipe a descendant is holding open.
-            my $drain_timeouts = 0;
             while (%open_stream) {
                 my $event = $queue->dequeue_timed(0.25);
-                if ( !defined $event ) {
-                    $drain_timeouts++;
-                    last if $drain_timeouts >= 40;
-                    select( undef, undef, undef, 0.05 );
-                    next;
-                }
-                $drain_timeouts = 0;
+                next if !defined $event;
                 delete $open_stream{ substr( $event, 1, 1 ) }
                   if substr( $event, 0, 1 ) eq 'C';
             }
@@ -992,16 +960,9 @@ sub _stream_saved_ajax_windows {
         # pipes close and they can finish, instead of leaving them blocked.
         eval { $self->_terminate_saved_ajax_process( $pid, undef, \$terminated_status ); 1 };
         $terminated = 1;
-        my $fatal_drain_timeouts = 0;
         while (%open_stream) {
             my $event = $queue->dequeue_timed(0.25);
-            if ( !defined $event ) {
-                $fatal_drain_timeouts++;
-                last if $fatal_drain_timeouts >= 40;
-                select( undef, undef, undef, 0.05 );
-                next;
-            }
-            $fatal_drain_timeouts = 0;
+            next if !defined $event;
             delete $open_stream{ substr( $event, 1, 1 ) }
               if substr( $event, 0, 1 ) eq 'C';
         }
