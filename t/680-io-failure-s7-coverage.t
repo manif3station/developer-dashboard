@@ -306,9 +306,12 @@ sub write_file {
     delete $FAIL_UNLINK{$legacy};
 
     # A directory opens fine but reading it fails, so closing it reports the read error.
+    # On Windows the open itself fails (a directory cannot be opened for
+    # reading there), so the same unreadable bookmark is reported at the
+    # read step instead of the close step; either wording names the failure.
     my $ok2 = eval { $store->_read_saved_instruction($root); 1 };
     ok( !$ok2, 'a bookmark that cannot be read to the end is fatal at close' );
-    like( $@, qr/Unable to close/, 'bookmark close failure is named' );
+    like( $@, qr/Unable to (?:read|close)/, 'bookmark close failure is named' );
 }
 
 # --- IndicatorStore: flock failure -------------------------------------------
