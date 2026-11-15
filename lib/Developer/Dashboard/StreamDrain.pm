@@ -105,7 +105,12 @@ sub _drain_child_streams_windows {
     return 0 if !$have_threads;
 
     my $queue = Thread::Queue->new;
-    $queue->limit(8);
+    # No queue limit: with a limit, a reader can block in enqueue while the
+    # caller has stopped dequeuing (it is in the join), which deadlocks; and
+    # if the drain then dies before the join, the queue is destroyed while a
+    # reader is blocked, which panics the interpreter with COND_DESTROY on
+    # Windows. The caller dequeues continuously, and child output here is
+    # small, so an unbounded queue is safe.
     my @readers;
     for my $stream ( [ 1, $stdout ], [ 0, $stderr ] ) {
         my ( $is_stdout, $fh ) = @{$stream};
@@ -132,26 +137,37 @@ sub _drain_child_streams_windows {
     }
 
     my %open_stream = ( 1 => 1, 0 => 1 );
-    while ( keys %open_stream ) {
-        my $event = $queue->dequeue_timed(0.25);
-        next if !defined $event;
-        my $type      = substr( $event, 0, 1 );
-        my $is_stdout = substr( $event, 1, 1 );
-        if ( $type eq 'C' ) {
-            delete $open_stream{$is_stdout};
-            next;
+    my $drain_error;
+    eval {
+        while ( keys %open_stream ) {
+            my $event = $queue->dequeue_timed(0.25);
+            next if !defined $event;
+            my $type      = substr( $event, 0, 1 );
+            my $is_stdout = substr( $event, 1, 1 );
+            if ( $type eq 'C' ) {
+                delete $open_stream{$is_stdout};
+                next;
+            }
+            next if $type ne 'D' && $type ne 'R';
+            my $length  = unpack 'N', substr( $event, 2, 4 );
+            my $payload = substr( $event, 6 );
+            next if length($payload) != $length;
+            if ( $type eq 'R' ) {
+                warn "reading a child handle failed: $payload\n";
+                next;
+            }
+            $on_chunk->( $is_stdout, $payload );
         }
-        next if $type ne 'D' && $type ne 'R';
-        my $length  = unpack 'N', substr( $event, 2, 4 );
-        my $payload = substr( $event, 6 );
-        next if length($payload) != $length;
-        if ( $type eq 'R' ) {
-            warn "reading a child handle failed: $payload\n";
-            next;
-        }
-        $on_chunk->( $is_stdout, $payload );
-    }
+        1;
+    } or do {
+        $drain_error = $@;
+    };
+    # Always join the readers before the queue goes out of scope. If this
+    # drain dies before the join, the queue is destroyed while a reader is
+    # still blocked on it, and the interpreter panics with COND_DESTROY on
+    # Windows instead of returning the error.
     $_->join for @readers;
+    die $drain_error if defined $drain_error;
 
     return 1;
 }

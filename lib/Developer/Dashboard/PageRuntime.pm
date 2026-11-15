@@ -855,7 +855,12 @@ sub _stream_saved_ajax_windows {
     require threads;
     require Thread::Queue;
     my $queue = Thread::Queue->new;
-    $queue->limit(8);
+    # No queue limit: with a limit, a reader can block in enqueue while the
+    # main thread has stopped dequeuing (it is in the join), which deadlocks;
+    # and if the function then dies before the join, the queue is destroyed
+    # while a reader is blocked, which panics the interpreter with
+    # COND_DESTROY on Windows. The main thread dequeues continuously, and
+    # saved-Ajax payloads are small, so an unbounded queue is safe here.
     my @readers;
     for my $stream ( [ o => $stdout ], [ e => $stderr ] ) {
         my ( $label, $fh ) = @{$stream};
@@ -884,58 +889,76 @@ sub _stream_saved_ajax_windows {
     my %open_stream = ( o => 1, e => 1 );
     my ( $saved_status, $terminated_status, $disconnected, $terminated );
     my $stream_error = '';
-    while (%open_stream) {
-        my $event = $queue->dequeue_timed(0.25);
-        if ( !defined $event ) {
-            my ( $child_exited, $status ) = $self->_saved_ajax_child_exited($pid);
-            $saved_status = $status if $child_exited && !defined $saved_status;
-            next;
+    my $fatal_error;
+    eval {
+        while (%open_stream) {
+            my $event = $queue->dequeue_timed(0.25);
+            if ( !defined $event ) {
+                my ( $child_exited, $status ) = $self->_saved_ajax_child_exited($pid);
+                $saved_status = $status if $child_exited && !defined $saved_status;
+                next;
+            }
+
+            my $type = substr( $event, 0, 1 );
+            my $label = substr( $event, 1, 1 );
+            if ( $type eq 'C' ) {
+                delete $open_stream{$label};
+                next;
+            }
+            if ( $type ne 'D' && $type ne 'R' ) {
+                $stream_error = 'Invalid Windows saved-Ajax reader event';
+                last;
+            }
+            if ( length($event) < 6 ) {
+                $stream_error = 'Incomplete Windows saved-Ajax reader event';
+                last;
+            }
+            my $length = unpack 'N', substr( $event, 2, 4 );
+            my $payload = substr( $event, 6 );
+            if ( length($payload) != $length ) {
+                $stream_error = 'Truncated Windows saved-Ajax reader event';
+                last;
+            }
+
+            my $continued = eval {
+                if ( $type eq 'R' ) {
+                    $stderr_writer->("Unable to read ajax stream for $path: $payload\n");
+                }
+                elsif ( $label eq 'o' ) {
+                    $stdout_writer->($payload);
+                }
+                else {
+                    $stderr_writer->($payload);
+                }
+            };
+            if ($@) {
+                $stream_error = $@;
+                last;
+            }
+            if ( defined $continued && !$continued ) {
+                $disconnected = 1;
+                last;
+            }
         }
 
-        my $type = substr( $event, 0, 1 );
-        my $label = substr( $event, 1, 1 );
-        if ( $type eq 'C' ) {
-            delete $open_stream{$label};
-            next;
-        }
-        if ( $type ne 'D' && $type ne 'R' ) {
-            $stream_error = 'Invalid Windows saved-Ajax reader event';
-            last;
-        }
-        if ( length($event) < 6 ) {
-            $stream_error = 'Incomplete Windows saved-Ajax reader event';
-            last;
-        }
-        my $length = unpack 'N', substr( $event, 2, 4 );
-        my $payload = substr( $event, 6 );
-        if ( length($payload) != $length ) {
-            $stream_error = 'Truncated Windows saved-Ajax reader event';
-            last;
-        }
-
-        my $continued = eval {
-            if ( $type eq 'R' ) {
-                $stderr_writer->("Unable to read ajax stream for $path: $payload\n");
+        if ( $disconnected || $stream_error ne '' ) {
+            $self->_terminate_saved_ajax_process( $pid, undef, \$terminated_status );
+            $terminated = 1;
+            while (%open_stream) {
+                my $event = $queue->dequeue_timed(0.25);
+                next if !defined $event;
+                delete $open_stream{ substr( $event, 1, 1 ) }
+                  if substr( $event, 0, 1 ) eq 'C';
             }
-            elsif ( $label eq 'o' ) {
-                $stdout_writer->($payload);
-            }
-            else {
-                $stderr_writer->($payload);
-            }
-        };
-        if ($@) {
-            $stream_error = $@;
-            last;
         }
-        if ( defined $continued && !$continued ) {
-            $disconnected = 1;
-            last;
-        }
-    }
-
-    if ( $disconnected || $stream_error ne '' ) {
-        $self->_terminate_saved_ajax_process( $pid, undef, \$terminated_status );
+        1;
+    } or do {
+        $fatal_error = $@;
+    };
+    if ( defined $fatal_error && !$terminated ) {
+        # The stream died mid-flight: terminate the worker so the readers'
+        # pipes close and they can finish, instead of leaving them blocked.
+        eval { $self->_terminate_saved_ajax_process( $pid, undef, \$terminated_status ); 1 };
         $terminated = 1;
         while (%open_stream) {
             my $event = $queue->dequeue_timed(0.25);
@@ -944,7 +967,12 @@ sub _stream_saved_ajax_windows {
               if substr( $event, 0, 1 ) eq 'C';
         }
     }
+    # Always join the readers before the queue goes out of scope. If this
+    # function dies before the join, the queue is destroyed while a reader
+    # is still blocked on it, and the interpreter panics with COND_DESTROY
+    # on Windows instead of returning the error.
     $_->join for @readers;
+    die $fatal_error if defined $fatal_error;
 
     return {
         disconnected      => $disconnected ? 1 : 0,
