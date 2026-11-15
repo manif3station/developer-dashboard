@@ -136,6 +136,17 @@ sub _process_running_wrapper ($) {
 # id integer. Output: shell-style exit status integer.
 sub _wait_process_wrapper ($) {
     my ($pid) = @_;
+    # Already waited or reaped (Windows only): the registry handle is
+    # gone, so the native wait would croak opening a process object that
+    # no longer exists (Windows error 87). This happens when a reap
+    # (e.g. _terminate_loop_workers' bounded reap-wait) collects the
+    # child first and a later wait — such as a test helper's cleanup —
+    # asks for it again. Report the documented 255 unknown status
+    # instead. On POSIX the registry is always empty (_keep_spawn_handle
+    # is a Windows-only no-op there), so this must not fire off Windows.
+    if ( $^O eq 'MSWin32' && defined $pid && !exists $_SPAWN_CHILDREN{$pid} ) {
+        return 255;
+    }
     my $code = $_XS_WAIT_PROCESS->($pid);
     delete $_SPAWN_CHILDREN{$pid} if defined $pid;
     return $code;
