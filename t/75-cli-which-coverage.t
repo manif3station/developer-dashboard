@@ -330,9 +330,11 @@ is( scalar Developer::Dashboard::CLI::Which::_resolve_directory_runner( File::Sp
     );
 
     chmod 0755, $entrypoint or die "Unable to mark fixture entrypoint executable: $!";
+    # -x never holds on Windows, so the entrypoint correctly re-enters
+    # through Perl there instead of executing directly.
     is_deeply(
         [ Developer::Dashboard::CLI::Which::_dashboard_entry_command() ],
-        [$entrypoint],
+        $^O eq 'MSWin32' ? [ $^X, $entrypoint ] : [$entrypoint],
         'which --edit executes an existing executable d2 entrypoint directly',
     );
 }

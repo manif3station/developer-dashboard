@@ -1161,7 +1161,10 @@ sub _write_state_metadata {
         die "Runtime metadata is not a regular file: $file" if !-f _;
         die "Runtime metadata is not owned by the current user: $file" if $metadata_stat[4] != $>;
 
-        if ( ( $metadata_stat[2] & 0777 ) == 0600 ) {
+        # Unix mode bits are not a Windows security control, so on Windows
+        # the metadata counts as secured once it exists with the right owner
+        # and content; the mode can never be 0600 there.
+        if ( _native_windows_paths() || ( $metadata_stat[2] & 0777 ) == 0600 ) {
             my $existing_fh = _open_state_metadata_file( $file, '<:raw' );
             die "Unable to read $file: $!" if !$existing_fh;
             local $/;
