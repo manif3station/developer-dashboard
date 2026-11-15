@@ -28,6 +28,7 @@ use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::PerlEnv;
 use Developer::Dashboard::SessionStore;
 use Developer::Dashboard::SkillManager;
 use Developer::Dashboard::UpdateManager;
@@ -571,9 +572,24 @@ like( $not_found_body, qr/Not found/, 'not found route returns a plain error bod
 {
     my $fake_bin = File::Spec->catdir( $home, 'fake-bin' );
     make_path($fake_bin);
-    my $ifconfig = File::Spec->catfile( $fake_bin, 'ifconfig' );
+    # The stub must be runnable by the platform that runs the product: a
+    # #!/bin/sh script cannot run where there is no sh. On Windows it is a
+    # .cmd file, found by the product's command_in_path through PATHEXT.
+    # The angle brackets in the flags line are escaped (^< ^>) so cmd.exe
+    # prints them instead of treating them as redirections.
+    my $ifconfig = File::Spec->catfile( $fake_bin, $^O eq 'MSWin32' ? 'ifconfig.cmd' : 'ifconfig' );
     open my $ifconfig_fh, '>', $ifconfig or die $!;
-    print {$ifconfig_fh} <<'SH';
+    if ( $^O eq 'MSWin32' ) {
+        print {$ifconfig_fh} <<'CMD';
+@echo off
+echo eth0: flags=4163^<UP,BROADCAST,RUNNING,MULTICAST^>  mtu 1500
+echo     inet 10.0.0.4  netmask 255.255.255.0  broadcast 10.0.0.255
+echo lo: flags=73^<UP,LOOPBACK,RUNNING^>  mtu 65536
+echo     inet 127.0.0.1  netmask 255.0.0.0
+CMD
+    }
+    else {
+        print {$ifconfig_fh} <<'SH';
 #!/bin/sh
 cat <<'EOF'
 eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
@@ -582,10 +598,11 @@ lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
     inet 127.0.0.1  netmask 255.0.0.0
 EOF
 SH
+        chmod 0755, $ifconfig or die $!;
+    }
     close $ifconfig_fh;
-    chmod 0755, $ifconfig or die $!;
     no warnings 'redefine';
-    local $ENV{PATH} = $fake_bin . ':' . $ENV{PATH};
+    local $ENV{PATH} = $fake_bin . Developer::Dashboard::PerlEnv::path_separator() . $ENV{PATH};
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ip = sub { return (); };
     is_deeply(
         [ $app->_ip_interface_pairs ],
@@ -597,9 +614,23 @@ SH
 {
     my $fake_bin = File::Spec->catdir( $home, 'fake-win-bin' );
     make_path($fake_bin);
-    my $ipconfig = File::Spec->catfile( $fake_bin, 'ipconfig' );
+    my $ipconfig = File::Spec->catfile( $fake_bin, $^O eq 'MSWin32' ? 'ipconfig.cmd' : 'ipconfig' );
     open my $ipconfig_fh, '>', $ipconfig or die $!;
-    print {$ipconfig_fh} <<'BAT';
+    if ( $^O eq 'MSWin32' ) {
+        print {$ipconfig_fh} <<'BAT';
+@echo off
+echo.
+echo Ethernet adapter Ethernet:
+echo.
+echo    IPv4 Address. . . . . . . . . . . : 10.20.30.40
+echo.
+echo Wireless LAN adapter Loopback:
+echo.
+echo    IPv4 Address. . . . . . . . . . . : 127.0.0.1
+BAT
+    }
+    else {
+        print {$ipconfig_fh} <<'BAT';
 #!/bin/sh
 cat <<'EOF'
 
@@ -612,10 +643,11 @@ Wireless LAN adapter Loopback:
    IPv4 Address. . . . . . . . . . . : 127.0.0.1
 EOF
 BAT
+        chmod 0755, $ipconfig or die $!;
+    }
     close $ipconfig_fh;
-    chmod 0755, $ipconfig or die $!;
     no warnings 'redefine';
-    local $ENV{PATH} = $fake_bin . ':' . $ENV{PATH};
+    local $ENV{PATH} = $fake_bin . Developer::Dashboard::PerlEnv::path_separator() . $ENV{PATH};
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ip = sub { return (); };
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ifconfig = sub { return (); };
     local *Developer::Dashboard::Web::App::is_windows = sub { return 1; };
