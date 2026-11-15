@@ -145,14 +145,27 @@ my $docker = Developer::Dashboard::DockerCompose->new( config => $config, paths 
 }
 
 # --- _materialized_command: tmp file open and close failures ----------------
-{
+# The fake docker is a #!/bin/sh script and Windows has no sh and no docker,
+# so this block is skipped as a whole subtest on Windows.
+subtest '_materialized_command tmp file open and close failures' => sub {
+    plan skip_all => 'fake docker doubles are shell scripts and Windows has no sh or docker' if $^O eq 'MSWin32';
+
     my $bin = tempdir( CLEANUP => 1 );
     mkfile( File::Spec->catfile( $bin, 'docker' ), "#!/bin/sh\necho 'services: {}'\n" );
     chmod 0755, File::Spec->catfile( $bin, 'docker' ) or die "Unable to chmod fake docker: $!";
     local $ENV{PATH} = "$bin:$ENV{PATH}";
     my $resolved = { files => ['/x/compose.yml'], command => [ 'docker', 'compose', '-f', '/x/compose.yml', 'up' ] };
 
-    my $cmd = $docker->_materialized_command($resolved);
+    # This resolved hash carries no Compose root, which used to seed a
+    # valueless --project-directory and warn under system(); assert the
+    # materialization is warning-free.
+    my @materialize_warnings;
+    my $cmd;
+    {
+        local $SIG{__WARN__} = sub { push @materialize_warnings, $_[0]; return };
+        $cmd = $docker->_materialized_command($resolved);
+    }
+    is( scalar @materialize_warnings, 0, 'materializing without a Compose root emits no uninitialized-value warning' );
     is( $cmd->[-1], 'up', 'the passthrough arguments are preserved' );
     my ($materialized_file) = map { $cmd->[$_ + 1] } grep { defined $cmd->[$_] && $cmd->[$_] eq '-f' } 0 .. ( $#{$cmd} - 1 );
     ok( defined $materialized_file && -f $materialized_file,
@@ -172,7 +185,7 @@ my $docker = Developer::Dashboard::DockerCompose->new( config => $config, paths 
         ok( !eval { $docker->_materialized_command($resolved); 1 }, 'a merged file close failure is fatal' );
         like( $@, qr/Unable to close .*merged-compose-[^\/]+\.yml/, 'the close failure names the merged file' );
     }
-}
+};
 
 chdir q{/} or die "Unable to chdir: $!";
 
