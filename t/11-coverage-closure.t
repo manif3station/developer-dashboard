@@ -475,7 +475,14 @@ ok( !defined $actions->_read_process_state(999999), '_read_process_state falls b
     local *Developer::Dashboard::ActionRunner::capture = sub (&) {
         return ( "S\n", '', 0 );
     };
-    is( $actions->_read_process_state(999998), 'S', '_read_process_state falls back to ps output when proc state is unavailable but ps succeeds' );
+    if ( $^O eq 'MSWin32' ) {
+        # No ps on Windows: _read_process_state returns undef early and
+        # never reaches the ps fallback, so the mocked capture is unused.
+        is( $actions->_read_process_state(999998), undef, '_read_process_state returns undef on Windows where no ps fallback exists' );
+    }
+    else {
+        is( $actions->_read_process_state(999998), 'S', '_read_process_state falls back to ps output when proc state is unavailable but ps succeeds' );
+    }
 }
 
 {
@@ -559,7 +566,10 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
 my $collector_result = $runner->run_once(
     {
         name      => 'coverage.collector',
-        command   => 'printf collector-ok',
+        # printf is not a Windows cmd.exe command, so use a perl one-liner
+        # (double-quoted program, which CommandRunner rewrites to a temp
+        # file on Windows) so this runs on every platform.
+        command   => "$^X -e \"print 'collector-ok'\"",
         cwd       => 'home',
         interval  => 2,
         indicator => { name => 'coverage.collector', icon => 'C' },
