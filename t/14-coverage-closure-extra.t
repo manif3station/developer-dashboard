@@ -525,8 +525,18 @@ SKIP: {
         }
     );
     $runner->stop_loop($cname);
-    select undef, undef, undef, 0.3;
-    ok( !kill( 0, $orphan ), 'stop_loop sweeps orphaned worker subtrees left behind by a crashed loop with a stale pidfile' );
+    # Bounded poll, not a fixed sleep: under slow scheduling (qemu) the
+    # orphan's death can lag stop_loop's own bounded waits, so a fixed
+    # 0.3s sleep turns this into a flake — it failed once on ARM64 and
+    # passed on immediate re-run. The assertion is unchanged (the orphan
+    # must end up dead); only the waiting is tolerant, and the poll exits
+    # at once when the orphan is gone.
+    my $orphan_dead = 0;
+    for ( 1 .. 100 ) {
+        if ( !kill( 0, $orphan ) ) { $orphan_dead = 1; last; }
+        select undef, undef, undef, 0.1;
+    }
+    ok( $orphan_dead, 'stop_loop sweeps orphaned worker subtrees left behind by a crashed loop with a stale pidfile' );
     _kill_child($orphan);
 }
 
