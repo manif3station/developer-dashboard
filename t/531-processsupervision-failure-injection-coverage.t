@@ -371,7 +371,13 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
     {
         local %ENV = %ENV;
         delete $ENV{SystemRoot};
-        is( Developer::Dashboard::ProcessSupervision::_powershell_command(), '',
+        # With SystemRoot unset the resolver guesses the standard
+        # C:\Windows root (deliberate since the original resolver in
+        # a8a95985, kept by DD-753): on a Windows host that file exists
+        # and is returned, off Windows the guess names nothing.
+        my $default = File::Spec->catfile( 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe' );
+        my $expected = -f $default ? $default : '';
+        is( Developer::Dashboard::ProcessSupervision::_powershell_command(), $expected,
             'PowerShell fallback chooses default Windows root without SystemRoot' );
     }
 }

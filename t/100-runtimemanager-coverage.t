@@ -1297,7 +1297,10 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
 # --- _replace_path_via_powershell -------------------------------------------
 {
     no warnings 'redefine';
-    is_deeply( [ $manager->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_replace_path_via_powershell is a no-op off Windows' );
+    SKIP: {
+        skip '_replace_path_via_powershell runs real PowerShell on a Windows host', 1 if $^O eq 'MSWin32';
+        is_deeply( [ $manager->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_replace_path_via_powershell is a no-op off Windows' );
+    }
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
     # DD-753: RuntimeManager now resolves the PowerShell executable instead of
     # hardcoding it, so forcing is_windows is no longer enough to reach the
@@ -1315,7 +1318,10 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
 # --- _overwrite_state_file_in_place -----------------------------------------
 {
     no warnings 'redefine';
-    is_deeply( [ $manager->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '_overwrite_state_file_in_place is a no-op off Windows' );
+    SKIP: {
+        skip '_overwrite_state_file_in_place reads the real source on a Windows host', 1 if $^O eq 'MSWin32';
+        is_deeply( [ $manager->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '_overwrite_state_file_in_place is a no-op off Windows' );
+    }
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
     # DD-753: RuntimeManager now resolves the PowerShell executable instead of
     # hardcoding it, so forcing is_windows is no longer enough to reach the
