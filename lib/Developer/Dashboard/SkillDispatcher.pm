@@ -20,7 +20,7 @@ use bytes ();
 use URI;
 use URI::Escape qw(uri_escape uri_unescape);
 use Developer::Dashboard::CLI::Suggest;
-use Developer::Dashboard::StreamDrain qw(_drain_ready_handle);
+use Developer::Dashboard::StreamDrain qw(_drain_ready_handle _drain_child_streams_windows);
 use Developer::Dashboard::EnvLoader;
 use Developer::Dashboard::PathRegistry ();
 use Developer::Dashboard::PerlEnv ();
@@ -393,20 +393,44 @@ sub _run_child_command_streaming {
     STDOUT->autoflush(1);
     STDERR->autoflush(1);
 
-    while ( my @ready = $selector->can_read ) {
-        for my $fh (@ready) {
-            my $chunk_ref = $self->_drain_ready_handle( $selector, $fh ) or next;
+    # On Windows IO::Select only works for real sockets, so can_read over
+    # the open3 pipes returns at once with nothing ready and the hook's
+    # output is silently lost. Drain both pipes with PeekNamedPipe there
+    # instead; the select loop below stays for every other platform.
+    my $drained = 0;
+    if ( $^O eq 'MSWin32' ) {
+        $drained = $self->_drain_child_streams_windows(
+            $stdout,
+            $stderr,
+            sub {
+                my ( $is_stdout, $chunk ) = @_;
+                if ($is_stdout) {
+                    print STDOUT $chunk;
+                    $stdout_text .= $chunk;
+                }
+                else {
+                    print STDERR $chunk;
+                    $stderr_text .= $chunk;
+                }
+            },
+        );
+    }
+    if ( !$drained ) {
+        while ( my @ready = $selector->can_read ) {
+            for my $fh (@ready) {
+                my $chunk_ref = $self->_drain_ready_handle( $selector, $fh ) or next;
 
-            if ( fileno($fh) == $stdout_fd ) {
-                print STDOUT ${$chunk_ref};
-                $stdout_text .= ${$chunk_ref};
-                next;
+                if ( fileno($fh) == $stdout_fd ) {
+                    print STDOUT ${$chunk_ref};
+                    $stdout_text .= ${$chunk_ref};
+                    next;
+                }
+
+                # The selector only watches stdout and stderr, so anything that is
+                # not stdout is stderr.
+                print STDERR ${$chunk_ref};
+                $stderr_text .= ${$chunk_ref};
             }
-
-            # The selector only watches stdout and stderr, so anything that is
-            # not stdout is stderr.
-            print STDERR ${$chunk_ref};
-            $stderr_text .= ${$chunk_ref};
         }
     }
 
