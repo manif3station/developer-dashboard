@@ -1745,16 +1745,23 @@ like(
     'resolve_ticket_request rejects non-array argv containers',
 );
 my $isolated_ticket_env_cwd = tempdir( CLEANUP => 1 );
-is_deeply(
-    Developer::Dashboard::CLI::Ticket::ticket_environment( 'DD-123', cwd => $isolated_ticket_env_cwd ),
-    {
-        TICKET_REF                      => 'DD-123',
-        B                               => 'DD-123',
-        OB                              => 'origin/DD-123',
-        DEVELOPER_DASHBOARD_TMUX_STATUS => 1,
-    },
-    'ticket_environment builds the expected tmux environment values',
-);
+{
+    # The .env walk stops at the home directory, so point the home at
+    # the fixture root: a stray .env in a real ancestor must not leak
+    # into this comparison.
+    local $ENV{HOME}        = $isolated_ticket_env_cwd;
+    local $ENV{USERPROFILE} = $isolated_ticket_env_cwd;
+    is_deeply(
+        Developer::Dashboard::CLI::Ticket::ticket_environment( 'DD-123', cwd => $isolated_ticket_env_cwd ),
+        {
+            TICKET_REF                      => 'DD-123',
+            B                               => 'DD-123',
+            OB                              => 'origin/DD-123',
+            DEVELOPER_DASHBOARD_TMUX_STATUS => 1,
+        },
+        'ticket_environment builds the expected tmux environment values',
+    );
+}
 like(
     _dies( sub { Developer::Dashboard::CLI::Ticket::ticket_environment('') } ),
     qr/Ticket name is required/,
@@ -1762,6 +1769,11 @@ like(
 );
 {
     my $workspace_root = tempdir( CLEANUP => 1 );
+    # The .env walk stops at the home directory, so point the home at
+    # the fixture root: a stray .env in a real ancestor must not leak
+    # into this layered comparison.
+    local $ENV{HOME}        = $workspace_root;
+    local $ENV{USERPROFILE} = $workspace_root;
     my $workspace_parent = File::Spec->catdir( $workspace_root, 'parent' );
     my $workspace_child  = File::Spec->catdir( $workspace_parent, 'child' );
     make_path($workspace_child);
@@ -1781,6 +1793,25 @@ like(
         'CHILD_ONLY:PARENT_ONLY:ROOT_ONLY:SHARED',
         'workspace_environment records the layered .env keys for later tmux session refresh',
     );
+}
+{
+    # The .env walk stops at the home directory: a stray .env above the
+    # home must not leak into the workspace, while the home's own .env
+    # still loads as the topmost layer.
+    my $outer = tempdir( CLEANUP => 1 );
+    my $home  = File::Spec->catdir( $outer, 'home' );
+    my $child = File::Spec->catdir( $home, 'workspace', 'child' );
+    make_path($child);
+    local $ENV{HOME}        = $home;
+    local $ENV{USERPROFILE} = $home;
+    _write_file( File::Spec->catfile( $outer, '.env' ), "LEAKED=yes\n" );
+    _write_file( File::Spec->catfile( $home, '.env' ), "HOME_ONLY=home\n" );
+    _write_file( File::Spec->catfile( $child, '.env' ), "CHILD_ONLY=child\n" );
+
+    my $bounded_env = Developer::Dashboard::CLI::Ticket::workspace_environment( 'DD-123', cwd => $child );
+    is( $bounded_env->{HOME_ONLY}, 'home', 'workspace_environment still loads the home .env as the topmost layer' );
+    is( $bounded_env->{CHILD_ONLY}, 'child', 'workspace_environment still loads the current directory .env under a bounded walk' );
+    ok( !defined $bounded_env->{LEAKED}, 'workspace_environment does not load a .env above the home directory' );
 }
 is(
     Developer::Dashboard::CLI::Ticket::session_exists(
@@ -1914,6 +1945,11 @@ ok( !$existing_ticket_plan->{create}, 'build_ticket_plan skips creation for exis
 }
 {
     my $workspace_root = tempdir( CLEANUP => 1 );
+    # The .env walk stops at the home directory, so point the home at
+    # the fixture root: a stray .env in a real ancestor must not leak
+    # into the refreshed session.
+    local $ENV{HOME}        = $workspace_root;
+    local $ENV{USERPROFILE} = $workspace_root;
     my $workspace_parent = File::Spec->catdir( $workspace_root, 'parent' );
     my $workspace_child  = File::Spec->catdir( $workspace_parent, 'child' );
     make_path($workspace_child);
