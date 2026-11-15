@@ -31,7 +31,9 @@ sub current_perl_bin_dir {
     my $resolved = abs_path($perl);
     $resolved = $perl if !$resolved;
     my $dir = dirname($resolved);
-    return -d $dir ? $dir : '';
+    # abs_path spells with forward slashes on Windows; callers compare this
+    # against File::Spec spellings, so canonicalise at the boundary.
+    return -d $dir ? File::Spec->canonpath($dir) : '';
 }
 
 # current_shell_bin_dir()
@@ -47,7 +49,7 @@ sub current_shell_bin_dir {
     my $resolved = abs_path($shell);
     $resolved = $shell if !$resolved;
     my $dir = dirname($resolved);
-    return -d $dir ? $dir : '';
+    return -d $dir ? File::Spec->canonpath($dir) : '';
 }
 
 # core_inc_paths()

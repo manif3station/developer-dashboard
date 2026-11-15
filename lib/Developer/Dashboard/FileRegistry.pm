@@ -148,7 +148,10 @@ sub locate_files_under {
                 for my $term (@terms) {
                     return if $path !~ /\Q$term\E/i;
                 }
-                push @found, $path;
+                # File::Find joins with forward slashes even on Windows, so
+                # canonicalise each hit: callers compare against File::Spec
+                # spellings, and the spelling must not depend on the walk.
+                push @found, File::Spec->canonpath($path);
             },
         },
         $root,

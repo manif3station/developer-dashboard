@@ -788,7 +788,7 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
     };
     is_deeply(
         decode_json($stdout_locate_alias),
-        [ '/tmp/root-dir/needle.txt' ],
+        [ File::Spec->canonpath('/tmp/root-dir/needle.txt') ],
         'file locate can scope the search to a resolved file alias path',
     );
 
@@ -805,7 +805,7 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
         Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'locate', 'plain.txt' ] );
     };
     like( $stdout_locate_table, qr/^Path\s*$/m, 'file locate defaults to a one-column summary table' );
-    like( $stdout_locate_table, qr/\Q$tmp\/plain.txt\E/, 'file locate default table searches beneath the current working directory' );
+    like( $stdout_locate_table, qr/\Q@{[ File::Spec->catfile( $tmp, 'plain.txt' ) ]}\E/, 'file locate default table searches beneath the current working directory' );
 
     my ( $stdout_add ) = capture {
         Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'add', 'report', '/tmp/report.txt' ] );
@@ -973,7 +973,7 @@ subtest 'CLI::Paths covers table defaults and output guards' => sub {
         Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'locate', 'match-dir' ] );
     };
     like( $stdout_locate, qr/^Path\s*$/m, 'path locate defaults to a one-column summary table' );
-    like( $stdout_locate, qr/\Q$workspace_hit\/match-dir\E/, 'path locate table includes the matched project path' );
+    like( $stdout_locate, qr/\Q@{[ File::Spec->catdir( $workspace_hit, 'match-dir' ) ]}\E/, 'path locate table includes the matched project path' );
 
     my ( $stdout_add ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'add', 'demo', $named_root ] );

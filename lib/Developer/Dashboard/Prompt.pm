@@ -372,9 +372,11 @@ sub _git_metadata_dir {
     $git_dir = File::Spec->catdir( $project_root, $git_dir )
       if !File::Spec->file_name_is_absolute($git_dir);
     my $resolved = abs_path($git_dir);
-    return $resolved if defined $resolved && -d $resolved;
+    # abs_path spells with forward slashes on Windows; canonicalise so the
+    # returned metadata directory spells like every other registry path.
+    return File::Spec->canonpath($resolved) if defined $resolved && -d $resolved;
     return if !-d $git_dir;
-    return $git_dir;
+    return File::Spec->canonpath($git_dir);
 }
 
 1;
