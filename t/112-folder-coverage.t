@@ -183,11 +183,14 @@ is_deeply( \@stayed, [$target], 'cd() hands the resolved directory to the callba
 
 # When the caller directory has been removed there is nowhere to return to, so
 # cd() must stay in the target instead of chdir-ing to an empty path.
+# Windows cannot remove a directory that is a process's current directory,
+# so a vanished caller directory cannot occur there at all.
 my $dest = File::Spec->catdir( $home, 'cd-dest' );
 make_path($dest);
 open my $marker_fh, '>', File::Spec->catfile( $dest, 'marker' ) or die "Unable to write marker: $!";
 close $marker_fh or die "Unable to close marker: $!";
-{
+SKIP: {
+    skip 'a process cannot remove its own current directory on Windows', 2 if $^O eq 'MSWin32';
     my $vanishing = File::Spec->catdir( $home, 'vanishing' );
     make_path($vanishing);
     chdir $vanishing or die "Unable to chdir to $vanishing: $!";
