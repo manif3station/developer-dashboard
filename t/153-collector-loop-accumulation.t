@@ -115,11 +115,23 @@ sub live_supervisors {
     opendir my $dh, '/proc' or return @found;
     while ( my $entry = readdir $dh ) {
         next if $entry !~ /\A[0-9]+\z/;
-        # Title identity, for the same reason the finder uses it: the loop-name
-        # environment marker is inherited by every spawned child process, so counting on it
-        # counts a collector's own worker as a second supervisor.
+        # Title identity first, for the same reason the finder uses it: the
+        # loop-name environment marker used to be inherited by every spawned
+        # child process, so counting on it counted a collector's own worker
+        # as a second supervisor. That no longer holds: a loop carries the
+        # marker in its INITIAL environ and deletes it from %ENV before
+        # spawning any worker, so no worker carries it, and the marker is a
+        # safe second identity here. It is also the one that works where the
+        # title cannot be observed at all - under qemu user-mode emulation
+        # the guest's $0 write never reaches the host's /proc, so exact
+        # title equality can never match there.
         my $running = $runner->_read_process_title($entry);
-        push @found, $entry if defined $running && $running eq $runner->_process_title($collector);
+        if ( defined $running && $running eq $runner->_process_title($collector) ) {
+            push @found, $entry;
+            next;
+        }
+        my $marker = $runner->_read_process_env_marker( $entry, 'DEVELOPER_DASHBOARD_LOOP_NAME' );
+        push @found, $entry if defined $marker && $marker eq $collector;
     }
     closedir $dh;
     return @found;
@@ -157,7 +169,14 @@ sub _why_not {
 my $first = $runner->start_loop($job);
 push @owned_supervisor_pids, $first if $first;
 ok( $first, 'the collector starts and reports a supervisor pid' );
-my $first_is_managed = wait_for_managed_loop( $runner, $first, $name );
+# Recognition alone is not readiness: the loop is recognizable from the
+# moment it is spawned (its identity marker travels in the spawn environ),
+# but it has not finished starting then - it still has to load its modules
+# and install its signal handlers. The assertions below signal this
+# supervisor, so wait until it is actually up (ready => 1) rather than
+# merely recognizable, or the signal lands before the handler exists and
+# the child dies by the signal instead of shutting down orderly.
+my $first_is_managed = wait_for_managed_loop( $runner, $first, $name, ready => 1 );
 if ( !$first_is_managed ) {
     my $error_log = $runner->{files}->collector_log . '.stderr';
     my $error_text = _read_optional_file($error_log);
@@ -321,7 +340,7 @@ SKIP: {
     my $forced_pid = $runner->start_loop($forced_job);
     push @owned_supervisor_pids, $forced_pid if $forced_pid;
     ok( $forced_pid, 'AC-1 setup: the probe collector starts and reports a supervisor pid' );
-    ok( wait_for_managed_loop( $runner, $forced_pid, $forced_name ),
+    ok( wait_for_managed_loop( $runner, $forced_pid, $forced_name, ready => 1 ),
         'AC-1 setup: the probe supervisor is recognised before the forced kill' );
 
     # KILL, not TERM: the supervisor installs its own SIGTERM handler
@@ -382,7 +401,7 @@ SKIP: {
     my $healthy_pid = $runner->start_loop($second_forced_job);
     push @owned_supervisor_pids, $healthy_pid if $healthy_pid;
     ok( $healthy_pid, 'AC-2 setup: a second probe collector starts' );
-    ok( wait_for_managed_loop( $runner, $healthy_pid, $second_forced_name ),
+    ok( wait_for_managed_loop( $runner, $healthy_pid, $second_forced_name, ready => 1 ),
         'AC-2 setup: the healthy probe supervisor is recognised' );
 
     my $control = supervisor_liveness( $healthy_pid, $second_forced_name );

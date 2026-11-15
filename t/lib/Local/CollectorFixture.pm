@@ -21,21 +21,58 @@ our @EXPORT_OK = qw(wait_for_managed_loop);
 # take.
 # Input: CollectorRunner instance, child-process PID integer, collector name string, and
 #        optional timeout => seconds (default 30) and interval => seconds
-#        (default 0.05) between probes.
+#        (default 0.05) between probes, plus ready => true to wait not just for
+#        recognition but for the child to have finished starting.
 # Output: true once the runner recognizes the child process as the managed loop; false if
 #         the wall-clock budget expired first, so the caller can fail loudly
 #         instead of misreporting the setup failure as a behaviour failure.
+#
+# The ready option exists because recognition alone is not readiness. A loop
+# child is recognizable from the moment it is spawned - its identity marker
+# travels in the spawn environ, visible in /proc from birth - but it has not
+# finished starting then: it still has to load its modules and install its
+# signal handlers. Signalling it in that window kills it with the default
+# disposition instead of its orderly handler, so a test that signals the
+# child right after the wait (to assert on what the handler records) must
+# wait for startup evidence too: the adopted process title, set next to the
+# handler installation, or a first-tick loop state of 'running'. Fixtures
+# must NOT pass ready: a hand-built fixture child writes no loop state, and
+# under qemu its title is never observable, so a ready wait for one can never
+# succeed - and fixtures only need identification, since they assert on
+# termination, not on what the handler records.
 sub wait_for_managed_loop {
     my ( $runner, $pid, $name, %options ) = @_;
     my $timeout  = defined $options{timeout}  ? $options{timeout}  : 30;
     my $interval = defined $options{interval} ? $options{interval} : 0.05;
+    my $ready    = $options{ready} ? 1 : 0;
     my $deadline = Time::HiRes::time() + $timeout;
 
     while (1) {
-        return 1 if $runner->_is_managed_loop( $pid, $name );
+        if ( $runner->_is_managed_loop( $pid, $name ) ) {
+            return 1 if !$ready;
+            return 1 if _loop_is_ready( $runner, $pid, $name );
+        }
         return 0 if Time::HiRes::time() >= $deadline;
         Time::HiRes::sleep($interval);
     }
+}
+
+# _loop_is_ready($runner, $pid, $name)
+# Reports whether a recognized loop child has finished starting: it has
+# adopted its process title, or its loop state has reached 'running' on its
+# first tick. Either is written next to the signal-handler installation, so
+# either proves a signal sent now will reach the handler rather than the
+# default disposition. The title covers a host where titles are observable;
+# the state covers one where they are not (qemu user-mode emulation).
+# Input: CollectorRunner instance, child-process PID integer, collector name string.
+# Output: boolean true when startup evidence is present.
+sub _loop_is_ready {
+    my ( $runner, $pid, $name ) = @_;
+    my $title = eval { $runner->_read_process_title($pid) };
+    return 1 if defined $title && $title ne '' && $title eq $runner->_process_title($name);
+    my $state = eval { $runner->loop_state($name) };
+    return 1 if $state && ref($state) eq 'HASH' && ( $state->{status} || '' ) eq 'running';
+    return 0;
 }
 
 1;
@@ -67,7 +104,7 @@ Input arguments:
 =item * C<$runner> - C<Developer::Dashboard::CollectorRunner> instance
 =item * C<$pid> - PID of the fixture's native child process
 =item * C<$name> - collector name the child is standing in for
-=item * C<%options> - optional C<timeout> in seconds (default 30) and C<interval> in seconds between probes (default 0.05)
+=item * C<%options> - optional C<timeout> in seconds (default 30) and C<interval> in seconds between probes (default 0.05), plus C<ready> to wait not just for recognition but for the child to have finished starting (its adopted title, or a first-tick loop state of C<running>). Pass C<ready> only for a real loop started by C<start_loop>; a hand-built fixture child writes no loop state, and under qemu its title is never observable, so a ready wait for one can never succeed.
 =back
 
 Expected output:

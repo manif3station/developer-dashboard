@@ -826,6 +826,15 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
         # still failed a third time on a genuinely loaded host (DD-767).
         # Raising the count again would be the same fix, shipped a third
         # time, to fail a fourth - the bound is expressed in seconds instead.
+        # The title is argv[0] after exec, but it is NOT at offset 0 of the
+        # cmdline string under an emulator - qemu-aarch64 prefixes the exec'd
+        # argv with its own binary path, so the title sits at a later offset -
+        # and before exec the title is already present as an argument to the
+        # -e program while the environ is still the inherited (populated)
+        # one. So the title is matched as a substring, and the match is only
+        # accepted once the environ reads back empty. A zombie's cmdline is
+        # empty, so it can never match the title and the poll cannot mistake
+        # a dead child for a live one.
         my $probe_deadline_seconds = $ENV{DD_EMPTY_ENVIRON_PROBE_SECONDS} || 60;
         my $probe_environ;
         my $probe_polls    = 0;
@@ -834,9 +843,12 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
             $probe_polls++;
             my $cmdline = '';
             if ( open my $cf, '<', "/proc/$child/cmdline" ) { local $/; $cmdline = <$cf>; close $cf; }
-            if ( defined $cmdline && index( $cmdline, $probe_title ) == 0 ) {
+            if ( defined $cmdline && index( $cmdline, $probe_title ) >= 0 ) {
                 if ( open my $ef, '<', "/proc/$child/environ" ) { local $/; $probe_environ = <$ef>; close $ef; }
-                last;
+                if ( defined $probe_environ && $probe_environ eq '' ) {
+                    last;
+                }
+                $probe_environ = undef;
             }
             select undef, undef, undef, 0.01;
         }
