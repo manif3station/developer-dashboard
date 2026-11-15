@@ -449,7 +449,9 @@ sub fresh {
         # fixture path such as /usr/bin/s6-perl does not exist on Windows
         # and the -d guard would refuse it for the wrong reason.
         is( Developer::Dashboard::PerlEnv::current_perl_bin_dir(), File::Spec->canonpath( dirname($^X) ), 'current_perl_bin_dir falls back to $^X when abs_path fails' );
-        like( Developer::Dashboard::PerlEnv::current_shell_bin_dir(), qr{^(?:|/.+)$}, 'current_shell_bin_dir falls back to the raw shell path when abs_path fails' );
+        # On Windows the shell fallback is the platform shell directory, a
+        # drive-letter path rather than a Unix one.
+        like( Developer::Dashboard::PerlEnv::current_shell_bin_dir(), qr{^(?:|/.+|[A-Za-z]:[\\/].+)$}, 'current_shell_bin_dir falls back to the raw shell path when abs_path fails' );
     }
     ok( defined Developer::Dashboard::PerlEnv->perl5lib_env( path_sep => ';', env => { PERL5LIB => 'a;b' } ), 'perl5lib_env honours an explicit path_sep' );
     ok( defined Developer::Dashboard::PerlEnv->perl5lib_env( env => { PERL5LIB => 'a' } ), 'perl5lib_env defaults the separator' );

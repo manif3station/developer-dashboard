@@ -61,6 +61,11 @@ sub only_commands {
 
 my $win = 'MSWin32';
 
+# On Windows the SHELL env is never consulted: the native shell is powershell
+# (or pwsh when present). Compute the expectation the same way the product
+# does so the fallback assertions stay meaningful on both platforms.
+my $native_shell = $^O eq 'MSWin32' ? ( command_in_path('pwsh') ? 'pwsh' : 'powershell' ) : 'bash';
+
 # ---------------------------------------------------------------------------
 # native_shell_name / normalize_shell_name : line 44 + 65 + 66 + 67 + 71
 # ---------------------------------------------------------------------------
@@ -68,12 +73,12 @@ my $win = 'MSWin32';
 # line 44 condition: requested defined+non-empty (row3), requested='' (row2),
 # requested undef (row1 via no-arg call).
 is( native_shell_name('bash'), 'bash', 'native_shell_name honours an explicit selector' );
-is( native_shell_name(''),     'bash', 'native_shell_name empty-string falls back to the SHELL env' );
-is( native_shell_name(),       'bash', 'native_shell_name() with no selector falls back' );
+is( native_shell_name(''),     $native_shell, 'native_shell_name empty-string falls back to the native shell' );
+is( native_shell_name(),       $native_shell, 'native_shell_name() with no selector falls back to the native shell' );
 
 # line 65 branch true + condition rows: normalize called with undef and ''.
-is( normalize_shell_name(),   'bash', 'normalize_shell_name() defaults to native shell' );
-is( normalize_shell_name(''), 'bash', 'normalize_shell_name empty-string defaults to native shell' );
+is( normalize_shell_name(),   $native_shell, 'normalize_shell_name() defaults to native shell' );
+is( normalize_shell_name(''), $native_shell, 'normalize_shell_name empty-string defaults to native shell' );
 
 # line 65 branch false + line 71 operand chain (bash/zsh/sh/powershell/pwsh).
 is( normalize_shell_name('bash'),       'bash',       'normalize keeps bash' );
@@ -108,9 +113,12 @@ is_deeply(
     [ 'bash', '-c', 'echo hi' ],
     'explicit bash selector builds -c argv',
 );
+my @default_shell_argv = $native_shell eq 'bash'
+  ? ( 'bash', '-c', 'echo hi' )
+  : ( $native_shell, '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', 'echo hi' );
 is_deeply(
     [ shell_command_argv('echo hi') ],
-    [ 'bash', '-c', 'echo hi' ],
+    \@default_shell_argv,
     'default selector resolves through native shell',
 );
 
@@ -417,6 +425,41 @@ my $iwrc = \&Developer::Dashboard::Platform::_is_windows_runnable_candidate;
 
     # line 242/244 false side: a plain data file that reaches the shebang check.
     is( $iwrc->($noshebang), 0, 'a non-shebang data file is not runnable' );
+}
+
+# ---------------------------------------------------------------------------
+# _git_for_windows_roots: the install root is derived from the git on PATH,
+# not just the conventional %ProgramFiles% location. A splitpath nofile flag
+# previously kept the git.exe filename in the directory parts, so the
+# cmd/bin pop never fired and the derived root was discarded.
+# ---------------------------------------------------------------------------
+{
+    local $Developer::Dashboard::Platform::OS_NAME = $win;
+    my $gitroot   = File::Spec->catdir( $home, 'gitroot' );
+    my $gitcmd    = File::Spec->catdir( $gitroot, 'cmd' );
+    my $gitusrbin = File::Spec->catdir( $gitroot, 'usr', 'bin' );
+    make_path($gitcmd);
+    make_path($gitusrbin);
+    write_file( File::Spec->catfile( $gitcmd, 'git.exe' ), "stub\n" );
+    write_file( File::Spec->catfile( $gitusrbin, 'sh.exe' ), "stub\n" );
+    local $ENV{PATH} = $gitcmd;
+    local $ENV{ProgramFiles} = File::Spec->catdir( $home, 'no-git-here' );    # the fallback must not rescue this
+    delete $ENV{'ProgramFiles(x86)'};
+    is(
+        Developer::Dashboard::Platform::_git_for_windows_shell('sh'),
+        File::Spec->catfile( $gitusrbin, 'sh.exe' ),
+        '_git_for_windows_shell resolves sh.exe from the git install on PATH',
+    );
+
+    # And the .sh resolution that depends on it: with no bash or sh on PATH,
+    # only the git-resolved shell makes the script runnable.
+    my $gitscript = File::Spec->catfile( $work, 'gitscript.sh' );
+    write_file( $gitscript, "#!/bin/sh\necho git\n" );
+    is(
+        resolve_runnable_file($gitscript),
+        $gitscript,
+        'resolve_runnable_file finds a .sh file through the git-resolved shell on Windows',
+    );
 }
 
 # ---------------------------------------------------------------------------

@@ -666,7 +666,11 @@ is( $runner->_descriptor_is_inherited_pipe(999999999), 0, '_descriptor_is_inheri
         is( $runner->_current_perl_command, 'x', '_current_perl_command falls through to $^X when no Windows perl is resolvable' );
     }
 }
-{
+SKIP: {
+    # The Linux path is unreachable on Windows: _current_perl_command takes
+    # the Windows branch first there, so the mocked '/usr/bin/perl' is what
+    # a Windows host returns, not $^X.
+    skip 'the Linux _current_perl_command path is unreachable on Windows', 4 if $^O eq 'MSWin32';
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return '/usr/bin/perl' };
     local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
