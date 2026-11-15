@@ -87,9 +87,22 @@ my $built_dashboard_xs = File::Spec->catfile(
     $repo, 'blib', 'arch', 'auto', 'Developer', 'Dashboard', 'Dashboard.' . $Config::Config{dlext},
 );
 if ( -f $built_dashboard_xs ) {
-    my $goroutine_xs_probe = _run(
-        "$perl -I'$lib' -MDeveloper::Dashboard::GoRoutine -e 'print defined(&Developer::Dashboard::GoRoutine::spawn) ? \"spawn\\n\" : \"missing\\n\"'"
-    );
+    # The probe used to run as a -e one-liner, but on Windows the list-form
+    # system() call rebuilds the command line and re-splits an argument that
+    # holds both spaces and double quotes, so the child perl only saw
+    # "print" as its program and exited 0 having printed nothing. Running
+    # the probe from a file keeps the program intact on every platform, the
+    # same approach the PSGI smoke program already takes.
+    my $goroutine_xs_probe_file = File::Spec->catfile( $ENV{HOME}, 'goroutine-xs-probe.pl' );
+    open my $goroutine_xs_probe_fh, '>', $goroutine_xs_probe_file or die "Unable to write $goroutine_xs_probe_file: $!";
+    print {$goroutine_xs_probe_fh} <<'PERL';
+use strict;
+use warnings;
+use Developer::Dashboard::GoRoutine;
+print defined(&Developer::Dashboard::GoRoutine::spawn) ? "spawn\n" : "missing\n";
+PERL
+    close $goroutine_xs_probe_fh or die "Unable to close $goroutine_xs_probe_file: $!";
+    my $goroutine_xs_probe = _run("$perl -I'$lib' -MDeveloper::Dashboard::GoRoutine '$goroutine_xs_probe_file'");
     is( $goroutine_xs_probe, "spawn\n", 'child Perl processes load GoRoutine XSUBs from the current build before an installed older XS copy' );
 }
 # Regression: an existing executable d2 entrypoint must not be
