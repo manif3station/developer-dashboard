@@ -111,6 +111,16 @@ sub _drain_child_streams_windows {
     # reader is blocked, which panics the interpreter with COND_DESTROY on
     # Windows. The caller dequeues continuously, and child output here is
     # small, so an unbounded queue is safe.
+    # Save the standard handles before spawning the readers: on Windows a
+    # reader thread's interpreter cleanup can close the process-wide handles
+    # it inherited, leaving STDOUT/STDERR invalid in the caller afterwards
+    # (Capture::Tiny then fails with "Bad file descriptor"). Dup them first
+    # so they can be restored after the join.
+    my ( $saved_stdout, $saved_stderr );
+    if ( $^O eq 'MSWin32' ) {
+        open( $saved_stdout, '>&STDOUT' ) or undef $saved_stdout;
+        open( $saved_stderr, '>&STDERR' ) or undef $saved_stderr;
+    }
     my @readers;
     for my $stream ( [ 1, $stdout ], [ 0, $stderr ] ) {
         my ( $is_stdout, $fh ) = @{$stream};
@@ -167,6 +177,18 @@ sub _drain_child_streams_windows {
     # still blocked on it, and the interpreter panics with COND_DESTROY on
     # Windows instead of returning the error.
     $_->join for @readers;
+    if ( $^O eq 'MSWin32' ) {
+        if ( defined $saved_stdout && !defined fileno(STDOUT) ) {
+            open( STDOUT, '>&', $saved_stdout )
+              or warn "could not restore STDOUT after child stream drain: $!\n";
+        }
+        if ( defined $saved_stderr && !defined fileno(STDERR) ) {
+            open( STDERR, '>&', $saved_stderr )
+              or warn "could not restore STDERR after child stream drain: $!\n";
+        }
+        close $saved_stdout if defined $saved_stdout;
+        close $saved_stderr if defined $saved_stderr;
+    }
     die $drain_error if defined $drain_error;
 
     return 1;
