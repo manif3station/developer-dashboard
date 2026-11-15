@@ -341,7 +341,7 @@ sub write_file {
     make_path($wt);
     my $git_file = write_file( File::Spec->catfile( $wt, '.git' ), "gitdir: $repo/.git\n" );
     is( _without_private_var_prefix( $prompt->_git_metadata_dir($wt) ),
-        _without_private_var_prefix("$repo/.git"), 'a readable .git file resolves its gitdir' );
+        _without_private_var_prefix( File::Spec->catfile( $repo, '.git' ) ), 'a readable .git file resolves its gitdir' );
     local $FAIL_OPEN{$git_file} = 1;
     is( $prompt->_git_metadata_dir($wt), undef, 'a .git file that cannot be opened resolves no metadata dir' );
 }

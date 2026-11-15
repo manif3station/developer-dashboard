@@ -10,7 +10,7 @@ use File::Basename qw(basename);
 use File::Spec;
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::PathRegistry;
-use Developer::Dashboard::PathIdentity qw(current_working_directory);
+use Developer::Dashboard::PathIdentity qw(current_working_directory _resolve_symlinks);
 
 # _build_paths()
 # Builds the shared path registry without loading table-rendering code, which
@@ -553,9 +553,16 @@ sub _load_skill_folder_module {
     my $file = $entry->{file} || die "Missing skill Folder.pm path\n";
     return 0 if !-f $file;
 
-    my $real_skill = abs_path( $entry->{dir} );
-    my $real_lib   = abs_path( $entry->{lib} );
-    my $real_file  = abs_path($file);
+    # Resolve symlink components before abs_path: abs_path does not resolve
+    # symlinks on Windows, so a symlinked lib would otherwise look as if it
+    # were still inside the skill root. _resolve_symlinks returns undef for a
+    # link loop, which keeps the unresolvable-path die below firing.
+    my $skill_source = _resolve_symlinks( $entry->{dir} );
+    my $lib_source   = _resolve_symlinks( $entry->{lib} );
+    my $file_source  = _resolve_symlinks($file);
+    my $real_skill = defined $skill_source ? abs_path($skill_source) : undef;
+    my $real_lib   = defined $lib_source ? abs_path($lib_source) : undef;
+    my $real_file  = defined $file_source ? abs_path($file_source) : undef;
     die "Unable to resolve skill Folder.pm '$file'\n"
       if !defined $real_skill || !defined $real_lib || !defined $real_file;
     my @lib_parts = File::Spec->splitdir( File::Spec->abs2rel( $real_lib, $real_skill ) );

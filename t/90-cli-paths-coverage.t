@@ -635,19 +635,19 @@ FOLDER_MODULE
         $run->( command => 'path', args => [ 'cdr', 'folder-skill.docs' ] );
     };
     is( $config_cdr_err, '', 'a configured skill alias resolves without a Folder.pm error' );
-    is( json_decode($config_cdr)->{target}, '/configured/docs', 'config/config.json takes precedence over a colliding Folder.pm method' );
+    is( json_decode($config_cdr)->{target}, File::Spec->canonpath('/configured/docs'), 'config/config.json takes precedence over a colliding Folder.pm method' );
 
     my ( $folder_cdr, $folder_cdr_err ) = capture {
         $run->( command => 'path', args => [ 'cdr', 'folder-skill.module_only' ] );
     };
     is( $folder_cdr_err, '', 'a Folder.pm-only skill alias resolves without diagnostics' );
-    is( json_decode($folder_cdr)->{target}, '/module/only', 'cdr resolves an alias from the skill Folder.pm method' );
+    is( json_decode($folder_cdr)->{target}, File::Spec->canonpath('/module/only'), 'cdr resolves an alias from the skill Folder.pm method' );
 
     my ( $resolved_output, $resolved_err ) = capture {
         $run->( command => 'path', args => [ 'resolve', 'folder-skill.module_only' ] );
     };
     is( $resolved_err, '', 'path resolve handles Folder.pm aliases without diagnostics' );
-    is( $resolved_output, "/module/only\n", 'path resolve consults Folder.pm after configured aliases' );
+    is( $resolved_output, File::Spec->canonpath('/module/only') . "\n", 'path resolve consults Folder.pm after configured aliases' );
 
     my ( $paths_json, $paths_err ) = capture {
         $run->( command => 'paths', args => [ '-o', 'json' ] );
