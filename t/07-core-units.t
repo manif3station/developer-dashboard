@@ -4075,7 +4075,14 @@ close $stale_pid;
     }
     is_deeply(
         \@spawned,
-        [ 'perl.exe', '_dashboard-core', 'collector-loop-foreground', '--name', 'windows-loop' ],
+        [
+            'perl.exe', '_dashboard-core', 'collector-loop-foreground', '--name', 'windows-loop',
+            # The loop's identity marker travels in the spawn environ (the
+            # trailing options hashref): the kernel environ block is fixed at
+            # exec, so a post-exec $ENV assignment is invisible to /proc
+            # readers and the marker would be a dead recognition path.
+            { env => { DEVELOPER_DASHBOARD_LOOP_NAME => 'windows-loop' } },
+        ],
         'start_loop launches the detached Windows collector loop helper command',
     );
     is(
@@ -4435,17 +4442,24 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         $0 = 'd2 collector: manual';
         sleep 30;
     };
+    # The loop-name marker travels in the spawn environ, not only in the
+    # post-exec $ENV assignment above: the kernel environ block is fixed at
+    # exec, so a variable assigned after startup is invisible to /proc
+    # readers, and under qemu user-mode emulation the $0 title is invisible
+    # too. Either channel alone leaves this child unrecognizable on some
+    # host; both together identify it everywhere. The $0 assignment stays
+    # because it is still the title on a host where titles are observable.
     my $child = Developer::Dashboard::GoRoutine::spawn(
         [ $^X, @inc, '-e', $manual_worker ],
-        {},
+        { env => { DEVELOPER_DASHBOARD_LOOP_NAME => 'manual' } },
     );
     my $pidfile = File::Spec->catfile( $paths->collectors_root, 'manual.pid' );
     open my $manual_pid, '>', $pidfile or die $!;
     print {$manual_pid} "$child\n";
     close $manual_pid;
-    # This pidfile carries no loop state, so the child's process title is the
-    # only evidence that it is a managed loop, and it adopts that title after
-    # launch. Probing stop_loop first makes it take the unmanaged branch: the child
+    # This pidfile carries no loop state, so the child's identity marker and
+    # process title are the evidence that it is a managed loop, and it adopts
+    # them after launch. Probing stop_loop first makes it take the unmanaged branch: the child
     # is never signalled, so waitpid below reports 0 ("still there") instead of
     # -1. Wait for the runner's own predicate to agree before asking it to stop
     # the loop. Production is not exposed to this - start_loop writes loop state

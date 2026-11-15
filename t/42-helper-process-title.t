@@ -48,17 +48,28 @@ my $pid = Developer::Dashboard::GoRoutine::spawn(
 
 my $ps_args = '';
 my $saw_public_title = 0;
-for ( 1 .. 50 ) {
-    $ps_args = _ps_args($pid);
-    if ( $ps_args =~ /\bdeveloper-dashboard skills install browser\b/ ) {
-        $saw_public_title = 1;
-        last;
+SKIP: {
+    # The helper sets $0 to the public command form, but under qemu
+    # user-mode emulation the guest's $0 write never reaches the host's
+    # /proc, so ps shows the qemu-prefixed spawn argv and the title cannot
+    # be observed there at all. Skipping this one assertion on such a host
+    # is not skipping the test: the helper still has to run, fail, and reach
+    # the git-backed install path (the assertions below), and the title
+    # contract is verified on every host where a title is observable.
+    skip 'a $0 process title is not observable in ps under qemu user-mode emulation', 1
+      if _running_under_qemu();
+    for ( 1 .. 50 ) {
+        $ps_args = _ps_args($pid);
+        if ( $ps_args =~ /\bdeveloper-dashboard skills install browser\b/ ) {
+            $saw_public_title = 1;
+            last;
+        }
+        select undef, undef, undef, 0.1;
     }
-    select undef, undef, undef, 0.1;
-}
 
-ok( $saw_public_title, 'private helper process title uses the public developer-dashboard command form in ps output' )
-  or diag "Last ps args: $ps_args";
+    ok( $saw_public_title, 'private helper process title uses the public developer-dashboard command form in ps output' )
+      or diag "Last ps args: $ps_args";
+}
 
 my $exit = Developer::Dashboard::GoRoutine::wait_process($pid);
 cmp_ok( $exit, '!=', 0, 'helper process can fail after the fake git probe because this test only checks the process title contract' );
@@ -73,6 +84,28 @@ sub _ps_args {
     my $args = qx{ps -o args= -p $pid 2>/dev/null};
     $args =~ s/\s+\z//;
     return $args;
+}
+
+# _running_under_qemu()
+# Reports whether this test process itself runs under qemu user-mode
+# emulation, by reading the PARENT process's /proc cmdline: an emulated
+# process shows as `/usr/bin/qemu-<arch> <real-binary> <args>`. The parent
+# is read, not self: inside the guest a process's OWN /proc/self/cmdline
+# shows the guest argv with no qemu prefix - the prefix is only visible
+# when reading ANOTHER process's cmdline. (Reading self always answered
+# false on the ARM64 box, so the qemu skip below was dead code.)
+# Output: boolean true when the first argv token names a qemu emulator.
+sub _running_under_qemu {
+    for my $path ( '/proc/' . getppid() . '/cmdline', '/proc/self/cmdline' ) {
+        next if !-r $path;
+        open my $fh, '<', $path or next;
+        local $/;
+        my $cmdline = <$fh> // '';
+        close $fh;
+        my ($first) = split /\0/, $cmdline;
+        return 1 if defined $first && $first =~ m{(?:^|/)qemu-[^/\s]+\z};
+    }
+    return 0;
 }
 
 sub _write_executable {

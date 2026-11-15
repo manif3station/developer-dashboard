@@ -424,7 +424,16 @@ SKIP: {
         ],
         {},
     );
-    # Poll on the exec'd argv[0], which only the post-exec process can show.
+    # Poll on the exec'd argv[0] together with the empty environ: neither
+    # alone proves the child has reached the post-exec state. The title is
+    # argv[0] after exec, but it is NOT at offset 0 of the cmdline string
+    # under an emulator - qemu-aarch64 prefixes the exec'd argv with its own
+    # binary path, so the title sits at a later offset - and before exec the
+    # title is already present as an argument to the -e program while the
+    # environ is still the inherited (populated) one. So the title is matched
+    # as a substring, and the match is only accepted once the environ reads
+    # back empty. A zombie's cmdline is empty, so it can never match the
+    # title and the poll cannot mistake a dead child for a live one.
     #
     # BOUND BY WALL-CLOCK, NOT A POLL COUNT (DD-767, closing a gap DD-482
     # specified but never shipped). DD-482 measured 678 polls (~6.8s) needed
@@ -449,11 +458,12 @@ SKIP: {
         $probe_polls++;
         my $cmdline = '';
         if ( open my $cf, '<', "/proc/$child/cmdline" ) { local $/; $cmdline = <$cf>; close $cf; }
-        if ( defined $cmdline && index( $cmdline, $probe_title ) == 0 ) {
+        if ( defined $cmdline && index( $cmdline, $probe_title ) >= 0 ) {
             if ( open my $ef, '<', "/proc/$child/environ" ) { local $/; $probe_environ = <$ef>; close $ef; }
-            diag("probe child did not expose a readable environ after $probe_polls polls: $!")
-              if !defined $probe_environ;
-            last;
+            if ( defined $probe_environ && $probe_environ eq '' ) {
+                last;
+            }
+            $probe_environ = undef;
         }
         select undef, undef, undef, 0.01;
     }

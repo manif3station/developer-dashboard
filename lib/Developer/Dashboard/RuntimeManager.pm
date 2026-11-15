@@ -558,16 +558,51 @@ sub _wait_for_unix_web_shutdown {
 # processes owned by the same user.
 # Input: none.
 # Output: list of ajax process hash references for the active runtime root.
+#
+# A real Ajax worker is found two ways. By its adopted title, `d2 ajax:
+# <singleton>`, which _find_processes_by_prefix matches - on a host where
+# the title is observable. And, where procfs exists, by its pre-exec
+# environment marker DEVELOPER_DASHBOARD_AJAX_SINGLETON, which the worker
+# is spawned with (see PageRuntime::_saved_ajax_env). The marker scan is
+# what finds a real worker under qemu user-mode emulation: the worker's
+# literal argv never contains 'd2 ajax:' (only the env var holds the
+# singleton name, and the $0 assignment that would show it is invisible
+# there), so the prefix scan alone can never see it. The scan is a no-op
+# where there is no procfs (Windows, macOS): _read_process_env_marker
+# reads nothing there, so nothing extra is ever matched. A worker's own
+# children inherit its environ, so the scan can also match a descendant of
+# a worker - that descendant belongs to the worker's subtree, and stopping
+# it with the web runtime is the intended outcome, not a false positive.
 sub _managed_ajax_processes {
     my ($self) = @_;
     my $runtime_root = $self->{paths} ? $self->{paths}->state_root : '';
     my @matches;
+    my %seen_pid;
     for my $proc ( $self->_find_processes_by_prefix('d2 ajax:') ) {
         my $marker = $self->_read_process_env_marker( $proc->{pid}, 'DEVELOPER_DASHBOARD_RUNTIME_ROOT' );
         next if defined $marker && $marker ne '' && $marker ne $runtime_root;
         next if defined $marker && $marker eq '' && $runtime_root ne '';
         next if !defined $marker && $self->_procfs_available && $runtime_root ne '';
         push @matches, $proc;
+        $seen_pid{ $proc->{pid} } = 1;
+    }
+    if ( $self->_procfs_available ) {
+        for my $proc ( $self->_ps_processes ) {
+            next if $seen_pid{ $proc->{pid} };
+            next if !$self->_proc_owned_by_current_user($proc);
+            my $singleton = $self->_read_process_env_marker( $proc->{pid}, 'DEVELOPER_DASHBOARD_AJAX_SINGLETON' );
+            next if !defined $singleton || $singleton eq '';
+            my $marker = $self->_read_process_env_marker( $proc->{pid}, 'DEVELOPER_DASHBOARD_RUNTIME_ROOT' );
+            next if defined $marker && $marker ne '' && $marker ne $runtime_root;
+            next if defined $marker && $marker eq '' && $runtime_root ne '';
+            next if !defined $marker && $runtime_root ne '';
+            my $title = $self->_read_process_title( $proc->{pid} );
+            push @matches, {
+                %{$proc},
+                args => ( defined $title && $title ne '' ? $title : $proc->{args} ),
+            };
+            $seen_pid{ $proc->{pid} } = 1;
+        }
     }
     return @matches;
 }
@@ -1672,12 +1707,19 @@ sub _start_collector_supervisor {
     require Developer::Dashboard::GoRoutine;
     my @command = $self->_background_collector_supervisor_command;
     my $log = $self->{files}->collector_log;
+    # The supervisor marker travels in the INITIAL environ, exactly like
+    # the web marker: the kernel environ block is fixed at exec, so the
+    # post-exec $ENV assignment in _run_collector_supervisor_child was
+    # invisible to /proc readers on every platform. The child deletes it
+    # from %ENV on entry, so a collector loop it restarts cannot inherit
+    # it and be mistaken for a supervisor.
     my $pid = Developer::Dashboard::GoRoutine::spawn(
         \@command,
         {
             stdin  => File::Spec->devnull(),
             stdout => $log,
             stderr => $log . '.stderr',
+            env    => { DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR => 1 },
         },
     );
     die "Unable to launch detached collector supervisor process\n" if !$pid;
@@ -1723,7 +1765,16 @@ sub _run_collector_supervisor_child {
         $self->_close_inherited_fds( close_ipc => 1 );
     }
 
-    $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR} = 1;
+    # The supervisor marker is NOT assigned here any more. It arrives in
+    # the child's INITIAL environ (see _start_collector_supervisor): the
+    # kernel environ block is fixed at exec, so a post-exec $ENV assignment
+    # is invisible to /proc readers and the marker was a dead recognition
+    # path. It is deleted from %ENV instead, before any collector is
+    # supervised, so a loop this supervisor restarts cannot inherit it and
+    # be mistaken for a supervisor itself. The supervisor's own /proc
+    # environ block still shows it - that block is the initial one,
+    # unaffected by this delete.
+    delete $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR};
     local $0 = $self->_collector_supervisor_process_title;
     local $COLLECTOR_SUPERVISOR_MANAGER = $self;
     my $shutdown = sub { $self->_shutdown_collector_supervisor('stopped') };
@@ -1858,12 +1909,21 @@ sub _is_collector_supervisor {
 # process title.
 # Input: process hash reference with args text.
 # Output: boolean match flag.
+#
+# The helper-command shapes also allow one leading emulator token (a
+# whitespace-separated token whose name contains `qemu-`): under qemu
+# user-mode emulation every process shows as
+# `/usr/bin/qemu-aarch64 <real-binary> <args>`, so the supervisor's spawn
+# argv is prefixed by the emulator binary and the anchored patterns below
+# would otherwise never match. Only the emulator token is skipped - the
+# rest of the shape must still match in full, so an unrelated process can
+# never match by sharing a prefix.
 sub _looks_like_collector_supervisor_process {
     my ( $self, $proc ) = @_;
     return 0 if !$proc || !$proc->{args};
     return 1 if $proc->{args} =~ /^d2 collector supervisor$/;
-    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$};
-    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$}i;
+    return 1 if $proc->{args} =~ m{^(?:\S*qemu-\S*\s+)?(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$};
+    return 1 if $proc->{args} =~ m{^(?:\S*qemu-\S*\s+)?(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$}i;
     return 0;
 }
 
@@ -2705,6 +2765,19 @@ sub _pkill_perl {
 # Returns running processes whose command lines start with a prefix.
 # Input: prefix string.
 # Output: list of process hash references.
+#
+# A process also matches when its command line shows it ADOPTING the prefix
+# as its title - a `$0 = "<prefix>..."` (or '$0 = ...') assignment in the
+# program text. Under qemu user-mode emulation the guest's $0 write never
+# reaches the host's /proc, so the adopted title itself is invisible, but
+# the assignment that sets it is still visible in the spawn argv: a fixture
+# child spawned as `perl -e '$0 = "d2 ajax: NAME"; ...'` shows
+# `/usr/bin/qemu-aarch64 /usr/bin/perl -e $0 = "d2 ajax: NAME"; ...`.
+# This is deliberately NOT a plain substring match: the assignment form is
+# precise, and a plain substring would newly match unrelated processes whose
+# own argv merely mentions the pattern - a `pkill -f '^d2 ajax: NAME$'`
+# command line, for example, contains the pattern text but never a $0
+# assignment.
 sub _find_processes_by_prefix {
     my ( $self, $prefix ) = @_;
     my @matches;
@@ -2714,8 +2787,13 @@ sub _find_processes_by_prefix {
             push @matches, $proc;
             next;
         }
+        if ( defined $proc->{args} && $proc->{args} =~ /\$0\s*=\s*["']\Q$prefix\E/ ) {
+            push @matches, $proc;
+            next;
+        }
         my $title = $self->_read_process_title( $proc->{pid} );
-        next if !defined $title || $title !~ /^\Q$prefix\E/;
+        next if !defined $title;
+        next if $title !~ /^\Q$prefix\E/ && $title !~ /\$0\s*=\s*["']\Q$prefix\E/;
         push @matches, {
             %{$proc},
             args => $title,

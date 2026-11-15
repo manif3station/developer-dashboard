@@ -158,10 +158,20 @@ sub await_absent_pids {
       or die "Unable to block SIGALRM: $!";
 
     my $started = time();
+    # The timeout must exceed the stand-in command tree's startup time, or
+    # the timeout fires before the tree has printed its ready lines and
+    # written its marker file: a bare `perl -e 1` takes ~0.05s under qemu
+    # user-mode emulation against ~0.00s natively, and this tree (perl
+    # loading GoRoutine, spawning a descendant perl, writing the marker)
+    # measured 0.39s to first output there against 0.02s on amd64. 5000ms
+    # leaves more than 10x headroom over the measured slow-host startup
+    # while still proving the contract - the command blocks for 20s, the
+    # collector must return at its timeout with exit code 124, and the
+    # elapsed assertion below still bounds it well under 10s.
     my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_command(
         source     => 'dd389-blocked-command',
         cwd        => $home,
-        timeout_ms => 200,
+        timeout_ms => 5000,
     );
     my $elapsed = time() - $started;
 

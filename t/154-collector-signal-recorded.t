@@ -9,6 +9,7 @@ use File::Temp qw(tempdir);
 use Time::HiRes ();
 
 use lib 'lib';
+use lib 't/lib';
 
 use Developer::Dashboard::GoRoutine ();
 use Developer::Dashboard::Collector;
@@ -16,6 +17,7 @@ use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::PathRegistry;
+use Local::CollectorFixture qw(wait_for_managed_loop);
 
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME}                           = $home;
@@ -35,7 +37,14 @@ my $name = "signal-probe-$$";
 my $pid  = $runner->start_loop( { name => $name, interval => 3600, mode => 'singleton', command => 'true' } );
 ok( $pid, 'a supervisor started' );
 
-for ( 1 .. 200 ) { last if $runner->_is_managed_loop( $pid, $name ); Time::HiRes::sleep(0.05) }
+# Wait until the loop is not merely recognized but actually up: it is
+# recognizable from the moment it is spawned (its identity marker travels in
+# the spawn environ), but its SIGTERM handler is only installed once it has
+# finished starting. Sending TERM before that kills it with the default
+# disposition and the handler never records the signal - which is exactly
+# what the assertions below check for. The 10s budget matches the poll this
+# replaces (200 x 0.05s).
+wait_for_managed_loop( $runner, $pid, $name, timeout => 10, ready => 1 );
 
 # On Windows, Perl kill TERM ends a process without delivering the signal,
 # so the loop's SIGTERM handler never runs and the loop survives the kill,

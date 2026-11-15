@@ -232,7 +232,13 @@ PAGE
             $child_program,
             $loop_name, $process_title,
         ],
-        { cwd => $home, env => { HOME => $home } },
+        # The loop-name marker travels in the spawn environ as well as in
+        # the post-exec $ENV assignment inside the child program: the kernel
+        # environ block is fixed at exec, so a variable assigned after
+        # startup is invisible to /proc readers, and under qemu user-mode
+        # emulation the $0 title is invisible too. Either channel alone
+        # leaves this child unrecognizable on some host.
+        { cwd => $home, env => { HOME => $home, DEVELOPER_DASHBOARD_LOOP_NAME => $loop_name } },
     );
     die "GoRoutine spawn failed: $!" if !defined $managed_child;
     open my $fh, '>', $pidfile or die $!;
@@ -631,7 +637,11 @@ SKIP: {
                 q{my ( $name, $title ) = @ARGV; $ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = $name; $0 = $title; sleep 30;},
                 $name, $runner->_process_title($name),
             ],
-            { cwd => $home, env => { HOME => $home } },
+            # As in the listing fixture above: the loop-name marker travels
+            # in the spawn environ, because a post-exec $ENV assignment is
+            # invisible to /proc readers and the $0 title is invisible under
+            # qemu user-mode emulation.
+            { cwd => $home, env => { HOME => $home, DEVELOPER_DASHBOARD_LOOP_NAME => $name } },
         );
         die "GoRoutine spawn failed: $!" if !defined $pid;
         push @children, $pid;
@@ -836,7 +846,14 @@ SKIP: {
     is( $dispatch_pid, 676767, 'start_loop returns the spawned loop process pid' );
     is_deeply(
         \@spawned_command,
-        [ $runner->_windows_background_loop_command($dispatch_name) ],
+        [
+            $runner->_windows_background_loop_command($dispatch_name),
+            # The loop's identity marker travels in the spawn environ (the
+            # trailing options hashref): the kernel environ block is fixed at
+            # exec, so a post-exec $ENV assignment is invisible to /proc
+            # readers and the marker would be a dead recognition path.
+            { env => { DEVELOPER_DASHBOARD_LOOP_NAME => $dispatch_name } },
+        ],
         'start_loop passes the prepared helper argv to the GoRoutine launcher',
     );
 }
