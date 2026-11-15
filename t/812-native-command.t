@@ -89,6 +89,32 @@ _is_same_as_sh( 'cat file | perl', qq{cat '$json' | '$perl' -e 'local \$/; print
 _is_same_as_sh( 'cat missing | perl still runs', qq{cat '$tmp/nope.json' | '$perl' -e 'print "ran\\n"'} );
 _is_same_as_sh( 'printf | perl | perl (two pipes)', qq{printf 'a\\nb\\n' | '$perl' -pe 's/a/A/' | '$perl' -e 'local \$/; print <STDIN>'} );
 
+# Input redirect: <file feeds the command's stdin.
+_is_same_as_sh( 'input redirect feeds stdin', qq{'$perl' -e 'local \$/; print <STDIN>' < '$json'} );
+_is_same_as_sh( 'input redirect without a space', qq{'$perl' -e 'local \$/; print <STDIN>' <'$json'} );
+_is_same_as_sh( 'input redirect in a cd chain', qq{cd '$tmp' && '$perl' -e 'local \$/; print <STDIN>' < '$json'} );
+_is_same_as_sh( 'input redirect overrides piped stdin', qq{printf 'pipe\\n' | '$perl' -e 'local \$/; print <STDIN>' < '$json'} );
+{
+    # sh fails a missing input file with its own message and exit code;
+    # the native runner fails the same command with its own message and
+    # exit 1. No test asserts the sh wording.
+    my ( $out, $err, $exit ) = run_shell_command( qq{'$perl' -e 'local \$/; print <STDIN>' < '$tmp/nope.json'}, { force_windows => 1 } );
+    is( $out, '', 'input redirect from a missing file produces no stdout' );
+    is( $exit, 1, 'input redirect from a missing file fails with exit 1' );
+    like( $err, qr/cannot read stdin file/, 'input redirect from a missing file names the problem' );
+}
+{
+    # The redirect file belongs to the caller: running a command with
+    # `<file` must not delete it (the runner only unlinks temp files it
+    # wrote from piped input).
+    run_shell_command( qq{'$perl' -e 'local \$/; print <STDIN>' < '$json'}, { force_windows => 1 } );
+    ok( -f $json, 'input redirect leaves the input file in place' );
+    open my $check_fh, '<', $json or die "Unable to read $json: $!";
+    my $content = do { local $/; <$check_fh> };
+    close $check_fh;
+    is( $content, "{\"alpha\":{\"beta\":2}}\n", 'input redirect leaves the input file contents intact' );
+}
+
 # && chains, exits and redirects.
 _is_same_as_sh( 'redirect >/dev/null mid-chain', qq{'$perl' -e 'print "quiet\\n"' >/dev/null && '$perl' -e 'print "after\\n"'} );
 _is_same_as_sh( 'non-zero exit stops the chain', qq{'$perl' -e 'exit 3' && '$perl' -e 'print "no\\n"'} );
@@ -134,7 +160,8 @@ for my $case (
     [ 'backticks',             qq{'$perl' -e 'print "x"' `echo hi`} ],
     [ 'redirect to a file',    qq{'$perl' -e 'print "x"' > $tmp/out.txt} ],
     [ 'append redirect',       qq{'$perl' -e 'print "x"' >> $tmp/out.txt} ],
-    [ 'input redirect',        qq{'$perl' -e 'print <STDIN>' < $json} ],
+    [ 'heredoc',               qq{'$perl' -e 'print <STDIN>' << EOF} ],
+    [ 'stderr-fd input redirect', qq{'$perl' -e 'print <STDIN>' 2< '$json'} ],
     [ 'unterminated quote',    qq{'$perl' -e 'print "x} ],
     [ 'command -v',            qq{command -v '$perl'} ],
   )
