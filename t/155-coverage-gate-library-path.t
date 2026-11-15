@@ -21,9 +21,15 @@ ok( -x $gate, 'the coverage gate is executable' );
 # Output:  (stdout, stderr, exit code)
 sub run_gate_with_env {
     my (%env) = @_;
-    my @assignments = map { "$_=$env{$_}" } sort keys %env;
+
+    # A clean environment without a shell: localise %ENV to exactly the named
+    # variables and run perl on the gate by path. The old form ran `env -i`
+    # and let it exec the gate directly, which Windows cannot do - an
+    # extensionless Perl script is not executable - so the gate never ran
+    # there and exited 126.
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'env', '-i', @assignments, $gate, '--help' );
+        local %ENV = %env;
+        system $^X, $gate, '--help';
     };
     return ( $stdout, $stderr, $exit >> 8 );
 }

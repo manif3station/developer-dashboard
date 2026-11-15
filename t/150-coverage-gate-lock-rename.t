@@ -5,6 +5,7 @@ use warnings;
 use utf8;
 
 use Test::More;
+use Capture::Tiny qw(capture_merged);
 use Cwd qw(getcwd);
 use Fcntl qw(:flock);
 use File::Spec;
@@ -72,9 +73,13 @@ $held->flush if $held->can('flush');
 sub run_gate {
     my @arguments = @_;
 
-    my $output = qx{$^X \Q$gate\E @{[ join ' ', map { quotemeta } @arguments ]} 2>&1};
+    # List-form system through capture_merged: no shell is involved, so no
+    # quoting of the gate path is needed. The old qx{} form built the command
+    # with quotemeta, which cmd.exe on Windows does not unescape - perl then
+    # received the literal doubled-backslash path and refused it with EINVAL.
+    my ( $output, $status ) = capture_merged { system $^X, $gate, @arguments };
 
-    return ( defined $output ? $output : '', $? >> 8 );
+    return ( defined $output ? $output : '', $status >> 8 );
 }
 
 # Feature: a rename does not open a window in which the lock stops working.
