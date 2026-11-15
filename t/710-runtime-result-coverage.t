@@ -15,6 +15,12 @@ BEGIN {
             $! = 1;
             return 0;
         }
+        # Windows has no fchmod, so a handle-form chmod (File::Temp's
+        # tempfile hardening and _open_channel_file) dies unimplemented
+        # there; Unix modes are not a Windows security control, so treat
+        # the handle form as a successful no-op instead of reaching
+        # CORE::chmod. Path-form chmod still passes through.
+        return 1 if $^O eq 'MSWin32' && @_ == 2 && ref $_[1];
         return CORE::chmod(@_);
     };
     *CORE::GLOBAL::fcntl = sub (*$$) {
@@ -85,10 +91,13 @@ sub scripted {
 
 # A RESULT_FILE that names a directory opens but fails to close after the
 # read error, so the close failure is reported; an empty file is no payload.
+# On Windows the open itself fails (a directory cannot be opened for
+# reading there), so the same unreadable RESULT file is reported at the
+# read step instead of the close step; either wording names the failure.
 {
     local $ENV{RESULT_FILE} = $home;
     my $err = eval { Developer::Dashboard::Runtime::Result::current(); 1 } ? '' : $@;
-    like( $err, qr/Unable to close RESULT file/, 'a RESULT_FILE that cannot be read cleanly is fatal' );
+    like( $err, qr/Unable to (?:read|close) RESULT file/, 'a RESULT_FILE that cannot be read cleanly is fatal' );
 
     my $empty = File::Spec->catfile( $home, 'empty-result' );
     open my $fh, '>', $empty or die "Unable to write $empty: $!";
