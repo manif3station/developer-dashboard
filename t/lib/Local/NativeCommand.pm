@@ -600,3 +600,64 @@ sub _find_executable {
 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+Local::NativeCommand - shell-independent runner for the test suite's small POSIX fragments
+
+=head1 PURPOSE
+
+Run the small POSIX shell fragments the test suite uses without a shell, so
+tests that launch commands work on the Windows Sandbox, where no sh or bash
+exists at all.
+
+=head1 WHY IT EXISTS
+
+The test suite historically launched commands through C<system 'sh', '-c',
+$cmd>. That works on Unix, but the Windows Sandbox used for Windows testing
+has no sh, so every such call failed there and the CLI smoke file aborted
+after 36 subtests. This module gives the tests a shell-independent way to run
+the same command strings: on Unix it still delegates to C<sh -c>, unchanged;
+on Windows it parses the fragment and runs the argv list directly.
+
+=head1 WHEN TO USE
+
+When a test needs to run a shell fragment (a command chain, a pipe, a
+redirect, an env prefix) and must work on Windows as well as Unix. Use
+C<force_windows> to exercise the Windows path on Linux while developing the
+parser, and to compare its output against real C<sh -c>.
+
+=head1 HOW TO USE
+
+Call C<run_shell_command($cmd, \%options)>; it returns a list of
+C<(stdout, stderr, exit_code)>, where the exit code is the shifted exit
+status as Capture::Tiny callers expect. Options are C<env> (a map of
+environment overrides applied to every command in the fragment; an undef
+value deletes the key) and C<force_windows> (take the Windows code path on
+any platform). The parser understands plain commands, C<&&> chains, C<|>
+pipes, C<cd>, C<printf>/C<cat> pipe sources, C<E<gt>/dev/null>,
+C<2E<gt>/dev/null> and C<2E<gt>&1>, plus environment prefixes with C<$VAR>
+expansion. Anything else dies loudly rather than guessing.
+
+=head1 WHAT USES IT
+
+C<t/05-cli-smoke.t> uses it for every command it launches (its C<_run>,
+C<_gate_run> and C<_sh_capture> helpers), and C<t/812-native-command.t>
+covers the runner itself.
+
+=head1 EXAMPLES
+
+Run a chain with no shell:
+
+    my ($out, $err, $rc) = run_shell_command("cd '$dir' && $perl -e 'print 1'", {});
+
+Feed a pipe source through the Windows path while on Linux:
+
+    my ($out, $err, $rc) = run_shell_command(
+        "printf 'a\\nb\\n' | $perl -ne 'print'",
+        { force_windows => 1 },
+    );
+
+=cut

@@ -145,3 +145,59 @@ for my $case (
 }
 
 done_testing;
+
+__END__
+
+=head1 NAME
+
+t/812-native-command.t - regression coverage for the shell-independent test command runner
+
+=head1 PURPOSE
+
+Prove that Local::NativeCommand behaves identically on the Unix path
+(C<sh -c>) and the Windows path (the C<force_windows> parser plus direct
+launch), and that it dies loudly on constructs it does not support.
+
+=head1 WHY IT EXISTS
+
+The runner is the only thing letting t/05 launch commands on the Windows
+Sandbox, where no sh exists. A quiet regression in its parser would re-break
+the whole CLI smoke file on Windows while the suite stayed green on Linux,
+so the behaviour is pinned here case by case instead of being left to the
+larger smoke file to catch.
+
+=head1 WHEN TO USE
+
+When changing Local::NativeCommand.pm, or when adding a shell fragment to a
+test that must run on Windows: extend the cases here first, so the new
+construct is covered before the test that needs it starts relying on it.
+
+=head1 HOW TO USE
+
+Run C<prove -Iblib/lib -Iblib/arch t/812-native-command.t> from the built
+tree. Each case runs the same fragment through real C<sh -c> and through
+C<force_windows> and compares stdout, stderr and exit code; the die cases
+assert the Windows path refuses the construct instead of guessing at it.
+
+=head1 WHAT USES IT
+
+Nothing loads this file at runtime. It is run by the test harness (prove or
+the full suite) as part of the suite, and it exists to guard
+Local::NativeCommand, which t/05-cli-smoke.t relies on for every command it
+launches.
+
+=head1 EXAMPLES
+
+Compare a chain through both paths:
+
+    my ($sh_out, $sh_err, $sh_rc) = run_shell_command($cmd, {});
+    my ($win_out, $win_err, $win_rc) = run_shell_command($cmd, { force_windows => 1 });
+    is($win_out, $sh_out, 'Windows path matches sh output');
+    is($win_rc, $sh_rc, 'Windows path matches sh exit code');
+
+Assert an unsupported construct dies instead of guessing:
+
+    my $died = eval { run_shell_command('a; b', { force_windows => 1 } ); 1 } ? 0 : 1;
+    ok($died, 'dies on unsupported construct: semicolon');
+
+=cut
