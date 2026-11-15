@@ -18,7 +18,9 @@ package Local::NativeCommand;
 #     quotes, and `VAR='value'` environment prefixes;
 #   * `&&` chains, `|` pipes, `cd 'dir'` (changes the directory for the
 #     rest of the chain), `printf '...'` and `cat 'file'` as pipe sources;
-#   * output redirects `>/dev/null`, `2>/dev/null` and `2>&1`.
+#   * output redirects `>/dev/null`, `2>/dev/null` and `2>&1`;
+#   * input redirect `<file` (the file becomes the command's stdin, and
+#     wins over piped input, as in sh).
 # Unsupported constructs (`;`, `||`, `$(...)`, backticks, `>file`,
 # `>>`, `bash`/`sh` as a command) are fatal - a test that needs them must
 # either be rewritten or skipped on Windows.
@@ -83,7 +85,8 @@ sub run_shell_command {
 # Output: hashref { steps => [ ... ] } where a step is either
 # { type => 'cd', dir => $dir } or { type => 'pipeline', stages => [...] };
 # a stage is { argv => [...], env => {...}, producer => undef | {...},
-# discard_stdout => 0|1, discard_stderr => 0|1, merge_stderr => 0|1 }.
+# discard_stdout => 0|1, discard_stderr => 0|1, merge_stderr => 0|1,
+# stdin_file => undef | $path }.
 sub parse_posix_command {
     my ( $cmd, $options ) = @_;
     $options  ||= {};
@@ -154,7 +157,10 @@ sub _tokenise {
             die "unsupported output redirect in command: $text";
         }
         if ( $c eq '<' ) {
-            die "unsupported input redirect '<' in command: $text";
+            die "unsupported heredoc '<<' in command: $text" if substr( $text, $i, 2 ) eq '<<';
+            push @tokens, { type => 'REDIR', fd => 0, target => 'input', start => $i, end => $i + 1 };
+            $i++;
+            next;
         }
         if ( $c eq '|' ) {
             die "unsupported shell operator '||' in command: $text" if substr( $text, $i, 2 ) eq '||';
@@ -282,9 +288,22 @@ sub _build_stage {
         discard_stdout => 0,
         discard_stderr => 0,
         merge_stderr   => 0,
+        stdin_file     => undef,
     };
-    for my $token ( @{$tokens} ) {
+    my $i = 0;
+    while ( $i < @{$tokens} ) {
+        my $token = $tokens->[$i];
         if ( $token->{type} eq 'REDIR' ) {
+            if ( $token->{target} eq 'input' ) {
+                die "input redirect on fd $token->{fd} is unsupported (only stdin) in command: $cmd"
+                  if $token->{fd} != 0;
+                die "multiple input redirects in command: $cmd" if defined $stage->{stdin_file};
+                die "input redirect without a file in command: $cmd"
+                  if $i + 1 >= @{$tokens} || $tokens->[ $i + 1 ]{type} ne 'WORD';
+                $stage->{stdin_file} = _word_value( $tokens->[ $i + 1 ]{parts}, $windows, 0 );
+                $i += 2;
+                next;
+            }
             if ( $token->{target} eq 'null' ) {
                 if    ( $token->{fd} == 1 ) { $stage->{discard_stdout} = 1; }
                 elsif ( $token->{fd} == 2 ) { $stage->{discard_stderr} = 1; }
@@ -293,6 +312,7 @@ sub _build_stage {
                 die "unsupported redirect '1>&1' in command: $cmd" if $token->{fd} == 1;
                 $stage->{merge_stderr} = 1;
             }
+            $i++;
             next;
         }
         my $word = $token;
@@ -301,10 +321,12 @@ sub _build_stage {
             if ($assignment) {
                 my ( $name, $value_parts ) = @{$assignment};
                 $stage->{env}{$name} = _parts_value( $value_parts, $windows, 1 );
+                $i++;
                 next;
             }
         }
         push @{ $stage->{argv} }, _word_value( $word->{parts}, $windows, 0 );
+        $i++;
     }
     die "environment assignment without a command is unsupported in command: $cmd"
       if !@{ $stage->{argv} } && !defined $stage->{producer};
@@ -541,7 +563,23 @@ sub _run_stage {
     # created and before anything chdirs.
     my $orig_cwd = getcwd() // die "cannot determine current working directory: $!";
     my $stdin_file;
-    if ( defined $stdin_bytes ) {
+    my $stdin_is_temp = 0;
+    if ( defined $stage->{stdin_file} ) {
+
+        # An explicit `<file` redirect wins over piped input, as in sh.
+        # A missing file fails the command (exit 1) instead of dying: the
+        # test that needs the file created it, so a missing file is a test
+        # failure, not a runner failure. The redirect file belongs to the
+        # caller, so it is never unlinked afterwards (only a temp file
+        # written from piped input is).
+        $stdin_file = $stage->{stdin_file};
+        my $probe;
+        if ( !open $probe, '<:raw', $stdin_file ) {
+            return ( '', "cannot read stdin file '$stdin_file': $!\n", 1 );
+        }
+        close $probe;
+    }
+    elsif ( defined $stdin_bytes ) {
         my ( $fh, $name ) = tempfile( UNLINK => 0 );
         # Record the name before writing: the file is created with
         # UNLINK => 0, so a die from print or close below would
@@ -562,6 +600,7 @@ sub _run_stage {
             unlink $stdin_file;
             die $error;
         }
+        $stdin_is_temp = 1;
     }
     my $ok = eval {
         ( $stdout, $stderr, $exit ) = capture {
@@ -585,7 +624,7 @@ sub _run_stage {
     };
     my $error = $@;
     my $restore_failed = !chdir $orig_cwd;
-    unlink $stdin_file if defined $stdin_file;
+    unlink $stdin_file if $stdin_is_temp;
     die "cannot restore working directory '$orig_cwd': $!" if $restore_failed;
     die $error if !$ok;
     return ( $stdout, $stderr, $exit );
@@ -680,8 +719,9 @@ environment overrides applied to every command in the fragment; an undef
 value deletes the key) and C<force_windows> (take the Windows code path on
 any platform). The parser understands plain commands, C<&&> chains, C<|>
 pipes, C<cd>, C<printf>/C<cat> pipe sources, C<E<gt>/dev/null>,
-C<2E<gt>/dev/null> and C<2E<gt>&1>, plus environment prefixes with C<$VAR>
-expansion. Anything else dies loudly rather than guessing.
+C<2E<gt>/dev/null> and C<2E<gt>&1>, input redirect C<E<lt>file>, plus
+environment prefixes with C<$VAR> expansion. Anything else dies loudly
+rather than guessing.
 
 =head1 WHAT USES IT
 
