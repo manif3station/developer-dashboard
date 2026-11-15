@@ -1107,16 +1107,20 @@ for my $unstable_mode (qw(path_changed watcher_changed portable_changed watcher_
 }
 
 {
+    # '/tmp' does not exist on Windows, so the ancestor walk would climb
+    # past it to the root and the grep would never match. Use a real
+    # tempdir so the root is an existing directory on every platform.
+    my $skill_root = tempdir(CLEANUP => 1);
     my $entries_paths = bless {
         runtime_roots => [],
         config_roots => [ undef, [], '' ],
         skills_roots => [],
-        installed => [ undef, 'not a record', {}, { layers => 'not a list' }, { layers => [ undef, [], '' ] }, { layers => ['/tmp'] } ],
-        nested => [ undef, 'not a record', {}, { dir => undef }, { dir => [] }, { dir => '/tmp' } ],
+        installed => [ undef, 'not a record', {}, { layers => 'not a list' }, { layers => [ undef, [], '' ] }, { layers => [$skill_root] } ],
+        nested => [ undef, 'not a record', {}, { dir => undef }, { dir => [] }, { dir => $skill_root } ],
     }, 'Local::Problem48SkillEntryPaths';
     my $entries_app = bless { pages => $entries_paths }, 'Developer::Dashboard::Web::App';
     my $watch_paths = $entries_app->_config_snapshot_watch_paths;
-    ok( ( grep { $_ eq '/tmp' } @{$watch_paths} ), 'watch-path discovery includes valid installed and nested skill roots' );
+    ok( ( grep { $_ eq $skill_root } @{$watch_paths} ), 'watch-path discovery includes valid installed and nested skill roots' );
     ok( !( grep { ref($_) } @{$watch_paths} ), 'watch-path discovery ignores malformed skill entry and path values' );
 }
 
