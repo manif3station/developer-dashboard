@@ -27,6 +27,9 @@ package Local::NativeCommand;
 # value is translated to `;` (the Windows PATH separator). The suite
 # builds PATH values as `PATH='$fake_bin':"$PATH"`, and a literal `:` would
 # glue the fake bin dir and the rest of PATH into one unusable entry.
+# Only a bare `:` part is translated: a colon inside a quoted string
+# (for example `PATH='a:b'`) is part of that literal value and is
+# intentionally left alone, exactly as POSIX quoting would keep it.
 #
 # Options to run_shell_command:
 #   env           => { NAME => value, ... } - environment overrides applied

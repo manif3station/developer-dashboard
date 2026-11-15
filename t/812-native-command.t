@@ -21,7 +21,10 @@ use Local::NativeCommand qw(run_shell_command parse_posix_command);
 #   direct process launch on Windows. The Windows path cannot run on a
 #   Unix CI host, so this file exercises it through the force_windows
 #   option and compares the result against a real `sh -c` run, so a
-#   regression in the parser shows up on Linux too.
+#   regression in the parser shows up on Linux too. On a host with no sh
+#   at all (the Windows Sandbox), the comparison cases skip cleanly
+#   instead of failing with misleading exit-255 results; the die-tests
+#   below never invoke sh and still run everywhere.
 #
 # Purpose: verify the Windows runner matches sh for every command shape
 # the suite uses, and that unsupported constructs die loudly.
@@ -35,6 +38,12 @@ open my $json_fh, '>', $json or die "Unable to write $json: $!";
 print {$json_fh} "{\"alpha\":{\"beta\":2}}\n";
 close $json_fh or die "Unable to close $json: $!";
 
+# Whether a real `sh` exists to compare against. Probed at runtime rather
+# than by platform, so a Windows host with sh (for example via Git for
+# Windows) still runs the comparisons, and a Unix host without sh skips
+# them instead of failing.
+my $SH_AVAILABLE = system( 'sh', '-c', 'exit 0' ) == 0;
+
 sub _sh_run {
     my ($cmd) = @_;
     my ( $out, $err, $exit ) = capture { system 'sh', '-c', $cmd; return $? >> 8; };
@@ -43,11 +52,14 @@ sub _sh_run {
 
 sub _is_same_as_sh {
     my ( $label, $cmd ) = @_;
-    my ( $want_out, $want_err, $want_exit ) = _sh_run($cmd);
-    my ( $got_out, $got_err, $got_exit ) = run_shell_command( $cmd, { force_windows => 1 } );
-    is( $got_out,  $want_out,  "$label: stdout matches sh" );
-    is( $got_err,  $want_err,  "$label: stderr matches sh" );
-    is( $got_exit, $want_exit, "$label: exit code matches sh" );
+    SKIP: {
+        skip 'sh is not available', 3 unless $SH_AVAILABLE;
+        my ( $want_out, $want_err, $want_exit ) = _sh_run($cmd);
+        my ( $got_out, $got_err, $got_exit ) = run_shell_command( $cmd, { force_windows => 1 } );
+        is( $got_out,  $want_out,  "$label: stdout matches sh" );
+        is( $got_err,  $want_err,  "$label: stderr matches sh" );
+        is( $got_exit, $want_exit, "$label: exit code matches sh" );
+    }
 }
 
 # Plain commands and quoting.
@@ -79,6 +91,8 @@ _is_same_as_sh( 'two env prefixes', qq{FOO='a' BAR='b' '$perl' -e 'print "\$ENV{
     is( $plan->{steps}[0]{stages}[0]{env}{PATH}, "/fake/bin;$ENV{PATH}", 'parser translates the PATH separator on Windows' );
     my $plan_unix = parse_posix_command( qq{PATH='/fake/bin':"\$PATH" '$perl' -e 'x'}, { windows => 0 } );
     is( $plan_unix->{steps}[0]{stages}[0]{env}{PATH}, "/fake/bin:$ENV{PATH}", 'parser keeps the PATH separator on Unix' );
+    my $plan_quoted = parse_posix_command( qq{PATH='/fake/bin:/other' '$perl' -e 'x'}, { windows => 1 } );
+    is( $plan_quoted->{steps}[0]{stages}[0]{env}{PATH}, '/fake/bin:/other', 'parser leaves a colon inside single quotes alone on Windows' );
 }
 
 # Pipes: printf and cat pipe sources.
@@ -178,6 +192,8 @@ Run C<prove -Iblib/lib -Iblib/arch t/812-native-command.t> from the built
 tree. Each case runs the same fragment through real C<sh -c> and through
 C<force_windows> and compares stdout, stderr and exit code; the die cases
 assert the Windows path refuses the construct instead of guessing at it.
+On a host with no C<sh>, the comparison cases skip cleanly and the die
+cases still run.
 
 =head1 WHAT USES IT
 
