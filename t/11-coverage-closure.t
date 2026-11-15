@@ -407,6 +407,12 @@ SKIP: {
     # timeout. Termination by timeout is covered by the block below.
     skip 'INT delivery to a CreateProcess child does not exist on Windows', 1
       if $^O eq 'MSWin32';
+    # Give the supervisor a moment to load and install its INT handler
+    # before signalling it: an INT sent in the first instant after launch
+    # can arrive before the handler exists and be discarded, so under
+    # load the supervisor would only stop when its child finished or its
+    # timeout expired, after this test's poll budget.
+    sleep 0.5;
     kill 'INT', $interrupt_result->{pid};
     for ( 1 .. $background_wait_loops ) {
         last if !$actions->_pid_is_running( $interrupt_result->{pid} );

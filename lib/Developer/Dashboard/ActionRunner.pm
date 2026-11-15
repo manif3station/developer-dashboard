@@ -244,6 +244,15 @@ sub run_background_supervisor {
     }
     require Developer::Dashboard::GoRoutine;
     my @argv = shell_command_argv( $payload->{command} );
+    # Install the stop handlers BEFORE spawning the child, so a stop signal
+    # arriving while the supervisor is starting is handled instead of lost.
+    # Previously the child was spawned first and the handlers installed
+    # after, so a signal sent immediately after launch (as t/11 does) could
+    # arrive before the handler existed and be discarded, leaving the
+    # supervisor to run until its child finished or its timeout expired.
+    my $stop_signal;
+    local $SIG{TERM} = sub { $stop_signal = 'TERM' };
+    local $SIG{INT}  = sub { $stop_signal = 'INT' };
     my $child_pid = Developer::Dashboard::GoRoutine::spawn(
         \@argv,
         {
@@ -254,9 +263,6 @@ sub run_background_supervisor {
     );
     my $timeout_ms = $payload->{timeout_ms};
     my $deadline = $timeout_ms > 0 ? time() + ( $timeout_ms / 1000 ) : undef;
-    my $stop_signal;
-    local $SIG{TERM} = sub { $stop_signal = 'TERM' };
-    local $SIG{INT}  = sub { $stop_signal = 'INT' };
     while (1) {
         if ($stop_signal) {
             Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'TERM' );
