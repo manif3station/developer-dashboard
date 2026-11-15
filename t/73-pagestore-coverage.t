@@ -1026,6 +1026,47 @@ like( $structured_nav->{layout}{body}, qr/structured navigation/,
         ok( !exists $store->{_nav_fragment_cache}{entries}{$changed_file},
             'content changed during a read is not cached under the stale fingerprint' );
     }
+
+    # Windows file timestamps move coarsely, so a same-tick same-size rewrite
+    # leaves every fingerprinted stat field identical. Freeze lstat to model
+    # that and prove the cache compares bytes, not just stats. This is a
+    # Linux model of Windows-only behaviour: it still needs a box solo run
+    # to prove on the Windows box itself.
+    my $frozen_file = File::Spec->catfile( $nav_dir, 'frozen-stat.tt' );
+    write_raw( $frozen_file, '<p>ready</p>' );
+    my @frozen_stat = Time::HiRes::lstat($frozen_file);
+    {
+        no warnings qw(once redefine);
+        local *Time::HiRes::lstat = sub { return @frozen_stat };
+        my $first = $store->load_nav_fragment('nav/frozen-stat.tt');
+        is( $first->{body}, '<p>ready</p>', 'a frozen-stat first load caches its literal body' );
+        write_raw( $frozen_file, '<p>fresh</p>' );
+        my $second = $store->load_nav_fragment('nav/frozen-stat.tt');
+        is( $second->{body}, '<p>fresh</p>', 'a same-tick same-size rewrite is not served stale from the cache' );
+        is( $store->{_nav_fragment_cache}{entries}{$frozen_file}{body}, '<p>fresh</p>',
+            'the refreshed cache holds the rewritten bytes under the frozen fingerprint' );
+    }
+
+    my $frozen_changed_file = File::Spec->catfile( $nav_dir, 'frozen-changed.tt' );
+    write_raw( $frozen_changed_file, '<b>first body</b>' );
+    my @frozen_changed_stat = Time::HiRes::lstat($frozen_changed_file);
+    my $frozen_real_read = Developer::Dashboard::PageStore->can('_read_saved_instruction');
+    my $frozen_changed_reads = 0;
+    {
+        no warnings qw(once redefine);
+        local *Time::HiRes::lstat = sub { return @frozen_changed_stat };
+        local *Developer::Dashboard::PageStore::_read_saved_instruction = sub {
+            my $body = $frozen_real_read->(@_);
+            if ( $_[1] eq $frozen_changed_file && !$frozen_changed_reads++ ) {
+                write_raw( $frozen_changed_file, '<b>other body</b>' );
+            }
+            return $body;
+        };
+        my $result = $store->load_nav_fragment('nav/frozen-changed.tt');
+        is( $result->{body}, '<b>first body</b>', 'a frozen-stat in-flight response keeps the bytes it securely read' );
+        ok( !exists $store->{_nav_fragment_cache}{entries}{$frozen_changed_file},
+            'content changed during a read is not cached when the fingerprint cannot move' );
+    }
 }
 
 {
