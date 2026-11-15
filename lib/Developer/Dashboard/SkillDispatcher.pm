@@ -472,6 +472,8 @@ sub _exec_replacement {
         # system() and the parent must exit with the child's status itself
         # (the same system+exit shape the switchboard and staged helpers
         # already use on Windows).
+        # DD-597 guard: system() sets $?, so localise it first.
+        local $?;
         system @command, @args;
         my $status = $?;
         my $exit_code = $status > 255 ? $status >> 8 : $status;
