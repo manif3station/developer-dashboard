@@ -29,7 +29,7 @@ like( $source, qr/_exec_switchboard_command/, 'd2 entrypoint only resolves and e
 like( $source, qr/_custom_command_path/, 'd2 entrypoint resolves layered custom commands' );
 like( $source, qr/_builtin_helper_path/, 'd2 entrypoint resolves staged private built-in helpers' );
 like( $source, qr/_builtin_helper_path\('skills'\)/, 'dashboard dotted skill dispatch reuses the staged skills helper' );
-like( $source, qr/_exec_switchboard_command\( \$helper_path, '_exec', \$skill_name, \$skill_command, \@ARGV \)/, 'dashboard dotted skill dispatch hands skill commands through the internal skills exec route' );
+like( $source, qr/_exec_switchboard_command\( \$helper_path, (?:\@helper_argv, )?'_exec', \$skill_name, \$skill_command, \@ARGV \)/, 'dashboard dotted skill dispatch hands skill commands through the internal skills exec route' );
 like( $source, qr/Developer::Dashboard::PerlEnv->bootstrap_perl5lib/, 'd2 entrypoint bootstraps a safe Perl library order before helper dispatch' );
 
 my $private_core = _slurp( File::Spec->catfile( $repo_root, 'share', 'private-cli', '_dashboard-core' ) );
