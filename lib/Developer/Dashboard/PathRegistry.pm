@@ -804,23 +804,29 @@ sub nested_skill_dir_chain {
 sub nested_skill_entries {
     my ( $self, %args ) = @_;
     my @entries;
-    my @queue = map {
+    my @queue;
+    for my $root ( $self->installed_skill_roots(%args) ) {
         # The last path component is the skill name. Match either separator:
         # installed skill roots are File::Spec spellings, so a forward-slash
         # pattern never matches a backslash-spelled Windows root and the
         # name came back undef.
-        my $name = ( $_ =~ m{[\\/]+([^\\/]+)\z} )[0];
+        my $name = ( $root =~ m{[\\/]+([^\\/]+)\z} )[0];
+        # A root with no extractable name (a bare name, or a bare drive root
+        # such as C:\) is not a skill: leaving it in the queue put an undef
+        # segment into the alias join, which warned and produced a phantom
+        # '.work' alias. Skip it here instead.
+        next if !defined $name || $name eq '';
         my @valid = $args{include_config_write_location} ? validated_path_segments($name) : ();
-        {
+        push @queue, {
             segments           => [$name],
-            dir                => $_,
+            dir                => $root,
             config_chain_valid => !$args{include_config_write_location} || @valid == 1 ? 1 : 0,
             config_parent_dir  => undef,
             config_parent_depth => undef,
             disabled           => $args{include_disabled}
-              && $self->_skill_is_disabled($_) ? 1 : 0,
-        }
-    } $self->installed_skill_roots(%args);
+              && $self->_skill_is_disabled($root) ? 1 : 0,
+        };
+    }
     for ( my $queue_index = 0; $queue_index < @queue; $queue_index++ ) {
         my $node = $queue[$queue_index];
         my %entry = ( segments => $node->{segments}, dir => $node->{dir} );
