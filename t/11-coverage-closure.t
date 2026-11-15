@@ -399,12 +399,21 @@ my $interrupt_result = $actions->run_command_action(
     timeout_ms => 5000,
 );
 ok( $interrupt_result->{pid} > 0, 'background action returns a pid for interrupt coverage' );
-kill 'INT', $interrupt_result->{pid};
-for ( 1 .. $background_wait_loops ) {
-    last if !$actions->_pid_is_running( $interrupt_result->{pid} );
-    sleep 0.1;
+SKIP: {
+    # INT delivery to the supervisor is a Unix mechanism: on Windows Perl
+    # kill INT reaches a CreateProcess child only as a console-control
+    # event, which a child without a console never receives, so the
+    # handler never runs and the supervisor would only exit on its own
+    # timeout. Termination by timeout is covered by the block below.
+    skip 'INT delivery to a CreateProcess child does not exist on Windows', 1
+      if $^O eq 'MSWin32';
+    kill 'INT', $interrupt_result->{pid};
+    for ( 1 .. $background_wait_loops ) {
+        last if !$actions->_pid_is_running( $interrupt_result->{pid} );
+        sleep 0.1;
+    }
+    ok( !$actions->_pid_is_running( $interrupt_result->{pid} ), 'background action INT handler stops the detached wrapper cleanly' );
 }
-ok( !$actions->_pid_is_running( $interrupt_result->{pid} ), 'background action INT handler stops the detached wrapper cleanly' );
 
 my $timeout_background = $actions->run_command_action(
     command    => "$^X -e 'sleep 2'",

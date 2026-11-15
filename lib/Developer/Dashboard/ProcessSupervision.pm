@@ -76,6 +76,15 @@ sub _reap_child_process {
     # leak only became visible once a test process ended with the stale value.
     local $?;
     return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    if ( is_windows() ) {
+        # A GoRoutine (CreateProcess) child is reaped through the native
+        # process API, because waitpid below cannot reliably see one once
+        # its process object is gone. A pid the spawn registry does not
+        # know falls through to waitpid, which keeps its existing behaviour
+        # for any other direct child.
+        require Developer::Dashboard::GoRoutine;
+        return 1 if Developer::Dashboard::GoRoutine::reap_child($pid);
+    }
     my $waited = waitpid( $pid, 1 );
     return $waited == $pid ? 1 : 0;
 }

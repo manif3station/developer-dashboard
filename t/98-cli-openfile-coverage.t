@@ -25,6 +25,33 @@ use Developer::Dashboard::GoRoutine ();
 use Developer::Dashboard::PathRegistry;
 use Local::DevelCoverSwitch qw(devel_cover_switches);
 
+# The Windows branch of _stdin_has_pending_input reads pipe readiness
+# through the Win32API::File module, which only exists on Windows. This
+# stub lets the Windows-branch blocks below run on Linux, where $^O is
+# localized to 'MSWin32' for the call: on a real Windows box the real
+# module loads instead and this block is inert. The two package variables
+# are the stub's script for the next PeekNamedPipe call: how many bytes it
+# reports available, and whether the call succeeds at all.
+BEGIN {
+    if ( $^O ne 'MSWin32' ) {
+        $INC{'Win32API/File.pm'} = 1;
+        package Win32API::File;
+        our $PEEK_BYTES = 0;
+        our $PEEK_OK    = 1;
+        sub GetOsFHandle {
+            my ($fd) = @_;
+            return $fd + 1000 if defined $fd && $fd >= 0;
+            return;
+        }
+        sub PeekNamedPipe {
+            my ( $handle, $buffer, $length, $bytes_read, $bytes_available, $bytes_left ) = @_;
+            $_[4] = $PEEK_BYTES;
+            return $PEEK_OK;
+        }
+        package main;
+    }
+}
+
 my $PKG = 'Developer::Dashboard::CLI::OpenFile';
 
 is_deeply(
@@ -302,6 +329,63 @@ is_deeply( [ oc( '_select_open_file_matches', matches => ['solo'] ) ], ['solo'],
     close $write_end;
 }
 {
+    # Windows branch, regular file: the Windows branch answers -f STDIN
+    # directly (a regular file never blocks), instead of select() - which
+    # on Windows returns immediately with 0 for a plain file descriptor.
+    # Proved on Linux with $^O localized and the Win32API::File stub
+    # above; the real module is used on Windows.
+    my $dir = tempdir( CLEANUP => 1 );
+    my $real_file = catfile( $dir, 'real-stdin-fixture-win.txt' );
+    spew( $real_file, "3\n" );
+    open my $in, '<', $real_file or die $!;
+    local *STDIN = $in;
+    local $^O = 'MSWin32';
+    my $ready = oc( '_stdin_has_pending_input', 5 );
+    is( $ready, 1, 'on Windows a regular file reports ready immediately (a file never blocks)' );
+}
+{
+    # Windows branch, open pipe with nothing waiting: the stubbed
+    # PeekNamedPipe reports 0 bytes, so the poll loop waits out the
+    # timeout and reports not-ready - the same outcome as the Unix
+    # select() path, reached through the Windows-native readiness call.
+    $Win32API::File::PEEK_BYTES = 0;
+    $Win32API::File::PEEK_OK    = 1;
+    pipe( my $read_end, my $write_end ) or die "pipe failed: $!";
+    local *STDIN = $read_end;
+    local $^O = 'MSWin32';
+    my $before  = time;
+    my $ready   = oc( '_stdin_has_pending_input', 1 );
+    my $elapsed = time - $before;
+    is( $ready, 0, 'on Windows an open pipe with nothing waiting is reported not ready after the timeout' );
+    ok( $elapsed >= 1, 'the Windows pipe check genuinely waited out the timeout' );
+    close $write_end;
+}
+{
+    # Windows branch, pipe with data waiting: PeekNamedPipe reports bytes
+    # available, so the check returns ready at once.
+    $Win32API::File::PEEK_BYTES = 3;
+    $Win32API::File::PEEK_OK    = 1;
+    pipe( my $read_end, my $write_end ) or die "pipe failed: $!";
+    local *STDIN = $read_end;
+    local $^O = 'MSWin32';
+    my $ready = oc( '_stdin_has_pending_input', 5 );
+    is( $ready, 1, 'on Windows a pipe with data waiting reports ready immediately' );
+    close $write_end;
+}
+{
+    # Windows branch, broken pipe: PeekNamedPipe fails (its return is
+    # false once the writer has closed), which counts as ready - a read
+    # then returns end-of-file at once instead of blocking.
+    $Win32API::File::PEEK_BYTES = 0;
+    $Win32API::File::PEEK_OK    = 0;
+    pipe( my $read_end, my $write_end ) or die "pipe failed: $!";
+    local *STDIN = $read_end;
+    local $^O = 'MSWin32';
+    my $ready = oc( '_stdin_has_pending_input', 5 );
+    is( $ready, 1, 'on Windows a closed pipe reports ready (a read returns end-of-file at once)' );
+    close $write_end;
+}
+{
     # Explicit "nothing pending" override, since a real open-but-silent pipe
     # can only be demonstrated by actually waiting out the timeout - forcing
     # the wrapper directly is the only way to exercise this branch without
@@ -513,11 +597,16 @@ is_deeply( [ oc( '_named_source_matches', paths => $reg ) ], [], 'missing name y
     my $match_b = catfile( $grep_root, 'b.txt' );
     spew( $match_a, "needle in nested file\nneedle repeated in one file\n" );
     spew( $match_b, "needle in second file\n" );
-    spew( catfile( $grep_root, 'named:123:file.txt' ), "needle in a colon-named file\n" );
+    # A colon is a separator in file names on Unix but is illegal in a
+    # Windows file name, so the colon-named fixture only exists where the
+    # operating system allows it; everywhere else the same shape is
+    # exercised with dashes.
+    my $colon_file = $^O eq 'MSWin32' ? 'named-123-file.txt' : 'named:123:file.txt';
+    spew( catfile( $grep_root, $colon_file ), "needle in a colon-named file\n" );
     spew( catfile( $grep_root, 'miss.txt' ), "other text\n" );
     is_deeply(
         [ sort( grep_matching_files( args => [ '-nr', 'needle', $grep_root ] ) ) ],
-        [ sort ( $match_a, $match_b, catfile( $grep_root, 'named:123:file.txt' ) ) ],
+        [ sort ( $match_a, $match_b, catfile( $grep_root, $colon_file ) ) ],
         'grep mode recursively searches contents and returns unique paths, including colon-named files',
     );
     my $print_error;
@@ -527,7 +616,7 @@ is_deeply( [ oc( '_named_source_matches', paths => $reg ) ], [], 'missing name y
         $print_error = $@;
     };
     like( $print_error, qr/^EXIT:0/, 'd2 of --print grep exits successfully after printing matches' );
-    is_deeply( [ sort split /\n/, $grep_print ], [ sort ( $match_a, $match_b, catfile( $grep_root, 'named:123:file.txt' ) ) ],
+    is_deeply( [ sort split /\n/, $grep_print ], [ sort ( $match_a, $match_b, catfile( $grep_root, $colon_file ) ) ],
         'd2 of --print grep uses the content-search adapter' );
 
     my $bare_print_error;

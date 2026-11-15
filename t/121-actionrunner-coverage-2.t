@@ -105,7 +105,11 @@ CHILD
     close $script_fh or die "Unable to close $script: $!";
 
     my $result = $runner->run_command_action(
-        command    => qq{exec "$^X" "$script"},
+        # The command string leads with the shell's `exec` builtin on
+        # purpose on Unix (see the comment above), but there is no exec on
+        # Windows: the supervisor runs the command through PowerShell
+        # there, so invoke the script with the PowerShell call operator.
+        command => $^O eq 'MSWin32' ? qq{& "$^X" "$script"} : qq{exec "$^X" "$script"},
         cwd        => $home,
         env        => { DD_TEST_TERM_MARKER => $marker },
         background => 1,
@@ -120,7 +124,16 @@ CHILD
     ok( defined $raw_status, 'the detached background supervisor exits on its own' );
     is( ( defined $raw_status ? $raw_status >> 8 : -1 ), 124, 'the supervisor reports the timeout exit code after the deadline elapses' );
 
-    ok( -e $marker, 'the command child received SIGTERM and stayed alive through the terminate window' );
+    SKIP: {
+        # The marker only exists if the command child was still alive when
+        # the escalation waitpid ran, which proves SIGTERM was delivered
+        # and survived. On Windows a signal is never delivered to a
+        # CreateProcess child - the supervisor terminates it outright -
+        # so the handler never runs and the marker can never be written.
+        skip 'SIGTERM is never delivered to a CreateProcess child on Windows, so the TERM handler never runs and the marker can never be written', 1
+          if $^O eq 'MSWin32';
+        ok( -e $marker, 'the command child received SIGTERM and stayed alive through the terminate window' );
+    }
     ok( !$runner->_pid_is_running( $result->{pid} ), 'the supervisor is gone once the forced SIGKILL escalation completes' );
 }
 
@@ -135,8 +148,16 @@ CHILD
 # 5000ms timeout allows the instrumented child to finish startup before SIGTERM.
 # ---------------------------------------------------------------------------
 {
+    # On Windows there is no `exec` and no `sleep` command, so run the
+    # same 60-second sleep as a Perl script through PowerShell instead;
+    # the observable behaviour is the same (a long-lived child that dies
+    # when the supervisor terminates it).
+    my $sleep_script = File::Spec->catfile( $home, 'dd-test-supervisor-sleep.pl' );
+    open my $sleep_fh, '>', $sleep_script or die "Unable to write $sleep_script: $!";
+    print {$sleep_fh} q{select undef, undef, undef, 60;};
+    close $sleep_fh or die "Unable to close $sleep_script: $!";
     my $result = $runner->run_command_action(
-        command    => 'exec sleep 60',
+        command => $^O eq 'MSWin32' ? qq{& "$^X" "$sleep_script"} : 'exec sleep 60',
         cwd        => $home,
         background => 1,
         timeout_ms => 5000,

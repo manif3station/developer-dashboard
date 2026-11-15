@@ -1021,6 +1021,19 @@ sub _saved_ajax_child_exited {
     # restores the caller's $? on return regardless of what runs inside.
     local $?;
     return ( 1, 0 ) if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    if ( is_windows() ) {
+        # waitpid cannot reap a GoRoutine (CreateProcess) child on Windows,
+        # so ask the native process API instead: process_exited is the
+        # non-reaping completion check, and wait_process collects the child
+        # and returns its shell-style exit code, which is shifted back into
+        # the wait status word the callers expect. The spawn registry keeps
+        # the process object alive until this wait, so the code survives.
+        require Developer::Dashboard::GoRoutine;
+        return ( 0, undef )
+          if !Developer::Dashboard::GoRoutine::process_exited($pid);
+        my $code = Developer::Dashboard::GoRoutine::wait_process($pid);
+        return ( 1, $code << 8 );
+    }
     my $waited = waitpid( $pid, WNOHANG );
     return $waited == $pid ? ( 1, $? ) : ( 0, undef );
 }
@@ -1101,13 +1114,31 @@ sub _terminate_saved_ajax_process {
     my $owns_group = !is_windows() && defined $process_group && $process_group =~ /^\d+$/ && $process_group > 0;
     return 1 if !$owns_group && !kill 0, $pid;
     kill 15, -$process_group if $owns_group;
-    kill 15, $pid;
+    if ( is_windows() ) {
+        # Perl kill TERM never reaches a CreateProcess child (it has no
+        # console to deliver the event to), so terminate through the native
+        # process API, which maps TERM onto native termination. The
+        # escalation below does the same for KILL.
+        require Developer::Dashboard::GoRoutine;
+        Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
+    }
+    else {
+        kill 15, $pid;
+    }
     my $drained = $self->_await_saved_ajax_exit( $pid, ( $owns_group ? $process_group : undef ), $status_ref );
     kill 9, -$process_group if $owns_group && !$drained;
 
     # Only signal the worker again when the window really expired: a drained
     # wait has already reaped it, and a reaped pid can be reissued by the OS.
-    kill 9, $pid if !$drained && kill 0, $pid;
+    if ( !$drained && kill 0, $pid ) {
+        if ( is_windows() ) {
+            require Developer::Dashboard::GoRoutine;
+            Developer::Dashboard::GoRoutine::terminate_process( $pid, 'KILL' );
+        }
+        else {
+            kill 9, $pid;
+        }
+    }
     return 1;
 }
 

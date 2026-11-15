@@ -180,6 +180,26 @@ ok( $manager->_pid_is_running($$),        '_pid_is_running confirms the current 
     is( $reaped, 1, '_reap_any_child_processes reaps one exited direct child then stops on -1' );
 }
 
+# Same check through the Windows branch: waitpid(-1) has no equivalent on
+# Windows, so the branch reaps through the spawn registry instead. Proved
+# on Linux with $^O and Platform::OS_NAME localized, with the child
+# spawned inside the localization so the wrapper records it (the registry
+# is a Windows-only mechanism); on Windows the branch is the live one.
+{
+    my $reaped = 0;
+    {
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        my $child = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'exit 0' ], {} );
+        for ( 1 .. 40 ) {
+            $reaped = $manager->_reap_any_child_processes;
+            last if $reaped;
+            select undef, undef, undef, 0.05;
+        }
+    }
+    is( $reaped, 1, 'on Windows _reap_any_child_processes reaps one exited direct child through the spawn registry' );
+}
+
 # --- _wait_for_windows_web_shutdown -----------------------------------------
 ok( $manager->_wait_for_windows_web_shutdown( $$, undef, undef ),   '_wait_for_windows_web_shutdown true when the saved pid is alive' );
 ok( !$manager->_wait_for_windows_web_shutdown( 999999, undef, [] ), '_wait_for_windows_web_shutdown false when nothing is alive' );
