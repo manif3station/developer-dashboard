@@ -642,7 +642,14 @@ sub _strip_env_comments {
 sub _expand_env_value {
     my ( $class, %args ) = @_;
     my $value = defined $args{value} ? $args{value} : '';
-    $value =~ s/\A~(?=\/|\z)/$ENV{HOME} || '~'/e;
+    # A leading tilde expands to the home directory, but on Windows the
+    # home uses backslashes while the remainder keeps its forward slash,
+    # producing a mixed-separator path that never equals the native form.
+    # Canonicalize the joined path so the expansion is separator-clean.
+    # With no home set the value is left untouched, as before.
+    if ( $value =~ /\A~(?=\/|\z)/ && defined $ENV{HOME} && $ENV{HOME} ne '' ) {
+        $value = File::Spec->canonpath( $ENV{HOME} . substr( $value, 1 ) );
+    }
     $value =~ s/\$\{([^}]+)\}/$class->_expand_braced_env_expression(
         expression => $1,
         file       => $args{file},
