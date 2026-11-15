@@ -434,9 +434,38 @@ sub _run_docker_workspace {
     };
 }
 
+# _workspace_env_home()
+# Resolves the user's home directory the same way PathRegistry does
+# ($HOME, then $USERPROFILE, then $HOMEDRIVE + $HOMEPATH), as a path
+# identity for ancestor comparisons.
+# Input: none.
+# Output: home path identity string, or '' when no home resolves.
+sub _workspace_env_home {
+    my $home = $ENV{HOME};
+    return Developer::Dashboard::EnvLoader->_path_identity($home)
+      if defined $home && $home ne '';
+
+    my $userprofile = $ENV{USERPROFILE};
+    return Developer::Dashboard::EnvLoader->_path_identity($userprofile)
+      if defined $userprofile && $userprofile ne '';
+
+    my $homedrive = $ENV{HOMEDRIVE};
+    my $homepath  = $ENV{HOMEPATH};
+    if ( defined $homedrive && $homedrive ne '' && defined $homepath && $homepath ne '' ) {
+        return Developer::Dashboard::EnvLoader->_path_identity( File::Spec->catdir( $homedrive, $homepath ) );
+    }
+
+    return '';
+}
+
 # _workspace_env_files(%args)
 # Returns the ordered plain .env files that should seed one tmux workspace
 # session, from the highest ancestor down to the current directory.
+# The walk stops at the user's home directory: a workspace inherits the
+# user's own defaults, but a stray .env above the home (a machine-level
+# file in a shared ancestor, or one left in a temp root) must not leak
+# into every workspace below it. When no home resolves the walk keeps
+# its old bound at the filesystem root.
 # Input: cwd path string.
 # Output: ordered list of .env file paths.
 sub _workspace_env_files {
@@ -445,10 +474,12 @@ sub _workspace_env_files {
     $cwd = current_working_directory() if !defined $cwd || $cwd eq '';
     my $dir = Developer::Dashboard::EnvLoader->_path_identity($cwd);
     return () if $dir eq '';
+    my $top = _workspace_env_home();
     my @files;
     while (1) {
         my $file = File::Spec->catfile( $dir, '.env' );
         push @files, $file if -f $file;
+        last if $top ne '' && $dir eq $top;
         last if $dir eq File::Spec->rootdir();
         my $parent = dirname($dir);
         last if $parent eq $dir;
