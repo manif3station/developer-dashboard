@@ -494,10 +494,32 @@ like($indicator_refresh, qr/docker|project|git/, 'indicator refresh-core works')
 
 my $fake_tmux_dir = File::Spec->catdir( $ENV{HOME}, 'fake-bin' );
 make_path($fake_tmux_dir);
-my $fake_tmux = File::Spec->catfile( $fake_tmux_dir, 'tmux' );
 my $fake_tmux_log = File::Spec->catfile( $ENV{HOME}, 'fake-tmux.log' );
-open my $fake_tmux_fh, '>', $fake_tmux or die "Unable to write $fake_tmux: $!";
-print {$fake_tmux_fh} <<"SH";
+
+# The fake tmux must be runnable by the platform that runs the product:
+# a #!/bin/sh script cannot run where there is no sh. On Windows it is a
+# .cmd file instead, which the product's direct system() call finds through
+# PATHEXT. The PATH joins below use the platform separator for the same
+# reason: joining with ':' mangles the drive-letter entries of a Windows
+# PATH, so the fake bin directory would never be reached.
+my $path_sep = Developer::Dashboard::PerlEnv::path_separator();
+my $fake_tmux;
+if ( $^O eq 'MSWin32' ) {
+    $fake_tmux = File::Spec->catfile( $fake_tmux_dir, 'tmux.cmd' );
+    open my $fake_tmux_fh, '>', $fake_tmux or die "Unable to write $fake_tmux: $!";
+    print {$fake_tmux_fh} <<"CMD";
+\@echo off
+echo %* >> "$fake_tmux_log"
+if "%1"=="show-environment" if "%2"=="TICKET_REF" echo TICKET_REF=DD-123
+if "%1"=="show-environment" if "%2"=="TICKET_REF" exit /b 0
+exit /b 1
+CMD
+    close $fake_tmux_fh or die "Unable to close $fake_tmux: $!";
+}
+else {
+    $fake_tmux = File::Spec->catfile( $fake_tmux_dir, 'tmux' );
+    open my $fake_tmux_fh, '>', $fake_tmux or die "Unable to write $fake_tmux: $!";
+    print {$fake_tmux_fh} <<"SH";
 #!/bin/sh
 printf '%s\n' "\$*" >> '$fake_tmux_log'
 if [ "\$1" = "show-environment" ] && [ "\$2" = "TICKET_REF" ]; then
@@ -506,9 +528,10 @@ if [ "\$1" = "show-environment" ] && [ "\$2" = "TICKET_REF" ]; then
 fi
 exit 1
 SH
-close $fake_tmux_fh;
-chmod 0755, $fake_tmux or die "Unable to chmod $fake_tmux: $!";
-local $ENV{PATH} = join ':', $fake_tmux_dir, ( $ENV{PATH} || () );
+    close $fake_tmux_fh or die "Unable to close $fake_tmux: $!";
+    chmod 0755, $fake_tmux or die "Unable to chmod $fake_tmux: $!";
+}
+local $ENV{PATH} = join $path_sep, $fake_tmux_dir, ( $ENV{PATH} || () );
 local $ENV{TICKET_REF};
 local $ENV{WORKSPACE_REF};
 local $ENV{TMUX} = '';
@@ -546,7 +569,7 @@ SH
     close $fake_git_fh;
     chmod 0755, $fake_git or die "Unable to chmod $fake_git: $!";
 
-    local $ENV{PATH} = join ':', $fake_git_bin_dir, $fake_tmux_dir, grep { defined && $_ ne '' } split /:/, ( $ENV{PATH} || '' );
+    local $ENV{PATH} = join $path_sep, $fake_git_bin_dir, $fake_tmux_dir, grep { defined && $_ ne '' } split /\Q$path_sep\E/, ( $ENV{PATH} || '' );
     local $ENV{TMUX} = '';
     unlink $fake_git_log if -e $fake_git_log;
     my $head_only_ps1 = _run("$perl -I'$lib' '$dashboard' ps1 --jobs 0 --cwd '$fake_git_repo'");
