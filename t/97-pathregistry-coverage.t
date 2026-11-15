@@ -263,11 +263,11 @@ sub dies_like {
     local *Developer::Dashboard::PathRegistry::cwd = sub { die "with_dir must not fork pwd\n"; };
 
     is(
-        _without_private_var_prefix( $paths->with_dir( $nested, sub { return Cwd::getcwd(); } ) ),
+        _without_private_var_prefix( $paths->with_dir( $nested, sub { return File::Spec->canonpath( Cwd::getcwd() ); } ) ),
         _without_private_var_prefix($nested),
         'with_dir enters the requested directory without using external pwd',
     );
-    is( _without_private_var_prefix( Cwd::getcwd() ), _without_private_var_prefix($home), 'with_dir restores the original working directory' );
+    is( _without_private_var_prefix( File::Spec->canonpath( Cwd::getcwd() ) ), _without_private_var_prefix($home), 'with_dir restores the original working directory' );
     is( $cwd_calls, 1, 'with_dir snapshots the original directory in-process once' );
 }
 
@@ -1047,7 +1047,7 @@ sub dies_like {
     is( $paths->_path_identity(undef), '', 'undef path has empty identity' );
     is( $paths->_path_identity(''),    '', 'empty path has empty identity' );
     ok( length $paths->_path_identity('/tmp'), 'an existing path resolves to a canonical identity' );
-    is( $paths->_path_identity('/no/such/path/zzz'), '/no/such/path/zzz',
+    is( $paths->_path_identity('/no/such/path/zzz'), File::Spec->canonpath('/no/such/path/zzz'),
         'a non-existent path falls back to a canonical string' );
 }
 
@@ -1080,9 +1080,16 @@ sub dies_like {
     is( $paths->_prefer_reference_style( '/other/place', '/ref/base' ), '/other/place',
         'a path outside the reference is unchanged' );
 
-    # A '..' segment is stripped when restyling under the reference.
+    # A '..' segment is stripped when restyling under the reference. On
+    # Windows the identity canonicalisation collapses a/.. first, so the
+    # restyled path has no 'a' to keep; on Unix the segment survives
+    # canonicalisation and is dropped here instead. Either way the output
+    # carries no '..' segment.
+    my $restyled = $^O eq 'MSWin32'
+      ? File::Spec->catdir( '/nx', 'b' )
+      : File::Spec->catdir( '/nx', 'a', 'b' );
     is( $paths->_prefer_reference_style( '/nx/a/../b', '/nx' ),
-        File::Spec->catdir( '/nx', 'a', 'b' ),
+        $restyled,
         'equivalent path is restyled beneath the reference' );
 }
 

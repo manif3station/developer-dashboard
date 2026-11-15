@@ -146,7 +146,7 @@ _write_zip_entries(
         name  => 'com.example.Archived',
     );
     ok( @archive_named, 'Java class lookup returns a match extracted from a local source archive when no .java file exists in the project tree' );
-    like( $archive_named[0], qr{/\Qopen-file/java-sources/\E}, 'Java archive lookup extracts matching source files into the dashboard cache tree' );
+    like( $archive_named[0], qr{[\\/]open-file[\\/]java-sources[\\/]}, 'Java archive lookup extracts matching source files into the dashboard cache tree' );
     open my $archive_source_fh, '<', $archive_named[0] or die "Unable to read $archive_named[0]: $!";
     my $archive_source = do { local $/; <$archive_source_fh> };
     close $archive_source_fh;
@@ -650,7 +650,7 @@ ok(
         paths  => $which_paths,
         target => 'jq',
     );
-    like( $builtin->{command}, qr{/\.developer-dashboard/cli/dd/jq\z}, 'which builtin lookup resolves the staged helper path' );
+    like( $builtin->{command}, qr{[\\/]\.developer-dashboard[\\/]cli[\\/]dd[\\/]jq\z}, 'which builtin lookup resolves the staged helper path' );
     is_deeply( $builtin->{hooks}, [], 'which builtin lookup reports no hooks when no jq hooks are present' );
 }
 

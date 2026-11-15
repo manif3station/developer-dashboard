@@ -299,7 +299,10 @@ sub _resolve_open_file_matches {
             no_chdir => 1,
             wanted   => sub {
                 return if !-f $_;
-                my $path = $File::Find::name;
+                # File::Find joins with forward slashes even on Windows, so
+                # canonicalise the hit: matches are compared and displayed
+                # against File::Spec spellings.
+                my $path = File::Spec->canonpath( $File::Find::name );
                 my $relative = File::Spec->abs2rel( $path, $scope );
                 $relative =~ s{\A\.[/\\]}{};
                 for my $regex (@regexes) {

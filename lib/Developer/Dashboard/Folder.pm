@@ -109,8 +109,11 @@ sub _paths_obj {
     return if $home eq '';
     $PATHS = Developer::Dashboard::PathRegistry->new(
         home            => $home,
-        workspace_roots => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
-        project_roots   => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
+        # catdir, not "$home/$_": string interpolation spells the separator
+        # with a forward slash on every platform, while the registry is
+        # compared against File::Spec spellings.
+        workspace_roots => [ grep { -d } map { File::Spec->catdir( $home, $_ ) } qw(projects src work) ],
+        project_roots   => [ grep { -d } map { File::Spec->catdir( $home, $_ ) } qw(projects src work) ],
     );
     _load_configured_aliases();
     return $PATHS;

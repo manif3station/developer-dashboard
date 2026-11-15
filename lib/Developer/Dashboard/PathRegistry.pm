@@ -805,7 +805,11 @@ sub nested_skill_entries {
     my ( $self, %args ) = @_;
     my @entries;
     my @queue = map {
-        my $name = ( $_ =~ m{/([^/]+)\z} )[0];
+        # The last path component is the skill name. Match either separator:
+        # installed skill roots are File::Spec spellings, so a forward-slash
+        # pattern never matches a backslash-spelled Windows root and the
+        # name came back undef.
+        my $name = ( $_ =~ m{[\\/]+([^\\/]+)\z} )[0];
         my @valid = $args{include_config_write_location} ? validated_path_segments($name) : ();
         {
             segments           => [$name],
@@ -954,7 +958,7 @@ sub installed_skill_docker_roots_for_runtime {
     my ( $self, $runtime_root, %args ) = @_;
     return () if !defined $runtime_root || $runtime_root eq '';
     my $skills_root = File::Spec->catdir( $runtime_root, 'skills' );
-    my $prefix = $skills_root . '/';
+    my $prefix = File::Spec->catdir( $skills_root, '' );
     return map { File::Spec->catdir( $_, 'config', 'docker' ) }
       grep { index( $_, $prefix ) == 0 } $self->installed_skill_roots(%args);
 }
@@ -1382,7 +1386,12 @@ sub current_project_root {
 sub current_working_directory {
     my ($self) = @_;
     return $self->{cwd} if defined $self->{cwd} && $self->{cwd} ne '';
-    return eval { getcwd() };
+    my $dir = eval { getcwd() };
+    return if !defined $dir;
+    # Cwd's getcwd spells paths with forward slashes on Windows while the
+    # rest of the registry spells them with File::Spec, so canonicalise the
+    # lookup result the same way _path_identity does.
+    return File::Spec->canonpath($dir);
 }
 
 # getcwd()
@@ -2073,12 +2082,16 @@ sub _prefer_reference_style {
     my $path_id = $self->_path_identity($path);
     my $ref_id  = $self->_path_identity($reference);
 
+    # The identities are canonical File::Spec spellings, so the separator
+    # appended here must be the platform's own, not a hard-coded slash:
+    # a forward slash can never terminate a backslash-spelled Windows path.
+    my $separator = File::Spec->rootdir;
     my $prefix = $ref_id;
-    $prefix .= '/' if $prefix !~ m{/$};
+    $prefix .= $separator if $prefix !~ m{\Q$separator\E$};
     return $path if index( $path_id, $prefix ) != 0;
 
     my $relative = substr( $path_id, length($prefix) );
-    $relative =~ s{^/}{};
+    $relative =~ s{^\Q$separator\E}{};
     return $reference if !$relative;
 
     my @segments = grep { $_ ne '..' } File::Spec->splitdir($relative);

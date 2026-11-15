@@ -247,7 +247,9 @@ subtest '_normalize_add_arguments and delete fallbacks' => sub {
 subtest '_resolve_path_alias branches' => sub {
     my $resolve = \&{"${package}::_resolve_path_alias"};
     my $reg = $registry->( named_paths => { known => $home } );
-    is( $resolve->( paths => $reg, name => 'known' ), $home, 'configured alias resolves directly' );
+    # _expand_home canonicalises on Windows, so the resolved alias spells
+    # with backslashes even though $home itself is an abs_path spelling.
+    is( $resolve->( paths => $reg, name => 'known' ), File::Spec->canonpath($home), 'configured alias resolves directly' );
 
     _skill( 'resolver', "package Folder; sub where { return '$home' } 1;\n" );
     is( $resolve->( paths => $reg, name => 'resolver.where' ), $home, 'skill alias resolves through Folder.pm' );
