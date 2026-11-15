@@ -1228,7 +1228,13 @@ sub _compose_argument_parts {
     my @global_args;
     my @files;
     my @operation_args;
-    my @project_directory = ( '--project-directory', $args{compose_root} );
+    # A missing Compose root must not seed a valueless --project-directory:
+    # it becomes an undef element in the materialized command and warns
+    # under system(). Compose derives the project directory from the
+    # working directory when the flag is absent, which is what a caller
+    # that gave no root gets.
+    my @project_directory
+        = defined $args{compose_root} ? ( '--project-directory', $args{compose_root} ) : ();
     my %takes_value = map { $_ => 1 } qw(-f --file -p --project-name --project-directory --env-file --profile --ansi --progress --parallel);
     my $operation_started = 0;
     my $argument_index = 0;
