@@ -169,8 +169,18 @@ static char *dd_windows_command_line(pTHX_ char **argv, I32 argc) {
 
 static HANDLE dd_windows_redirect(const char *path, DWORD access) {
     if (path == NULL) return INVALID_HANDLE_VALUE;
+    /* The redirect handle is handed to the child through STARTUPINFO, so
+       it must be inheritable: CreateProcess with bInheritHandles only
+       duplicates inheritable handles into the child. A NULL security
+       attributes (the old code) creates a non-inheritable handle, so the
+       child starts with no usable stdout/stderr and everything it prints
+       vanishes, while the redirect files themselves are created empty. */
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(sa);
+    sa.lpSecurityDescriptor = NULL;
+    sa.bInheritHandle = TRUE;
     return CreateFileA(path, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                       NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                       &sa, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 }
 
 static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
@@ -183,8 +193,14 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     const char *stdin_path = dd_option_text(aTHX_ options, "stdin");
     STARTUPINFOA startup;
     PROCESS_INFORMATION process;
+    /* As with the stdout/stderr redirects below, the stdin file handle
+       must be inheritable or the child cannot read it. */
+    SECURITY_ATTRIBUTES inherit_sa;
+    inherit_sa.nLength = sizeof(inherit_sa);
+    inherit_sa.lpSecurityDescriptor = NULL;
+    inherit_sa.bInheritHandle = TRUE;
     HANDLE child_in = stdin_path ? CreateFileA(stdin_path, GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)
+        FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit_sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)
         : GetStdHandle(STD_INPUT_HANDLE);
     HANDLE child_out = dd_windows_redirect(stdout_path, GENERIC_WRITE);
     HANDLE child_err = dd_windows_redirect(stderr_path, GENERIC_WRITE);
