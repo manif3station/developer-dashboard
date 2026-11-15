@@ -123,8 +123,15 @@ if ( my $custom_path = _custom_command_path($cmd) ) {
 }
 
 if ( my ( $skill_name, $skill_command ) = _skill_dotted_command_parts($cmd) ) {
-    my $helper_path = _builtin_helper_path('skills');
-    _exec_switchboard_command( $helper_path, '_exec', $skill_name, $skill_command, @ARGV );
+    # Use _builtin_helper_command, not _builtin_helper_path: on Windows the
+    # skills helper is a dashboard-core helper, so its command returns a
+    # non-empty argv ('skills') and _builtin_helper_path returns '' for it,
+    # which made every dotted skill command fall through to "Unknown d2
+    # command". Passing the helper argv through invokes the core as
+    # `core skills _exec <skill> <command>` on Windows and keeps the
+    # direct-helper call unchanged on Unix (where the argv is empty).
+    my ( $helper_path, @helper_argv ) = _builtin_helper_command('skills');
+    _exec_switchboard_command( $helper_path, @helper_argv, '_exec', $skill_name, $skill_command, @ARGV );
 }
 
 if ( my $skill_name = _skill_bare_init_command_name($cmd) ) {
