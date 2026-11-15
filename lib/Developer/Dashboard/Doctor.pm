@@ -153,6 +153,13 @@ sub _audit_root {
 sub _permission_issue_for_path {
     my ( $self, $path ) = @_;
     return if !defined $path || $path eq '';
+
+    # Unix permission modes are not a Windows security control: chmod is a
+    # no-op there, so a mode mismatch could neither pass nor ever be
+    # repaired by --fix, and d2 doctor would stay red on Windows forever.
+    # The mode audit is skipped on Windows entirely.
+    return if $^O eq 'MSWin32';
+
     my $mode = _mode_octal($path);
     return if !defined $mode;
 
