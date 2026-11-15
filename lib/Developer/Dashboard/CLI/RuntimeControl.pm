@@ -170,6 +170,13 @@ sub _run_log_command {
     my $output = _render_log_sources( $sources, $scope, $name );
     $output = _timestamp_log_text($output) if $timestamps;
     $output = _tail_log_text( $output, $lines ) if defined $lines;
+
+    # On Windows, STDOUT starts in text (:crlf) mode when it is a pipe, so
+    # every "\n" the command prints becomes "\r\n" in the streamed log
+    # lines. The log content must be passed through unchanged, so switch
+    # STDOUT to binary mode before the initial print as well as the follow
+    # loop, as PageRuntime does for streamed ajax output.
+    binmode STDOUT if $^O eq 'MSWin32';
     print $output;
     _follow_log_sources(
         sources     => $sources,
@@ -258,13 +265,6 @@ sub _follow_log_sources {
     my $old_stdout = select STDOUT;
     $| = 1;
     select $old_stdout;
-
-    # On Windows, STDOUT starts in text (:crlf) mode when it is a pipe, so
-    # every "\n" the follow loop prints becomes "\r\n" in the streamed log
-    # lines. The log content must be passed through unchanged, so switch
-    # STDOUT to binary mode here, as PageRuntime does for streamed ajax
-    # output.
-    binmode STDOUT if $^O eq 'MSWin32';
 
     while (1) {
         sleep 0.1;
