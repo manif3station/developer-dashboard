@@ -227,6 +227,55 @@ for my $platform_id ( 'C:\\outside', 'C:relative', 'double//separator', 'trailin
     ok( !-e $missing_target, 'dangling directory symlink creates no outside directory' );
 }
 
+# On Windows, Cwd::abs_path does not resolve symlink components, so a save
+# through a symlinked directory looked contained and wrote outside its root.
+# Model that abs_path here (canonicalise the spelling, follow no link) and
+# prove containment still rejects both a symlinked directory and a write
+# whose fallback layer is reached through one. This is a Linux model of
+# Windows-only behaviour: it still needs a box solo run to prove on the
+# Windows box itself.
+{
+    my $outside_dir = tempdir( CLEANUP => 1 );
+    my $outside_file = File::Spec->catfile( $outside_dir, 'page' );
+    my $linked_dir = File::Spec->catdir( $droot, 'modelled-winlink' );
+    symlink $outside_dir, $linked_dir
+      or die "Unable to create modelled Windows link $linked_dir -> $outside_dir: $!";
+
+    no warnings qw(redefine once);
+    local *Developer::Dashboard::PageStore::abs_path = sub {
+        my ($path) = @_;
+        return if !defined $path || $path eq '';
+        return if !-e $path && !-l $path;
+        return File::Spec->canonpath($path);
+    };
+
+    my $ok = eval { $store->save_page( { id => 'modelled-winlink/page', title => 'No outside write' } ); 1 };
+    ok( !$ok, 'save_page rejects a directory symlink even when abs_path does not resolve links' );
+    like( $@, qr/Invalid page (?:id|path)/, 'non-resolving abs_path escape reports an explicit validation error' );
+    ok( !-e $outside_file, 'non-resolving abs_path escape writes nothing outside dashboards_root' );
+
+    my $layer_base = tempdir( CLEANUP => 1 );
+    my $layer_write = File::Spec->catdir( $layer_base, 'write', 'dashboards' );
+    my $layer_fallback = File::Spec->catdir( $layer_base, 'fallback', 'dashboards' );
+    make_path( $layer_write, $layer_fallback );
+    my $layer_paths = bless {
+        write_root    => $layer_write,
+        fallback_root => $layer_fallback,
+    }, 'DD395::LayeredPaths';
+    my $layered_store = Developer::Dashboard::PageStore->new( paths => $layer_paths );
+    my $layer_link = File::Spec->catdir( $layer_write, 'modelled-winlink' );
+    symlink $layer_fallback, $layer_link
+      or die "Unable to create modelled Windows layered link $layer_link -> $layer_fallback: $!";
+    my $layer_outside = File::Spec->catfile( $layer_fallback, 'overwritten' );
+    my $layered_ok = eval {
+        $layered_store->save_page( { id => 'modelled-winlink/overwritten', title => 'No layered write' } );
+        1;
+    };
+    ok( !$layered_ok, 'save_page rejects a layered directory symlink when abs_path does not resolve links' );
+    like( $@, qr/Invalid page (?:id|path)/, 'layered non-resolving abs_path escape reports an explicit validation error' );
+    ok( !-e $layer_outside, 'layered non-resolving abs_path escape writes nothing into the fallback root' );
+}
+
 # Listing must not parse valid-looking bookmark content reached through a
 # symlink to an external file.
 {

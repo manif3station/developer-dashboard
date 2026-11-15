@@ -18,6 +18,7 @@ use bytes ();
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 use Developer::Dashboard::PageDocument;
+use Developer::Dashboard::PathIdentity qw(_resolve_symlinks);
 use Developer::Dashboard::Platform qw(is_windows);
 use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
 
@@ -426,6 +427,23 @@ sub _validated_page_id {
     return $normalized;
 }
 
+# _containment_realpath($path)
+# Resolves one path for containment comparison. Cwd::abs_path does not resolve
+# symlink components on Windows, so a save through a symlinked directory would
+# otherwise look contained and write outside its root; _resolve_symlinks
+# follows each component explicitly first, and abs_path then only normalises
+# the resolved spelling. Returns undef when the path cannot be resolved (a
+# missing target, or a link loop), matching the caller's existing undef checks.
+# Input: path string.
+# Output: resolved absolute path or undef.
+sub _containment_realpath {
+    my ($path) = @_;
+    return if !defined $path || $path eq '';
+    my $resolved = _resolve_symlinks($path);
+    return if !defined $resolved;
+    return abs_path($resolved);
+}
+
 # _assert_page_path_contained($file, %args)
 # Ensures a page path's resolved target or nearest existing ancestor remains
 # beneath one configured dashboards root before a read or write follows it.
@@ -444,10 +462,10 @@ sub _assert_page_path_contained {
         my $scope = $self->{_page_containment_root_realpaths};
         my $root_real;
         if ( ref($scope) eq 'HASH' ) {
-            $root_real = exists $scope->{$root} ? $scope->{$root} : ( $scope->{$root} = abs_path($root) );
+            $root_real = exists $scope->{$root} ? $scope->{$root} : ( $scope->{$root} = _containment_realpath($root) );
         }
         else {
-            $root_real = abs_path($root);
+            $root_real = _containment_realpath($root);
         }
         next if !defined $root_real;
 
@@ -457,7 +475,7 @@ sub _assert_page_path_contained {
                 $probe = dirname($probe);
             }
         }
-        my $probe_real = abs_path($probe);
+        my $probe_real = _containment_realpath($probe);
         next if !defined $probe_real;
         my ( $probe_cmp, $root_cmp ) = ( $probe_real, $root_real );
         if ( is_windows() ) {
