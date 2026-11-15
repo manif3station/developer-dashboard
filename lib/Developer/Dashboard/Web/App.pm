@@ -650,7 +650,11 @@ sub _config_snapshot_watch_paths {
             return if $parent eq $directory;
             $directory = $parent;
         }
-        $watch{$directory} = 1;
+        # Canonicalise so the root is in native form: File::Basename::dirname
+        # yields '/' for a forward-slash path even on Windows, but
+        # File::Spec->rootdir is '\' there, and watch paths must match the
+        # native form the rest of the code (and the tests) expect.
+        $watch{ File::Spec->canonpath($directory) } = 1;
     };
 
     my @runtime_roots = $paths->runtime_roots;
