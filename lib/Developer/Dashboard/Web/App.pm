@@ -3138,7 +3138,7 @@ sub _saved_nav_items_handle_watch_error {
 # _nav_ids_for_roots($dashboards_roots)
 # Returns the ordered, de-duplicated saved navigation ids for dashboard layers.
 # It reuses only the filename inventory while each nav directory's high-resolution
-# identity and timestamps are unchanged; page contents are still loaded fresh.
+# identity, timestamps and child entry names are unchanged; page contents are still loaded fresh.
 # Input: array reference of dashboard roots in lookup order.
 # Output: array reference of sorted nav/*.tt ids.
 sub _nav_ids_for_roots {
@@ -3156,6 +3156,26 @@ sub _nav_ids_for_roots {
         my @stat = Time::HiRes::stat($nav_root);
         die "Unable to inspect saved navigation directory '$nav_root': $!\n" if !@stat;
         push @signature, $nav_root, @stat[ 0, 1, 2, 4, 5, 7, 9, 10 ];
+        # Directory timestamps move coarsely on Windows: a file added in the
+        # same tick leaves the stat identity unchanged, so the cached ids
+        # went stale. Fold the sorted child entry names into the signature
+        # so an add, removal or rename invalidates it even when the
+        # directory timestamp does not move. This reads the directory
+        # directly rather than through the scan helpers below: the helpers
+        # are the scan's own path and their test doubles count attempts, so
+        # going through them here would double-count an unopenable
+        # directory. A read or close failure is reported here with the
+        # same message the scan uses, rather than silently producing an
+        # empty child list. An unreadable directory keeps its stat-only
+        # signature; the scan below handles it as before. As in the scan:
+        # readdir does not clear $! on success, so $! is zeroed first.
+        if ( opendir my $dh, $nav_root ) {
+            $! = 0;
+            my @children = sort grep { $_ ne '.' && $_ ne '..' } readdir $dh;
+            die "Unable to read saved navigation directory '$nav_root': $!\n" if $!;
+            closedir $dh or die "Unable to close saved navigation directory '$nav_root': $!\n";
+            push @signature, @children;
+        }
     }
     my $signature = join "\0", @signature;
     my $cached = $self->{_nav_ids_cache};
