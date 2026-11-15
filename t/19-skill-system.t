@@ -284,6 +284,11 @@ is(
     'install source leaves a Unix file:// URL unchanged',
 );
 is(
+    $manager->_normalize_install_source('file://localhost/some/path/alpha-skill'),
+    'file://localhost/some/path/alpha-skill',
+    'install source leaves a Unix file://localhost URL unchanged',
+);
+is(
     Developer::Dashboard::SkillManager::_extract_repo_name('file://server/share/alpha-skill'),
     'alpha-skill',
     'repo name extracts the last segment from a network-host file:// URL',

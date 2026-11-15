@@ -518,7 +518,13 @@ sub _normalize_install_source {
     return $source if -d $source;
     if ( $source =~ m{\Afile://(.*)\z} ) {
         my $path = $1;
-        if ( $path =~ m{\A(?:localhost)?[\\/]?[A-Za-z]:} || $path =~ m{\\} || $path =~ m{\Alocalhost[\\/]} ) {
+        # Only a Windows drive path earns the rewrite: a trailing drive
+        # letter after an optional localhost, or a backslash anywhere. A
+        # plain file://localhost/... (a Unix local path) passes through
+        # unchanged — the drive-letter branch already covers
+        # file://localhost/C:/..., so a bare localhost branch would only
+        # rewrite paths it has no business touching.
+        if ( $path =~ m{\A(?:localhost)?[\\/]?[A-Za-z]:} || $path =~ m{\\} ) {
             $path =~ s{\Alocalhost}{}i;
             $path =~ s{\\}{/}g;
             $path =~ s{\A/+}{};
