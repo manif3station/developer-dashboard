@@ -60,8 +60,15 @@ is( slurp_file( $missing_path, raw => 1, on_missing => 'empty' ), '', 'Collector
 eval { slurp_file($missing_path) };
 like( $@, qr/\Q$missing_path\E/, 'CollectorRunner.pm-shaped call: text mode, dies naming the path' );
 
-# CLI/Ask.pm contract: raw + custom message + never returns undef
-is( slurp_file( $text_path, raw => 1 ), "hello\n", 'CLI/Ask.pm-shaped call: raw mode on an existing file' );
+# CLI/Ask.pm contract: raw + custom message + never returns undef. The
+# fixture is written in :raw mode so its bytes are "hello\n" on every
+# platform: a text-mode write stores "hello\r\n" on Windows, and a byte-exact
+# raw read would rightly return that instead.
+my $raw_text_path = File::Spec->catfile( $dir, 'raw-text.txt' );
+open my $rtfh, '>:raw', $raw_text_path or die $!;
+print {$rtfh} "hello\n";
+close $rtfh;
+is( slurp_file( $raw_text_path, raw => 1 ), "hello\n", 'CLI/Ask.pm-shaped call: raw mode on an existing file' );
 
 # The platform's null device always opens but yields EOF immediately. This
 # exercises the undef-read normalization on macOS and Windows as well as Linux,
