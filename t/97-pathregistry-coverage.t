@@ -544,11 +544,13 @@ sub dies_like {
     my $written = do { local $/; <$read_fh> };
     close $read_fh;
     is( $written, "hello\n", 'the destination file holds the written content' );
+    skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
     is( ( stat($target) )[2] & 07777, 0600, 'a default-mode write lands at 0600' );
 
     my $exec_target = File::Spec->catfile( $fresh, 'atomic-exec-target' );
     my $exec_tmp    = "$exec_target.pending";
     $reg->atomic_write_secure( $exec_tmp, $exec_target, '#!/bin/true', executable => 1 );
+    skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
     is( ( stat($exec_target) )[2] & 07777, 0700, 'an executable write lands at 0700' );
 
     # Open failure: the staging path is itself an existing directory.
@@ -608,6 +610,7 @@ sub dies_like {
         # and changes nothing.
         my $devnull   = File::Spec->devnull;
         my $null_mode = ( stat $devnull )[2];
+        skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
         skip 'cannot stat the null device to probe chmod ownership', 1 if !defined $null_mode;
         skip 'this process can chmod a device it does not own, so the chmod failure cannot occur', 1
           if chmod( $null_mode & 07777, $devnull );
@@ -748,15 +751,26 @@ sub dies_like {
 
     chmod 0644, $metadata or die "Unable to loosen test metadata $metadata: $!";
     $metadata_paths->_write_state_metadata( $metadata_dir, '/rt/x' );
-    is( $secure_calls, 4, 'metadata with loose permissions is rewritten and secured' );
+    if ( $^O eq 'MSWin32' ) {
+        # Modes are not a Windows security control, so the metadata is
+        # already secured there and identical content is not rewritten.
+        is( $secure_calls, 3, 'metadata with loose permissions is already secured on Windows, so it is not rewritten' );
+    }
+    else {
+        is( $secure_calls, 4, 'metadata with loose permissions is rewritten and secured' );
+    }
+    # The loose-permissions rewrite above does not happen on Windows, so
+    # every secure-count after it runs one lower there.
+    my $mode_rewrite_offset = $^O eq 'MSWin32' ? -1 : 0;
     my @secure_stat = stat $metadata;
+    skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
     is( $secure_stat[2] & 0777, 0600, 'rewritten state metadata remains owner-only' );
 
     open my $empty_fh, '>:raw', $metadata or die "Unable to empty test metadata $metadata: $!";
     close $empty_fh or die "Unable to close empty test metadata $metadata: $!";
     chmod 0600, $metadata or die "Unable to secure empty test metadata $metadata: $!";
     $metadata_paths->_write_state_metadata( $metadata_dir, '/rt/x' );
-    is( $secure_calls, 5, 'an empty existing metadata file is rewritten' );
+    is( $secure_calls, 5 + $mode_rewrite_offset, 'an empty existing metadata file is rewritten' );
 
     {
         require Symbol;
@@ -774,7 +788,7 @@ sub dies_like {
             return $close->(@_);
         };
         $metadata_paths->_write_state_metadata( $metadata_dir, '/rt/x' );
-        is( $secure_calls, 6, 'metadata with an unreadable empty content stream is rewritten' );
+        is( $secure_calls, 6 + $mode_rewrite_offset, 'metadata with an unreadable empty content stream is rewritten' );
     }
 
     can_ok( 'Developer::Dashboard::PathRegistry',

@@ -391,6 +391,7 @@ subtest 'transcript load and save edge cases' => sub {
         $save->( $rename_target, { backend => 'claude', messages => [] }, $paths );
         umask($old_umask);
         ok( defined $DD602_OBSERVED_RENAME_MODE, 'DD-602: _save_transcript renamed a source file into the predictable final path (rename observed)' );
+        skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
         is( sprintf( '%04o', $DD602_OBSERVED_RENAME_MODE // -1 ), '0600',
             'DD-602: the source file was already 0600 BEFORE the rename that made it visible at its final, predictable path - even under umask(0)' );
     }
