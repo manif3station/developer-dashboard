@@ -728,13 +728,21 @@ is( $runner->_helper_file_supports_internal_command( File::Spec->catfile( $home,
 }
 
 # _powershell_command / _powershell_single_quote on Linux.
-is( $runner->_powershell_command, '', '_powershell_command returns empty on a non-Windows host' );
+SKIP: {
+    skip '_powershell_command resolves the real PowerShell on a Windows host', 1 if $^O eq 'MSWin32';
+    is( $runner->_powershell_command, '', '_powershell_command returns empty on a non-Windows host' );
+}
 is( Developer::Dashboard::CollectorRunner::_powershell_single_quote(undef), q{''}, '_powershell_single_quote defaults an undef value to an empty literal' );
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows      = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return undef };
     local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
+    # _powershell_command is compiled in ProcessSupervision, so its
+    # is_windows check must be mirrored there too (the t/07 pattern):
+    # without it this block passes vacuously off Windows and never
+    # exercises the SystemRoot fallback it names.
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     {
         local $ENV{SystemRoot} = '/tmp/win-system-root';
         is( $runner->_powershell_command, '', '_powershell_command falls back through SystemRoot and returns empty when no binary exists' );
@@ -742,13 +750,22 @@ is( Developer::Dashboard::CollectorRunner::_powershell_single_quote(undef), q{''
     {
         local %ENV = %ENV;
         delete $ENV{SystemRoot};
-        is( $runner->_powershell_command, '', '_powershell_command defaults SystemRoot when it is unset' );
+        # With SystemRoot unset the resolver guesses the standard
+        # C:\Windows root (deliberate since the original resolver in
+        # a8a95985, kept by DD-753): on a Windows host that file exists
+        # and is returned, off Windows the guess names nothing.
+        my $default = File::Spec->catfile( 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe' );
+        my $expected = -f $default ? $default : '';
+        is( $runner->_powershell_command, $expected, '_powershell_command defaults SystemRoot when it is unset' );
     }
 }
 
 # _replace_path_via_powershell early return, powershell-missing guards, and the
 # stderr/stdout merge on a non-zero PowerShell exit.
-is_deeply( [ $runner->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_replace_path_via_powershell no-ops on a non-Windows host' );
+SKIP: {
+    skip '_replace_path_via_powershell runs real PowerShell on a Windows host', 1 if $^O eq 'MSWin32';
+    is_deeply( [ $runner->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_replace_path_via_powershell no-ops on a non-Windows host' );
+}
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
