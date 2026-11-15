@@ -560,6 +560,44 @@ like( $unexpected_fsevents_error, qr/synthetic FSEvents loader failure/,
             'Windows rearm failure includes GetLastError' );
         $P48_WINDOWS_NEXT_RESULT = 1;
         $wait_failure->close;
+
+        # A notification handle whose watched directory was deleted reports
+        # GetLastError=6 (ERROR_INVALID_HANDLE). The watch is dead, which is
+        # a change, not a watcher failure: the snapshot must invalidate
+        # without an error, and closing the dead handle must succeed. This
+        # is the GetLastError=6 warning the Windows prove run printed when
+        # a tempdir was cleaned up before its watcher closed.
+        my $dead_handle = $module->new( backend => $windows_backend );
+        @P48_WINDOWS_CHANGE_HANDLES = (501);
+        ok( $dead_handle->configure( 'windows-dead-handle', ['C:\\gone'] ),
+            'Windows dead-handle fixture configures' );
+        @P48_WINDOWS_WAIT_STATES = (0xffffffff);
+        $P48_WINDOWS_LAST_ERROR = 6;
+        my ( $dead_state, $dead_error ) = $windows_backend->{unchanged}->( $dead_handle->{handle} );
+        is( $dead_state, 0, 'a dead Windows notification handle invalidates the snapshot as a change' );
+        ok( !defined $dead_error, 'a dead Windows notification handle reports no watcher error' );
+
+        @P48_WINDOWS_WAIT_STATES = (0);
+        $P48_WINDOWS_NEXT_RESULT = 0;
+        my ( $dead_rearm_state, $dead_rearm_error ) = $windows_backend->{unchanged}->( $dead_handle->{handle} );
+        is( $dead_rearm_state, 0, 'a dead Windows notification handle invalidates the snapshot when rearming fails' );
+        ok( !defined $dead_rearm_error, 'a dead Windows rearm reports no watcher error' );
+        $P48_WINDOWS_NEXT_RESULT = 1;
+
+        $P48_WINDOWS_CLOSE_RESULT = 0;
+        ok( $dead_handle->close, 'closing a dead Windows notification handle succeeds' );
+        ok( !defined $dead_handle->last_error, 'closing a dead Windows notification handle leaves no error' );
+        $P48_WINDOWS_CLOSE_RESULT = 1;
+        $P48_WINDOWS_LAST_ERROR = 5;
+
+        @P48_WINDOWS_CHANGE_HANDLES = ( 601, undef );
+        $P48_WINDOWS_CLOSE_RESULT = 0;
+        $P48_WINDOWS_LAST_ERROR = 6;
+        my ( $dead_partial, $dead_partial_error ) = $windows_backend->{configure_paths}->( [ 'C:\\one', 'C:\\two' ] );
+        ok( !defined $dead_partial, 'Windows setup still rejects a later invalid handle when cleanup meets a dead handle' );
+        unlike( $dead_partial_error, qr/cleanup failed/, 'a dead handle during partial cleanup adds no cleanup error' );
+        $P48_WINDOWS_CLOSE_RESULT = 1;
+        $P48_WINDOWS_LAST_ERROR = 5;
     }
 }
 
