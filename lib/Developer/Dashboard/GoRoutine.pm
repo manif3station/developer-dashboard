@@ -25,6 +25,165 @@ die "Developer::Dashboard XS bundle is not loaded; GoRoutine requires its native
     if !$Developer::Dashboard::HtmlEscape::XS_LOADED;
 
 # -------------------------------------------------------------------------
+# Spawned-child registry (Windows process-object lifetime)
+# -------------------------------------------------------------------------
+#
+# On Windows a child process object is destroyed as soon as the last handle
+# to it closes, and the native spawn layer closes its own handle immediately
+# after CreateProcess, so a child that exits and is only inspected afterwards
+# has no exit code left to report: wait_process answers the 255 "unknown"
+# sentinel and process_running reports 0 for a completed child that has not
+# been reaped yet. POSIX keeps the child as a zombie until it is reaped, so
+# the same code reports the real exit status there. To give Windows the same
+# shape, spawn keeps one handle open per child until wait_process collects
+# it. That handle is what makes a completed child still "exist" until it is
+# reaped, matching the documented contract that process_running is process
+# existence and process_exited is completion state. A child whose handle
+# could not be opened (it already exited, or Win32::Process is unavailable)
+# simply falls back to the previous behaviour.
+
+my %_SPAWN_CHILDREN;    # pid => Win32::Process object, or 1 when no handle is held
+
+my $_XS_SPAWN           = \&spawn;
+my $_XS_PROCESS_RUNNING = \&process_running;
+my $_XS_PROCESS_EXITED  = \&process_exited;
+my $_XS_WAIT_PROCESS    = \&wait_process;
+
+# _keep_spawn_handle($pid)
+# Records one spawned child and, on Windows, opens a process handle for it
+# so its process object (and exit code) survives until wait_process collects
+# it. Input: child process id integer. Output: nothing.
+sub _keep_spawn_handle {
+    my ($pid) = @_;
+    return if !defined $pid || $pid < 1;
+    # The registry only exists to keep a Windows process object alive until
+    # wait_process collects it (the POSIX branch has zombies for that), so
+    # a child spawned anywhere else is never recorded.
+    return if $^O ne 'MSWin32';
+    my $handle = 1;
+    if ( $^O eq 'MSWin32' ) {
+        my $opened = eval {
+            require Win32::Process;
+            my $object;
+            Win32::Process::Open( $object, $pid, 0 )
+              or die "unable to open GoRoutine child process $pid\n";
+            $object;
+        };
+        $handle = $opened if $opened && !$@;
+    }
+    $_SPAWN_CHILDREN{$pid} = $handle;
+    return;
+}
+
+# _spawn_wrapper($argv, $options)
+# Wraps the native spawn: on Windows the native layer ignores the env
+# option (it has no environment-block builder), so the overrides are merged
+# into the parent environment for the duration of the spawn, because a
+# CreateProcess child inherits a copy of its parent environment at creation
+# time. Input: argument array reference and options hash reference.
+# Output: child process id integer.
+sub _spawn_wrapper ($$) {
+    my ( $argv, $options ) = @_;
+    my $pid;
+    if (   $^O eq 'MSWin32'
+        && ref($options) eq 'HASH'
+        && ref( $options->{env} ) eq 'HASH'
+        && %{ $options->{env} } )
+    {
+        my $overrides = $options->{env};
+        for my $key ( keys %{$overrides} ) {
+            die "GoRoutine child environment keys must be non-empty and contain no '=' or NUL\n"
+              if $key eq '' || $key =~ /=/ || $key =~ /\0/;
+            die "GoRoutine child environment values must be defined scalars\n"
+              if !defined $overrides->{$key} || ref $overrides->{$key};
+            die "GoRoutine child environment values must not contain NUL\n"
+              if $overrides->{$key} =~ /\0/;
+        }
+        my @keys   = keys %{$overrides};
+        my @values = @{ $overrides }{@keys};
+        {
+            local @ENV{@keys} = @values;
+            $pid = $_XS_SPAWN->( $argv, $options );
+        }
+    }
+    else {
+        $pid = $_XS_SPAWN->( $argv, $options );
+    }
+    _keep_spawn_handle($pid);
+    return $pid;
+}
+
+# _process_running_wrapper($pid)
+# Wraps the native liveness check: on Windows a spawned child whose process
+# object is held open by the registry still exists until wait_process
+# collects it, even after it has exited, so it reports as running. That is
+# the POSIX zombie shape, and the contract callers such as
+# ActionRunner::_reap_child_process rely on: without it an exited child can
+# never be reaped on Windows. Input: child process id integer.
+# Output: boolean true when the process still exists.
+sub _process_running_wrapper ($) {
+    my ($pid) = @_;
+    if ( $^O eq 'MSWin32' ) {
+        return 1 if defined $pid && exists $_SPAWN_CHILDREN{$pid};
+    }
+    return $_XS_PROCESS_RUNNING->($pid);
+}
+
+# _wait_process_wrapper($pid)
+# Wraps the native wait: collects the exit status, then releases the
+# registry handle so the process object can finally go away and a second
+# wait reports the 255 unknown status, as documented. Input: child process
+# id integer. Output: shell-style exit status integer.
+sub _wait_process_wrapper ($) {
+    my ($pid) = @_;
+    my $code = $_XS_WAIT_PROCESS->($pid);
+    delete $_SPAWN_CHILDREN{$pid} if defined $pid;
+    return $code;
+}
+
+# reap_child($pid)
+# Reaps one registry-tracked spawned child when it has already exited, so
+# waitpid-based helpers can collect GoRoutine children on Windows where
+# waitpid cannot see them. Input: child process id integer.
+# Output: boolean true when the child was reaped by this call.
+sub reap_child {
+    my ($pid) = @_;
+    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    return 0 if !exists $_SPAWN_CHILDREN{$pid};
+    return 0 if !$_XS_PROCESS_EXITED->($pid);
+    $_XS_WAIT_PROCESS->($pid);
+    delete $_SPAWN_CHILDREN{$pid};
+    return 1;
+}
+
+# reap_any_exited()
+# Reaps every registry-tracked spawned child that has already exited, so a
+# long-lived supervisor can collect direct children on Windows where
+# waitpid(-1) has no equivalent. Input: none.
+# Output: number of child processes reaped.
+sub reap_any_exited {
+    my $reaped = 0;
+    for my $pid ( keys %_SPAWN_CHILDREN ) {
+        $reaped += reap_child($pid);
+    }
+    return $reaped;
+}
+
+# The wrappers replace the native entries in this package so every caller,
+# whether it imports the names or calls them fully qualified, sees the same
+# behaviour. This runs at load time, before any importer reads the stash.
+# The native subs carry prototypes (spawn takes two arguments, the other
+# two take one), so the wrappers declare the same prototypes to keep the
+# call contract identical; the redefinition warning is silenced because
+# replacing the native entries is the whole point of this block.
+{
+    no warnings 'redefine';
+    *spawn           = \&_spawn_wrapper;
+    *process_running = \&_process_running_wrapper;
+    *wait_process    = \&_wait_process_wrapper;
+}
+
+# -------------------------------------------------------------------------
 # User syntax
 # -------------------------------------------------------------------------
 #
@@ -1369,6 +1528,17 @@ allows a supervisor to poll safely before collecting its exit result.
 C<wait_process($pid)> waits for and returns the shell-style exit status.
 On Windows, waiting for a child that has already exited and been reaped
 returns 255 because no exit code survives to report.
+
+On Windows, spawn keeps one handle open per child until wait_process
+collects it, so a child that has exited but not yet been reaped keeps its
+exit code and still reports as running, matching the POSIX zombie shape.
+The env option is honoured on Windows the same way as on POSIX: the
+overrides are merged into the child's environment at creation time.
+C<reap_child($pid)> reaps one spawned child that has already exited and
+reports whether it did; C<reap_any_exited()> reaps every spawned child that
+has already exited and returns how many it collected, which is how a
+supervisor collects direct children on Windows, where waitpid(-1) has no
+equivalent.
 C<terminate_process($pid, $signal)> sends C<TERM>, C<KILL>, C<HUP>, or C<INT>
 on POSIX. Windows supports C<TERM> and C<KILL>, mapped to native process
 termination because POSIX signal handlers are unavailable there. Unsupported

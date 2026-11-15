@@ -933,6 +933,21 @@ sub _emit {
 # Output: (stdout, stderr, exit-code) list.
 sub _run_cli {
     my ($argv) = @_;
+    if ( $^O eq 'MSWin32' ) {
+        # On Unix system() fails to exec a missing command with -1 and
+        # "Can't exec" on STDERR, which is the contract this runner's
+        # callers rely on. On Windows system() hands the command to cmd.exe
+        # instead, which exits 1 with "not recognized" text - a missing
+        # backend then looks like a backend that ran and failed. Check
+        # resolvability first and report the same -1, with the same words,
+        # before anything runs.
+        my $command = $argv->[0] || '';
+        if ( $command eq '' || !command_in_path($command) ) {
+            my $message = "Can't exec \"$command\": No such file or directory\n";
+            print STDERR $message;
+            return ( '', $message, -1 );
+        }
+    }
     my ( $stdout, $stderr, $status ) = tee { system( @{$argv} ); };
     my $exit = $status == -1 ? -1 : ( $status >> 8 );
     return ( $stdout, $stderr, $exit );

@@ -837,6 +837,14 @@ sub _reap_finished_loop_workers {
 # Output: waitpid return value.
 sub _waitpid_nonblocking {
     my ( $self, $pid ) = @_;
+    if ( is_windows() ) {
+        # A GoRoutine child is reaped through the native process API, which
+        # the spawn registry keeps alive until it is collected. Any other
+        # pid falls through to waitpid, which keeps its existing behaviour
+        # for it.
+        require Developer::Dashboard::GoRoutine;
+        return $pid if Developer::Dashboard::GoRoutine::reap_child($pid);
+    }
     return waitpid( $pid, 1 );
 }
 
@@ -850,7 +858,16 @@ sub _terminate_loop_workers {
     for my $pid ( keys %{$active_workers} ) {
         next if !$self->_pid_is_running($pid);
         kill 15, -$pid if !is_windows();
-        kill 15, $pid;
+        if ( is_windows() ) {
+            # Perl kill TERM never reaches a CreateProcess child (it has no
+            # console to deliver the event to); terminate through the native
+            # process API instead.
+            require Developer::Dashboard::GoRoutine;
+            Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
+        }
+        else {
+            kill 15, $pid;
+        }
     }
     for my $pid ( keys %{$active_workers} ) {
         for ( 1 .. 20 ) {
@@ -863,7 +880,25 @@ sub _terminate_loop_workers {
         # signalled directly when it is still alive. kill on an empty group is a
         # harmless no-op.
         kill 9, -$pid if !is_windows();
-        kill 9, $pid if $self->_pid_is_running($pid);
+        if ( is_windows() ) {
+            if ( $self->_pid_is_running($pid) ) {
+                # The POSIX group SIGKILL has no Windows equivalent, because
+                # the native spawn layer creates no process groups. taskkill
+                # in tree mode is the equivalent: it kills the worker and
+                # every descendant it spawned, so a TERM-ignoring command
+                # child left in a dead worker's subtree does not survive.
+                # Terminate the worker itself directly if the tree kill
+                # leaves it behind.
+                capture { system 'taskkill', '/PID', $pid, '/T', '/F' };
+                if ( $self->_pid_is_running($pid) ) {
+                    require Developer::Dashboard::GoRoutine;
+                    Developer::Dashboard::GoRoutine::terminate_process( $pid, 'KILL' );
+                }
+            }
+        }
+        elsif ( $self->_pid_is_running($pid) ) {
+            kill 9, $pid;
+        }
         $self->_reap_child_process($pid);
         delete $active_workers->{$pid};
     }
@@ -959,7 +994,16 @@ sub stop_loop {
         # SIGTERM handler can terminate its accurate in-memory worker set. Scale
         # the grace to the recorded worker count so the loop is not KILL-9'd
         # mid-cleanup (its handler may spend up to ~2s per stubborn worker).
-        kill 15, $pid;
+        if ( is_windows() ) {
+            # Perl kill TERM never reaches a CreateProcess child (it has no
+            # console to deliver the event to); terminate through the native
+            # process API instead, which maps TERM onto native termination.
+            require Developer::Dashboard::GoRoutine;
+            Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
+        }
+        else {
+            kill 15, $pid;
+        }
         my $grace = 20 + 20 * scalar(@state_worker_pids);
         for ( 1 .. $grace ) {
             last if !$self->_pid_is_running($pid);
@@ -981,7 +1025,15 @@ sub stop_loop {
             };
         }
         kill 9, -$pid if !is_windows();
-        kill 9, $pid  if $self->_pid_is_running($pid);
+        if ( is_windows() ) {
+            if ( $self->_pid_is_running($pid) ) {
+                require Developer::Dashboard::GoRoutine;
+                Developer::Dashboard::GoRoutine::terminate_process( $pid, 'KILL' );
+            }
+        }
+        elsif ( $self->_pid_is_running($pid) ) {
+            kill 9, $pid;
+        }
         for ( 1 .. 20 ) {
             last if !$self->_pid_is_running($pid);
             sleep 0.1;

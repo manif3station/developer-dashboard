@@ -215,7 +215,14 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
 # reach the test process. Perl
 # ignores SIGINT for the duration of system(), so only TERM and HUP can be
 # delivered here.
-{
+SKIP: {
+    # Real signal delivery is a Unix mechanism: the fixture command shells
+    # out to `kill` to signal the runner, and there is no kill on Windows
+    # (nor any signal delivery to a process at all). The forwarding of a
+    # delivered signal is covered on Windows by the INT-handler block
+    # below, which invokes the handler directly.
+    skip 'real signal delivery needs a Unix kill binary and Unix signal delivery, neither of which exists on Windows', 2
+      if $^O eq 'MSWin32';
     my $report = File::Spec->catfile( $home, 'forwarded-signals.txt' );
     my $source = q{
         use POSIX ();
@@ -360,7 +367,13 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
             print {$fh} "normal exit\n" or die "Unable to write END marker: $!";
             close $fh or die "Unable to close END marker: $!";
         }
-        POSIX::sigprocmask( POSIX::SIG_BLOCK(), POSIX::SigSet->new( POSIX::SIGTERM() ) );
+        # POSIX::sigprocmask and its SIG_BLOCK macro do not exist on
+        # Strawberry Perl. The Windows arm of forward_command_signal exits
+        # 128+signal without re-raising, so blocking the signal is not
+        # needed there; the exit code and the END marker are the same.
+        if ( $^O ne 'MSWin32' ) {
+            POSIX::sigprocmask( POSIX::SIG_BLOCK(), POSIX::SigSet->new( POSIX::SIGTERM() ) );
+        }
         no warnings 'redefine';
         local *Developer::Dashboard::CommandRunner::await_command_pid = sub { return undef };
         local *Developer::Dashboard::CommandRunner::terminate_command_process = sub { return 1 };

@@ -458,6 +458,20 @@ subtest '_run_cli reports an unexecutable command distinctly' => sub {
     like( $missing_err, qr/Can't exec "dd-ask-no-such-command-42"/, 'the exec failure is reported in the captured standard error' );
     like( $teed, qr/Can't exec "dd-ask-no-such-command-42"/, 'the live tee echoes the exec failure instead of leaking it into the test output' );
 
+    # Same missing-command shape through the Windows branch: on Windows
+    # system() hands the command to cmd.exe, which exits 1 with "not
+    # recognized" text instead of -1 with "Can't exec", so _run_cli checks
+    # resolvability first and reports the same -1 with the same words.
+    # Proved on Linux with $^O localized; on Windows the branch is live.
+    {
+        local $^O = 'MSWin32';
+        my @win_missing;
+        my $win_teed = capture_stderr { @win_missing = $run->( ['dd-ask-no-such-command-42'] ) };
+        is( $win_missing[2], -1, 'on Windows a command that cannot be executed reports -1' );
+        like( $win_missing[1], qr/Can't exec "dd-ask-no-such-command-42"/, 'on Windows the exec failure is reported in the captured standard error' );
+        like( $win_teed, qr/Can't exec "dd-ask-no-such-command-42"/, 'on Windows the live tee echoes the exec failure' );
+    }
+
     # A quoted -e script does not survive Win32 command-line construction
     # (win32 system() re-splits an argument holding spaces and double
     # quotes), so the probe runs from a temp file instead.
