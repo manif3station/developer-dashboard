@@ -650,13 +650,16 @@ is( scalar(@$seeded_helpers), scalar(@helper_names), 'ensure_helpers writes ever
 my $seeded_helpers_second = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
 is_deeply( $seeded_helpers_second, [], 'ensure_helpers skips rewriting staged helpers whose md5 already matches the shipped content' );
 ok( -f File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', '_dashboard-core' ), 'ensure_helpers also stages the shared _dashboard-core runtime under the dd namespace' );
-ok( grep( $_ =~ m{/\Qof\E$}, @$seeded_helpers ), 'ensure_helpers writes the private of helper' );
-ok( grep( $_ =~ m{/\Qopen-file\E$}, @$seeded_helpers ), 'ensure_helpers writes the private open-file helper' );
-ok( grep( $_ =~ m{/\Qworkspace\E$}, @$seeded_helpers ), 'ensure_helpers writes the private workspace helper' );
-ok( grep( $_ =~ m{/\Qpath\E$}, @$seeded_helpers ), 'ensure_helpers writes the private path helper' );
-ok( grep( $_ =~ m{/\Qpaths\E$}, @$seeded_helpers ), 'ensure_helpers writes the private paths helper' );
-ok( grep( $_ =~ m{/\Qps1\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ps1 helper' );
-ok( !grep( $_ =~ m{/\Qskill\E$}, @$seeded_helpers ), 'ensure_helpers no longer stages the removed singular skill helper' );
+# The written paths are File::Spec spellings, so the trailing separator is a
+# backslash on Windows: a forward-slash-only match never matches there, and
+# the negative matches below would pass vacuously instead of proving anything.
+ok( grep( $_ =~ m{[\/\\]\Qof\E$}, @$seeded_helpers ), 'ensure_helpers writes the private of helper' );
+ok( grep( $_ =~ m{[\/\\]\Qopen-file\E$}, @$seeded_helpers ), 'ensure_helpers writes the private open-file helper' );
+ok( grep( $_ =~ m{[\/\\]\Qworkspace\E$}, @$seeded_helpers ), 'ensure_helpers writes the private workspace helper' );
+ok( grep( $_ =~ m{[\/\\]\Qpath\E$}, @$seeded_helpers ), 'ensure_helpers writes the private path helper' );
+ok( grep( $_ =~ m{[\/\\]\Qpaths\E$}, @$seeded_helpers ), 'ensure_helpers writes the private paths helper' );
+ok( grep( $_ =~ m{[\/\\]\Qps1\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ps1 helper' );
+ok( !grep( $_ =~ m{[\/\\]\Qskill\E$}, @$seeded_helpers ), 'ensure_helpers no longer stages the removed singular skill helper' );
 ok(
     Developer::Dashboard::SeedSync::file_matches_content_md5(
         File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', 'jq' ),
@@ -1069,7 +1072,7 @@ ok(
         skip_names => ['init'],
     );
     ok(
-        !grep( $_ =~ m{/\Qinit\E$}, @$written ),
+        !grep( $_ =~ m{[\/\\]\Qinit\E$}, @$written ),
         'ensure_helpers can skip staging one named helper while still refreshing the rest of the managed helper set',
     );
     ok(
@@ -1077,7 +1080,7 @@ ok(
         'ensure_helpers leaves the skipped helper target untouched on disk',
     );
     ok(
-        grep( $_ =~ m{/\Qshell\E$}, @$written ),
+        grep( $_ =~ m{[\/\\]\Qshell\E$}, @$written ),
         'ensure_helpers still stages non-skipped helpers when one helper name is excluded',
     );
 }
