@@ -20,7 +20,7 @@ use Symbol qw(gensym);
 use Developer::Dashboard::Platform qw(command_in_path passwd_home_directory);
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::PathIdentity qw(current_working_directory);
-use Developer::Dashboard::StreamDrain qw(_drain_ready_handle);
+use Developer::Dashboard::StreamDrain qw(_drain_ready_handle _drain_child_streams_windows);
 
 # new()
 # Creates a SkillManager instance to handle skill installation, updates, uninstalls.
@@ -1407,13 +1407,34 @@ sub _run_streaming_command {
 
     my $timed_out = 0;
     my $read_loop = sub {
-        while ( my @ready = $selector->can_read ) {
-            for my $handle (@ready) {
-                my $chunk_ref = $self->_drain_ready_handle( $selector, $handle ) or next;
-                my $chunk = ${$chunk_ref};
-                ${ $target_for{ fileno($handle) } } .= $chunk;
-                for my $line ( split /\n/, $chunk ) {
-                    $self->_progress_detail_line($line);
+        # On Windows IO::Select only works for real sockets, so can_read over
+        # the open3 pipes returns at once with nothing ready and the child's
+        # output is silently lost. Drain both pipes with PeekNamedPipe there
+        # instead; the select loop below stays for every other platform.
+        my $drained = 0;
+        if ( $^O eq 'MSWin32' ) {
+            $drained = $self->_drain_child_streams_windows(
+                $stdout_handle,
+                $stderr_handle,
+                sub {
+                    my ( $is_stdout, $chunk ) = @_;
+                    my $slot = $is_stdout ? \$stdout : \$stderr;
+                    ${$slot} .= $chunk;
+                    for my $line ( split /\n/, $chunk ) {
+                        $self->_progress_detail_line($line);
+                    }
+                },
+            );
+        }
+        if ( !$drained ) {
+            while ( my @ready = $selector->can_read ) {
+                for my $handle (@ready) {
+                    my $chunk_ref = $self->_drain_ready_handle( $selector, $handle ) or next;
+                    my $chunk = ${$chunk_ref};
+                    ${ $target_for{ fileno($handle) } } .= $chunk;
+                    for my $line ( split /\n/, $chunk ) {
+                        $self->_progress_detail_line($line);
+                    }
                 }
             }
         }
