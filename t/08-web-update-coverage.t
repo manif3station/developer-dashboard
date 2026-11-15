@@ -676,11 +676,28 @@ BAT
     no warnings 'redefine';
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ip = sub { return (); };
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ifconfig = sub { return (); };
+    # _ip_interface_pairs also tries ipconfig on Windows, so it must be
+    # mocked here too: on the box the real ipconfig answers with the
+    # Tailscale adapter and _machine_ip is no longer undefined.
+    local *Developer::Dashboard::Web::App::_ip_pairs_from_ipconfig = sub { return (); };
     # Earlier route assertions may have populated this worker-local cache with
     # the container's real address; this case specifically exercises empty
     # interface discovery, independent of the machine running the suite.
     delete $app->{_machine_ip_cache};
     ok( !defined $app->_machine_ip, '_machine_ip returns undef when neither ip nor ifconfig yields a usable address' );
+}
+
+# A capture failure inside an IP discovery helper must not kill the
+# caller: when Capture::Tiny cannot duplicate a file descriptor (the
+# t/105 death, after 387 passing subtests), the helper returns no
+# addresses and _machine_ip falls back to the host or loopback address.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::App::capture = sub { die "simulated capture failure\n" };
+    local *Developer::Dashboard::Web::App::command_in_path = sub { return 'fake-helper' };
+    is_deeply( [ Developer::Dashboard::Web::App->_ip_pairs_from_ipconfig() ], [], 'a failing ipconfig capture returns no addresses' );
+    is_deeply( [ Developer::Dashboard::Web::App->_ip_pairs_from_ip() ], [], 'a failing ip capture returns no addresses' );
+    is_deeply( [ Developer::Dashboard::Web::App->_ip_pairs_from_ifconfig() ], [], 'a failing ifconfig capture returns no addresses' );
 }
 
 {
@@ -1294,11 +1311,18 @@ my $missing_route_server = Developer::Dashboard::Web::Server->new( app => $missi
         port => 5999,
     );
     ok( $server->serve_daemon($fake_daemon), 'serve_daemon delegates to the Plack runner successfully' );
-    is_deeply(
-        \@Local::FakeRunner::parse_options,
-        [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 5999, '--env', 'deployment', '--workers', '1' ],
-        'serve_daemon configures Starman through Plack::Runner',
-    );
+    # The product deliberately uses Standalone, not Starman, on Windows
+    # (Starman's Time::HiRes::alarm is unimplemented on Strawberry
+    # Perl), so the Starman form of the runner arguments is asserted
+    # only off Windows; the Windows block below asserts Standalone.
+    SKIP: {
+        skip 'the product uses Standalone, not Starman, on Windows', 1 if $^O eq 'MSWin32';
+        is_deeply(
+            \@Local::FakeRunner::parse_options,
+            [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 5999, '--env', 'deployment', '--workers', '1' ],
+            'serve_daemon configures Starman through Plack::Runner',
+        );
+    }
     ok( ref( $Local::FakeRunner::run_arg ) eq 'CODE', 'serve_daemon hands a PSGI app coderef to the Plack runner' );
 }
 
@@ -1316,11 +1340,14 @@ my $missing_route_server = Developer::Dashboard::Web::Server->new( app => $missi
         port => 5998,
     );
     ok( $worker_server->serve_daemon($fake_daemon), 'serve_daemon accepts an explicit worker count' );
-    is_deeply(
-        \@Local::FakeRunner::parse_options,
-        [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 5998, '--env', 'deployment', '--workers', '4' ],
-        'serve_daemon forwards the configured worker count to Starman',
-    );
+    SKIP: {
+        skip 'the product uses Standalone, not Starman, on Windows', 1 if $^O eq 'MSWin32';
+        is_deeply(
+            \@Local::FakeRunner::parse_options,
+            [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 5998, '--env', 'deployment', '--workers', '4' ],
+            'serve_daemon forwards the configured worker count to Starman',
+        );
+    }
 }
 
 {
