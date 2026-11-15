@@ -562,7 +562,13 @@ PERL
     is( $stream_result->{exit_code}, 0, 'stream_saved_ajax_file still reports a clean exit when the idle-child exit guard breaks the stream loop' );
     is( $streamed, "ajax-ok\n", 'stream_saved_ajax_file still drains the final saved ajax stdout chunk after the idle-child exit guard notices process exit' );
 }
-{
+SKIP: {
+    # The post-exit drain is a Unix-loop concept: on Windows
+    # stream_saved_ajax_file takes the threaded _stream_saved_ajax_windows
+    # branch instead, which never calls _drain_saved_ajax_post_exit_handles,
+    # so the stubbed drain returning 0 cannot produce a disconnect there.
+    # Windows disconnects are covered by the delegated-streamer tests below.
+    skip 'the post-exit drain only exists in the Unix stream loop', 3 if $^O eq 'MSWin32';
     my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'post-exit-disconnect.pl' );
     open my $fh, '>', $saved_path or die $!;
     print {$fh} 'sleep 30;';
