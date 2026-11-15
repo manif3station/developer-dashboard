@@ -124,7 +124,13 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 
     # Neither home variable set: the passwd database answers on a runtime that
     # has one.
-    {
+    SKIP: {
+        # getpwuid is unimplemented on Windows, so there is no passwd
+        # database to answer and the constructor dies with "Missing home
+        # directory" instead — the Windows shape of this block is the
+        # one below, which localizes the platform and expects that error.
+        skip 'getpwuid is unimplemented on Windows, so there is no passwd database to answer', 2
+          if $^O eq 'MSWin32';
         local %ENV = %ENV;
         delete $ENV{HOME};
         delete $ENV{USERPROFILE};

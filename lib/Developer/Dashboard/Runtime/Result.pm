@@ -12,6 +12,8 @@ use File::Temp qw(tempfile);
 use Fcntl qw(F_GETFD F_SETFD FD_CLOEXEC SEEK_SET);
 use JSON::XS qw(decode_json encode_json);
 
+use Developer::Dashboard::Platform qw(is_windows);
+
 # Directory whose numeric entries name this process's open descriptors; a
 # package variable so a test can point it somewhere absent and exercise the
 # /proc/self/fd fallback.
@@ -262,10 +264,16 @@ sub _open_channel_file {
     # unexpectedly permissive mode would be a real exposure.
     chmod 0600, $fh or die "Unable to chmod RESULT tempfile $path to 0600: $!";
 
-    my $flags = fcntl( $fh, F_GETFD, 0 );
-    die "Unable to inspect RESULT file descriptor flags: $!" if !defined $flags;
-    fcntl( $fh, F_SETFD, $flags & ~FD_CLOEXEC )
-      or die "Unable to clear close-on-exec for RESULT file descriptor: $!";
+    if ( !is_windows() ) {
+        # Close-on-exec is a Unix descriptor flag: F_GETFD and F_SETFD
+        # do not exist on Strawberry Perl, so even evaluating them dies.
+        # On Windows the spawn layer controls handle inheritance
+        # explicitly, so there is nothing to clear here.
+        my $flags = fcntl( $fh, F_GETFD, 0 );
+        die "Unable to inspect RESULT file descriptor flags: $!" if !defined $flags;
+        fcntl( $fh, F_SETFD, $flags & ~FD_CLOEXEC )
+          or die "Unable to clear close-on-exec for RESULT file descriptor: $!";
+    }
 
     my $fd = fileno($fh);
     my $fd_path = $CHANNEL_USE_NAMED_PATH

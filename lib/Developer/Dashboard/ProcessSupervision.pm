@@ -193,6 +193,24 @@ sub _overwrite_state_file_in_place {
 # Output: sorted list of descriptor integers.
 sub _open_file_descriptors {
     my ($self) = @_;
+    if ( is_windows() ) {
+        # There is no /proc or /dev/fd on Windows, so there is no
+        # directory to list descriptors from. Probe the CRT descriptor
+        # table instead: a descriptor that duplicates is open, one that
+        # does not is not. The bound is the common CRT table size; a
+        # detached child only ever inherits low-numbered descriptors,
+        # and the standard three are always found this way, so the
+        # listing still includes stdin.
+        my @fds;
+        for my $fd ( 0 .. 1023 ) {
+            my $handle;
+            if ( open( $handle, '<&', $fd ) || open( $handle, '>&', $fd ) ) {
+                push @fds, $fd;
+                close $handle;
+            }
+        }
+        return @fds;
+    }
     my %seen;
     my @fds;
     for my $path ( Developer::Dashboard::ProcessSupervision::_fd_candidate_paths($self) ) {

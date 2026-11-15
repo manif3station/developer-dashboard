@@ -1033,7 +1033,14 @@ SKIP: {
     );
 }
 
-{
+SKIP: {
+    # This whole fixture makes the descriptors inheritable by clearing
+    # FD_CLOEXEC with fcntl, which is a Unix mechanism: F_GETFD and
+    # F_SETFD do not exist on Strawberry Perl, so even evaluating them
+    # dies. On Windows handle inheritance is decided by the spawn layer,
+    # not by fcntl flags, so the fixture cannot be set up there.
+    skip 'descriptor inheritance via fcntl F_GETFD/F_SETFD is a Unix mechanism; those macros do not exist on Strawberry Perl', 3
+      if $^O eq 'MSWin32';
     pipe my $result_reader, my $result_writer or die "Unable to create result pipe: $!";
     socketpair( my $keep_left, my $keep_right, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
       or die "Unable to create keep socketpair: $!";
