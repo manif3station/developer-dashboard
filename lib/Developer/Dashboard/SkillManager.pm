@@ -439,20 +439,33 @@ sub usage {
 # a validator: sources such as owner/.., file:///x/.. or git@github.com:owner/..
 # legitimately yield a '..' segment, so every caller that joins the result onto
 # a directory must first clear it through _is_safe_skill_name.
+# A file:// URL carrying a Windows path (file://C:\.. or file:///C:/..) splits
+# on backslashes as well as forward slashes, so the last path segment is the name
+# and not the whole drive path.
 # Input: Git URL string or local directory path.
 # Output: repo name or undef.
 sub _extract_repo_name {
     my ($url) = @_;
-    
+
     return if !$url;
     return basename($url) if -d $url;
-    
+
+    if ( $url =~ m{\Afile://(.*)\z} ) {
+        my $path = $1;
+        $path =~ s{\Alocalhost}{}i;
+        $path =~ s{[\\/]+\z}{};
+        my ($name) = $path =~ m{([^\\/]+)\z};
+        return if !defined $name || $name eq '';
+        $name =~ s{\.git\z}{};
+        return $name;
+    }
+
     # Extract from: git@github.com:user/repo-name.git
     if ( $url =~ m{/([^/]+?)(\.git)?$} ) {
         my $name = $1;
         return $name;
     }
-    
+
     return;
 }
 
@@ -492,13 +505,33 @@ sub _install_path_contained {
 
 # _normalize_install_source($source)
 # Expands shorthand remote skill names into full GitHub clone URLs while
-# leaving local paths and explicit remote URLs unchanged.
+# leaving local paths and explicit remote URLs unchanged. A file:// URL
+# carrying a Windows path is rewritten into the canonical file:///C:/...
+# forward-slash form git accepts: backslashes are not valid in a URL, and
+# file://C:\... is missing the third slash. Unix file:/// paths and
+# network-host file:// URLs pass through unchanged.
 # Input: install source string.
 # Output: normalized install source string.
 sub _normalize_install_source {
     my ( $self, $source ) = @_;
     return $source if !defined $source || $source eq '';
     return $source if -d $source;
+    if ( $source =~ m{\Afile://(.*)\z} ) {
+        my $path = $1;
+        # Only a Windows drive path earns the rewrite: a trailing drive
+        # letter after an optional localhost, or a backslash anywhere. A
+        # plain file://localhost/... (a Unix local path) passes through
+        # unchanged — the drive-letter branch already covers
+        # file://localhost/C:/..., so a bare localhost branch would only
+        # rewrite paths it has no business touching.
+        if ( $path =~ m{\A(?:localhost)?[\\/]?[A-Za-z]:} || $path =~ m{\\} ) {
+            $path =~ s{\Alocalhost}{}i;
+            $path =~ s{\\}{/}g;
+            $path =~ s{\A/+}{};
+            return "file:///$path";
+        }
+        return $source;
+    }
     return $source if $source =~ m{\A[A-Za-z][A-Za-z0-9+.-]*://};
     return $source if $source =~ /\Agit@/;
     return "https://github.com/$source"

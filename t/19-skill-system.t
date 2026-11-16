@@ -259,6 +259,40 @@ BOOKMARK
 my $install = $manager->install( 'file://' . $alpha_repo );
 ok( !$install->{error}, 'skill installs from a git url' ) or diag $install->{error};
 is( $install->{repo_name}, 'alpha-skill', 'install returns the repo-derived skill name' );
+
+# A Windows file:// URL carries a drive path, not a Unix path: the name is
+# the last segment and the clone source is the canonical file:/// form git
+# accepts, so 'file://C:\Temp\..' must not resolve to the whole drive path.
+is(
+    Developer::Dashboard::SkillManager::_extract_repo_name('file://C:\Users\WDAGUtilityAccount\AppData\Local\Temp\TEOK9JWwLa\alpha-skill'),
+    'alpha-skill',
+    'repo name extracts the last segment from a Windows file:// URL with backslashes',
+);
+is(
+    Developer::Dashboard::SkillManager::_extract_repo_name('file:///C:/Users/WDAGUtilityAccount/AppData/Local/Temp/TEOK9JWwLa/alpha-skill'),
+    'alpha-skill',
+    'repo name extracts the last segment from a Windows file:// URL with forward slashes',
+);
+is(
+    $manager->_normalize_install_source('file://C:\Users\WDAGUtilityAccount\AppData\Local\Temp\TEOK9JWwLa\alpha-skill'),
+    'file:///C:/Users/WDAGUtilityAccount/AppData/Local/Temp/TEOK9JWwLa/alpha-skill',
+    'install source normalizes a Windows file:// URL with backslashes into the git-cloneable file:/// form',
+);
+is(
+    $manager->_normalize_install_source('file:///tmp/alpha-skill'),
+    'file:///tmp/alpha-skill',
+    'install source leaves a Unix file:// URL unchanged',
+);
+is(
+    $manager->_normalize_install_source('file://localhost/some/path/alpha-skill'),
+    'file://localhost/some/path/alpha-skill',
+    'install source leaves a Unix file://localhost URL unchanged',
+);
+is(
+    Developer::Dashboard::SkillManager::_extract_repo_name('file://server/share/alpha-skill'),
+    'alpha-skill',
+    'repo name extracts the last segment from a network-host file:// URL',
+);
 ok( -d File::Spec->catdir( $install->{path}, 'cli' ), 'install prepares isolated cli root' );
 ok( -d File::Spec->catdir( $install->{path}, 'config', 'docker' ), 'install prepares isolated docker config root' );
 ok( -d File::Spec->catdir( $install->{path}, 'state' ), 'install prepares isolated state root' );
