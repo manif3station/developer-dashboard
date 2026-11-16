@@ -195,6 +195,16 @@ sub _start_web_background {
         if (@listener_pids && $self->_port_accepting_connections($port)) {
             my $listener_pid = $listener_pids[0];
             $listener_pid = $pid if !$listener_pid;
+            # The spawned helper becomes the Starman master in-process, but
+            # every worker also holds the listen socket, so the ss order may
+            # list a worker first. Recording a worker means stop_web only
+            # ever signals that worker directly: the master survives a stop
+            # whenever listener discovery misses it (for example when the
+            # persisted port is stale) and respawns a replacement worker.
+            # Prefer the spawned pid whenever it is one of the listeners:
+            # it is the master, and also our direct child, so it is the pid
+            # stop_web can terminate and reap.
+            $listener_pid = $pid if grep { $_ == $pid } @listener_pids;
             my $state = {
                 host         => $host,
                 pid          => $listener_pid,
@@ -245,6 +255,9 @@ sub _start_web_windows_background {
         my @listener_pids = $self->_listener_pids_for_port($port);
         if (@listener_pids) {
             my $listener_pid = $listener_pids[0];
+            # See _start_web_background: prefer the spawned master pid over
+            # a worker that ss happens to list first.
+            $listener_pid = $pid if grep { $_ == $pid } @listener_pids;
             $running = {
                 host         => $host,
                 pid          => $listener_pid,
