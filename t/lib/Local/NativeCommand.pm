@@ -532,10 +532,25 @@ sub _run_stage {
     my $stdin_file;
     if ( defined $stdin_bytes ) {
         my ( $fh, $name ) = tempfile( UNLINK => 0 );
-        binmode $fh;
-        print {$fh} $stdin_bytes or die "Unable to write stdin file: $!";
-        close $fh or die "Unable to close stdin file: $!";
+        # Record the name before writing: the file is created with
+        # UNLINK => 0, so a die from print or close below would
+        # otherwise orphan it — the cleanup unlink at the end of this
+        # sub is only reached when the write succeeds. The write is
+        # wrapped so a failure unlinks the file before re-dying;
+        # merely assigning the name early would not help, because the
+        # die would still skip past the unlink.
         $stdin_file = $name;
+        my $write_ok = eval {
+            binmode $fh;
+            print {$fh} $stdin_bytes or die "Unable to write stdin file: $!";
+            close $fh or die "Unable to close stdin file: $!";
+            1;
+        };
+        if ( !$write_ok ) {
+            my $error = $@;
+            unlink $stdin_file;
+            die $error;
+        }
     }
     my $ok = eval {
         ( $stdout, $stderr, $exit ) = capture {

@@ -8,7 +8,7 @@ use Test::More;
 use Capture::Tiny qw(capture);
 use Cwd qw(getcwd);
 use File::Spec;
-use File::Temp qw(tempdir);
+use File::Temp qw(tempdir tempfile);
 use FindBin;
 
 use lib File::Spec->catdir( $FindBin::Bin, 'lib' );
@@ -118,6 +118,11 @@ _is_same_as_sh( 'stderr discarded 2>/dev/null', qq{'$perl' -e 'print STDERR "err
 _is_same_as_sh( 'stderr merged into stdout', qq{'$perl' -e '\$| = 1; print "out\\n"; print STDERR "err\\n"' 2>&1} );
 _is_same_as_sh( 'stdout discarded, stderr kept', qq{'$perl' -e 'print STDERR "err\\n"; print "out\\n"' >/dev/null} );
 _is_same_as_sh( 'stdout and stderr discarded', qq{'$perl' -e 'print STDERR "err\\n"; print "out\\n"' >/dev/null 2>&1} );
+# A mid-pipeline >/dev/null starves the next stage, in sh and here: the
+# redirect wins over the pipe, so the next stage reads empty stdin.
+# Forwarding the discarded output instead would diverge from sh.
+_is_same_as_sh( 'mid-pipeline stdout discard starves the next stage', qq{printf 'hello\\n' >/dev/null | '$perl' -e 'local \$/; print <STDIN>'} );
+_is_same_as_sh( 'mid-pipeline stdout discard, real stage', qq{'$perl' -e 'print "data\\n"' >/dev/null | '$perl' -e 'local \$/; print <STDIN>'} );
 
 # Environment option overrides.
 {
@@ -155,6 +160,26 @@ SKIP: {
     chdir $safe_cwd or die "Unable to restore working directory: $!";
     ok( $died, 'dies when the working directory has been deleted' );
     like( $err, qr/cannot determine current working directory/, 'deleted-cwd failure names the cause' );
+}
+
+# A die while writing the stdin temp file must not orphan it: the file
+# is created with UNLINK => 0, so the name is recorded before the write
+# and unlinked on failure. The tempfile call is stubbed to return a
+# closed handle, which makes the write die.
+{
+    no warnings 'redefine';
+    my $leak_path;
+    local *Local::NativeCommand::tempfile = sub {
+        my ( $fh, $name ) = File::Temp::tempfile( UNLINK => 0 );
+        close $fh;
+        $leak_path = $name;
+        open my $dead, '<', $name or die "cannot reopen $name: $!";
+        close $dead;
+        return ( $dead, $name );
+    };
+    my $died = eval { run_shell_command( qq{printf 'x\\n' | '$perl' -e 'print <STDIN>'}, { force_windows => 1 } ); 1 } ? 0 : 1;
+    ok( $died, 'dies when the stdin temp file cannot be written' );
+    ok( !-e $leak_path, 'a failed stdin temp-file write leaves no orphan file' );
 }
 
 # The _gate_run shape: cd && HOME=... perl entrypoint args.
