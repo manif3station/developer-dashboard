@@ -44,6 +44,14 @@ die "Developer::Dashboard XS bundle is not loaded; GoRoutine requires its native
 
 my %_SPAWN_CHILDREN;    # pid => Win32::Process object, or 1 when no handle is held
 
+# The platform this process really runs on, captured at load time.
+# Runtime $^O is mockable — tests localize it to MSWin32 on Linux to
+# exercise Windows branches (t/99 does exactly this) — so it must never
+# decide whether the spawn registry exists. On POSIX the registry is
+# always empty by design, and "not in registry" only means "already
+# reaped" on real Windows.
+my $_REAL_OS_IS_WINDOWS = $^O eq 'MSWin32';
+
 my $_XS_SPAWN           = \&spawn;
 my $_XS_PROCESS_RUNNING = \&process_running;
 my $_XS_PROCESS_EXITED  = \&process_exited;
@@ -143,8 +151,10 @@ sub _wait_process_wrapper ($) {
     # child first and a later wait — such as a test helper's cleanup —
     # asks for it again. Report the documented 255 unknown status
     # instead. On POSIX the registry is always empty (_keep_spawn_handle
-    # is a Windows-only no-op there), so this must not fire off Windows.
-    if ( $^O eq 'MSWin32' && defined $pid && !exists $_SPAWN_CHILDREN{$pid} ) {
+    # is a Windows-only no-op there), so this must not fire off Windows —
+    # and the check keys off the load-time platform, not runtime $^O,
+    # because tests localize $^O to MSWin32 on Linux (t/99 test 88).
+    if ( $_REAL_OS_IS_WINDOWS && defined $pid && !exists $_SPAWN_CHILDREN{$pid} ) {
         return 255;
     }
     my $code = $_XS_WAIT_PROCESS->($pid);
