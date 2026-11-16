@@ -30,11 +30,15 @@ chdir $home or die "Unable to chdir to $home: $!";
 
 my $windows = 'MSWin32';
 
-# A uid that cannot own a passwd record on the test host, used to exercise the
-# "no record" outcome with the real getpwuid instead of a stub.
-my ($absent_uid) = grep { !defined scalar getpwuid($_) }
+# Windows perl leaves getpwuid unimplemented, so there is no passwd
+# database to pick an absent uid from. The "real passwd database"
+# scenario below is skipped there, and the rest of this file exercises
+# the guards with the platform name forced to Windows instead.
+my ($absent_uid) = $^O eq 'MSWin32'
+  ? ()
+  : grep { !defined scalar getpwuid($_) }
       (4294967293, 4294967292, 2147483647, 999999999);
-die 'Unable to select an absent uid' if !defined $absent_uid;
+die 'Unable to select an absent uid' if !defined $absent_uid && $^O ne 'MSWin32';
 
 # ---------------------------------------------------------------------------
 # Feature: the guarded passwd accessors never die.
@@ -58,13 +62,15 @@ die 'Unable to select an absent uid' if !defined $absent_uid;
 # Scenario: on a runtime with a real passwd database the accessors still return
 # the account name and home directory.
 # ---------------------------------------------------------------------------
-{
-    my @entry = getpwuid($<);
-    is( passwd_user_name($<),      $entry[0], 'passwd_user_name returns the real account name' );
-    is( passwd_home_directory($<), $entry[7], 'passwd_home_directory returns the real home directory' );
+SKIP: {
+    skip 'there is no passwd database on Windows', 4 if $^O eq 'MSWin32';
 
-    is( passwd_user_name($absent_uid),      undef, 'passwd_user_name reports no name for an absent uid' );
-    is( passwd_home_directory($absent_uid), undef, 'passwd_home_directory reports no home for an absent uid' );
+        my @entry = getpwuid($<);
+        is( passwd_user_name($<),      $entry[0], 'passwd_user_name returns the real account name' );
+        is( passwd_home_directory($<), $entry[7], 'passwd_home_directory returns the real home directory' );
+
+        is( passwd_user_name($absent_uid),      undef, 'passwd_user_name reports no name for an absent uid' );
+        is( passwd_home_directory($absent_uid), undef, 'passwd_home_directory reports no home for an absent uid' );
 }
 
 # ---------------------------------------------------------------------------

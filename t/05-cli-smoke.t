@@ -27,6 +27,10 @@ use LWP::UserAgent;
 use Developer::Dashboard::Runtime::Result;
 use Test::More;
 use Time::HiRes qw(sleep);
+use FindBin;
+
+use lib File::Spec->catdir( $FindBin::Bin, 'lib' );
+use Local::NativeCommand qw(run_shell_command);
 
 my $UNDER_COVER = exists $INC{'Devel/Cover.pm'};
 my $repo = getcwd();
@@ -134,10 +138,10 @@ my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'd2 init works');
 for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq, $runtime_of, $runtime_open_file, $runtime_workspace, $runtime_path, $runtime_paths, $runtime_ps1, $runtime_api ) {
     ok( -f $helper, "d2 init seeds private helper $helper" );
-    ok( -x $helper, "d2 init marks private helper $helper executable" );
+    ok( _helper_is_executable($helper), "d2 init marks private helper $helper executable" );
 }
 ok( -f $runtime_dashboard_core, 'd2 init seeds the private built-in core helper runtime' );
-ok( -x $runtime_dashboard_core, 'd2 init marks the private built-in core helper runtime executable' );
+ok( _helper_is_executable($runtime_dashboard_core), 'd2 init marks the private built-in core helper runtime executable' );
 ok( !-e File::Spec->catfile( $runtime_cli_root, 'jq' ), 'd2 init does not mix built-in helpers into the user CLI root' );
 my $global_config_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'config.json' );
 open my $bootstrapped_config_fh, '<:raw', $global_config_file or die "Unable to read $global_config_file: $!";
@@ -1012,10 +1016,7 @@ if ( !$UNDER_COVER ) {
     is( $collector_housekeeper_run->{name}, 'housekeeper', 'd2 collector run housekeeper executes the built-in housekeeper collector' );
     is( $collector_housekeeper_run->{exit_code}, 0, 'd2 collector run housekeeper succeeds' );
 
-    my ( $missing_stdout, $missing_stderr, $missing_exit ) = capture {
-        system 'sh', '-c', "$perl -I'$lib' '$dashboard' collector log missing.collector";
-        return $? >> 8;
-    };
+    my ( $missing_stdout, $missing_stderr, $missing_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' collector log missing.collector");
     ok( $missing_exit != 0, 'd2 collector log exits non-zero for an unknown collector name' );
     like(
         decode( 'UTF-8', $missing_stdout . $missing_stderr ),
@@ -1023,10 +1024,7 @@ if ( !$UNDER_COVER ) {
         'd2 collector log reports unknown collector names explicitly',
     );
 
-    my ( $missing_restart_stdout, $missing_restart_stderr, $missing_restart_exit ) = capture {
-        system 'sh', '-c', "$perl -I'$lib' '$dashboard' restart collector missing.collector";
-        return $? >> 8;
-    };
+    my ( $missing_restart_stdout, $missing_restart_stderr, $missing_restart_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' restart collector missing.collector");
     ok( $missing_restart_exit != 0, 'd2 restart collector exits non-zero for an unknown collector name' );
     like(
         decode( 'UTF-8', $missing_restart_stdout . $missing_restart_stderr ),
@@ -1034,10 +1032,7 @@ if ( !$UNDER_COVER ) {
         'd2 restart collector reports unknown collector names explicitly',
     );
 
-    my ( $missing_stop_stdout, $missing_stop_stderr, $missing_stop_exit ) = capture {
-        system 'sh', '-c', "$perl -I'$lib' '$dashboard' stop collector missing.collector";
-        return $? >> 8;
-    };
+    my ( $missing_stop_stdout, $missing_stop_stderr, $missing_stop_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' stop collector missing.collector");
     ok( $missing_stop_exit != 0, 'd2 stop collector exits non-zero for an unknown collector name' );
     like(
         decode( 'UTF-8', $missing_stop_stdout . $missing_stop_stderr ),
@@ -1325,10 +1320,7 @@ PL
     chmod 0700, File::Spec->catfile( $bad_env_project, '.developer-dashboard', 'cli', 'show-env' )
       or die "Unable to chmod bad-env show-env command: $!";
 
-    my ( $bad_stdout, $bad_stderr, $bad_exit ) = capture {
-        system 'sh', '-c', "cd '$bad_env_project' && HOME='$bad_env_home' $perl -I'$lib' '$dashboard' show-env";
-        return $? >> 8;
-    };
+    my ( $bad_stdout, $bad_stderr, $bad_exit ) = _sh_capture("cd '$bad_env_project' && HOME='$bad_env_home' $perl -I'$lib' '$dashboard' show-env");
     ok( $bad_exit != 0, 'dashboard exits non-zero when a participating .env file is malformed' );
     like(
         decode( 'UTF-8', $bad_stdout . $bad_stderr ),
@@ -1377,68 +1369,80 @@ my $shell_bootstrap_file = File::Spec->catfile( $ENV{HOME}, 'dashboard-shell.sh'
 open my $shell_bootstrap_fh, '>', $shell_bootstrap_file or die "Unable to write $shell_bootstrap_file: $!";
 print {$shell_bootstrap_fh} $shell_bootstrap;
 close $shell_bootstrap_fh;
-# d2 is now a real installed command; make its bin dir discoverable on PATH and
-# confirm it dispatches d2 subcommands identically.
-( my $d2_bindir = $dashboard ) =~ s{/[^/]+\z}{};
-my $bash_d2_version = _run("bash -lc 'PATH=\"$d2_bindir:" . dirname($perl) . ":\$PATH\"; . \"$shell_bootstrap_file\"; d2 version'");
-is( $bash_d2_version, "$expected_version\n", 'the real d2 command dispatches d2 subcommands identically to dashboard' );
-my $bash_completion = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard do); COMP_CWORD=1; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-like( $bash_completion, qr/^docker$/m, 'd2 shell bash completion suggests docker through the generated completion helper' );
-like( $bash_completion, qr/^doctor$/m, 'd2 shell bash completion suggests doctor through the generated completion helper' );
-my $bash_global_help_entry = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard ''); COMP_CWORD=1; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-like( $bash_global_help_entry, qr/^help$/m, 'd2 shell bash completion exposes the global help entrypoint' );
-like( $bash_global_help_entry, qr/^version$/m, 'd2 shell bash completion exposes the built-in version command' );
-my $bash_completion_alias = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 do); COMP_CWORD=1; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-like( $bash_completion_alias, qr/^docker$/m, 'd2 shell bash completion also works through the d2 alias' );
-like( $bash_completion_alias, qr/^doctor$/m, 'd2 shell bash completion keeps the same candidates for d2' );
-my $bash_api_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 api ''); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-like( $bash_api_actions, qr/^ls$/m, 'dashboard bash TAB completion lists the API default action' );
-like( $bash_api_actions, qr/^add$/m, 'dashboard bash TAB completion lists API add' );
-like( $bash_api_actions, qr/^rm$/m, 'dashboard bash TAB completion lists API removal' );
-my $bash_docker_development_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 docker development ''); COMP_CWORD=3; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-is( _portable_output_text($bash_docker_development_actions), "enable\ndisable\n", 'dashboard bash TAB completion offers both Docker development marker actions' );
-my $bash_file_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 file ''); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-like( $bash_file_actions, qr/^resolve$/m, 'dashboard bash TAB completion lists file resolution' );
-like( $bash_file_actions, qr/^list$/m, 'dashboard bash TAB completion lists file aliases' );
-my $bash_path_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 path ''); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-like( $bash_path_actions, qr/^cdr$/m, 'dashboard bash TAB completion lists the implemented cdr action' );
-like( $bash_path_actions, qr/^complete-cdr$/m, 'dashboard bash TAB completion lists the cdr completion protocol' );
-like( $bash_path_actions, qr/^rm$/m, 'dashboard bash TAB completion lists the path rm alias' );
-my $bash_api_options = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 api add -); COMP_CWORD=3; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-like( $bash_api_options, qr/^--secret$/m, 'dashboard bash TAB completion suggests API command options' );
-like( $bash_api_options, qr/^--help$/m, 'dashboard bash TAB completion suggests explicit help options' );
-my $bash_api_default_options = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 api -); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-like( $bash_api_default_options, qr/^--key$/m, 'dashboard bash TAB completion suggests the API default-list key filter' );
-like( $bash_api_default_options, qr/^--output$/m, 'dashboard bash TAB completion suggests the API default-list output option' );
-my $bash_global_help = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 help docker ''); COMP_CWORD=3; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-like( $bash_global_help, qr/^compose$/m, 'dashboard bash TAB completion suggests actions after global help target' );
-my $bash_cdr_completion = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(cdr foobar alpha); COMP_CWORD=2; _dashboard_complete_cdr; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
-like( $bash_cdr_completion, qr/^alpha-foo$/m, 'd2 shell bash cdr completion suggests alias-root narrowing candidates' );
-unlike( $bash_cdr_completion, qr/^alpha-foo-bar$/m, 'd2 shell bash cdr completion does not recursively suggest deeper descendants' );
-my $which_dir_bookmarks = _run("bash -lc '. \"$shell_bootstrap_file\"; which_dir bookmarks_root'");
-is_same_path_output( $which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root through the shell helper' );
-my $cdr_bookmarks = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr bookmarks_root; pwd'");
-is_same_path_output( $cdr_bookmarks, $bookmarks_root, 'cdr navigates to bookmarks_root through the shell helper' );
-my $cdr_foobar = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar; pwd'");
-is_same_path_output( $cdr_foobar, $custom_path_root . "\n", 'cdr navigates to a user-defined alias through the shell helper' );
-my $cdr_foobar_unique = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar alpha foo bar; pwd'");
-is_same_path_output( $cdr_foobar_unique, $alias_unique . "\n", 'cdr narrows a resolved alias with AND-matched keywords and enters the only matching subdirectory' );
-my $cdr_foobar_multi = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar alpha foo; pwd'");
-my $portable_cdr_foobar_multi = _portable_output_text($cdr_foobar_multi);
-like( $portable_cdr_foobar_multi, qr/^\Q@{[ _portable_path($alias_multi_one) ]}\E$/m, 'cdr prints the first alias-root search match when multiple subdirectories satisfy the keywords' );
-like( $portable_cdr_foobar_multi, qr/^\Q@{[ _portable_path($alias_multi_two) ]}\E$/m, 'cdr prints the second alias-root search match when multiple subdirectories satisfy the keywords' );
-like( $portable_cdr_foobar_multi, qr/\Q@{[ _portable_path($custom_path_root) ]}\E\n\z/, 'cdr stays at the resolved alias root when alias-root keyword search finds multiple directories' );
-my $cdr_foobar_regex = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar alpha-foo\$; pwd'");
-is_same_path_output( $cdr_foobar_regex, $alias_multi_one . "\n", 'cdr treats alias-root narrowing terms as regexes' );
-my $cdr_keywords_unique = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr alpha red; pwd'");
-is_same_path_output( $cdr_keywords_unique, $cwd_search_unique . "\n", 'cdr treats non-alias arguments as current-directory search keywords and enters a unique match' );
-my $cdr_keywords_multi = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr team alpha; pwd'");
-my $portable_cdr_keywords_multi = _portable_output_text($cdr_keywords_multi);
-like( $portable_cdr_keywords_multi, qr/^\Q@{[ _portable_path($cwd_search_multi_one) ]}\E$/m, 'cdr prints one current-directory search match when multiple directories satisfy non-alias keywords' );
-like( $portable_cdr_keywords_multi, qr/^\Q@{[ _portable_path($cwd_search_multi_two) ]}\E$/m, 'cdr prints the other current-directory search match when multiple directories satisfy non-alias keywords' );
-like( $portable_cdr_keywords_multi, qr/\Q@{[ _portable_path($cwd_search_root) ]}\E\n\z/, 'cdr leaves the shell in place when non-alias keyword search has multiple matches' );
-my $cdr_keywords_regex = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr team-alpha\$; pwd'");
-is_same_path_output( $cdr_keywords_regex, $cwd_search_multi_one . "\n", 'cdr treats non-alias search terms as regexes beneath the current directory' );
+my $d2_bindir = $dashboard;
+$d2_bindir =~ s{/[^/]+\z}{};
+
+# Bash completion, cdr and which_dir are shell features: every command in
+# this section runs bash, which does not exist on the Windows Sandbox.
+# The generated bootstrap itself is still checked after this block (the
+# content assertions below), so only the bash execution is skipped here.
+# 57 = 36 assertions in this section + 21 exit-code assertions the _run
+# calls inside it make.
+SKIP: {
+    skip 'bash is not available on Windows', 57 if $^O eq 'MSWin32';
+
+    # d2 is now a real installed command; make its bin dir discoverable on PATH and
+    # confirm it dispatches d2 subcommands identically.
+    my $bash_d2_version = _run("bash -lc 'PATH=\"$d2_bindir:" . dirname($perl) . ":\$PATH\"; . \"$shell_bootstrap_file\"; d2 version'");
+    is( $bash_d2_version, "$expected_version\n", 'the real d2 command dispatches d2 subcommands identically to dashboard' );
+    my $bash_completion = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard do); COMP_CWORD=1; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+    like( $bash_completion, qr/^docker$/m, 'd2 shell bash completion suggests docker through the generated completion helper' );
+    like( $bash_completion, qr/^doctor$/m, 'd2 shell bash completion suggests doctor through the generated completion helper' );
+    my $bash_global_help_entry = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(dashboard ''); COMP_CWORD=1; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+    like( $bash_global_help_entry, qr/^help$/m, 'd2 shell bash completion exposes the global help entrypoint' );
+    like( $bash_global_help_entry, qr/^version$/m, 'd2 shell bash completion exposes the built-in version command' );
+    my $bash_completion_alias = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 do); COMP_CWORD=1; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+    like( $bash_completion_alias, qr/^docker$/m, 'd2 shell bash completion also works through the d2 alias' );
+    like( $bash_completion_alias, qr/^doctor$/m, 'd2 shell bash completion keeps the same candidates for d2' );
+    my $bash_api_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 api ''); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+    like( $bash_api_actions, qr/^ls$/m, 'dashboard bash TAB completion lists the API default action' );
+    like( $bash_api_actions, qr/^add$/m, 'dashboard bash TAB completion lists API add' );
+    like( $bash_api_actions, qr/^rm$/m, 'dashboard bash TAB completion lists API removal' );
+    my $bash_docker_development_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 docker development ''); COMP_CWORD=3; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+    is( _portable_output_text($bash_docker_development_actions), "enable\ndisable\n", 'dashboard bash TAB completion offers both Docker development marker actions' );
+    my $bash_file_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 file ''); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+    like( $bash_file_actions, qr/^resolve$/m, 'dashboard bash TAB completion lists file resolution' );
+    like( $bash_file_actions, qr/^list$/m, 'dashboard bash TAB completion lists file aliases' );
+    my $bash_path_actions = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 path ''); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+    like( $bash_path_actions, qr/^cdr$/m, 'dashboard bash TAB completion lists the implemented cdr action' );
+    like( $bash_path_actions, qr/^complete-cdr$/m, 'dashboard bash TAB completion lists the cdr completion protocol' );
+    like( $bash_path_actions, qr/^rm$/m, 'dashboard bash TAB completion lists the path rm alias' );
+    my $bash_api_options = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 api add -); COMP_CWORD=3; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+    like( $bash_api_options, qr/^--secret$/m, 'dashboard bash TAB completion suggests API command options' );
+    like( $bash_api_options, qr/^--help$/m, 'dashboard bash TAB completion suggests explicit help options' );
+    my $bash_api_default_options = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 api -); COMP_CWORD=2; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+    like( $bash_api_default_options, qr/^--key$/m, 'dashboard bash TAB completion suggests the API default-list key filter' );
+    like( $bash_api_default_options, qr/^--output$/m, 'dashboard bash TAB completion suggests the API default-list output option' );
+    my $bash_global_help = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 help docker ''); COMP_CWORD=3; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+    like( $bash_global_help, qr/^compose$/m, 'dashboard bash TAB completion suggests actions after global help target' );
+    my $bash_cdr_completion = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(cdr foobar alpha); COMP_CWORD=2; _dashboard_complete_cdr; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+    like( $bash_cdr_completion, qr/^alpha-foo$/m, 'd2 shell bash cdr completion suggests alias-root narrowing candidates' );
+    unlike( $bash_cdr_completion, qr/^alpha-foo-bar$/m, 'd2 shell bash cdr completion does not recursively suggest deeper descendants' );
+    my $which_dir_bookmarks = _run("bash -lc '. \"$shell_bootstrap_file\"; which_dir bookmarks_root'");
+    is_same_path_output( $which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root through the shell helper' );
+    my $cdr_bookmarks = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr bookmarks_root; pwd'");
+    is_same_path_output( $cdr_bookmarks, $bookmarks_root, 'cdr navigates to bookmarks_root through the shell helper' );
+    my $cdr_foobar = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar; pwd'");
+    is_same_path_output( $cdr_foobar, $custom_path_root . "\n", 'cdr navigates to a user-defined alias through the shell helper' );
+    my $cdr_foobar_unique = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar alpha foo bar; pwd'");
+    is_same_path_output( $cdr_foobar_unique, $alias_unique . "\n", 'cdr narrows a resolved alias with AND-matched keywords and enters the only matching subdirectory' );
+    my $cdr_foobar_multi = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar alpha foo; pwd'");
+    my $portable_cdr_foobar_multi = _portable_output_text($cdr_foobar_multi);
+    like( $portable_cdr_foobar_multi, qr/^\Q@{[ _portable_path($alias_multi_one) ]}\E$/m, 'cdr prints the first alias-root search match when multiple subdirectories satisfy the keywords' );
+    like( $portable_cdr_foobar_multi, qr/^\Q@{[ _portable_path($alias_multi_two) ]}\E$/m, 'cdr prints the second alias-root search match when multiple subdirectories satisfy the keywords' );
+    like( $portable_cdr_foobar_multi, qr/\Q@{[ _portable_path($custom_path_root) ]}\E\n\z/, 'cdr stays at the resolved alias root when alias-root keyword search finds multiple directories' );
+    my $cdr_foobar_regex = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar alpha-foo\$; pwd'");
+    is_same_path_output( $cdr_foobar_regex, $alias_multi_one . "\n", 'cdr treats alias-root narrowing terms as regexes' );
+    my $cdr_keywords_unique = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr alpha red; pwd'");
+    is_same_path_output( $cdr_keywords_unique, $cwd_search_unique . "\n", 'cdr treats non-alias arguments as current-directory search keywords and enters a unique match' );
+    my $cdr_keywords_multi = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr team alpha; pwd'");
+    my $portable_cdr_keywords_multi = _portable_output_text($cdr_keywords_multi);
+    like( $portable_cdr_keywords_multi, qr/^\Q@{[ _portable_path($cwd_search_multi_one) ]}\E$/m, 'cdr prints one current-directory search match when multiple directories satisfy non-alias keywords' );
+    like( $portable_cdr_keywords_multi, qr/^\Q@{[ _portable_path($cwd_search_multi_two) ]}\E$/m, 'cdr prints the other current-directory search match when multiple directories satisfy non-alias keywords' );
+    like( $portable_cdr_keywords_multi, qr/\Q@{[ _portable_path($cwd_search_root) ]}\E\n\z/, 'cdr leaves the shell in place when non-alias keyword search has multiple matches' );
+    my $cdr_keywords_regex = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr team-alpha\$; pwd'");
+    is_same_path_output( $cdr_keywords_regex, $cwd_search_multi_one . "\n", 'cdr treats non-alias search terms as regexes beneath the current directory' );
+}
 like( $shell_bootstrap, qr/ps1 --jobs \\j --mode compact/, 'd2 shell bash bootstrap keeps bash job-count prompt rendering' );
 like( $shell_bootstrap, qr/_dd_tmux_status_active/, 'd2 shell bash bootstrap centralizes the dashboard ticket tmux-session detection helper' );
 like( $shell_bootstrap, qr/TICKET_REF/, 'd2 shell bash bootstrap also recognizes ticket-managed tmux sessions through the ticket reference environment' );
@@ -1492,14 +1496,23 @@ my $sh_bootstrap_file = File::Spec->catfile( $ENV{HOME}, 'dashboard-shell-posix.
 open my $sh_bootstrap_fh, '>', $sh_bootstrap_file or die "Unable to write $sh_bootstrap_file: $!";
 print {$sh_bootstrap_fh} $sh_bootstrap;
 close $sh_bootstrap_fh;
-my $sh_d2_version = _run("sh -lc 'PATH=\"$d2_bindir:" . dirname($perl) . ":\$PATH\"; . \"$sh_bootstrap_file\"; d2 version'");
-is( $sh_d2_version, "$expected_version\n", 'd2 helper dispatches d2 subcommands through the POSIX shell bootstrap' );
-my $sh_which_dir_bookmarks = _run("sh -lc '. \"$sh_bootstrap_file\"; which_dir bookmarks_root'");
-is_same_path_output( $sh_which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root through the POSIX shell helper' );
-my $sh_cdr_bookmarks = _run("sh -lc '. \"$sh_bootstrap_file\"; cdr bookmarks_root; pwd'");
-is_same_path_output( $sh_cdr_bookmarks, $bookmarks_root, 'cdr navigates to bookmarks_root through the POSIX shell helper' );
-my $sh_cdr_foobar_unique = _run("sh -lc '. \"$sh_bootstrap_file\"; cdr foobar alpha foo bar; pwd'");
-is_same_path_output( $sh_cdr_foobar_unique, $alias_unique . "\n", 'cdr narrows aliases through the POSIX shell helper as well' );
+# The POSIX shell bootstrap is exercised through sh, which does not
+# exist on the Windows Sandbox. The bootstrap content itself is still
+# checked above, so only the sh execution is skipped here.
+# 8 = 4 assertions in this section + 4 exit-code assertions the _run
+# calls inside it make.
+SKIP: {
+    skip 'sh is not available on Windows', 8 if $^O eq 'MSWin32';
+
+    my $sh_d2_version = _run("sh -lc 'PATH=\"$d2_bindir:" . dirname($perl) . ":\$PATH\"; . \"$sh_bootstrap_file\"; d2 version'");
+    is( $sh_d2_version, "$expected_version\n", 'd2 helper dispatches d2 subcommands through the POSIX shell bootstrap' );
+    my $sh_which_dir_bookmarks = _run("sh -lc '. \"$sh_bootstrap_file\"; which_dir bookmarks_root'");
+    is_same_path_output( $sh_which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root through the POSIX shell helper' );
+    my $sh_cdr_bookmarks = _run("sh -lc '. \"$sh_bootstrap_file\"; cdr bookmarks_root; pwd'");
+    is_same_path_output( $sh_cdr_bookmarks, $bookmarks_root, 'cdr navigates to bookmarks_root through the POSIX shell helper' );
+    my $sh_cdr_foobar_unique = _run("sh -lc '. \"$sh_bootstrap_file\"; cdr foobar alpha foo bar; pwd'");
+    is_same_path_output( $sh_cdr_foobar_unique, $alias_unique . "\n", 'cdr narrows aliases through the POSIX shell helper as well' );
+}
 
 my $ps_bootstrap = _run("$perl -I'$lib' '$dashboard' shell ps");
 like( $ps_bootstrap, qr/function prompt \{/, 'd2 shell ps bootstrap uses the PowerShell prompt function instead of a PS1 variable' );
@@ -1697,10 +1710,7 @@ like( $docker_enable_multi, qr/"service"\s*:\s*"green"/, 'd2 docker enable with 
 like( $docker_enable_multi, qr/"service"\s*:\s*"blue"/,  'd2 docker enable with multiple names reports the second toggled service' );
 ok( !-f File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'docker', 'green', 'disabled.yml' ), 'd2 docker enable with multiple names enables the first service' );
 ok( !-f File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'docker', 'blue',  'disabled.yml' ), 'd2 docker enable with multiple names enables the second service' );
-my ( $docker_partial_stdout, $docker_partial_stderr, $docker_partial_exit ) = capture {
-    system 'sh', '-c', "$perl -I'$lib' '$dashboard' docker disable green ../escape";
-    return $? >> 8;
-};
+my ( $docker_partial_stdout, $docker_partial_stderr, $docker_partial_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' docker disable green ../escape");
 my $docker_disable_partial = decode( 'UTF-8', $docker_partial_stdout . $docker_partial_stderr );
 ok( $docker_partial_exit != 0, 'd2 docker disable with a bad name among good ones exits non-zero' );
 like( $docker_disable_partial, qr/"service"\s*:\s*"green"/, 'd2 docker disable with a bad name among good ones still reports the good one' );
@@ -1849,11 +1859,11 @@ close $skill_nav_fh;
 }
 my $skill_install = _run("PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install -o json 'file://$skill_repo'");
 like( $skill_install, qr/"repo_name"\s*:\s*"demo-skill"/, 'd2 skills install clones the skill into the isolated skills root' );
-my ( $skill_progress_stdout, $skill_progress_stderr, $skill_progress_exit ) = capture {
-    local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
-    system 'sh', '-c', "PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install -o json 'file://$skill_repo'";
-};
-is( $skill_progress_exit >> 8, 0, 'd2 skills install still succeeds when forced terminal progress output is enabled' );
+my ( $skill_progress_stdout, $skill_progress_stderr, $skill_progress_exit ) = _sh_capture(
+    "PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install -o json 'file://$skill_repo'",
+    { env => { DEVELOPER_DASHBOARD_PROGRESS => 1 } },
+);
+is( $skill_progress_exit, 0, 'd2 skills install still succeeds when forced terminal progress output is enabled' );
 like( $skill_progress_stdout, qr/"repo_name"\s*:\s*"demo-skill"/, 'd2 skills install keeps the machine-readable install payload on stdout while progress is enabled' );
 like( $skill_progress_stderr, qr/d2 skills install progress/, 'd2 skills install progress output prints the task-board title when enabled' );
 like( $skill_progress_stderr, qr/\[ \] Fetch skill source/, 'd2 skills install progress output prints the full task list before work begins' );
@@ -2049,13 +2059,11 @@ close $failing_skill_apt_fh;
       or diag $stdout . $stderr;
     chdir $cwd_before_failing_skill_repo or die "Unable to chdir back to $cwd_before_failing_skill_repo: $!";
 }
-my ( $failed_skill_stdout, $failed_skill_stderr, $failed_skill_exit ) = capture {
-    local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
-    local $ENV{DD_TEST_OS} = 'linux';
-    local $ENV{DD_TEST_DEBIAN_LIKE} = 1;
-    system 'sh', '-c', "PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install 'file://$failing_skill_repo'";
-};
-is( $failed_skill_exit >> 8, 1, 'd2 skills install exits non-zero when aptfile installation fails' );
+my ( $failed_skill_stdout, $failed_skill_stderr, $failed_skill_exit ) = _sh_capture(
+    "PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install 'file://$failing_skill_repo'",
+    { env => { DEVELOPER_DASHBOARD_PROGRESS => 1, DD_TEST_OS => 'linux', DD_TEST_DEBIAN_LIKE => 1 } },
+);
+is( $failed_skill_exit, 1, 'd2 skills install exits non-zero when aptfile installation fails' );
 like( $failed_skill_stderr, qr/\[X\] Install aptfile dependencies from .*failing-apt-skill.*aptfile \(error: Failed to install skill apt dependencies .*?\)/, 'd2 skills install progress prints the failure reason directly on the failed aptfile row' );
 like( $failed_skill_stdout, qr/^Error: Failed to install skill apt dependencies /m, 'd2 skills install table mode prints the install error instead of a no-update summary when installation fails' );
 unlike( $failed_skill_stdout, qr/No update\./, 'd2 skills install does not claim no update when installation failed' );
@@ -2500,10 +2508,7 @@ open my $jq_hook_skipped_fh, '>', $jq_hook_skipped or die "Unable to write $jq_h
 print {$jq_hook_skipped_fh} "skip\n";
 close $jq_hook_skipped_fh;
 chmod 0600, $jq_hook_skipped or die "Unable to chmod $jq_hook_skipped: $!";
-my ( $jq_hooked_stdout, $jq_hooked_stderr, $jq_hooked_exit ) = capture {
-    system 'sh', '-c', qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta};
-    return $? >> 8;
-};
+my ( $jq_hooked_stdout, $jq_hooked_stderr, $jq_hooked_exit ) = _sh_capture(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
 is( $jq_hooked_exit, 0, 'd2 jq succeeds when command hook files exist' );
 like( $jq_hooked_stdout, qr/^hook-one\n/s, 'd2 jq streams hook stdout before the main command output' );
 like( $jq_hooked_stdout, qr/hook-two\n2\n\z/s, 'd2 jq keeps the main command output after streamed hook stdout' );
@@ -2559,10 +2564,7 @@ GO
     close $jq_go_hook_fh;
     chmod 0755, $jq_go_hook or die "Unable to chmod $jq_go_hook: $!";
 
-    my ( $jq_go_stdout, $jq_go_stderr, $jq_go_exit ) = capture {
-        system 'sh', '-c', qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta};
-        return $? >> 8;
-    };
+    my ( $jq_go_stdout, $jq_go_stderr, $jq_go_exit ) = _sh_capture(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
     is( $jq_go_exit, 0, 'd2 jq succeeds when an executable Go hook file exists' );
     like( $jq_go_stdout, qr/hook-go\n2\n\z/s, 'd2 jq runs the Go hook before the main command output' );
     like( $jq_go_stderr, qr/hook-go-err\n/, 'd2 jq keeps Go hook stderr visible' );
@@ -2585,10 +2587,7 @@ JAVA
     close $jq_java_hook_fh;
     chmod 0755, $jq_java_hook or die "Unable to chmod $jq_java_hook: $!";
 
-    my ( $jq_java_stdout, $jq_java_stderr, $jq_java_exit ) = capture {
-        system 'sh', '-c', qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta};
-        return $? >> 8;
-    };
+    my ( $jq_java_stdout, $jq_java_stderr, $jq_java_exit ) = _sh_capture(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
     is( $jq_java_exit, 0, 'd2 jq succeeds when an executable Java hook file exists' );
     like( $jq_java_stdout, qr/hook-java\n2\n\z/s, 'd2 jq runs the Java hook before the main command output' );
     like( $jq_java_stderr, qr/hook-java-err\n/, 'd2 jq keeps Java hook stderr visible' );
@@ -2670,10 +2669,7 @@ print $ENV{RESULT} // '';
 PL
 close $custom_run_fh;
 chmod 0755, $custom_run or die "Unable to chmod $custom_run: $!";
-my ( $custom_stdout, $custom_stderr, $custom_exit ) = capture {
-    system 'sh', '-c', "$perl -I'$lib' '$dashboard' inspect-result";
-    return $? >> 8;
-};
+my ( $custom_stdout, $custom_stderr, $custom_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' inspect-result");
 is( $custom_exit, 0, 'directory-backed custom command succeeds after hook streaming' );
 like( $custom_stdout, qr/^custom-hook\n/s, 'directory-backed custom command streams hook stdout before the final RESULT json' );
 like( $custom_stderr, qr/custom-hook-err\n/, 'directory-backed custom command streams hook stderr live' );
@@ -2713,10 +2709,7 @@ print Developer::Dashboard::Runtime::Result->report();
 PL
 close $report_run_fh;
 chmod 0755, $report_run or die "Unable to chmod $report_run: $!";
-my ( $report_stdout, $report_stderr, $report_exit ) = capture {
-    system 'sh', '-c', "$perl -I'$lib' '$dashboard' report-result";
-    return $? >> 8;
-};
+my ( $report_stdout, $report_stderr, $report_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' report-result");
 $report_stdout = decode( 'UTF-8', $report_stdout );
 $report_stderr = decode( 'UTF-8', $report_stderr );
 is( $report_exit, 0, 'directory-backed custom commands can print Runtime::Result reports after hook execution' );
@@ -2752,10 +2745,7 @@ open my $update_skip_fh, '>', $update_skip or die "Unable to write $update_skip:
 print {$update_skip_fh} "skip\n";
 close $update_skip_fh;
 chmod 0600, $update_skip or die "Unable to chmod $update_skip: $!";
-my ( $update_stdout, $update_stderr, $update_exit ) = capture {
-    system 'sh', '-c', "$perl -I'$lib' '$dashboard' update";
-    return $? >> 8;
-};
+my ( $update_stdout, $update_stderr, $update_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' update");
 is( $update_exit, 0, 'd2 update custom command succeeds' );
 like( $update_stdout, qr/^Test/s, 'd2 update custom command streams hook stdout before returning RESULT json' );
 like( $update_stderr, qr/warned/, 'd2 update streams hook stderr live' );
@@ -2808,10 +2798,7 @@ PL
 close $huge_probe_fh;
 chmod 0755, $huge_probe or die "Unable to chmod $huge_probe: $!";
 
-my ( $huge_stdout, $huge_stderr, $huge_exit ) = capture {
-    system 'sh', '-c', "$perl -I'$lib' '$dashboard' huge-result";
-    return $? >> 8;
-};
+my ( $huge_stdout, $huge_stderr, $huge_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' huge-result");
 is( $huge_exit, 0, 'dashboard custom commands still succeed when RESULT grows beyond the inline exec-safe environment size' );
 like( $huge_stdout, qr/probe-stderr=1800000\n/s, 'later hook files can still read oversized RESULT state through the fallback channel' );
 like( $huge_stdout, qr/stdout=32\n/s, 'final command still receives the oversized hook stdout length through Runtime::Result' );
@@ -2875,10 +2862,7 @@ PL
 close $stop_third_fh;
 chmod 0755, $stop_third or die "Unable to chmod $stop_third: $!";
 
-my ( $stop_stdout, $stop_stderr, $stop_exit ) = capture {
-    system 'sh', '-c', "$perl -I'$lib' '$dashboard' hook-stop-check";
-    return $? >> 8;
-};
+my ( $stop_stdout, $stop_stderr, $stop_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' hook-stop-check");
 is( $stop_exit, 0, 'dashboard returns to the main command after a hook emits the explicit stop marker' );
 like( $stop_stdout, qr/^ABC\n/s, 'dashboard still streams stdout from hooks that ran before the stop marker' );
 like( $stop_stdout, qr/stop-hook\n/s, 'dashboard still streams stdout from the hook that requested stop' );
@@ -3068,31 +3052,33 @@ close $nonrepo_ext_fh;
 chmod 0755, File::Spec->catfile( $nonrepo_cli_root, 'foobar' )
   or die "Unable to chmod non-repo custom command: $!";
 
-my ( $nonrepo_command_stdout, undef, $nonrepo_command_exit ) = capture {
-    system 'sh', '-c', "cd '$nonrepo_root' && $perl -I'$repo/lib' '$repo/bin/d2' foobar one two";
-    return $? >> 8;
-};
+my ( $nonrepo_command_stdout, undef, $nonrepo_command_exit ) = _sh_capture("cd '$nonrepo_root' && $perl -I'$repo/lib' '$repo/bin/d2' foobar one two");
 is( $nonrepo_command_exit, 0, 'non-repo local custom command exits successfully' );
 like( $nonrepo_command_stdout, qr/^nonrepo-command:one two$/m, 'non-repo local .developer-dashboard CLI command overrides the home CLI command' );
 
 my $empty_nonrepo_root = File::Spec->catdir( $ENV{HOME}, 'projects', 'nonrepo-home-fallback-project' );
 make_path( File::Spec->catdir( $empty_nonrepo_root, '.developer-dashboard' ) );
-my ( $empty_nonrepo_stdout, undef, $empty_nonrepo_exit ) = capture {
-    system 'sh', '-c', "cd '$empty_nonrepo_root' && printf '' | $perl -I'$repo/lib' '$repo/bin/d2' foobar one two";
-    return $? >> 8;
-};
+my ( $empty_nonrepo_stdout, undef, $empty_nonrepo_exit ) = _sh_capture("cd '$empty_nonrepo_root' && printf '' | $perl -I'$repo/lib' '$repo/bin/d2' foobar one two");
 is( $empty_nonrepo_exit, 0, 'home custom command still exits successfully from a non-repo directory' );
 like( $empty_nonrepo_stdout, qr/^argv:one two\|stdin:$/m, 'home CLI command still resolves when a non-repo directory lacks a local CLI override' );
 
 my $plain_repo = File::Spec->catdir( $ENV{HOME}, 'projects', 'plain-restart-project' );
 make_path( File::Spec->catdir( $plain_repo, '.git' ) );
 my $plain_restart_port = _find_free_port();
-my ( $plain_restart_stdout, $plain_restart_stderr, $plain_restart_exit ) = capture {
-    local $ENV{PERL5OPT} if _coverage_requested();
-    local $ENV{HARNESS_PERL_SWITCHES} if _coverage_requested();
-    system 'sh', '-c', "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/d2' restart --host 127.0.0.1 --port $plain_restart_port";
-    return $? >> 8;
-};
+
+# A restart spawns the runtime server, which must not inherit the
+# coverage switches: the server would run under Devel::Cover and write
+# its cover database into the served directory. The switches are
+# cleared only when coverage was requested, matching the original
+# capture blocks.
+my %restart_env;
+if ( _coverage_requested() ) {
+    %restart_env = ( PERL5OPT => undef, HARNESS_PERL_SWITCHES => undef );
+}
+my ( $plain_restart_stdout, $plain_restart_stderr, $plain_restart_exit ) = _sh_capture(
+    "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/d2' restart --host 127.0.0.1 --port $plain_restart_port",
+    { env => \%restart_env },
+);
 is( $plain_restart_exit, 0, 'd2 restart succeeds from a repo without a project-local dashboard root' );
 unlike( $plain_restart_stderr, qr/\S/, 'd2 restart keeps stderr clean in a repo without a project-local dashboard root' );
 like( $plain_restart_stdout, qr/Component\s+Target\s+Status/, 'd2 restart prints a table summary by default' );
@@ -3110,12 +3096,10 @@ like( $plain_stop_stdout, qr/Component\s+Target\s+Status/, 'd2 stop prints a tab
 like( $plain_stop_stdout, qr/\bweb\b/, 'd2 stop table summary includes the web row' );
 
 my $json_restart_port = _find_free_port();
-my ( $json_restart_stdout, $json_restart_stderr, $json_restart_exit ) = capture {
-    local $ENV{PERL5OPT} if _coverage_requested();
-    local $ENV{HARNESS_PERL_SWITCHES} if _coverage_requested();
-    system 'sh', '-c', "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/d2' restart -o json --host 127.0.0.1 --port $json_restart_port";
-    return $? >> 8;
-};
+my ( $json_restart_stdout, $json_restart_stderr, $json_restart_exit ) = _sh_capture(
+    "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/d2' restart -o json --host 127.0.0.1 --port $json_restart_port",
+    { env => \%restart_env },
+);
 is( $json_restart_exit, 0, 'd2 restart -o json succeeds from a repo without a project-local dashboard root' );
 unlike( $json_restart_stderr, qr/\S/, 'd2 restart -o json keeps stderr clean in a repo without a project-local dashboard root' );
 like( $json_restart_stdout, qr/"web_pid"\s*:/, 'd2 restart -o json prints the legacy machine-readable payload' );
@@ -3130,13 +3114,10 @@ unlike( $json_stop_stderr, qr/\S/, 'd2 stop -o json keeps stderr clean after the
 like( $json_stop_stdout, qr/"collectors"\s*:/, 'd2 stop -o json prints the legacy machine-readable payload' );
 
 my $progress_restart_port = _find_free_port();
-my ( $progress_restart_stdout, $progress_restart_stderr, $progress_restart_exit ) = capture {
-    local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
-    local $ENV{PERL5OPT} if _coverage_requested();
-    local $ENV{HARNESS_PERL_SWITCHES} if _coverage_requested();
-    system 'sh', '-c', "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/d2' restart --host 127.0.0.1 --port $progress_restart_port";
-    return $? >> 8;
-};
+my ( $progress_restart_stdout, $progress_restart_stderr, $progress_restart_exit ) = _sh_capture(
+    "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/d2' restart --host 127.0.0.1 --port $progress_restart_port",
+    { env => { DEVELOPER_DASHBOARD_PROGRESS => 1, %restart_env } },
+);
 is( $progress_restart_exit, 0, 'd2 restart still succeeds when forced terminal progress output is enabled' );
 like( $progress_restart_stderr, qr/d2 restart progress/, 'd2 restart progress output prints the task-board title when enabled' );
 like( $progress_restart_stderr, qr/\[ \] Stop dashboard web service/, 'd2 restart progress output prints the full task list before work begins' );
@@ -3208,17 +3189,11 @@ close $project_pjq_run_fh;
 chmod 0755, File::Spec->catfile( $project_cli_root, 'tool' )
   or die "Unable to chmod project tool command: $!";
 
-my ( $project_command_stdout, undef, $project_command_exit ) = capture {
-    system 'sh', '-c', "cd '$project_root' && $perl -I'$repo/lib' '$repo/bin/d2' foobar one two";
-    return $? >> 8;
-};
+my ( $project_command_stdout, undef, $project_command_exit ) = _sh_capture("cd '$project_root' && $perl -I'$repo/lib' '$repo/bin/d2' foobar one two");
 is( $project_command_exit, 0, 'project-local custom command exits successfully' );
 like( $project_command_stdout, qr/^project-command:one two$/m, 'project-local custom command overrides the home CLI command when a local dashboard root exists' );
 
-my ( $project_hook_stdout, $project_hook_stderr, $project_hook_exit ) = capture {
-    system 'sh', '-c', "cd '$project_root' && $perl -I'$repo/lib' '$repo/bin/d2' tool";
-    return $? >> 8;
-};
+my ( $project_hook_stdout, $project_hook_stderr, $project_hook_exit ) = _sh_capture("cd '$project_root' && $perl -I'$repo/lib' '$repo/bin/d2' tool");
 is( $project_hook_exit, 0, 'project-local hook-backed command exits successfully' );
 like( $project_hook_stdout, qr/project-hook/, 'project-local hook directories run before the final command' );
 like( $project_hook_stdout, qr/home-hook/, 'project-local hook-backed commands still inherit matching home hook directories' );
@@ -3297,25 +3272,16 @@ my $home_hook       = File::Spec->catfile( $layer_home_cli, 'layered-tool.d', '0
 my $parent_hook     = File::Spec->catfile( $layer_parent_cli, 'layered-tool.d', '10-parent.pl' );
 my $leaf_hook       = File::Spec->catfile( $layer_leaf_cli, 'layered-tool.d', '20-leaf.pl' );
 
-my ( $layered_command_stdout, undef, $layered_command_exit ) = capture {
-    system 'sh', '-c', "cd '$layer_leaf' && $perl -I'$repo/lib' '$repo/bin/d2' foobar one two";
-    return $? >> 8;
-};
+my ( $layered_command_stdout, undef, $layered_command_exit ) = _sh_capture("cd '$layer_leaf' && $perl -I'$repo/lib' '$repo/bin/d2' foobar one two");
 is( $layered_command_exit, 0, 'deepest non-repo layer custom command exits successfully' );
 like( $layered_command_stdout, qr/^leaf-foobar:one two$/m, 'deepest current-directory layer overrides home CLI commands even without a git repo' );
 
 my $tmp_no_layer = tempdir( CLEANUP => 1 );
-my ( $home_fallback_stdout, undef, $home_fallback_exit ) = capture {
-    system 'sh', '-c', "cd '$tmp_no_layer' && $perl -I'$repo/lib' '$repo/bin/d2' global-only here";
-    return $? >> 8;
-};
+my ( $home_fallback_stdout, undef, $home_fallback_exit ) = _sh_capture("cd '$tmp_no_layer' && $perl -I'$repo/lib' '$repo/bin/d2' global-only here");
 is( $home_fallback_exit, 0, 'home CLI fallback command exits successfully outside any project layer' );
 like( $home_fallback_stdout, qr/^home-global:here$/m, 'home CLI fallback command resolves when no local layer exists' );
 
-my ( $layered_hook_stdout, $layered_hook_stderr, $layered_hook_exit ) = capture {
-    system 'sh', '-c', "cd '$layer_leaf' && $perl -I'$repo/lib' '$repo/bin/d2' layered-tool";
-    return $? >> 8;
-};
+my ( $layered_hook_stdout, $layered_hook_stderr, $layered_hook_exit ) = _sh_capture("cd '$layer_leaf' && $perl -I'$repo/lib' '$repo/bin/d2' layered-tool");
 is( $layered_hook_exit, 0, 'layered hook-backed command exits successfully' );
 like( $layered_hook_stdout, qr/home-layer.*parent-layer.*leaf-layer/s, 'layered hooks run from home to leaf order across every discovered .developer-dashboard layer' );
 like( $layered_hook_stdout, qr/00-home\.pl/, 'home hook output is preserved in RESULT for the final command' );
@@ -3404,11 +3370,18 @@ sub _gate_run {
     my $argv = join ' ', map { "'$_'" } @args;
     my $child_perl5opt = join ' ',
       grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
-    my ( $stdout, $stderr, $exit_code ) = capture {
-        local $ENV{PERL5OPT} = $child_perl5opt if _coverage_requested();
-        system 'sh', '-c', "cd '$dir' && HOME='$home' '$perl' -I'$lib' '$entrypoint' $argv";
-        return $? >> 8;
-    };
+    my %env;
+    if ( _coverage_requested() ) {
+        $env{PERL5OPT} = $child_perl5opt;
+        # Clear HARNESS_PERL_SWITCHES too: its switches are already merged
+        # into PERL5OPT above, and leaving the ambient value in the child
+        # would be stale — the restart blocks clear both the same way.
+        $env{HARNESS_PERL_SWITCHES} = undef;
+    }
+    my ( $stdout, $stderr, $exit_code ) = run_shell_command(
+        "cd '$dir' && HOME='$home' '$perl' -I'$lib' '$entrypoint' $argv",
+        { env => \%env },
+    );
     return ( decode( 'UTF-8', $stdout ), decode( 'UTF-8', $stderr ), $exit_code );
 }
 
@@ -3706,23 +3679,29 @@ sub _write_zip_entries {
     return 1;
 }
 
+# _sh_capture($cmd, \%options)
+# Runs one shell fragment and returns (stdout, stderr, exit_code), the
+# exit code already shifted, matching the capture blocks it replaces.
+# On Unix it is `sh -c`; on Windows it is the native runner, so a call
+# site needs no platform branch of its own. The env option carries
+# environment overrides (undef deletes the key).
+sub _sh_capture {
+    my ( $cmd, $options ) = @_;
+    return run_shell_command( $cmd, $options || {} );
+}
+
+# _helper_is_executable($path)
+# Unix filesystems carry an exec bit; Windows has none, and the dashboard
+# always invokes helpers as `$perl <helper>`, so readability is the
+# Windows equivalent of "the helper can be run".
+sub _helper_is_executable {
+    my ($path) = @_;
+    return -r $path if $^O eq 'MSWin32';
+    return -x $path;
+}
+
 sub _run {
     my ($cmd) = @_;
-    if ( $^O eq 'MSWin32' ) {
-        # The Windows Perl executable is a native drive path. A POSIX shell
-        # strips its unquoted backslashes (C:\\... becomes C:...), so quote
-        # the executable while leaving the command's shell operators intact.
-        # Git Bash uses /d/... rather than D:\\... as an executable path.
-        # Replace both quoted and bare native Perl invocations, preserving
-        # shell operators and ordinary native paths passed as Perl arguments.
-        my $shell_perl = $perl;
-        $shell_perl =~ s{\\}{/}g;
-        $shell_perl =~ s{\A([A-Za-z]):}{'/' . lc($1)}e;
-        $shell_perl =~ s/'/'"'"'/g;
-        $shell_perl = "'$shell_perl'";
-        $cmd =~ s/'\Q$perl\E'/$shell_perl/g;
-        $cmd =~ s/(?<![\w'"])\Q$perl\E(?=\s)/$shell_perl/g;
-    }
     my $child_perl5opt = join ' ', grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
     my $runtime_command = (
         defined $dashboard
@@ -3731,22 +3710,21 @@ sub _run {
         defined $runtime_dd_cli_root
           && $cmd =~ /\Q'$runtime_dd_cli_root\E\/(?:_dashboard-core|doctor|serve|restart|stop)\b/
     );
-    my ( $stdout, $stderr, $exit_code ) = capture {
-        # Git Bash rewrites URL-like command arguments such as /ajax/health to
-        # Windows filesystem paths before handing them to native Strawberry
-        # Perl. Disable that conversion only for this Windows shell fixture.
-        local $ENV{MSYS_NO_PATHCONV} = '1' if $^O eq 'MSWin32';
-        local $ENV{MSYS2_ARG_CONV_EXCL} = '*' if $^O eq 'MSWin32';
-        if ($runtime_command) {
-            local $ENV{PERL5OPT};
-            local $ENV{HARNESS_PERL_SWITCHES};
-            system 'sh', '-c', $cmd;
-            return $? >> 8;
-        }
-        local $ENV{PERL5OPT} = $child_perl5opt if _coverage_requested();
-        system 'sh', '-c', $cmd;
-        return $? >> 8;
-    };
+
+    # There is no sh on Windows, so the command is run natively there
+    # (Local::NativeCommand parses the fragment and launches the argv list
+    # directly); on Unix it is still `sh -c`, unchanged. The Git Bash path
+    # rewriting and MSYS conversion variables this used to work around are
+    # gone with the shell.
+    my %env;
+    if ($runtime_command) {
+        $env{PERL5OPT}              = undef;
+        $env{HARNESS_PERL_SWITCHES} = undef;
+    }
+    elsif ( _coverage_requested() ) {
+        $env{PERL5OPT} = $child_perl5opt;
+    }
+    my ( $stdout, $stderr, $exit_code ) = run_shell_command( $cmd, { env => \%env } );
     is( $exit_code, 0, "command succeeded: $cmd" );
     return decode( 'UTF-8', $stdout . $stderr );
 }
@@ -3836,10 +3814,17 @@ sub _module_version {
 
 sub _command_available {
     my ($name) = @_;
-    my ( undef, undef, $exit_code ) = capture {
-        system 'sh', '-c', "command -v '$name' >/dev/null 2>&1";
-        return $? >> 8;
-    };
+    if ( $^O eq 'MSWin32' ) {
+
+        # There is no sh on Windows, so `command -v` cannot run. where.exe
+        # answers the same question natively.
+        my ( undef, undef, $exit_code ) = capture {
+            system 'where', $name;
+            return $? >> 8;
+        };
+        return $exit_code == 0 ? 1 : 0;
+    }
+    my ( undef, undef, $exit_code ) = _sh_capture("command -v '$name' >/dev/null 2>&1");
     return $exit_code == 0 ? 1 : 0;
 }
 
