@@ -2794,7 +2794,8 @@ sub _pkill_perl {
 sub _find_processes_by_prefix {
     my ( $self, $prefix ) = @_;
     my @matches;
-    for my $proc ( $self->_ps_processes ) {
+    my @procs = $self->_ps_processes;
+    for my $proc ( @procs ) {
         next if !$self->_proc_owned_by_current_user($proc);
         if ( defined $proc->{args} && $proc->{args} =~ /^\Q$prefix\E/ ) {
             push @matches, $proc;
@@ -2804,14 +2805,12 @@ sub _find_processes_by_prefix {
             push @matches, $proc;
             next;
         }
-        # On Windows the process title is read out of the same command
-        # line this scan already holds (see _read_process_title), so a
-        # title this scan did not already match cannot match here either
-        # - and re-reading it would cost one full process-table scan per
-        # process. Everywhere else the title can differ from the scanned
-        # arguments, so the fallback below still runs.
-        next if is_windows();
-        my $title = $self->_read_process_title( $proc->{pid} );
+        # The title can differ from the scanned arguments (the qemu case
+        # in the header comment), so fall back to a title read. Hand this
+        # scan's rows in: on Windows the title is read out of those very
+        # rows, and a fresh table scan per process would cost one full
+        # PowerShell enumeration each.
+        my $title = $self->_read_process_title( $proc->{pid}, \@procs );
         next if !defined $title;
         next if $title !~ /^\Q$prefix\E/ && $title !~ /\$0\s*=\s*\\?["']\Q$prefix\E/;
         push @matches, {
@@ -2929,6 +2928,7 @@ sub _ps_processes {
             return $? >> 8;
         };
         return if $exit_code != 0;
+        return () if !defined $stdout;
         my @procs;
         for my $line ( split /\n/, $stdout ) {
             next if $line !~ /^\s*(\d+)\t(.*)$/;
@@ -3516,12 +3516,14 @@ sub _adopted_process_title {
     return;
 }
 
-# _read_process_title($pid)
+# _read_process_title($pid, $rows)
 # Reads a process command line for matching and diagnostics.
-# Input: process id integer.
+# Input: process id integer and optional process-table rows (array reference
+# as returned by _ps_processes) to search instead of scanning the table
+# again; callers that already hold a scan pass its rows in.
 # Output: command line string or undef.
 sub _read_process_title {
-    my ( $self, $pid ) = @_;
+    my ( $self, $pid, $rows ) = @_;
     # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-590, same shape as
     # DD-585's fix in CollectorRunner.pm and DD-589's fix in IndicatorStore.pm).
     # The ps fallback below runs whenever /proc is unavailable and reads $?
@@ -3553,9 +3555,11 @@ sub _read_process_title {
         # simply unknown. Callers already treat undef as unknown;
         # spawning cmd.exe for a ps that can never exist would only waste
         # a process and surface its "not recognized" text through the
-        # capture.
+        # capture. Callers that already hold a table scan pass its rows
+        # in so this read costs no fresh scan.
         return if !defined $pid || $pid !~ /^\d+$/;
-        for my $row ( $self->_ps_processes ) {
+        my @table = ref($rows) eq 'ARRAY' ? @{$rows} : $self->_ps_processes;
+        for my $row ( @table ) {
             next if $row->{pid} != $pid;
             my $adopted = $self->_adopted_process_title( $row->{args} );
             return $adopted if defined $adopted;
