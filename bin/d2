@@ -288,7 +288,7 @@ sub _run_command_hook_streaming {
 
     # On Windows IO::Select only works for real sockets, so can_read over
     # the open3 pipes returns at once with nothing ready and the hook's
-    # output is silently lost. Drain both pipes with reader threads there
+    # output is silently lost. Drain both pipes with PeekNamedPipe there
     # instead; the select loop below stays for every other platform.
     my $drained = 0;
     if ( $^O eq 'MSWin32' ) {
