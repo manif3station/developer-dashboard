@@ -155,7 +155,16 @@ sub _wait_process_wrapper ($) {
     # and the check keys off the load-time platform, not runtime $^O,
     # because tests localize $^O to MSWin32 on Linux (t/99 test 88).
     if ( $_REAL_OS_IS_WINDOWS && defined $pid && !exists $_SPAWN_CHILDREN{$pid} ) {
-        return 255;
+        # Only a plausible child pid can be an already-reaped child: the
+        # native wait croaks "invalid GoRoutine child process identifier"
+        # for pid 0 and for pids above the Windows DWORD range (2**32 - 1),
+        # and those can never be a valid child, so let them reach the XS
+        # instead of masking the error as the 255 unknown status. A
+        # positive pid inside the DWORD range keeps the 255 answer, so a
+        # second wait on an already-reaped child still reports unknown
+        # instead of the native wait croaking (Windows error 87). The
+        # bounds match the native wait_process contract exactly.
+        return 255 if $pid =~ /^\d+$/ && $pid >= 1 && $pid <= 4294967295;
     }
     my $code = $_XS_WAIT_PROCESS->($pid);
     delete $_SPAWN_CHILDREN{$pid} if defined $pid;
