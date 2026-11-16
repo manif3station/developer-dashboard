@@ -1748,7 +1748,7 @@ my $repos = tempdir( CLEANUP => 1 );
         delete local $ENV{DD_TEST_ALPINE};
         delete local $ENV{DD_TEST_FEDORA};
         is_deeply( [ $manager->_host_progress_system_task_ids ],
-            $^O eq 'darwin' ? ['install_brewfile'] : ['install_aptfile'],
+            $^O eq 'MSWin32' ? ['install_wingetfile'] : $^O eq 'darwin' ? ['install_brewfile'] : ['install_aptfile'],
             'host progress detects the native package manager' );
     }
 }
@@ -1947,7 +1947,7 @@ my $repos = tempdir( CLEANUP => 1 );
 {
     local $ENV{DEVELOPER_DASHBOARD_SKILL_INSTALL_TIMEOUT_MS} = 200;
     my $bin = tempdir( CLEANUP => 1 );
-    _stub_at( File::Spec->catfile( $bin, 'npx' ), "#!/bin/sh\nsleep 30\n", "\@echo off\ntimeout /t 30 /nobreak >nul\n" );
+    _stub_at( File::Spec->catfile( $bin, 'npx' ), "#!/bin/sh\nsleep 30\n", "\@echo off\nping -n 31 127.0.0.1 >nul\n" );
     local $ENV{PATH} = "$bin$path_sep$ENV{PATH}";
 
     my $skill = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'node-hang' );
@@ -1963,8 +1963,8 @@ my $repos = tempdir( CLEANUP => 1 );
 {
     local $ENV{DEVELOPER_DASHBOARD_SKILL_INSTALL_TIMEOUT_MS} = 200;
     my $bin = tempdir( CLEANUP => 1 );
-    _stub_at( File::Spec->catfile( $bin, 'python' ),  "#!/bin/sh\nsleep 30\n", "\@echo off\ntimeout /t 30 /nobreak >nul\n" );
-    _stub_at( File::Spec->catfile( $bin, 'python3' ), "#!/bin/sh\nsleep 30\n", "\@echo off\ntimeout /t 30 /nobreak >nul\n" );
+    _stub_at( File::Spec->catfile( $bin, 'python' ),  "#!/bin/sh\nsleep 30\n", "\@echo off\nping -n 31 127.0.0.1 >nul\n" );
+    _stub_at( File::Spec->catfile( $bin, 'python3' ), "#!/bin/sh\nsleep 30\n", "\@echo off\nping -n 31 127.0.0.1 >nul\n" );
     local $ENV{PATH} = "$bin$path_sep$ENV{PATH}";
 
     my $skill = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'py-hang' );
