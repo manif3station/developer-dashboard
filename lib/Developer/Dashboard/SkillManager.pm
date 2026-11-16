@@ -17,6 +17,7 @@ use IO::Select;
 use IPC::Open3;
 use JSON::XS qw(decode_json encode_json);
 use Symbol qw(gensym);
+use Time::HiRes ();
 use Developer::Dashboard::Platform qw(command_in_path passwd_home_directory);
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::PathIdentity qw(current_working_directory);
@@ -1419,6 +1420,11 @@ sub _run_streaming_command {
         # instead; the select loop below stays for every other platform.
         my $drained = 0;
         if ( $^O eq 'MSWin32' ) {
+            # The Windows drain polls, so it can enforce the timeout itself:
+            # alarm delivery is deferred while this process is blocked in
+            # select on Strawberry Perl, so the deadline is the mechanism
+            # that actually ends a hung child on time there.
+            my $deadline = $timeout_ms ? Time::HiRes::time() + $timeout_ms / 1000 : undef;
             $drained = $self->_drain_child_streams_windows(
                 $stdout_handle,
                 $stderr_handle,
@@ -1430,6 +1436,7 @@ sub _run_streaming_command {
                         $self->_progress_detail_line($line);
                     }
                 },
+                $deadline,
             );
         }
         if ( !$drained ) {
