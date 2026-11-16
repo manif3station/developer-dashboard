@@ -161,11 +161,23 @@ SKIP: {
 SKIP: {
     skip 'named POSIX signal handling is unavailable on Windows', 4 if $^O eq 'MSWin32';
     for my $signal_name (qw(HUP INT)) {
+        # The child reports readiness only after installing its handler.
+        # A fixed 0.05s sleep is below perl startup on the qemu ARM64 box
+        # (~56ms for a bare perl -e, more under load), so the signal used to
+        # arrive before the handler existed and the child died on the
+        # default action instead (129/130). Polling for the marker exits as
+        # soon as the child is ready, so fast machines are unaffected.
+        my $marker = File::Spec->catfile( $dir, "signal-$signal_name-ready.txt" );
         my $signal_child = Developer::Dashboard::GoRoutine::spawn(
-            [ $^X, '-e', "\$SIG{$signal_name} = sub { exit 0 }; sleep 30;" ],
+            [ $^X, '-e', "\$SIG{$signal_name} = sub { exit 0 }; open my \$ready_fh, '>', '$marker' or die \$!; print {\$ready_fh} \"ready\\n\"; close \$ready_fh or die \$!; sleep 30;" ],
             { cwd => $dir, stdout => $stdout, stderr => $stderr },
         );
-        select undef, undef, undef, 0.05;
+        my $ready_deadline = time() + 10;
+        while ( !-s $marker && time() < $ready_deadline ) {
+            select undef, undef, undef, 0.01;
+        }
+        diag "signal child $signal_name was not ready after 10s; signalling anyway"
+            if !-s $marker;
         ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_child, $signal_name ),
             "terminate_process sends $signal_name to a running child" );
         is( Developer::Dashboard::GoRoutine::wait_process($signal_child), 0,
