@@ -1503,9 +1503,9 @@ sub _terminate_streaming_command {
 # Output: absolute parent skills root directory path.
 sub _skill_install_root {
     my ( $self, $skill_path ) = @_;
-    my ( undef, $dir ) = File::Spec->splitpath($skill_path);
+    my ( $vol, $dir ) = File::Spec->splitpath($skill_path);
     $dir =~ s{[\\/]\z}{};
-    return $dir;
+    return $vol . $dir;
 }
 
 # _skill_apt_packages($skill_path)
