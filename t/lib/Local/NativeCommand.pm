@@ -140,7 +140,7 @@ sub _tokenise {
         my $c    = substr( $text, $i, 1 );
         my $rest = substr( $text, $i );
         if ( $c =~ /\s/ ) { $i++; next; }
-        if ( $rest =~ /\A(>(?:>&1|\/dev\/null))/ ) {
+        if ( $rest =~ /\A((?:>&1|>\/dev\/null))/ ) {
             my $matched = $1;
             my $target = $matched eq '>&1' ? 'merge' : 'null';
             push @tokens, { type => 'REDIR', fd => 1, target => $target, start => $i, end => $i + length $matched };
@@ -462,13 +462,17 @@ sub _execute_pipeline {
         else {
             ( $stage_out, $stage_err, $stage_exit ) = _run_stage( $stage, $input_bytes, $cwd, $options );
         }
-        if ( $stage->{discard_stdout} ) {
-            $stage_out = '';
-        }
-        elsif ( $stage->{merge_stderr} ) {
+        # Merge first, then discard: when a stage has both `>/dev/null`
+        # and `2>&1`, stderr is merged into a stdout that is then thrown
+        # away, so both streams end up discarded — exactly as sh does for
+        # that order. (Redirect order is not tracked: `2>&1 >/dev/null`
+        # would keep stderr in sh, but the suite never writes it that way.)
+        if ( $stage->{merge_stderr} ) {
             $stage_out .= $stage_err;
+            $stage_err = '';
         }
-        $stage_err = '' if $stage->{discard_stderr} || $stage->{merge_stderr};
+        $stage_out = '' if $stage->{discard_stdout};
+        $stage_err = '' if $stage->{discard_stderr};
         $input_bytes  = $stage_out;
         $pipeline_out = $stage_out;
         $pipeline_err .= $stage_err;
@@ -520,6 +524,11 @@ sub _interpret_printf_format {
 sub _run_stage {
     my ( $stage, $stdin_bytes, $cwd, $options ) = @_;
     my ( $stdout, $stderr, $exit );
+    # getcwd() first: it returns undef when the working directory has
+    # been deleted, and chdir undef would silently go to HOME instead of
+    # dying — so the failure must surface here, before any temp file is
+    # created and before anything chdirs.
+    my $orig_cwd = getcwd() // die "cannot determine current working directory: $!";
     my $stdin_file;
     if ( defined $stdin_bytes ) {
         my ( $fh, $name ) = tempfile( UNLINK => 0 );
@@ -528,7 +537,6 @@ sub _run_stage {
         close $fh or die "Unable to close stdin file: $!";
         $stdin_file = $name;
     }
-    my $orig_cwd = getcwd();
     my $ok = eval {
         ( $stdout, $stderr, $exit ) = capture {
             local %ENV = %ENV;
@@ -550,8 +558,9 @@ sub _run_stage {
         1;
     };
     my $error = $@;
-    chdir $orig_cwd or die "cannot restore working directory '$orig_cwd': $!";
+    my $restore_failed = !chdir $orig_cwd;
     unlink $stdin_file if defined $stdin_file;
+    die "cannot restore working directory '$orig_cwd': $!" if $restore_failed;
     die $error if !$ok;
     return ( $stdout, $stderr, $exit );
 }
@@ -583,7 +592,11 @@ sub _with_stdin_file {
 # _find_executable($name)
 # Checks a command is runnable without a shell: a path is checked
 # directly (with .exe/.bat/.cmd tried on Windows), a bare name is
-# searched on PATH.
+# searched on PATH. A missing command dies loudly by design — with no
+# shell present there is no exit 127 to return. Under force_windows on
+# Unix the check uses Unix -x semantics (extension candidates only on
+# real MSWin32); the native Unix path never reaches here, it delegates
+# to sh -c.
 sub _find_executable {
     my ($name) = @_;
     my @candidates = ($name);

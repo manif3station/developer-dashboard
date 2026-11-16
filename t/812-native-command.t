@@ -6,6 +6,7 @@ use utf8;
 
 use Test::More;
 use Capture::Tiny qw(capture);
+use Cwd qw(getcwd);
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
@@ -110,7 +111,13 @@ _is_same_as_sh( 'exit code 3 passes through', qq{'$perl' -e 'exit 3'} );
 _is_same_as_sh( 'exit code 1 passes through', qq{'$perl' -e 'exit 1'} );
 _is_same_as_sh( 'stderr kept separate', qq{'$perl' -e 'print STDERR "err\\n"; print "out\\n"'} );
 _is_same_as_sh( 'stderr discarded 2>/dev/null', qq{'$perl' -e 'print STDERR "err\\n"; print "out\\n"' 2>/dev/null} );
+# The merge appends the captured stderr after stdout. Perl buffers a
+# piped STDOUT, so without autoflush sh's interleaving depends on flush
+# timing and the two can never match byte-for-byte; autoflush makes the
+# write order deterministic (and equal to the runner's concat order).
+_is_same_as_sh( 'stderr merged into stdout', qq{'$perl' -e '\$| = 1; print "out\\n"; print STDERR "err\\n"' 2>&1} );
 _is_same_as_sh( 'stdout discarded, stderr kept', qq{'$perl' -e 'print STDERR "err\\n"; print "out\\n"' >/dev/null} );
+_is_same_as_sh( 'stdout and stderr discarded', qq{'$perl' -e 'print STDERR "err\\n"; print "out\\n"' >/dev/null 2>&1} );
 
 # Environment option overrides.
 {
@@ -133,6 +140,21 @@ _is_same_as_sh( 'stdout discarded, stderr kept', qq{'$perl' -e 'print STDERR "er
     my ( $out, undef, $exit ) = run_shell_command( qq{'$perl' -e 'print \$ARGV[0], "\\n"' C:\\temp\\file.txt}, { force_windows => 1 } );
     is( $out, "C:\\temp\\file.txt\n", 'a bare Windows path keeps its backslashes' );
     is( $exit, 0, 'a bare Windows path command succeeds' );
+}
+
+# getcwd() fails when the working directory has been deleted: the runner
+# must die loudly naming the cause instead of restoring to HOME.
+SKIP: {
+    my $safe_cwd = getcwd();
+    my $gone = tempdir( CLEANUP => 1 );
+    my $deleted = ( chdir $gone && rmdir $gone ) ? 1 : 0;
+    chdir $safe_cwd or die "Unable to restore working directory: $!" unless $deleted;
+    skip 'cannot delete the working directory on this platform', 2 unless $deleted;
+    my $died = eval { run_shell_command( qq{printf 'x' | '$perl' -e 'print <STDIN>'}, { force_windows => 1 } ); 1 } ? 0 : 1;
+    my $err = $@;
+    chdir $safe_cwd or die "Unable to restore working directory: $!";
+    ok( $died, 'dies when the working directory has been deleted' );
+    like( $err, qr/cannot determine current working directory/, 'deleted-cwd failure names the cause' );
 }
 
 # The _gate_run shape: cd && HOME=... perl entrypoint args.

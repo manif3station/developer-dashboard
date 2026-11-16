@@ -3371,7 +3371,13 @@ sub _gate_run {
     my $child_perl5opt = join ' ',
       grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
     my %env;
-    $env{PERL5OPT} = $child_perl5opt if _coverage_requested();
+    if ( _coverage_requested() ) {
+        $env{PERL5OPT} = $child_perl5opt;
+        # Clear HARNESS_PERL_SWITCHES too: its switches are already merged
+        # into PERL5OPT above, and leaving the ambient value in the child
+        # would be stale — the restart blocks clear both the same way.
+        $env{HARNESS_PERL_SWITCHES} = undef;
+    }
     my ( $stdout, $stderr, $exit_code ) = run_shell_command(
         "cd '$dir' && HOME='$home' '$perl' -I'$lib' '$entrypoint' $argv",
         { env => \%env },
