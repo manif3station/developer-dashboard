@@ -9,7 +9,7 @@ use Cwd qw(realpath);
 use File::Copy qw(copy);
 use File::Path qw(make_path remove_tree);
 use File::Spec;
-use File::Basename qw(basename);
+use File::Basename qw(basename dirname);
 use File::Find qw(find);
 use File::Temp qw(tempdir);
 use Capture::Tiny qw(capture);
@@ -274,6 +274,7 @@ sub uninstall {
     my $inside_layer = 0;
     for my $skills_root ( $self->{paths}->skills_roots ) {
         my $real_root = realpath($skills_root);
+        next if !defined $real_root;
         if ( index( $real_path, $real_root . '/' ) == 0 ) {
             $inside_layer = 1;
             last;
@@ -483,24 +484,107 @@ sub _is_safe_skill_name {
     return @segments == 1 ? 1 : 0;
 }
 
+# _resolve_path_symlinks($path)
+# Resolves every symlink component of one path, component by component,
+# returning the fully resolved path, or undef when a link cannot be read
+# or the resolution would recurse too deep. Cwd::realpath does not resolve
+# symlinks on Windows (it canonicalises dots and case only), so a plain
+# realpath cannot tell that a planted link escapes the skills root. On
+# Unix realpath already resolves links, so this walk is a no-op there: no
+# component is ever a symlink the walk needs to replace.
+# Input: absolute or relative path string.
+# Output: resolved path string, or undef.
+sub _resolve_path_symlinks {
+    my ( $path, $depth ) = @_;
+    $depth //= 0;
+    return undef if $depth > 40;
+    return $path if !defined $path || $path eq '';
+    my ( $vol, $dirs, $file ) = File::Spec->splitpath($path);
+    my @parts = File::Spec->splitdir($dirs);
+    push @parts, $file if defined $file && $file ne '';
+    my $current = File::Spec->file_name_is_absolute($path)
+        ? File::Spec->catpath( $vol, File::Spec->rootdir(), '' )
+        : current_working_directory();
+    for my $i ( 0 .. $#parts ) {
+        my $part = $parts[$i];
+        next if !defined $part || $part eq '' || $part eq '.';
+        if ( $part eq '..' ) {
+            $current = dirname($current);
+            next;
+        }
+        $current = File::Spec->catdir( $current, $part );
+        next if !-l $current;
+        my $target = readlink($current);
+        return undef if !defined $target;
+        my $resolved = File::Spec->file_name_is_absolute($target)
+            ? $target
+            : File::Spec->catdir( dirname($current), $target );
+        my @rest = @parts[ $i + 1 .. $#parts ];
+        my $rejoined
+            = @rest ? File::Spec->catdir( $resolved, @rest ) : $resolved;
+        return _resolve_path_symlinks( $rejoined, $depth + 1 );
+    }
+    return $current;
+}
+
+# _strict_directory($path)
+# Whether one path names an existing directory, checking each component
+# in turn. Win32 stat() forgives a '..' after a component that does not
+# exist, so '-d "owner/.."' is true on Windows even when there is no
+# 'owner'; walking the components and requiring each one to exist as a
+# directory matches Unix '-d' on every platform.
+# Input: path string.
+# Output: boolean true when the path is an existing directory.
+sub _strict_directory {
+    my ($path) = @_;
+    return 0 if !defined $path || $path eq '';
+    my ( $vol, $dirs, $file ) = File::Spec->splitpath($path);
+    my @parts = File::Spec->splitdir($dirs);
+    push @parts, $file if defined $file && $file ne '';
+    my $current = File::Spec->file_name_is_absolute($path)
+        ? File::Spec->catpath( $vol, File::Spec->rootdir(), '' )
+        : current_working_directory();
+    for my $part (@parts) {
+        next if !defined $part || $part eq '' || $part eq '.';
+        if ( $part eq '..' ) {
+            $current = dirname($current);
+            next;
+        }
+        $current = File::Spec->catdir( $current, $part );
+        return 0 if !-d $current;
+    }
+    return 1;
+}
+
 # _install_path_contained($skill_path, $skills_root)
 # Reports whether one install destination resolves to somewhere strictly
-# beneath its skills root, following symlinks so a planted link cannot redirect
-# the pre-install removal or the checkout that follows it out of the tree. A
-# destination that does not exist yet is contained by construction, because the
-# name it was built from is already one validated segment; a destination whose
-# resolved target cannot be established is refused rather than assumed safe.
+# beneath its skills root, following symlinks so a planted link cannot
+# redirect the pre-install removal or the checkout that follows it out of
+# the tree. Symlink components are resolved by a readlink walk first,
+# because realpath does not resolve them on Windows; a destination that
+# does not exist yet is then checked lexically against the root, which is
+# sound once its links are resolved. A destination whose resolved target
+# cannot be established is refused rather than assumed safe.
 # Input: candidate installed skill path and its skills root directory path.
 # Output: boolean true when the destination is safe to remove and write.
 sub _install_path_contained {
     my ( $self, $skill_path, $skills_root ) = @_;
     my $root_real = realpath($skills_root);
     return 0 if !defined $root_real;
-    return 1 if !-e $skill_path && !-l $skill_path;
-    my $path_real = realpath($skill_path);
-    return 0 if !defined $path_real;
+    my $resolved = _resolve_path_symlinks($skill_path);
+    return 0 if !defined $resolved;
+    my $path_real = realpath($resolved);
+    if ( !defined $path_real ) {
+        # Not yet created: realpath cannot resolve it, so compare the
+        # symlink-resolved lexical path against the root instead.
+        $path_real = $resolved;
+    }
     $root_real =~ s{\\}{/}g;
     $path_real =~ s{\\}{/}g;
+    if ( $^O eq 'MSWin32' ) {
+        $root_real = lc $root_real;
+        $path_real = lc $path_real;
+    }
     return index( $path_real, $root_real . '/' ) == 0 ? 1 : 0;
 }
 
@@ -875,7 +959,7 @@ sub _local_checked_out_source {
     my ( $self, $source ) = @_;
     return if !$source;
     return if $source =~ m{\A[A-Za-z][A-Za-z0-9+.-]*://};
-    return if !-d $source;
+    return if !_strict_directory($source);
 
     my $local_source = realpath($source);
     return { error => "Local skill source '$source' is missing a .git directory" }
