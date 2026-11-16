@@ -113,6 +113,31 @@ sub load_skill_cli_layers {
     return $class->load_files( files => \@files );
 }
 
+# _restore_overlay_key_case($overlay)
+# Restores the as-loaded spelling of overlay keys on Windows, where
+# enumerating %ENV folds names to uppercase (FOO_VERSION) while direct
+# access stays case-insensitive, so a mixed-case key such as the nested
+# skill alias foo_VERSION would otherwise be returned only under its
+# folded spelling. The EnvAudit inventory records every loaded key under
+# its as-written spelling, so a folded overlay entry is moved back to the
+# recorded spelling when the recorded spelling is absent. No-op off
+# Windows and whenever the recorded spelling is already present.
+# Input: hash reference of the overlay built from %ENV.
+# Output: true value.
+sub _restore_overlay_key_case {
+    my ( $class, $overlay ) = @_;
+    return 1 if $^O ne 'MSWin32' || ref($overlay) ne 'HASH';
+    my $audit = Developer::Dashboard::EnvAudit->keys;
+    for my $recorded ( sort keys %{$audit} ) {
+        my $folded = uc $recorded;
+        next if $folded eq $recorded;
+        next if exists $overlay->{$recorded};
+        next if !exists $overlay->{$folded};
+        $overlay->{$recorded} = delete $overlay->{$folded};
+    }
+    return 1;
+}
+
 # load_skill_layers_into_hash(%args)
 # Loads the ordered nested skill env chain into an isolated temporary
 # environment and returns only the added or changed keys.
@@ -141,6 +166,7 @@ sub load_skill_layers_into_hash {
           );
         $overlay{$key} = $ENV{$key};
     }
+    $class->_restore_overlay_key_case( \%overlay );
 
     return {
         files => $loaded,
@@ -262,6 +288,7 @@ sub load_files_into_hash {
           );
         $overlay{$key} = $ENV{$key};
     }
+    $class->_restore_overlay_key_case( \%overlay );
 
     return {
         files => $loaded,
