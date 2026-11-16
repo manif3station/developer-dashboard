@@ -3374,6 +3374,12 @@ sub _web_runtime_matches_pid {
 # _collector_runtime_ready($name, $pid)
 # Confirms that a newly started collector loop became visible and stayed alive
 # long enough to catch an immediate post-ready crash.
+# A single un-ready poll while the loop process is still alive is not
+# evidence the loop died: the loop state file is metadata the child itself
+# rewrites, and a poll can land while a state replace is in flight (the file
+# transiently absent, or briefly holding a stale pid). Only a gone process
+# fails fast; otherwise the confirmation count resets and polling continues
+# until the stability budget is spent.
 # Input: collector name string and process id integer.
 # Output: boolean true when the collector loop became visible and survived the
 # short confirmation window afterwards.
@@ -3396,8 +3402,16 @@ sub _collector_runtime_ready {
             $ready_polls++;
             return 1 if $ready_polls >= $self->_runtime_confirmation_polls;
         }
-        elsif ($ready_polls) {
+        elsif ( !kill( 0, $pid ) ) {
+            # The loop process itself is gone: fail fast instead of burning
+            # the rest of the stability budget waiting on a dead child.
             return 0;
+        }
+        else {
+            # The process is alive but its loop state is transiently
+            # un-ready. Reset the confirmation so it must be consecutive,
+            # and keep polling until the budget is spent.
+            $ready_polls = 0;
         }
         sleep $self->_runtime_poll_interval;
     }
