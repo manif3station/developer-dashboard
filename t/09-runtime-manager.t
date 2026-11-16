@@ -402,6 +402,61 @@ my $pid;
     is( $sleep_calls, 1, 'start_web still sleeps between Windows readiness polls before returning the spawned pid fallback' );
 }
 
+# _start_web_background records the spawned Starman master pid, not a worker.
+# The spawned helper becomes the master in-process, but every worker also
+# holds the listen socket, so ss may list a worker first; recording a worker
+# leaves the master alive after stop_web whenever listener discovery misses
+# it, and the master respawns a replacement worker (t/09 leaked a live
+# master + worker on 7898 after passing, 3/3 solos on amd64).
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_background_web_command = sub { return ('perl') };
+    local *Developer::Dashboard::RuntimeManager::_runtime_stability_polls = sub { return 2 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_poll_interval = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 1 };
+    {
+        local *Developer::Dashboard::GoRoutine::spawn = sub { return 9101 };
+        local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ( 9102, 9101 ) };
+        is(
+            $manager->_start_web_background( host => '127.0.0.1', port => 7931, workers => 2 ),
+            9101,
+            '_start_web_background records the spawned master pid when it is one of the listeners',
+        );
+        my $pidfile = $files->read('web_pid');
+        chomp $pidfile if defined $pidfile;
+        is( $pidfile, '9101', 'the web pid file records the spawned master pid' );
+    }
+    {
+        local *Developer::Dashboard::GoRoutine::spawn = sub { return 9101 };
+        local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ( 9102, 9103 ) };
+        is(
+            $manager->_start_web_background( host => '127.0.0.1', port => 7931, workers => 2 ),
+            9102,
+            '_start_web_background keeps the first listener pid when the spawned pid is not one of the listeners',
+        );
+    }
+    $manager->_cleanup_web_files;
+}
+
+# _start_web_windows_background records the spawned master pid as well: the
+# Windows detached helper becomes the Starman master in-process, and the same
+# worker-first listener order applies.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
+    local *Developer::Dashboard::RuntimeManager::_windows_background_web_command = sub { return ('perl.exe') };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_spawn_windows_background_command = sub { return 7123 };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ( 7301, 7123 ) };
+    is(
+        $manager->_start_web_windows_background( host => '0.0.0.0', port => 7923, workers => 2, ssl => 0 ),
+        7123,
+        '_start_web_windows_background records the spawned master pid when it is one of the listeners',
+    );
+    $manager->_cleanup_web_files;
+}
+
 {
     my $staged = File::Spec->catfile( $paths->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
     my $dist_root = File::Spec->catdir( $home, 'dist-share' );
