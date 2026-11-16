@@ -98,7 +98,11 @@ sub spawn_managed_web {
         open my $ready_fh, '>', $ready_file or die "Unable to create readiness file: $!";
         print {$ready_fh} "$bound\n" or die "Unable to write bound port: $!";
         close $ready_fh or die "Unable to close readiness file: $!";
-        for (1 .. 300) {
+        # 300 seconds of parent-watch budget: the file takes longer than the
+        # old 30-second budget on Windows, where every process-table scan
+        # costs a PowerShell launch, and the direct endpoint-recovery
+        # checks below need the stand-in alive to the end of the file.
+        for (1 .. 3000) {
             exit 0 if !kill 0, $parent_pid;
             Time::HiRes::sleep(0.1);
         }
