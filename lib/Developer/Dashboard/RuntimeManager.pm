@@ -2800,13 +2800,20 @@ sub _find_processes_by_prefix {
             push @matches, $proc;
             next;
         }
-        if ( defined $proc->{args} && $proc->{args} =~ /\$0\s*=\s*["']\Q$prefix\E/ ) {
+        if ( defined $proc->{args} && $proc->{args} =~ /\$0\s*=\s*\\?["']\Q$prefix\E/ ) {
             push @matches, $proc;
             next;
         }
+        # On Windows the process title is read out of the same command
+        # line this scan already holds (see _read_process_title), so a
+        # title this scan did not already match cannot match here either
+        # - and re-reading it would cost one full process-table scan per
+        # process. Everywhere else the title can differ from the scanned
+        # arguments, so the fallback below still runs.
+        next if is_windows();
         my $title = $self->_read_process_title( $proc->{pid} );
         next if !defined $title;
-        next if $title !~ /^\Q$prefix\E/ && $title !~ /\$0\s*=\s*["']\Q$prefix\E/;
+        next if $title !~ /^\Q$prefix\E/ && $title !~ /\$0\s*=\s*\\?["']\Q$prefix\E/;
         push @matches, {
             %{$proc},
             args => $title,
@@ -2828,6 +2835,10 @@ sub _find_web_processes {
         next if $seen_pid{ $proc->{pid} }++;
         next if !$self->_proc_owned_by_current_user($proc);
         next if !$self->_looks_like_web_process($proc);
+        my $adopted = $self->_adopted_process_title( $proc->{args} );
+        if ( defined $adopted && $adopted =~ /^d2 web:\s+\S+:\d+$/ ) {
+            $proc = { %{$proc}, args => $adopted };
+        }
         push @seen, $proc;
     }
     return @seen;
@@ -2875,6 +2886,7 @@ sub _looks_like_web_process {
     my ( $self, $proc ) = @_;
     return 0 if !$proc || !$proc->{pid} || !$proc->{args};
     return 1 if $proc->{args} =~ /^d2 web:\s+\S+:\d+$/;
+    return 1 if $proc->{args} =~ /\$0\s*=\s*\\?["']d2 web:\s+\S+:\d+\\?["']/;
     return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground|web-ssl-backend-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
     return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground|web-ssl-backend-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$}i;
     return 1 if $proc->{args} =~ m{^(?:\S+/env\s+)?perl(?:\s+-\S+)*\s+(?:\S+/)?d2\s+serve(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
@@ -2895,6 +2907,15 @@ sub _ps_processes {
     # status.
     local $?;
     if (is_windows()) {
+        # The emitter uses [char]9, not a double-quoted format string:
+        # double quotes do not survive the argv-to-CommandLine round
+        # trip to powershell -Command (they arrive stripped, and the
+        # -f format then fails to parse), while single quotes leave a
+        # literal backtick-t in the output instead of a tab. Command
+        # lines are flattened to one line first: a child spawned with a
+        # multi-line -e script would otherwise split across output
+        # lines and lose everything after the first newline, including
+        # any $0 assignment it carries.
         my $powershell = _powershell_command;
         return () if !length $powershell;
         my ( $stdout, undef, $exit_code ) = capture {
@@ -2903,14 +2924,14 @@ sub _ps_processes {
                 '-NoLogo',
                 '-NoProfile',
                 '-Command',
-                q{$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | ForEach-Object { $cmd = $_.CommandLine; if ($null -eq $cmd) { $cmd = '' }; [Console]::Out.WriteLine(('{0}`t{1}' -f $_.ProcessId, $cmd)) }},
+                q{$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | ForEach-Object { $cmd = $_.CommandLine; if ($null -eq $cmd) { $cmd = '' }; $cmd = $cmd -replace '\s+', ' '; [Console]::Out.WriteLine($_.ProcessId.ToString() + [char]9 + $cmd) }},
             );
             return $? >> 8;
         };
         return if $exit_code != 0;
         my @procs;
         for my $line ( split /\n/, $stdout ) {
-            next if $line !~ /^\s*(\d+)\t?(.*)$/;
+            next if $line !~ /^\s*(\d+)\t(.*)$/;
             push @procs, {
                 pid  => $1 + 0,
                 args => $2,
@@ -3475,6 +3496,26 @@ sub _port_accepting_connections {
 
 
 
+# _adopted_process_title($args)
+# Extracts a $0-assigned process title from a command line. A $0 assignment
+# never rewrites the Windows launch command line, but a child spawned with
+# the assignment in its arguments still carries the assignment text there,
+# so the title is recoverable from the command line even though the live
+# title itself is invisible to another process. The same shape is already
+# what _find_processes_by_prefix matches against. The quotes around the
+# assignment may be backslash-escaped: the Windows spawn layer quotes an
+# argument that contains spaces, so a -e script reaches the process table
+# with its inner double quotes as \" rather than ".
+# Input: command line string.
+# Output: assigned title string or undef when the command line carries no
+# $0 assignment.
+sub _adopted_process_title {
+    my ( $self, $args ) = @_;
+    return if !defined $args || $args eq '';
+    return $2 if $args =~ /\$0\s*=\s*\\?(["'])([^"']+?)\\?\1/;
+    return;
+}
+
 # _read_process_title($pid)
 # Reads a process command line for matching and diagnostics.
 # Input: process id integer.
@@ -3502,12 +3543,25 @@ sub _read_process_title {
     }
 
     if ( is_windows() ) {
-        # ps does not exist on Windows, and there is no Windows-native
-        # command-line reader in this layer, so a title that procfs did
-        # not supply is simply unavailable. Callers already treat undef
-        # as unknown; spawning cmd.exe for a ps that can never exist
-        # would only waste a process and surface its "not recognized"
-        # text through the capture.
+        # ps does not exist on Windows, so read the command line from the
+        # process table instead: a $0 assignment never rewrites the
+        # Windows launch command line, but a child spawned with the
+        # assignment in its arguments still carries it there, so the
+        # adopted title is what callers match against. Without an
+        # assignment the command line itself is the title, the same shape
+        # ps args gives on POSIX. A pid the table no longer lists is
+        # simply unknown. Callers already treat undef as unknown;
+        # spawning cmd.exe for a ps that can never exist would only waste
+        # a process and surface its "not recognized" text through the
+        # capture.
+        return if !defined $pid || $pid !~ /^\d+$/;
+        for my $row ( $self->_ps_processes ) {
+            next if $row->{pid} != $pid;
+            my $adopted = $self->_adopted_process_title( $row->{args} );
+            return $adopted if defined $adopted;
+            return $row->{args} if defined $row->{args} && $row->{args} ne '';
+            return;
+        }
         return;
     }
 

@@ -938,9 +938,10 @@ is( $manager->_read_process_state($$), undef, '_read_process_state returns undef
     @cap = ( undef, '', 0 );
     is( $manager->_read_process_title(123), undef, '_read_process_title returns undef for undef ps output' );
 }
-# As above: no procfs and no ps on Windows, so the title is undef there.
+# As above: no procfs and no ps on Windows, so the title comes from the
+# process table instead: the live command line of the current process.
 if ( $^O eq 'MSWin32' ) {
-    is( $manager->_read_process_title($$), undef, '_read_process_title returns undef on Windows, where there is no procfs and no ps' );
+    like( $manager->_read_process_title($$), qr/100-runtimemanager-coverage/, '_read_process_title returns the live command line on Windows' );
 }
 else {
     ok( defined $manager->_read_process_title($$), '_read_process_title reads the current process title via procfs' );
