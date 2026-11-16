@@ -313,6 +313,14 @@ sub _build_stage {
         if ( $command eq 'bash' || $command eq 'sh' || $command eq 'zsh' ) {
             die "command runs $command, which is not available on Windows: $cmd";
         }
+        # `command` is a shell builtin: in sh it takes precedence over
+        # PATH lookup, so an external binary of the same name must never
+        # satisfy it — on the macOS CI runner a `command` binary on PATH
+        # let `command -v` run instead of dying. Reject it by name, so
+        # `command -v` can never work through this runner.
+        if ( $command eq 'command' ) {
+            die "command is a shell builtin, which is not available on Windows: $cmd";
+        }
         if ( $command eq 'printf' ) {
             die "printf takes exactly one format argument in command: $cmd" if @{ $stage->{argv} } != 2;
             die "printf formats with '%' are unsupported in command: $cmd" if $stage->{argv}[1] =~ /%/;
@@ -452,7 +460,10 @@ sub _execute_plan {
 sub _execute_pipeline {
     my ( $stages, $cwd, $options ) = @_;
     my ( $pipeline_out, $pipeline_err ) = ( '', '' );
-    my $exit;
+    # Start at 0: the parser dies on an empty pipeline stage, so no
+    # stages is unreachable in practice — but the return must stay
+    # defined even then, instead of leaking an undef exit code.
+    my $exit = 0;
     my $input_bytes;
     for my $stage ( @{$stages} ) {
         my ( $stage_out, $stage_err, $stage_exit );

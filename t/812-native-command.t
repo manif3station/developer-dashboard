@@ -124,6 +124,15 @@ _is_same_as_sh( 'stdout and stderr discarded', qq{'$perl' -e 'print STDERR "err\
 _is_same_as_sh( 'mid-pipeline stdout discard starves the next stage', qq{printf 'hello\\n' >/dev/null | '$perl' -e 'local \$/; print <STDIN>'} );
 _is_same_as_sh( 'mid-pipeline stdout discard, real stage', qq{'$perl' -e 'print "data\\n"' >/dev/null | '$perl' -e 'local \$/; print <STDIN>'} );
 
+# An empty pipeline returns a defined zero exit: the parser dies on an
+# empty stage, so this is defensive, but the return must never be undef.
+{
+    my ( $out, $err, $exit ) = Local::NativeCommand::_execute_pipeline( [], undef, {} );
+    is( $out, '', 'empty pipeline returns no stdout' );
+    is( $err, '', 'empty pipeline returns no stderr' );
+    is( $exit, 0, 'empty pipeline returns exit 0' );
+}
+
 # Environment option overrides.
 {
     local $ENV{DD_NATIVE_COMMAND_TEST} = 'ambient';
@@ -157,9 +166,12 @@ SKIP: {
     skip 'cannot delete the working directory on this platform', 2 unless $deleted;
     my $died = eval { run_shell_command( qq{printf 'x' | '$perl' -e 'print <STDIN>'}, { force_windows => 1 } ); 1 } ? 0 : 1;
     my $err = $@;
-    chdir $safe_cwd or die "Unable to restore working directory: $!";
     ok( $died, 'dies when the working directory has been deleted' );
     like( $err, qr/cannot determine current working directory/, 'deleted-cwd failure names the cause' );
+    # Restore after the assertions: they only inspect the captured
+    # values, so a failing restore must not stop them running. (A die
+    # here still fails the file loudly — nothing is lost silently.)
+    chdir $safe_cwd or die "Unable to restore working directory: $!";
 }
 
 # A die while writing the stdin temp file must not orphan it: the file
