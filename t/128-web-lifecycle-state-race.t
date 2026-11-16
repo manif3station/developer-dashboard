@@ -6,6 +6,7 @@ use utf8;
 
 use File::Spec;
 use File::Temp qw(tempdir);
+use IO::Socket::INET;
 use Test::More;
 use Time::HiRes qw(sleep time);
 
@@ -65,33 +66,47 @@ sub capture_warnings {
 # service: it carries the "d2 web: HOST:PORT" process title and holds a
 # real TCP listener on the reported port. A readiness file replaces the
 # inherited pipe so the fixture uses the same native process API on every OS.
+# The port is picked here, not inside the child: Windows has no getppid(),
+# and a $0 assignment never rewrites the Windows launch command line, so the
+# endpoint must already be literal in the spawned arguments for the lifecycle
+# to recover it from the process table there. The parent pid travels as an
+# argument for the same reason - the child watches it with kill 0 instead of
+# getppid(), which Strawberry Perl does not implement (it dies with "The
+# getppid function is unimplemented"). The child still reports the port it
+# actually bound through the readiness file, so the contract is unchanged.
 # Input: none.
 # Output: two-element list of the child process id and the bound port.
 sub spawn_managed_web {
+    my $probe_socket = IO::Socket::INET->new(
+        Listen => 5, LocalAddr => '127.0.0.1', LocalPort => 0,
+        Proto => 'tcp', ReuseAddr => 1,
+    ) or die "Unable to reserve a managed web stand-in port: $!";
+    my $web_port_hint = $probe_socket->sockport;
+    close $probe_socket or die "Unable to close the stand-in port probe: $!";
     my $scratch = tempdir( 'dd-web-race-XXXXXX', CLEANUP => 1, TMPDIR => 1 );
     my $port_file = File::Spec->catfile( $scratch, 'bound-port' );
     my $stdout_file = File::Spec->catfile( $scratch, 'child.stdout' );
     my $stderr_file = File::Spec->catfile( $scratch, 'child.stderr' );
     my $script = q{
-        my ($ready_file) = @ARGV;
+        my ($ready_file, $parent_pid) = @ARGV;
         my $socket = IO::Socket::INET->new(
-            Listen => 5, LocalAddr => '127.0.0.1', LocalPort => 0,
+            Listen => 5, LocalAddr => '127.0.0.1', LocalPort => __WEB_PORT__,
             Proto => 'tcp', ReuseAddr => 1,
         ) or die "Unable to bind managed web stand-in: $!";
         my $bound = $socket->sockport;
-        $0 = "d2 web: 0.0.0.0:$bound";
+        $0 = "d2 web: 0.0.0.0:__WEB_PORT__";
         open my $ready_fh, '>', $ready_file or die "Unable to create readiness file: $!";
         print {$ready_fh} "$bound\n" or die "Unable to write bound port: $!";
         close $ready_fh or die "Unable to close readiness file: $!";
-        my $parent = getppid();
         for (1 .. 300) {
-            exit 0 if getppid() != $parent;
+            exit 0 if !kill 0, $parent_pid;
             Time::HiRes::sleep(0.1);
         }
         exit 0;
     };
+    $script =~ s/__WEB_PORT__/$web_port_hint/g;
     my $child = Developer::Dashboard::GoRoutine::spawn(
-        [ $^X, '-MIO::Socket::INET', '-MTime::HiRes', '-e', $script, $port_file ],
+        [ $^X, '-MIO::Socket::INET', '-MTime::HiRes', '-e', $script, $port_file, $$ ],
         { stdout => $stdout_file, stderr => $stderr_file },
     );
     my $deadline = time() + 5;
