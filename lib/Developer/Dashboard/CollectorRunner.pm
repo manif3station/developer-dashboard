@@ -763,10 +763,16 @@ sub _run_loop_worker {
     # Capture::Tiny's >&STDOUT duplication inside a job fails with
     # 'Inappropriate I/O control operation' and the job records that error
     # instead of its own output. Re-open the handles to the same log files the
-    # spawn layer already targets, exactly as the daemonized loop child already
-    # does for itself, so the worker has real descriptors before it runs.
-    open STDOUT, '>>', $self->{files}->collector_log or die $!;
-    open STDERR, '>>', $self->{files}->collector_log . '.stderr' or die $!;
+    # spawn layer already targets, so the worker has real descriptors before
+    # it runs. Windows only: on POSIX the worker is forked from the
+    # daemonized loop child, which already has both handles on the
+    # collector log, so there is nothing to repair — and re-opening STDERR
+    # here would send worker stderr to '<log>.stderr', a different file
+    # from the loop's own stderr.
+    if ( is_windows() ) {
+        open STDOUT, '>>', $self->{files}->collector_log or die $!;
+        open STDERR, '>>', $self->{files}->collector_log . '.stderr' or die $!;
+    }
     local $SIG{TERM} = 'DEFAULT';
     local $SIG{INT}  = 'DEFAULT';
     local $SIG{HUP}  = 'DEFAULT';
