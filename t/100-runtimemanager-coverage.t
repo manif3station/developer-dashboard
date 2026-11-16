@@ -910,11 +910,14 @@ ok( defined $manager->_read_process_state($$), '_read_process_state reads the cu
 is( $manager->_read_process_state($$), undef, '_read_process_state returns undef on Windows, where there is no procfs and no ps' ) if $^O eq 'MSWin32';
 
 # Windows branch: with procfs unavailable and no ps on Windows, the readers
-# return undef without spawning ps at all. Proved on Linux by mocking
+# return undef without spawning ps at all. The title reader consults the
+# Windows process table instead of ps, so the table is mocked empty here
+# and the test still proves no ps is spawned. Proved on Linux by mocking
 # procfs away and localizing the platform; on Windows the branch is live.
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_ps_processes = sub { return () };
     my $capture_called = 0;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { $capture_called++; return ( " R \n", '', 0 ) };
     {
