@@ -542,7 +542,11 @@ PERL
     my $streamed = '';
     {
         local $SIG{ALRM} = sub { die "timeout\n" };
-        alarm 5;
+        # The saved-ajax launcher loads PageRuntime twice before the
+        # script prints anything (~8s cold on a fast machine, slower on
+        # qemu), so a 5s alarm can fire on a legitimate slow load. The
+        # alarm guards against an infinite stall; 15s still catches that.
+        alarm 15;
         eval {
             no warnings 'redefine';
             local *IO::Select::new = sub { return Local::IdleSavedAjaxSelect->new( $_[1], $_[2] ) };
@@ -666,11 +670,18 @@ PL
         },
         stderr_writer => sub { die "unexpected stderr chunk during timing stream test: $_[0]" if defined $_[0] && $_[0] ne '' },
     );
+    # The launcher loads PageRuntime twice before the script prints
+    # anything (~3s warm, ~8s cold, slower on qemu), so an absolute
+    # bound on the first chunk depends on machine load speed, not on
+    # streaming. Judge the chunks against this run's own end instead:
+    # a batched implementation would deliver everything at $end with
+    # zero inter-arrival, failing both assertions below.
+    my $end = time - $start;
     is( $stream_result->{exit_code}, 0, 'stream_saved_ajax_file succeeds for timed saved ajax stream output' );
     is( join( '', @chunks ), 'tick1tick2tick3', 'stream_saved_ajax_file forwards all timed ajax stdout chunks in order' );
     ok( @times >= 2, 'stream_saved_ajax_file delivers multiple timed chunks before process exit' );
-    ok( $times[0] < 1.5, 'stream_saved_ajax_file forwards the first timed chunk before the saved ajax process finishes' );
-    ok( $times[1] < 2.5, 'stream_saved_ajax_file keeps forwarding later timed chunks during the long-running saved ajax process' );
+    ok( $times[0] < $end - 0.5, 'stream_saved_ajax_file forwards the first timed chunk before the saved ajax process finishes' );
+    ok( $times[1] - $times[0] >= 0.5 && $times[1] - $times[0] < 2.0, 'stream_saved_ajax_file keeps forwarding later timed chunks during the long-running saved ajax process' );
 }
 {
     SKIP: {
@@ -711,11 +722,16 @@ PL
         );
         is( $stream_result->{exit_code}, 0, 'Windows pipe reader returns the child exit code' );
     }
+    # Same relative bounds as the Unix timing block above: the launcher
+    # load makes an absolute 1.5s bound machine-dependent, while the
+    # first chunk arriving well before the run ends and the ~1s
+    # inter-arrival still prove the chunks stream as they are printed.
+    my $end = time - $start;
     is( join( '', @chunks ), 'win-tick1win-tick2win-tick3',
         'Windows pipe reader forwards child output in order before process exit' );
     ok( @times >= 2, 'Windows pipe reader delivers multiple chunks before process exit' );
-    ok( $times[0] < 1.5, 'Windows pipe reader forwards the first chunk while the child is running' );
-    ok( $times[1] < 2.5, 'Windows pipe reader forwards later chunks while the child is running' );
+    ok( $times[0] < $end - 0.5, 'Windows pipe reader forwards the first chunk while the child is running' );
+    ok( $times[1] - $times[0] >= 0.5 && $times[1] - $times[0] < 2.0, 'Windows pipe reader forwards later chunks while the child is running' );
     is( $select_polls, 0, 'Windows pipe reader does not depend on IO::Select readiness for pipes' );
     }
 }
