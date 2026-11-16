@@ -386,7 +386,13 @@ my $background_result = $actions->run_command_action(
     timeout_ms => 1000,
 );
 ok( $background_result->{pid} > 0, 'background action launches a child process' );
-my $background_wait_loops = $INC{'Devel/Cover.pm'} ? 500 : 20;
+# The supervisor is a fresh perl that loads ActionRunner before it can
+# stop: ~0.75s on the qemu ARM64 box, slower under load, and its
+# TERM/wait/KILL shutdown is also slow to schedule there. A 2s poll
+# budget flakes (round 3 and the solo repro failed test 36, and test 38
+# once in ten runs); six seconds gives a slow box room while the loop
+# still exits as soon as the pid stops, so fast machines are unaffected.
+my $background_wait_loops = $INC{'Devel/Cover.pm'} ? 500 : 60;
 for ( 1 .. $background_wait_loops ) {
     last if !$actions->_pid_is_running( $background_result->{pid} );
     sleep 0.1;
@@ -441,12 +447,16 @@ SKIP: {
     # timeout. Termination by timeout is covered by the block below.
     skip 'INT delivery to a CreateProcess child does not exist on Windows', 1
       if $^O eq 'MSWin32';
-    # Give the supervisor a moment to load and install its INT handler
-    # before signalling it: an INT sent in the first instant after launch
-    # can arrive before the handler exists and be discarded, so under
-    # load the supervisor would only stop when its child finished or its
-    # timeout expired, after this test's poll budget.
-    sleep 0.5;
+    # Give the supervisor time to load and install its INT handler
+    # before signalling it. The supervisor is a fresh perl that loads
+    # ActionRunner first, which takes ~0.75s on the qemu ARM64 box and
+    # longer under load: a 0.5s sleep usually sent the INT while it was
+    # still loading, so the process died on the default disposition
+    # instead of exercising the handler at all, and under load the
+    # shutdown after the INT could still run past the poll budget.
+    # Two seconds lets the handler install and the child spawn first,
+    # so this test actually exercises the INT handler.
+    sleep 2;
     kill 'INT', $interrupt_result->{pid};
     for ( 1 .. $background_wait_loops ) {
         last if !$actions->_pid_is_running( $interrupt_result->{pid} );
