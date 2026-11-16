@@ -6,6 +6,7 @@ use warnings;
 our $VERSION = '6.30';
 
 use Exporter 'import';
+use Time::HiRes ();
 
 our @EXPORT_OK = qw(_drain_ready_handle _drain_child_streams_windows);
 
@@ -83,7 +84,7 @@ sub _drain_ready_handle {
     return \$chunk;
 }
 
-# _drain_child_streams_windows($stdout, $stderr, $on_chunk)
+# _drain_child_streams_windows($stdout, $stderr, $on_chunk, $deadline)
 # Drains two open3 pipe handles on Windows, where IO::Select cannot see
 # pipes at all: select() there only works for real sockets, so a can_read
 # loop over pipe handles returns at once with nothing ready and the child's
@@ -102,12 +103,16 @@ sub _drain_ready_handle {
 # after the child returns. Chunks reach the callback in poll order, stdout
 # first each round; order within one stream is preserved, so callers keep
 # their streaming behaviour.
-# Input: stdout handle, stderr handle, callback taking ($is_stdout, $chunk).
+# Input: stdout handle, stderr handle, callback taking ($is_stdout, $chunk),
+# and an optional deadline as epoch seconds (from Time::HiRes::time()): when
+# given, the drain dies with the streaming timeout marker once the deadline
+# passes, so a hung child is ended on time even though alarm delivery is
+# deferred while this process is blocked in select on Strawberry Perl.
 # Output: 1 when both handles were drained to end of file, 0 when the
 # Windows primitive was unavailable, in which case the caller falls back
 # to its select loop (the pre-existing behaviour, never a new failure).
 sub _drain_child_streams_windows {
-    my ( $self, $stdout, $stderr, $on_chunk ) = @_;
+    my ( $self, $stdout, $stderr, $on_chunk, $deadline ) = @_;
 
     # PeekNamedPipe lives in kernel32; GetOsFHandle in Win32API::File. Both
     # are Windows-only core modules, loaded lazily here so this file still
@@ -141,6 +146,16 @@ sub _drain_child_streams_windows {
     # The handles are left open for the caller, exactly as the thread drain
     # left them.
     while ( grep { !$_->{done} } @streams ) {
+        # A caller-supplied deadline ends a hung child without waiting for
+        # the SIGALRM that is supposed to do it: alarm delivery is deferred
+        # while this process is blocked in select on Strawberry Perl (a bare
+        # alarm(1) never fired in 25s of 1s selects, while the same alarm
+        # fires at once in a busy loop), so a timeout that only relied on
+        # alarm would return after ~17s instead of on time. The marker is
+        # the same one the SIGALRM handler dies with, so the caller's eval
+        # treats it identically.
+        die "__STREAMING_COMMAND_TIMEOUT__\n"
+          if defined $deadline && Time::HiRes::time() >= $deadline;
         my $progress = 0;
         for my $stream (@streams) {
             next if $stream->{done};
@@ -256,6 +271,8 @@ On Windows, use the whole-loop drain instead of the select loop above:
             my ( $is_stdout, $chunk ) = @_;
             # ... route $chunk wherever this caller sends it ...
         },
+        $deadline,    # optional epoch seconds; the drain dies with the
+                      # streaming timeout marker once the deadline passes
     );
     # $drained is 1 when both streams reached end of file, 0 when the
     # Windows primitive was unavailable - fall back to the select loop.
