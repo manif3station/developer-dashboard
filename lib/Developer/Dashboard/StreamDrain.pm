@@ -88,110 +88,102 @@ sub _drain_ready_handle {
 # pipes at all: select() there only works for real sockets, so a can_read
 # loop over pipe handles returns at once with nothing ready and the child's
 # output is silently lost (the doctor hook proved it live: the hook ran and
-# exited 0, but its stdout arrived empty). PeekNamedPipe cannot reach these
-# handles either - GetOsFHandle returns nothing for an open3 pipe (also
-# proved live) - so read each pipe from its own thread with a blocking
-# sysread, exactly as PageRuntime does for saved Ajax, and hand each chunk
-# to the callback in arrival order, so callers keep their streaming
-# behaviour. The callback runs in the caller's thread, never in a reader.
+# exited 0, but its stdout arrived empty). Readiness comes from
+# PeekNamedPipe on each pipe's real Win32 HANDLE, taken from
+# Win32API::File::GetOsFHandle with the filehandle glob: passing the fileno
+# number instead returns nothing, which is what the earlier version mistook
+# for PeekNamedPipe being unusable on these pipes. The loop runs entirely
+# in the main thread, exactly as PageRuntime already drains its Windows
+# pipes, and it creates no reader threads: creating any ithread breaks
+# later JSON::XS boolean encoding in the same process (proven on Strawberry
+# Perl with a trivial thread: encode_json of a hash holding JSON::XS::true()
+# dies afterwards, while JSON::PP still encodes and Perl-level isa still
+# holds), and every streaming caller in this codebase encodes JSON booleans
+# after the child returns. Chunks reach the callback in poll order, stdout
+# first each round; order within one stream is preserved, so callers keep
+# their streaming behaviour.
 # Input: stdout handle, stderr handle, callback taking ($is_stdout, $chunk).
-# Output: 1 when both handles were drained to end of file, 0 when threads
-# were unavailable, in which case the caller falls back to its select loop
-# (the pre-existing behaviour, never a new failure).
+# Output: 1 when both handles were drained to end of file, 0 when the
+# Windows primitive was unavailable, in which case the caller falls back
+# to its select loop (the pre-existing behaviour, never a new failure).
 sub _drain_child_streams_windows {
     my ( $self, $stdout, $stderr, $on_chunk ) = @_;
 
-    my $have_threads = eval { require threads; require Thread::Queue; 1 };
-    return 0 if !$have_threads;
+    # PeekNamedPipe lives in kernel32; GetOsFHandle in Win32API::File. Both
+    # are Windows-only core modules, loaded lazily here so this file still
+    # compiles and runs on POSIX perls, where the callers never invoke this
+    # function except under a mocked platform in tests.
+    my $peek = eval {
+        require Win32API::File;
+        require Win32::API;
+        my $imported = Win32::API->new( 'kernel32', 'PeekNamedPipe', 'QPIPPP', 'I' );
+        die "Could not import PeekNamedPipe from kernel32\n" if !defined $imported;
+        $imported;
+    };
+    return 0 if !$peek;
 
-    my $queue = Thread::Queue->new;
-    # No queue limit: with a limit, a reader can block in enqueue while the
-    # caller has stopped dequeuing (it is in the join), which deadlocks; and
-    # if the drain then dies before the join, the queue is destroyed while a
-    # reader is blocked, which panics the interpreter with COND_DESTROY on
-    # Windows. The caller dequeues continuously, and child output here is
-    # small, so an unbounded queue is safe.
-    # Save the standard handles before spawning the readers: on Windows a
-    # reader thread's interpreter cleanup can close the process-wide handles
-    # it inherited, leaving STDOUT/STDERR invalid in the caller afterwards
-    # (Capture::Tiny then fails with "Bad file descriptor"). Dup them first
-    # so they can be restored after the join.
-    my ( $saved_stdout, $saved_stderr );
-    if ( $^O eq 'MSWin32' ) {
-        open( $saved_stdout, '>&STDOUT' ) or undef $saved_stdout;
-        open( $saved_stderr, '>&STDERR' ) or undef $saved_stderr;
-    }
-    my @readers;
+    # Resolve both Win32 HANDLEs up front: a handle PeekNamedPipe cannot
+    # reach is a drain this function cannot run, not a handle to guess at
+    # with a blocking read, which would stall the other stream.
+    my @streams;
     for my $stream ( [ 1, $stdout ], [ 0, $stderr ] ) {
         my ( $is_stdout, $fh ) = @{$stream};
-        push @readers, threads->create(
-            sub {
-                my ( $events, $reader, $stream_is_stdout ) = @_;
-                while (1) {
-                    my $chunk = '';
-                    my $bytes = sysread( $reader, $chunk, 8192 );
-                    if ( !defined $bytes ) {
-                        next if $!{EINTR};
-                        my $error = "$!";
-                        $events->enqueue( 'R' . $stream_is_stdout . pack( 'N', length($error) ) . $error );
-                        last;
-                    }
-                    last if $bytes == 0;
-                    $events->enqueue( 'D' . $stream_is_stdout . pack( 'N', length($chunk) ) . $chunk );
-                }
-                $events->enqueue( 'C' . $stream_is_stdout );
-                return 1;
-            },
-            $queue, $fh, $is_stdout,
-        );
+        return 0 if !defined $fh || !defined fileno($fh);
+        my $handle = Win32API::File::GetOsFHandle($fh);
+        return 0 if !defined $handle;
+        push @streams, { is_stdout => $is_stdout, fh => $fh, handle => $handle, done => 0 };
     }
 
-    my %open_stream = ( 1 => 1, 0 => 1 );
-    my $drain_error;
-    eval {
-        while ( keys %open_stream ) {
-            my $event = $queue->dequeue_timed(0.25);
-            next if !defined $event;
-            my $type      = substr( $event, 0, 1 );
-            my $is_stdout = substr( $event, 1, 1 );
-            if ( $type eq 'C' ) {
-                delete $open_stream{$is_stdout};
+    # Poll both pipes until each reaches end of file. A pipe whose peek
+    # reports bytes is read at once; a pipe with nothing buffered waits for
+    # the next round; a pipe whose peek fails is broken, so the read that
+    # follows can only return buffered bytes or end of file, never block.
+    # The handles are left open for the caller, exactly as the thread drain
+    # left them.
+    while ( grep { !$_->{done} } @streams ) {
+        my $progress = 0;
+        for my $stream (@streams) {
+            next if $stream->{done};
+            my $avail = _windows_pipe_available( $peek, $stream->{handle} );
+            $avail = -1 if !defined $avail;
+            next if $avail == 0;
+            my $chunk = '';
+            my $read;
+            while (1) {
+                $read = sysread( $stream->{fh}, $chunk, 8192 );
+                last if defined $read;
+                next if $!{EINTR};
+                warn "reading a child handle failed: $!\n";
+                last;
+            }
+            if ( !defined $read || $read == 0 ) {
+                $stream->{done} = 1;
+                $progress = 1;
                 next;
             }
-            next if $type ne 'D' && $type ne 'R';
-            my $length  = unpack 'N', substr( $event, 2, 4 );
-            my $payload = substr( $event, 6 );
-            next if length($payload) != $length;
-            if ( $type eq 'R' ) {
-                warn "reading a child handle failed: $payload\n";
-                next;
-            }
-            $on_chunk->( $is_stdout, $payload );
+            $progress = 1;
+            $on_chunk->( $stream->{is_stdout}, $chunk );
         }
-        1;
-    } or do {
-        $drain_error = $@;
-    };
-    # Always join the readers before the queue goes out of scope. If this
-    # drain dies before the join, the queue is destroyed while a reader is
-    # still blocked on it, and the interpreter panics with COND_DESTROY on
-    # Windows instead of returning the error.
-    $_->join for @readers;
-    if ( $^O eq 'MSWin32' ) {
-        if ( defined $saved_stdout && !defined fileno(STDOUT) ) {
-            open( STDOUT, '>&', $saved_stdout )
-              or warn "could not restore STDOUT after child stream drain: $!\n";
-        }
-        if ( defined $saved_stderr && !defined fileno(STDERR) ) {
-            open( STDERR, '>&', $saved_stderr )
-              or warn "could not restore STDERR after child stream drain: $!\n";
-        }
-        close $saved_stdout if defined $saved_stdout;
-        close $saved_stderr if defined $saved_stderr;
+        select( undef, undef, undef, 0.02 ) if !$progress;
     }
-    die $drain_error if defined $drain_error;
 
     return 1;
+}
+
+# _windows_pipe_available($peek, $handle)
+# Reports how many bytes are waiting on one Windows pipe, without blocking.
+# Input: imported PeekNamedPipe function object and one real Win32 HANDLE.
+# Output: byte count, or undef when the pipe is broken or the call fails.
+sub _windows_pipe_available {
+    my ( $peek, $handle ) = @_;
+    return undef if !defined $handle;
+    $^E = 0;
+    my $bytes_read  = pack 'L', 0;
+    my $total_avail = pack 'L', 0;
+    my $bytes_left  = pack 'L', 0;
+    my $ok = $peek->Call( $handle, '', 0, $bytes_read, $total_avail, $bytes_left );
+    return undef if !$ok;
+    return unpack 'L', $total_avail;
 }
 
 1;
@@ -208,8 +200,8 @@ Provide the single inner drain step shared by the dashboard's inline
 streaming child-process readers: read up to 8192 bytes from a handle that
 L<IO::Select> reported ready, and, when the handle is finished, remove it from
 the select set and close it. On Windows, where L<IO::Select> cannot see pipes
-at all, provide the matching whole-loop drain that reads each child pipe from
-its own thread with a blocking C<sysread> instead, so the same callers do not
+at all, provide the matching whole-loop drain that polls each child pipe with
+C<PeekNamedPipe> in the main thread instead, so the same callers do not
 silently lose the child's output there.
 
 =head1 WHY IT EXISTS
@@ -230,7 +222,7 @@ step is common, and only this step is shared.
 C<PageRuntime> is deliberately NOT a consumer. It had already factored its own
 read out and guards C<EINTR>, which this helper does not; importing this one
 would replace a correct drain with a defective one. It also already has its own
-Windows path (reader threads feeding a queue) - the pattern the whole-loop
+Windows path (a C<PeekNamedPipe> readiness loop in the main thread) - the pattern the whole-loop
 drain here follows - so it never needed this module's version either.
 
 =head1 WHEN TO USE
