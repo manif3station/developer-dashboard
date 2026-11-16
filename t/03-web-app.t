@@ -25,6 +25,7 @@ use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::PageStore;
+use Developer::Dashboard::PathIdentity qw(_resolve_symlinks);
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Prompt;
 use Developer::Dashboard::SessionStore;
@@ -2067,8 +2068,15 @@ my ( $code2b, undef, $body2b );
         'saved-page route snapshots ordered page roots once despite loading its page and nav fragments' );
     my @dashboard_roots = $paths->dashboards_roots;
     my $root_resolve_counts = sub {
-        my %counts = map { $_ => 0 } @dashboard_roots;
-        $counts{$_}++ for grep { exists $counts{$_} } @page_store_abs_path_inputs;
+        # abs_path inputs are recorded after PageStore resolves symlink
+        # components (e.g. /var -> /private/var on macOS), while
+        # dashboards_roots keeps the unresolved spelling, so compare
+        # both sides through the same symlink resolution.
+        my %counts = map { _resolve_symlinks($_) => 0 } @dashboard_roots;
+        for my $input (@page_store_abs_path_inputs) {
+            my $resolved = _resolve_symlinks($input);
+            $counts{$resolved}++ if defined $resolved && exists $counts{$resolved};
+        }
         return [ sort grep { $_ > 0 } values %counts ];
     };
     is_deeply( $root_resolve_counts->(), [1], 'saved-page and nav path checks resolve each dashboards root once per request' );
