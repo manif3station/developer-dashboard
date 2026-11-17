@@ -1779,14 +1779,16 @@ my $docker_dry_run_data = json_decode($docker_dry_run);
 ok( grep( { $_ eq '-d' } @{ $docker_dry_run_data->{command} } ), 'd2 docker compose leaves short docker passthrough flags such as -d untouched' );
 ok( grep( { $_ eq '--build' } @{ $docker_dry_run_data->{command} } ), 'd2 docker compose leaves docker passthrough flags such as --build untouched' );
 ok( grep( { $_ eq 'green' } @{ $docker_dry_run_data->{services} } ), 'd2 docker compose still infers service names from passthrough args when docker flags are present' );
-ok( grep( { /\/green\/compose\.yml\z/ } @{ $docker_dry_run_data->{files} } ), 'd2 docker compose always includes the green base compose file' );
-ok( !grep( { /\/green\/development\.compose\.yml\z/ } @{ $docker_dry_run_data->{files} } ), 'd2 docker compose omits green development compose until enabled' );
+# The dry-run JSON carries native paths, so on Windows the compose files
+# arrive with backslashes: match either separator in the path regexes below.
+ok( grep( { /[\/\\]green[\/\\]compose\.yml\z/ } @{ $docker_dry_run_data->{files} } ), 'd2 docker compose always includes the green base compose file' );
+ok( !grep( { /[\/\\]green[\/\\]development\.compose\.yml\z/ } @{ $docker_dry_run_data->{files} } ), 'd2 docker compose omits green development compose until enabled' );
 my $docker_development_enable = _run("$perl -I'$lib' '$dashboard' docker development enable green");
 like( $docker_development_enable, qr/"development"\s*:\s*1/, 'd2 docker development enable reports development mode enabled' );
 ok( -f File::Spec->catfile( $docker_green_root, 'develop.yml' ), 'd2 docker development enable creates the develop.yml marker' );
 my $docker_dev_dry_run = json_decode( _run("$perl -I'$lib' '$dashboard' docker compose --dry-run up green") );
-my ($green_base_pos) = grep { $docker_dev_dry_run->{files}[$_] =~ /\/green\/compose\.yml\z/ } 0 .. $#{ $docker_dev_dry_run->{files} };
-my ($green_dev_pos)  = grep { $docker_dev_dry_run->{files}[$_] =~ /\/green\/development\.compose\.yml\z/ } 0 .. $#{ $docker_dev_dry_run->{files} };
+my ($green_base_pos) = grep { $docker_dev_dry_run->{files}[$_] =~ /[\/\\]green[\/\\]compose\.yml\z/ } 0 .. $#{ $docker_dev_dry_run->{files} };
+my ($green_dev_pos)  = grep { $docker_dev_dry_run->{files}[$_] =~ /[\/\\]green[\/\\]development\.compose\.yml\z/ } 0 .. $#{ $docker_dev_dry_run->{files} };
 ok( defined $green_base_pos && defined $green_dev_pos, 'd2 docker compose includes both files after development enable' );
 ok( defined $green_base_pos && defined $green_dev_pos && $green_base_pos < $green_dev_pos, 'd2 docker compose orders the development file after its base file' );
 my $docker_development_disable = _run("$perl -I'$lib' '$dashboard' docker development disable green");
@@ -1796,7 +1798,7 @@ unlink File::Spec->catfile( $docker_green_root, 'development.compose.yml' ) or d
 _run("$perl -I'$lib' '$dashboard' docker development enable green");
 my $docker_missing_dev_dry_run = _run("$perl -I'$lib' '$dashboard' docker compose --dry-run config green");
 like( $docker_missing_dev_dry_run, qr/"files"/, 'd2 docker compose succeeds when develop.yml exists but development.compose.yml is missing' );
-ok( grep( { /\/green\/compose\.yml\z/ } @{ json_decode($docker_missing_dev_dry_run)->{files} } ), 'd2 docker compose retains the base file when the opted-in development file is missing' );
+ok( grep( { /[\/\\]green[\/\\]compose\.yml\z/ } @{ json_decode($docker_missing_dev_dry_run)->{files} } ), 'd2 docker compose retains the base file when the opted-in development file is missing' );
 _run("$perl -I'$lib' '$dashboard' docker development disable green");
 my $fake_bin = File::Spec->catdir( $ENV{HOME}, 'fake-bin' );
 make_path($fake_bin);
