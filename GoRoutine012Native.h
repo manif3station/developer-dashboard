@@ -1407,7 +1407,17 @@ shared_code_invoke(shared_code_state *state,
                    char **out_error)
 {
     PerlInterpreter *cb_interp = state->interp;
+    PerlInterpreter *caller_interp;
     I32 i;
+    dTHX;
+
+    /* Perl's allocator resolves the pool from the current interpreter,
+     * so the caller must still be current when this returns: the caller
+     * frees its Perl-allocated argument array (and builds return SVs)
+     * after the invoke, and freeing that memory from the frozen
+     * interpreter's pool croaks "Free to wrong pool" on Windows.
+     * Save the caller and restore it at the end of the block below. */
+    caller_interp = aTHX;
 
     *out_nodes = NULL;
     *out_count = 0;
@@ -1495,6 +1505,7 @@ shared_code_invoke(shared_code_state *state,
         go_tls_set(go_tls_key, old_ctl);
         go_cond_destroy(&local_ctl.cond);
         go_mutex_destroy(&local_ctl.mutex);
+        PERL_SET_CONTEXT(caller_interp);
     }
     go_mutex_unlock(&state->mutex);
 }
@@ -1510,7 +1521,14 @@ shared_handle_invoke(shared_handle_state *state,
                      char **out_error)
 {
     PerlInterpreter *hi = state->interp;
+    PerlInterpreter *caller_interp;
     I32 i;
+    dTHX;
+
+    /* Same context rule as shared_code_invoke: the caller frees its
+     * Perl-allocated argument array after the invoke, and Perl's
+     * allocator resolves the pool from the current interpreter. */
+    caller_interp = aTHX;
 
     *out_nodes = NULL;
     *out_count = 0;
@@ -1594,6 +1612,7 @@ shared_handle_invoke(shared_handle_state *state,
         go_tls_set(go_tls_key, old_ctl);
         go_cond_destroy(&local_ctl.cond);
         go_mutex_destroy(&local_ctl.mutex);
+        PERL_SET_CONTEXT(caller_interp);
     }
     go_mutex_unlock(&state->mutex);
 }
