@@ -133,6 +133,11 @@ go_win_heap_free(void *ptr)
 static void *
 go_win_heap_realloc(void *ptr, size_t size)
 {
+    /* HeapReAlloc returns NULL for a NULL pointer on this Windows, unlike
+     * realloc(), so the first grow of a table (NULL base) must allocate. */
+    if (ptr == NULL) {
+        return HeapAlloc(GetProcessHeap(), 0, size);
+    }
     return HeapReAlloc(GetProcessHeap(), 0, ptr, size);
 }
 
