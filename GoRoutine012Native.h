@@ -97,13 +97,40 @@ struct go_win_start {
     void *arg;
 };
 
+/* Thread-handoff memory on Windows.
+ *
+ * malloc()/free() in this file are Perl's memory API (XSUB.h maps them to
+ * the interpreter's PL_Mem table), so they need a live interpreter context
+ * (aTHX). A thread created by CreateThread has no context until its worker
+ * calls PERL_SET_CONTEXT, and the timeout watcher never sets one at all,
+ * so the structs handed to a fresh thread must come from the process heap
+ * instead. Calling free() in the trampoline dereferences a NULL interpreter
+ * (Perl_get_context() returns NULL) at the PL_Mem slot and kills the whole
+ * process with an access violation before the worker ever runs -- that is
+ * the t/17 exit-5 death on Windows. The process heap needs no context, so
+ * HeapAlloc/HeapFree stay matched for these handoff structs.
+ */
+static void *
+go_win_heap_alloc(size_t size)
+{
+    return HeapAlloc(GetProcessHeap(), 0, size);
+}
+
+static void
+go_win_heap_free(void *ptr)
+{
+    if (ptr != NULL) {
+        HeapFree(GetProcessHeap(), 0, ptr);
+    }
+}
+
 static DWORD WINAPI
 go_win_thread_thunk(LPVOID opaque)
 {
     struct go_win_start *start = (struct go_win_start *)opaque;
     void *(*fn)(void *) = start->fn;
     void *arg = start->arg;
-    free(start);
+    go_win_heap_free(start);
     (void)fn(arg);
     return 0;
 }
@@ -111,7 +138,7 @@ go_win_thread_thunk(LPVOID opaque)
 static int
 go_thread_create(go_thread_t *thread, void *(*fn)(void *), void *arg)
 {
-    struct go_win_start *start = (struct go_win_start *)malloc(sizeof(*start));
+    struct go_win_start *start = (struct go_win_start *)go_win_heap_alloc(sizeof(*start));
     HANDLE h;
     DWORD id = 0;
     if (start == NULL) return ENOMEM;
@@ -120,7 +147,7 @@ go_thread_create(go_thread_t *thread, void *(*fn)(void *), void *arg)
     h = CreateThread(NULL, 0, go_win_thread_thunk, start, 0, &id);
     if (h == NULL) {
         int err = (int)GetLastError();
-        free(start);
+        go_win_heap_free(start);
         return err ? err : EAGAIN;
     }
     thread->handle = h;
@@ -565,7 +592,14 @@ go_timeout_worker(void *arg)
         go_control_request_cancel(ctl, GO_CANCEL_TIMEOUT);
     }
 
+    /* Same context rule as the thread trampoline above: this watcher runs
+     * in a thread that never sets a Perl interpreter context, so on Windows
+     * free() would dereference a NULL interpreter at the PL_Mem slot. */
+#ifdef _WIN32
+    go_win_heap_free(timer);
+#else
     free(timer);
+#endif
     return NULL;
 }
 
@@ -742,8 +776,12 @@ go_worker(void *arg)
 
     go_tls_set(go_tls_key, NULL);
     go_control_finish(ctl, final_state);
-    go_destroy_interpreter(interp);
+    /* Release the job while this thread still has a live interpreter
+     * context: free() is Perl's memory API, and once
+     * go_destroy_interpreter() has run the context is gone, so freeing
+     * after it would dereference a NULL or already-freed interpreter. */
     free(job);
+    go_destroy_interpreter(interp);
     go_active_dec();
     return NULL;
 }

@@ -400,7 +400,15 @@ _routine_timeout(ptr, seconds)
     } else {
         go_mutex_unlock(&ctl->mutex);
 
+        /* On Windows the watcher thread never sets a Perl interpreter
+         * context, so its handoff struct must come from the process heap:
+         * Perl's free() there would dereference a NULL interpreter at the
+         * PL_Mem slot and kill the process (see go_win_heap_alloc). */
+#ifdef _WIN32
+        timer = (go_timeout_job *)go_win_heap_alloc(sizeof(*timer));
+#else
         timer = (go_timeout_job *)malloc(sizeof(*timer));
+#endif
         if (timer == NULL) croak("out of memory allocating go routine timeout");
         timer->control = ctl;
         timer->generation = generation;
@@ -408,7 +416,11 @@ _routine_timeout(ptr, seconds)
 
         rc = go_thread_create(&tid, go_timeout_worker, timer);
         if (rc != 0) {
+#ifdef _WIN32
+            go_win_heap_free(timer);
+#else
             free(timer);
+#endif
             croak("native thread creation failed for timeout watcher: %d", rc);
         }
         go_thread_detach(tid);
