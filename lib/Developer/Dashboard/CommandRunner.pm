@@ -6,7 +6,9 @@ use strict;
 use warnings;
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::PathIdentity qw(current_working_directory);
+use Encode qw(encode);
 use File::Temp qw(tempfile);
+use MIME::Base64 qw(encode_base64);
 use Time::HiRes qw(sleep time);
 use Developer::Dashboard::PerlEnv ();
 use Developer::Dashboard::Platform qw(is_windows shell_command_argv);
@@ -64,7 +66,11 @@ sub run_command {
     my ( $pid_fh, $pidfile ) = tempfile( 'dashboard-collector-command-XXXXXX', TMPDIR => 1, UNLINK => 0 );
     CORE::close $pid_fh or die "Unable to close collector command pid file $pidfile: $!";
     my ( $stdout, $stderr, $exit_code ) = capture {
-        my @argv = shell_command_argv( $cmd, login => 0 );
+        # On Windows the command goes through _windows_powershell_argv, not
+        # shell_command_argv: see that sub for why -Command loses quotes.
+        my @argv = is_windows()
+            ? _windows_powershell_argv($cmd)
+            : shell_command_argv( $cmd, login => 0 );
 
         local $SIG{TERM} = sub { forward_command_signal( $pidfile, 'TERM', 15 ) };
         local $SIG{INT}  = sub { forward_command_signal( $pidfile, 'INT',  2 ) };
@@ -121,6 +127,90 @@ sub _windows_perl_inline_command {
     close $fh or die "Unable to close $file: $!";
     my $rewritten = join ' ', grep { $_ ne '' } ( $perl, $flags, $file );
     return { command => $rewritten, file => $file };
+}
+
+# _windows_powershell_argv($command)
+# Builds the Windows PowerShell argv for one collector command so double
+# quotes survive BOTH Windows quoting layers, each proven by a micro-repro
+# (t/05 1079, Jenkins builds #59/#61):
+#   (1) The -Command handoff: Perl list-form system() does not escape
+#       embedded quotes when it joins argv into powershell.exe's command
+#       line, so the child's argv parser strips them before PowerShell
+#       parses the script - a cmdlet (Write-Output) lost them too, which
+#       rules out the native boundary as the only layer. Base64
+#       -EncodedCommand defeats this: the argument carries no quotes or
+#       spaces, so nothing can be mangled in transit.
+#   (2) PowerShell 5.1 native forwarding: even with the script delivered
+#       intact (base64, or read from a .ps1 file), PowerShell strips
+#       embedded quotes when it builds a native executable's command line.
+#       Escaping " as \" inside single-quoted strings defeats this: the
+#       backslash survives PowerShell's literal single-quote parsing and
+#       the child's argv parser turns \" back into ". Proven end to end
+#       by micro v5 probe 2 (build #61): printf '{"a":123}' comes back
+#       intact. pwsh is NOT installed on the Windows node, so the
+#       PowerShell 7 native-argument fix is not an option here.
+# The escaping is deliberately limited to single-quoted strings: a " there
+# is data, never PowerShell syntax, so \" cannot change what the script
+# means - while a " in a double-quoted region IS syntax and is left alone.
+# Input: shell command string.
+# Output: PowerShell argv list.
+sub _windows_powershell_argv {
+    my ($command) = @_;
+    my $escaped = _escape_windows_powershell_single_quotes($command);
+    my $encoded = encode_base64( encode( 'UTF-16LE', $escaped ), '' );
+    return ( 'powershell', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-EncodedCommand', $encoded );
+}
+
+# _escape_windows_powershell_single_quotes($command)
+# Escapes double quotes inside single-quoted PowerShell strings as \",
+# so they survive PowerShell 5.1's native-argument forwarding (see
+# _windows_powershell_argv). Single-quoted strings are literal in
+# PowerShell - no interpolation - so the backslash reaches the native
+# command line unchanged, where the child's argv parser restores the
+# quote. Double-quoted regions are left alone, and '' (PowerShell's
+# escaped quote inside a single-quoted string) passes through unchanged.
+# An unbalanced single quote (an apostrophe in a bareword) treats the
+# rest of the command as single-quoted; such a command is already broken
+# in PowerShell, and escaping its later quotes changes nothing it could
+# have done.
+# Input: shell command string (undef or empty passes through unchanged).
+# Output: command string with " escaped as \" inside single quotes only.
+sub _escape_windows_powershell_single_quotes {
+    my ($command) = @_;
+    return $command if !defined $command || $command eq '';
+    my $out       = '';
+    my $in_single = 0;
+    my $i         = 0;
+    my $len       = length $command;
+    while ( $i < $len ) {
+        my $ch = substr( $command, $i, 1 );
+        if ($in_single) {
+            if ( $ch eq q{'} ) {
+                if ( substr( $command, $i + 1, 1 ) eq q{'} ) {
+                    $out .= q{''};
+                    $i += 2;
+                    next;
+                }
+                $in_single = 0;
+                $out .= $ch;
+                $i++;
+                next;
+            }
+            if ( $ch eq q{"} ) {
+                $out .= q{\\"};
+                $i++;
+                next;
+            }
+            $out .= $ch;
+            $i++;
+            next;
+        }
+        $in_single = 1 if $ch eq q{'};
+        $out .= $ch;
+        $i++;
+    }
+    return $out;
 }
 
 # await_windows_command($pidfile, $timeout_ms, @command_argv)
