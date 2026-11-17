@@ -2,6 +2,19 @@ use strict;
 use warnings;
 use utf8;
 
+use FindBin;
+use File::Spec;
+
+# Load the fresh checkout lib first, ahead of the node's blib build, so this
+# process runs the tip's Perl modules exactly like the CLI subprocesses
+# already do (prove's -I only names the blib). Without this the test process
+# runs stale-blib code: the 6.30 PathIdentity hashed the collector state
+# root from the raw abs_path spelling (forward slashes on Windows) while the
+# housekeeper subprocess used the tip's canonpath spelling, so the
+# housekeeper looked in a different state root and silently found no log to
+# rotate (line 1111). Verified by the 1111 micro (builds #67/#68).
+use lib File::Spec->catdir( $FindBin::Bin, '..', 'lib' );
+
 use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::PerlEnv;
