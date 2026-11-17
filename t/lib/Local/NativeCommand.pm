@@ -550,10 +550,61 @@ sub _interpret_printf_format {
     return $format;
 }
 
+# _quote_windows_arg($arg)
+# Quotes one argv element for the Windows command line, using the
+# MSVC CRT rules the child applies when it parses its command line
+# (CommandLineToArgvW): an element with no space, tab, newline or
+# double quote passes through unchanged; otherwise it is wrapped in
+# double quotes, each embedded double quote is escaped as \", and
+# each run of backslashes before a double quote (or before the
+# closing quote) is doubled, so a trailing backslash cannot escape
+# the closing quote.
+# This is needed because Perl's list-form system() on Windows joins
+# argv with spaces and quotes space-containing elements but does NOT
+# escape embedded double quotes: an element such as
+# `print "hello\n"` reaches the child split into `print` and
+# `hello\n`, so -e receives the truncated program `print ` and
+# prints nothing with exit 0. Pre-quoting here round-trips: Perl
+# wraps the already-quoted element once more and the CRT parser
+# strips the outer pair, leaving the original element intact
+# (verified by probe on win-ts: a pre-quoted `print "hello\n"`
+# arrives as one arg, while the unquoted form splits in two).
+# Gated on $^O, not on force_windows: on Unix list-form system()
+# is a direct exec with no command-line parsing, so quoting there
+# would corrupt argv (the quotes would become literal characters
+# of the argument), and the Unix comparison cases must stay
+# byte-identical to sh.
+sub _quote_windows_arg {
+    my ($arg) = @_;
+    return $arg if $arg ne '' && $arg !~ /[\s"]/;
+    my $quoted     = '"';
+    my $backslashes = 0;
+    for my $char ( split //, $arg ) {
+        if ( $char eq '\\' ) {
+            $backslashes++;
+            next;
+        }
+        if ( $char eq '"' ) {
+            $quoted .= '\\' x ( 2 * $backslashes + 1 );
+            $quoted .= '"';
+        }
+        else {
+            $quoted .= '\\' x $backslashes;
+            $quoted .= $char;
+        }
+        $backslashes = 0;
+    }
+    $quoted .= '\\' x ( 2 * $backslashes );
+    $quoted .= '"';
+    return $quoted;
+}
+
 # _run_stage($stage, $stdin_bytes, $cwd, $options)
 # Runs one real command directly (no shell): list-form system under
 # Capture::Tiny, with stdin fed from a temp file when the stage reads
-# from a pipe, and the caller's env overrides applied.
+# from a pipe, and the caller's env overrides applied. On Windows the
+# argv elements are quoted first (see _quote_windows_arg): list-form
+# system() mangles elements containing embedded double quotes there.
 sub _run_stage {
     my ( $stage, $stdin_bytes, $cwd, $options ) = @_;
     my ( $stdout, $stderr, $exit );
@@ -611,10 +662,17 @@ sub _run_stage {
             my $command = $stage->{argv}[0];
             die "command '$command' is not available (no shell is present to resolve it)"
               if !_find_executable($command);
+            # On Windows, quote the argv elements first: list-form
+            # system() mangles elements with embedded double quotes
+            # (see _quote_windows_arg). The Unix path — including
+            # force_windows runs on Unix — stays unquoted, because
+            # there list-form system() is a direct exec.
+            my @argv = @{ $stage->{argv} };
+            @argv = map { _quote_windows_arg($_) } @argv if $^O eq 'MSWin32';
             my $rc = _with_stdin_file(
                 $stdin_file,
                 sub {
-                    system @{ $stage->{argv} };
+                    system @argv;
                     return $? >> 8;
                 }
             );
