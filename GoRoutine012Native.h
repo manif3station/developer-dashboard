@@ -299,10 +299,27 @@ go_monotonic_seconds(void)
  * must come from the process heap: a worker freeing main-interpreter Perl
  * memory croaks "Free to wrong pool" and the croak's unwind crashes the
  * worker (t/231 exit-5: 40 workers doing `$counter += 1` and 8 doing
- * `$text .= '!'` on main-thread shared scalars). The node structs
- * themselves, channels, and per-call temporaries are never freed from
- * another thread, so they stay on Perl's malloc. On POSIX the macros are
- * plain malloc/free/realloc, which are fine across threads.
+ * `$text .= '!'` on main-thread shared scalars).
+ *
+ * The node structs themselves need the same treatment, for a different
+ * reason: a node may be CREATED by a worker thread (pushing a new hash
+ * into a shared array allocates the node in that worker's interpreter
+ * pool), and the parent keeps reading it after the worker is gone.
+ * go_worker destroys the worker interpreter (perl_free), which releases
+ * that interpreter's Perl malloc pool, so the node is freed out from
+ * under the parent; a later perl_clone reuses the pages and the parent's
+ * read-back sees garbage. That is the t/237 failure: the parent-only push
+ * passes, one worker passes (nothing reuses its pool yet), two workers
+ * already segfault in strlen during the read-back, and 12 workers die
+ * after 5 subtests (exit 25 "Not a HASH reference", exit 5, or SIGSEGV,
+ * depending on what the freed memory now holds). The same holds for the
+ * CODE and filehandle states attached to a node: they are process-lifetime
+ * by design, so they come from the process heap too. Channels and
+ * per-call temporaries are never read after their creating interpreter is
+ * gone, so they stay on Perl's malloc. On POSIX the macros are plain
+ * malloc/free/realloc, which are fine across threads. Nodes and states are
+ * never freed (process-lifetime by design), so heap allocation here is
+ * leak-neutral.
  */
 #ifdef _WIN32
 #define go_shared_alloc(size) go_win_heap_alloc(size)
@@ -313,6 +330,19 @@ go_monotonic_seconds(void)
 #define go_shared_free(ptr) free(ptr)
 #define go_shared_realloc(ptr, size) realloc(ptr, size)
 #endif
+
+/* Zeroed allocation for process-lifetime shared-graph structs (shared
+ * nodes and the CODE/handle states attached to them). Process heap on
+ * Windows, plain calloc on POSIX. See the comment above go_shared_alloc. */
+static void *
+go_shared_calloc(size_t count, size_t size)
+{
+    void *p;
+    if (count != 0 && size > SIZE_MAX / count) return NULL;
+    p = go_shared_alloc(count * size);
+    if (p != NULL) memset(p, 0, count * size);
+    return p;
+}
 
 static char *
 go_strdup(const char *s)
@@ -834,7 +864,9 @@ go_worker(void *arg)
 static shared_node *
 shared_node_new(void)
 {
-    shared_node *n = (shared_node *)calloc(1, sizeof(*n));
+    /* Process heap on Windows: a worker-created node must survive the
+     * creating interpreter's destruction (see go_shared_calloc). */
+    shared_node *n = (shared_node *)go_shared_calloc(1, sizeof(*n));
     if (n == NULL) {
         croak("out of memory allocating shared node");
     }
@@ -1101,7 +1133,7 @@ shared_freeze_handle(pTHX_ SV *value)
         croak("could not clone non-fd filehandle into private interpreter");
     }
 
-    state = (shared_handle_state *)calloc(1, sizeof(*state));
+    state = (shared_handle_state *)go_shared_calloc(1, sizeof(*state));
     if (state == NULL) {
         PERL_SET_CONTEXT(frozen);
         {
@@ -1259,7 +1291,7 @@ shared_import_code(pTHX_ shared_node *n, SV *value)
         croak("could not clone CODE reference into shared callback store");
     }
 
-    state = (shared_code_state *)calloc(1, sizeof(*state));
+    state = (shared_code_state *)go_shared_calloc(1, sizeof(*state));
     if (state == NULL) {
         PERL_SET_CONTEXT(frozen);
         {
