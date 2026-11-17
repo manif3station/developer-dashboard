@@ -31,6 +31,15 @@ BEGIN {
         no warnings;
         return CORE::exec(@_);
     };
+    # On Windows _exec_replacement runs the command with system() and then
+    # calls exit(), so the faked exec above is never reached there. Fake
+    # exit too while $EXEC_FAKE is set so the Windows branch falls through
+    # instead of ending the process before done_testing; otherwise delegate
+    # to the real exit so the harness can still end the run.
+    *CORE::GLOBAL::exit = sub {
+        return 0 if $EXEC_FAKE;
+        return CORE::exit( $_[0] // 0 );
+    };
 }
 
 use Test::More;
@@ -162,7 +171,8 @@ is_deeply( [ $dispatcher->_relative_files($nav_root) ], ['a.tt'], 'relative file
 
 # A faked successful exec falls through. Only one exec is exercised per process
 # because Devel::Cover stops recording after the first exec; the failing exec
-# is covered by the other skill tests.
+# is covered by the other skill tests. On Windows the handoff is system+exit,
+# so the faked exit above is what makes this fall through there.
 {
     local $EXEC_FAKE = 1;
     ok( !$dispatcher->_exec_replacement( ['true'], [] ), 'an exec that hands off falls through without an error string' );
