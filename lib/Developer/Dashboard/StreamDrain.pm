@@ -98,7 +98,7 @@ sub _drain_ready_handle {
 # pipes, and it creates no reader threads: creating any ithread breaks
 # later JSON::XS boolean encoding in the same process (proven on Strawberry
 # Perl with a trivial thread: encode_json of a hash holding JSON::XS::true()
-# dies afterwards, while JSON::PP still encodes and Perl-level isa still
+# dies afterwards, while the pure-Perl encoder still encodes and Perl-level isa still
 # holds), and every streaming caller in this codebase encodes JSON booleans
 # after the child returns. Chunks reach the callback in poll order, stdout
 # first each round; order within one stream is preserved, so callers keep
