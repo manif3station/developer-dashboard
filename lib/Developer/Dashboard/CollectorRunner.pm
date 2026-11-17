@@ -778,15 +778,18 @@ sub _run_loop_worker {
     # The worker inherits its standard handles from the native spawn layer, and
     # on Windows those handles have no Perl file descriptor behind them, so
     # Capture::Tiny's >&STDOUT duplication inside a job fails with
-    # 'Inappropriate I/O control operation' and the job records that error
-    # instead of its own output. Re-open the handles to the same log files the
-    # spawn layer already targets, so the worker has real descriptors before
-    # it runs. Windows only: on POSIX the worker is forked from the
-    # daemonized loop child, which already has both handles on the
+    # 'Inappropriate I/O control operation' and its <&STDIN duplication fails
+    # with 'Bad file descriptor', and the job dies before its command runs.
+    # Re-open the handles to the same log files the spawn layer already
+    # targets (STDIN from devnull, matching the stdin the spawn layer already
+    # passes; collector commands never read stdin), so the worker has real
+    # descriptors before it runs. Windows only: on POSIX the worker is forked
+    # from the daemonized loop child, which already has both handles on the
     # collector log, so there is nothing to repair — and re-opening STDERR
     # here would send worker stderr to '<log>.stderr', a different file
     # from the loop's own stderr.
     if ( is_windows() ) {
+        open STDIN,  '<', File::Spec->devnull() or die $!;
         open STDOUT, '>>', $self->{files}->collector_log or die $!;
         open STDERR, '>>', $self->{files}->collector_log . '.stderr' or die $!;
     }
