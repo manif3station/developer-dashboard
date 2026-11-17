@@ -1816,6 +1816,30 @@ fi
 SH
 close $fake_docker_fh;
 chmod 0755, $fake_docker or die "Unable to chmod $fake_docker: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the cpanm/npx/make fakes: the sh fake above is
+    # invisible to Windows program search (PATHEXT needs .exe/.bat/.cmd),
+    # so the product's list-form system('docker', ...) died with
+    # "'docker' is not recognized" (build #76, test 585). The micro in
+    # build #77 proved the extensionless fake is never found even with a
+    # correct ';' PATH, and that a docker.bat twin is found and runs.
+    # Mirrors the sh fake: print a fake compose config when the last arg
+    # is 'config', else echo the invocation.
+    my $fake_docker_bat = File::Spec->catfile( $fake_bin, 'docker.bat' );
+    open my $fake_docker_bat_fh, '>', $fake_docker_bat or die "Unable to write $fake_docker_bat: $!";
+    print {$fake_docker_bat_fh} <<"BAT";
+\@echo off
+set "last="
+for %%A in (%*) do set "last=%%A"
+if "%last%"=="config" (
+    echo services:
+    echo   green: {}
+) else (
+    echo DOCKER:%*
+)
+BAT
+    close $fake_docker_bat_fh;
+}
 my $docker_exec_output = _run("PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' docker compose up -d --build green");
 like( $docker_exec_output, qr/^DOCKER:compose /m, 'd2 docker compose execs the real docker command for non-dry-run invocations' );
 unlike( $docker_exec_output, qr/\"command\"\s*:/, 'd2 docker compose no longer prints JSON envelopes for non-dry-run invocations' );
