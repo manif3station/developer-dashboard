@@ -456,8 +456,16 @@ OPENSSL_CONFIG
     ok($runner, 'Plack runner created with SSL configuration');
     my %runner_options = @{ $runner->{options} || [] };
     is( $runner_options{ssl}, 1, 'Plack runner enables SSL mode explicitly' );
-    ok( $runner_options{ssl_key}, 'Plack runner includes SSL key path' );
-    ok( $runner_options{ssl_cert}, 'Plack runner includes SSL certificate path' );
+    if ( $^O eq 'MSWin32' ) {
+        # Standalone (HTTP::Server::PSGI) reads ssl_key_file/ssl_cert_file,
+        # not the Starman-style ssl_key/ssl_cert names.
+        ok( $runner_options{ssl_key_file}, 'Plack runner includes SSL key path for Standalone' );
+        ok( $runner_options{ssl_cert_file}, 'Plack runner includes SSL certificate path for Standalone' );
+    }
+    else {
+        ok( $runner_options{ssl_key}, 'Plack runner includes SSL key path' );
+        ok( $runner_options{ssl_cert}, 'Plack runner includes SSL certificate path' );
+    }
 
     my $ssl_proxy_daemon = Developer::Dashboard::Web::Server::Daemon->new(
         host          => '127.0.0.1',

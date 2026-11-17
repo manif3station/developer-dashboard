@@ -190,8 +190,19 @@ sub _build_runner {
     if ( $self->{ssl} ) {
         my ( $cert, $key ) = get_ssl_cert_paths();
         push @options, '--ssl',      1;
-        push @options, '--ssl-key',  $key;
-        push @options, '--ssl-cert', $cert;
+        if ( is_windows() ) {
+            # Standalone (HTTP::Server::PSGI) reads ssl_key_file/ssl_cert_file.
+            # The Starman-style --ssl-key/--ssl-cert names are silently dropped,
+            # leaving the backend with no certificate, so every TLS handshake
+            # fails with a fatal handshake_failure alert and the readiness
+            # probe times out. (t/17 Test 15, Windows only.)
+            push @options, '--ssl-key-file',  $key;
+            push @options, '--ssl-cert-file', $cert;
+        }
+        else {
+            push @options, '--ssl-key',  $key;
+            push @options, '--ssl-cert', $cert;
+        }
     }
 
     $runner->parse_options(@options);
