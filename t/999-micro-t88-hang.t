@@ -1,18 +1,15 @@
-# t/999-micro-t88-hang.t — MICRO v9: BISECTION, first half of v8's range,
-# plus a compile-phase marker. Full t/88 lines 1-341 + lines 538-571 +
-# the test blocks lines 764-974 (through the block starting at 945) +
+# t/999-micro-t88-hang.t — MICRO v10: BISECTION, first half of v9's range,
+# plus a Windows-only net dump. Full t/88 lines 1-341 + lines 538-571 +
+# the test blocks lines 764-882 (through the block starting at 854) +
 # done_testing(). Scratch only, do not merge, do not ship.
 #
-# Micro v8 REPRODUCED the hang in 764-1190 — but unlike v5 (which printed
-# "after ok 1" before hanging), v8's Windows printed NOTHING, not even the
-# first runtime log. The strike point varies run to run (build #7 reached
-# test ~16; v5 got past ok 1; v8 got nowhere) — a RACE, not a fixed code
-# path. The first MICRO log only runs after ALL compilation, so v8's silence
-# means its hang was during compile (or Perl startup). v9 adds a BEGIN
-# marker at the end of the file to name the phase directly, and bisects
-# 764-1190: first half (764-974). If v9 hangs and the marker is absent ->
-# compile-time trigger in this half. If v9 hangs and the marker printed ->
-# runtime trigger in this half. If v9 passes -> trigger is in 975-1190.
+# Micro v9 REPRODUCED the hang in 764-974 (Windows stuck after ok 1, compile
+# marker printed, so RUNTIME phase). v10 bisects that range: first half
+# (764-882). If v10 hangs, the trigger is in this half. If v10 passes, v11
+# takes the second half (lines 883-974).
+# The _net dump is now Windows-only ($^O eq 'MSWin32'): on macOS/Linux it
+# used to run `netstat -ano | findstr`, which does not exist there, so the
+# console filled with findstr/netstat errors. Only the Windows dump matters.
 #!/usr/bin/env perl
 
 use strict;
@@ -48,11 +45,12 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::Server::Daemon;
 
-sub _log { warn "MICRO9: $_[0]\n"; }
+sub _log { warn "MICRO10: $_[0]\n"; }
 sub _net {
     my ($label) = @_;
+    return unless $^O eq 'MSWin32';
     my $n = `netstat -ano | findstr "$$"`;
-    warn "MICRO9 net after $label pid $$:\n$n\n";
+    warn "MICRO10 net after $label pid $$:\n$n\n";
 }
 _log("use block + definitions compiled, pid $$");
 _net("compile");
@@ -518,102 +516,10 @@ sub Local::CompletedRoutine::kill { return 1 }
 }
 
 # --- byte / head / target / host parsing edges ------------------------------
-{
-    is(
-        Developer::Dashboard::Web::Server::_socket_looks_like_tls(''),
-        0,
-        'an empty first byte is not treated as TLS traffic',
-    );
-    is(
-        Developer::Dashboard::Web::Server::_request_target_from_head(''),
-        '/',
-        'request-target helper falls back to / for an empty request head',
-    );
-
-    my $blank_daemon = Developer::Dashboard::Web::Server::Daemon->new( host => '', port => 0 );
-    is(
-        _redirect_server()->_request_host_from_head( undef, $blank_daemon ),
-        '127.0.0.1',
-        'request-host helper falls back to loopback and the default HTTPS port',
-    );
-    is(
-        _redirect_server()->_request_host_from_head( "GET / HTTP/1.1\r\nHost:\t \r\n\r\n", $blank_daemon ),
-        '127.0.0.1',
-        'request-host helper falls back when the Host header value is only whitespace',
-    );
-
-    like(
-        Developer::Dashboard::Web::Server::_http_redirect_response(
-            host   => 'redirect.local',
-            target => '',
-        ),
-        qr{\r\nLocation: https://redirect\.local/\r\n},
-        'raw redirect response falls back to / for an empty target',
-    );
-}
-
-# --- _read_http_request_head(): read error ----------------------------------
-{
-    my ( $client, $listener ) = _reset_client_socket();
-    is(
-        Developer::Dashboard::Web::Server::_read_http_request_head($client),
-        '',
-        'request-head reader stops with an empty head when the socket read fails',
-    );
-    close $client   or die "Unable to close reset request-head client: $!";
-    close $listener or die "Unable to close reset request-head listener: $!";
-}
-
-# --- _proxy_streams(): read error and write error ---------------------------
-{
-    my ( $client, $listener ) = _reset_client_socket();
-    socketpair( my $backend, my $backend_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to build proxy backend fixture: $!";
-    is(
-        Developer::Dashboard::Web::Server::_proxy_streams( $client, $backend ),
-        1,
-        'stream proxy returns cleanly when a source socket read fails',
-    );
-    close $client       or die "Unable to close proxy read-error client: $!";
-    close $listener     or die "Unable to close proxy read-error listener: $!";
-    close $backend      or die "Unable to close proxy read-error backend: $!";
-    close $backend_peer or die "Unable to close proxy read-error backend peer: $!";
-}
-
-{
-    local $SIG{PIPE} = 'IGNORE';
-    socketpair( my $client, my $client_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to build proxy client fixture: $!";
-    socketpair( my $backend, my $backend_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to build proxy write-error backend fixture: $!";
-
-    my $payload = 'proxy-payload';
-    my $wrote = syswrite( $client_peer, $payload );
-    die "Unable to prime the proxy client fixture: $!" if !defined $wrote || $wrote != length $payload;
-    shutdown( $backend, 1 ) or die "Unable to half-close the proxy backend fixture: $!";
-
-    my $ok = eval {
-        Developer::Dashboard::Web::Server::_proxy_streams( $client, $backend );
-        1;
-    };
-    ok( !$ok, 'stream proxy fails when forwarded bytes cannot be written to the target socket' );
-    like(
-        $@,
-        qr/Unable to proxy SSL frontend bytes/,
-        'stream proxy reports an unwritable target socket explicitly',
-    );
-
-    close $client       or die "Unable to close proxy write-error client: $!";
-    close $client_peer  or die "Unable to close proxy write-error client peer: $!";
-    close $backend      or die "Unable to close proxy write-error backend: $!";
-    close $backend_peer or die "Unable to close proxy write-error backend peer: $!";
-}
-
-# --- process and reap bookkeeping helper contracts --------------------------
 
 _log("done");
 done_testing();
 # Compile marker: this BEGIN runs at compile time, after every line above has
 # been compiled. If it prints, compilation finished and the hang is runtime.
 # If it does NOT print, the hang is during compile (or Perl startup).
-BEGIN { warn "MICRO9: compile finished pid $$\n"; }
+BEGIN { warn "MICRO10: compile finished pid $$\n"; }
