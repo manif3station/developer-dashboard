@@ -1455,6 +1455,17 @@ my $cwd_search_unique = File::Spec->catdir( $cwd_search_root, 'nested', 'team-al
 make_path( $cwd_search_multi_one, $cwd_search_multi_two, $cwd_search_unique );
 
 my $shell_bootstrap = _run("$perl -I'$lib' '$dashboard' shell bash");
+# The bootstrap spells the entrypoint with forward slashes on Windows
+# (abs_path) while this file's $dashboard uses backslashes (File::Spec),
+# and the perl path is backslashed in both. Compare separator-normalized
+# copies in the assertions below so they check the paths, not the spelling
+# of the separator.
+my $shell_bootstrap_forward = $shell_bootstrap;
+$shell_bootstrap_forward =~ s/\\/\//g;
+my $perl_forward = $perl;
+$perl_forward =~ s/\\/\//g;
+my $dashboard_forward = $dashboard;
+$dashboard_forward =~ s/\\/\//g;
 like( $shell_bootstrap, qr/path cdr/, 'd2 shell bootstrap delegates cdr target selection through the Perl path helper' );
 unlike( $shell_bootstrap, qr/\bperl\s+-MJSON::XS\b/, 'd2 shell bootstrap does not decode helper JSON through a bare perl command that can drift to an incompatible interpreter' );
 like( $shell_bootstrap, qr/\Q$perl\E.*-MJSON::XS/s, 'd2 shell bootstrap decodes helper JSON through the same perl interpreter that generated the bootstrap' );
@@ -1462,15 +1473,17 @@ unlike( $shell_bootstrap, qr/\bd2\(\)\s*\{/, 'd2 shell bash bootstrap no longer 
 like( $shell_bootstrap, qr/complete -F _dashboard_complete d2/, 'd2 shell bash bootstrap wires tab completion for d2' );
 like( $shell_bootstrap, qr/complete -F _dashboard_complete_cdr cdr dd_cdr which_dir/, 'd2 shell bash bootstrap wires cdr-family tab completion' );
 unlike( $shell_bootstrap, qr/done\s+<\s+</, 'd2 shell bash bootstrap avoids process substitution in completion helpers for macOS compatibility' );
-like( $shell_bootstrap, qr/completion_output="\$\('\Q$perl\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard\E' complete /, 'd2 shell bash bootstrap captures dashboard completions through command substitution' );
-like( $shell_bootstrap, qr/\Q$perl\E.*\Q$dashboard\E/s, 'd2 shell bootstrap uses the current Perl runtime for the checkout entrypoint' );
-like( $shell_bootstrap, qr/completion_output="\$\('\Q$perl\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard\E' path complete-cdr /, 'd2 shell bash bootstrap captures cdr completions through command substitution' );
+like( $shell_bootstrap_forward, qr/completion_output="\$\('\Q$perl_forward\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard_forward\E' complete /, 'd2 shell bash bootstrap captures dashboard completions through command substitution' );
+like( $shell_bootstrap_forward, qr/\Q$perl_forward\E.*\Q$dashboard_forward\E/s, 'd2 shell bootstrap uses the current Perl runtime for the checkout entrypoint' );
+like( $shell_bootstrap_forward, qr/completion_output="\$\('\Q$perl_forward\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard_forward\E' path complete-cdr /, 'd2 shell bash bootstrap captures cdr completions through command substitution' );
 {
     local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = '/tmp/stale-dashboard-entrypoint';
     my $stale_entrypoint_bootstrap = _run("$perl -I'$lib' '$dashboard' shell bash");
+    my $stale_entrypoint_forward = $stale_entrypoint_bootstrap;
+    $stale_entrypoint_forward =~ s/\\/\//g;
     like(
-        $stale_entrypoint_bootstrap,
-        qr/completion_output="\$\('\Q$perl\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard\E' complete /,
+        $stale_entrypoint_forward,
+        qr/completion_output="\$\('\Q$perl_forward\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard_forward\E' complete /,
         'd2 shell bash bootstrap ignores a stale inherited d2 entrypoint path',
     );
     unlike(
