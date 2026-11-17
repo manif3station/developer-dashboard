@@ -698,7 +698,18 @@ elsif ( $cmd eq 'init' ) {
     }
     my %helper_sync_args = ( paths => $paths );
     if (is_windows()) {
-        $helper_sync_args{skip_names} = ['init'];
+        # A staged `init` helper that already exists must not be replaced
+        # in place during init's own sync: on Windows a running executable
+        # is locked, and the init wrapper may be the process that got us
+        # here. But a MISSING `init` helper must still be staged: in a
+        # fresh home nothing is running from that path yet, and skipping
+        # it leaves `d2 doctor` reporting a missing managed helper
+        # forever (t/05 doctor checks on Windows fail on exactly that).
+        my $init_target = Developer::Dashboard::InternalCLI::helper_path(
+            paths => $paths,
+            name  => 'init',
+        );
+        $helper_sync_args{skip_names} = ['init'] if -f $init_target;
     }
     my $internal_cli = Developer::Dashboard::InternalCLI::ensure_helpers(%helper_sync_args);
 
