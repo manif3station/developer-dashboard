@@ -2,18 +2,18 @@ use strict;
 use warnings;
 use utf8;
 
-# MICRO v4 for t/05 1079: test whether the native boundary is clean, using
-# spawn paths the handoff cannot mangle. v3 proved the script PowerShell
-# executes is already mangled (Write-Output, a cmdlet, lost the quotes), so
-# the stripping is at or before PowerShell receives the -Command string.
-# These two probes bypass -Command entirely, with args that contain no
-# spaces or quotes, so the argv joining cannot interfere:
-#   probe 1: powershell -EncodedCommand <base64 UTF-16LE of the script>
-#   probe 2: powershell -ExecutionPolicy Bypass -File <temp .ps1>
-# If either prints {"a":123}, the native boundary is clean and the fix is to
-# stop passing the command through the -Command argv (EncodedCommand is the
-# cleanest). If both print {a:123}, the native boundary also strips and a
-# different fix is needed. Scratch probe, NEVER merge. Windows-only,
+# MICRO v5 for t/05 1079: confirm layer B and test the fix. v4 proved the
+# quotes are stripped even via -EncodedCommand and -File, so a second layer
+# exists downstream of the -Command handoff. Two candidates for it:
+#   (B1) PowerShell 5.1 native-argument forwarding strips embedded quotes
+#        when it builds the native command line;
+#   (B2) Capture::Tiny (used by the v4 probes) mangles the captured text.
+# Probe 1 decides: printf piped to Out-File, no capture involved at all.
+# Probe 2 tests the fix end to end: the same printf with backslash-escaped
+# quotes, delivered via -EncodedCommand (so layer A cannot touch it). If it
+# prints {"a":123}, the fix is -EncodedCommand delivery plus escaping " as
+# \" inside single-quoted strings. Probe 3 checks whether pwsh exists on
+# the node (alternative fix path). Scratch probe, NEVER merge. Windows-only,
 # diag() + dump file, intentional failure at the end.
 
 use Capture::Tiny qw(capture);
@@ -48,40 +48,49 @@ sub _dump {
     print {$dump_fh} "$msg\n";
 }
 
+sub _run_encoded {
+    my ( $label, $script ) = @_;
+    _dump("MICRO-1079: $label, before script=[$script]");
+    my $encoded = encode_base64( encode( 'UTF-16LE', $script ), '' );
+    my ( $out, $err, $rc ) = capture {
+        system( 'powershell', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+            '-EncodedCommand', $encoded );
+        $? >> 8;
+    };
+    _dump("MICRO-1079: $label, after rc=$rc stdout=[$out] stderr=[$err]");
+    return $out;
+}
+
 _dump("MICRO-1079: os=$^O home=$home");
 
-my $script = q{printf '{"a":123}'};
+my ( $out_fh, $out_file ) = tempfile( 'micro-1079-out-XXXXXX', SUFFIX => '.txt', TMPDIR => 1, UNLINK => 0 );
+close $out_fh or die "Unable to close $out_file: $!";
+my $out_ps = $out_file;
+_dump('MICRO-1079: probe 1 Out-File, before');
+_run_encoded( 'probe 1 Out-File run',
+    qq{printf '{"a":123}' | Out-File -Encoding ascii '$out_ps'} );
+open my $read_fh, '<', $out_file or die "Unable to read $out_file: $!";
+my $out_content = do { local $/; <$read_fh> };
+close $read_fh or die "Unable to close $out_file: $!";
+_dump( 'MICRO-1079: probe 1 Out-File content=[' . ( defined $out_content ? $out_content : '(undef)' ) . ']' );
 
-_dump('MICRO-1079: probe 1 EncodedCommand, before');
-my $encoded = encode_base64( encode( 'UTF-16LE', $script ), '' );
-_dump("MICRO-1079: probe 1 encoded=[$encoded]");
-my ( $enc_out, $enc_err, $enc_rc ) = capture {
-    system( 'powershell', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-        '-EncodedCommand', $encoded );
+_run_encoded( 'probe 2 backslash through EncodedCommand', q{printf '{\"a\":123}'} );
+
+_dump('MICRO-1079: probe 3 pwsh check, before');
+my ( $pwsh_out, $pwsh_err, $pwsh_rc ) = capture {
+    system( 'where.exe', 'pwsh' );
     $? >> 8;
 };
-_dump("MICRO-1079: probe 1 EncodedCommand, after rc=$enc_rc stdout=[$enc_out] stderr=[$enc_err]");
+_dump("MICRO-1079: probe 3 pwsh check, after rc=$pwsh_rc stdout=[$pwsh_out] stderr=[$pwsh_err]");
 
-_dump('MICRO-1079: probe 2 File, before');
-my ( $ps_fh, $ps_file ) = tempfile( 'micro-1079-XXXXXX', SUFFIX => '.ps1', TMPDIR => 1, UNLINK => 0 );
-print {$ps_fh} $script or die "Unable to write $ps_file: $!";
-close $ps_fh or die "Unable to close $ps_file: $!";
-_dump("MICRO-1079: probe 2 script file=[$ps_file]");
-my ( $file_out, $file_err, $file_rc ) = capture {
-    system( 'powershell', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-        '-File', $ps_file );
-    $? >> 8;
-};
-_dump("MICRO-1079: probe 2 File, after rc=$file_rc stdout=[$file_out] stderr=[$file_err]");
-
-_dump('MICRO-1079: probe 3 baseline CommandRunner, before');
+_dump('MICRO-1079: probe 4 baseline CommandRunner, before');
 require Developer::Dashboard::CommandRunner;
 my ( $cr_out, $cr_err, $cr_rc, $cr_timed_out ) = Developer::Dashboard::CommandRunner::run_command(
-    source     => $script,
+    source     => q{printf '{"a":123}'},
     cwd        => $home,
     timeout_ms => 30_000,
 );
-_dump("MICRO-1079: probe 3 baseline CommandRunner, after rc=$cr_rc timed_out=$cr_timed_out stdout=[$cr_out] stderr=[$cr_err]");
+_dump("MICRO-1079: probe 4 baseline CommandRunner, after rc=$cr_rc timed_out=$cr_timed_out stdout=[$cr_out] stderr=[$cr_err]");
 
 close $dump_fh or die "Unable to close $dump_file: $!";
 fail('micro dump complete');
