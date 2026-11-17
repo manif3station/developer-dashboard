@@ -1,14 +1,18 @@
-# t/999-micro-t88-hang.t — MICRO v15: EXPAND block 854 line by line.
-# Full t/88 lines 1-341 + lines 538-571 + block 854 (lines 854-882) with a
-# MICRO15 log before AND after every statement + done_testing().
+# t/999-micro-t88-hang.t — MICRO v16: EXPAND the stuck call itself.
+# Full t/88 lines 1-341 + lines 538-571 + the inside of
+# _handle_ssl_frontend_client (Server.pm:455-467) replicated with a log at
+# every step, the can_read loop BOUNDED to 5 iterations so this micro cannot
+# hang, plus a socketpair control and the recv peek + done_testing().
 # Scratch only, do not merge, do not ship.
 #
-# Micro v14 reproduced the hang in block 854 ALONE. v15 names the exact
-# stuck statement: the last MICRO15 log line is the statement it hangs in.
-# Prime suspect: the is() call with client => $not_a_socket (a plain
-# devnull filehandle) + daemon => $ssl_daemon — it enters
-# _handle_ssl_frontend_client, whose `while ( !$client_select->can_read
-# (0.25) )` loop may never exit on Windows for a non-socket handle.
+# Micro v15 named the exact stuck statement: the is() call with client =>
+# a plain devnull filehandle + daemon => $ssl_daemon never returns. v16
+# expands that call: if can_read returns false 5 times in a row on
+# Windows, the real unbounded loop spins forever, and that is the root
+# cause. The socketpair control proves can_read itself works on Windows
+# for real sockets; the recv peek proves the test's intended outcome
+# (peek fails outright, method should return 1) is reachable once the
+# loop no longer spins.
 #!/usr/bin/env perl
 
 use strict;
@@ -44,12 +48,13 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::Server::Daemon;
 
-sub _log { warn "MICRO15: $_[0]\n"; }
+use Socket qw(MSG_PEEK);  # micro-only: the head imports Socket without MSG_PEEK
+sub _log { warn "MICRO16: $_[0]\n"; }
 sub _net {
     my ($label) = @_;
     return unless $^O eq 'MSWin32';
     my $n = `netstat -ano | findstr "$$"`;
-    warn "MICRO15 net after $label pid $$:\n$n\n";
+    warn "MICRO16 net after $label pid $$:\n$n\n";
 }
 _log("use block + definitions compiled, pid $$");
 _net("compile");
@@ -396,54 +401,68 @@ sub Local::CompletedRoutine::kill { return 1 }
     sub kill { $_[0]->{killed}++; return 1 }
 }
 
+
 {
-    _log("854: before eval no-client");
-    my $ok = eval { $ssl_server->_handle_ssl_frontend_client(); 1 };
-    _log("854: after eval no-client");
-    _log("854: before ok no-client");
-    ok( !$ok, 'frontend client handler refuses to run without a client socket' );
-    _log("854: after ok no-client");
-    _log("854: before like no-client");
-    like(
-        $@,
-        qr/Missing frontend client socket/,
-        'frontend client handler names the missing client socket',
-    );
-    _log("854: after like no-client");
-    _log("854: before open devnull");
+    # v16: expand the stuck line. This is the inside of
+    # _handle_ssl_frontend_client (Server.pm:455-467), with a log at every
+    # step, and the can_read loop BOUNDED to 5 iterations so this micro
+    # cannot hang. If all 5 return false, the real unbounded loop spins
+    # forever on Windows for a non-socket handle, and that is the cause.
+    _log("16: before open devnull");
     open my $not_a_socket, '<', File::Spec->devnull
       or die "Unable to open non-socket client fixture: $!";
-    _log("854: after open devnull");
-    _log("854: before eval no-daemon");
-    my $no_daemon = eval {
-        $ssl_server->_handle_ssl_frontend_client( client => $not_a_socket );
-        1;
-    };
-    _log("854: after eval no-daemon");
-    _log("854: before ok no-daemon");
-    ok( !$no_daemon, 'frontend client handler refuses to run without a daemon descriptor' );
-    _log("854: after ok no-daemon");
-    _log("854: before like no-daemon");
-    like( $@, qr/Missing daemon descriptor/, 'frontend client handler names the missing daemon descriptor' );
-    _log("854: after like no-daemon");
-    _log("854: before is-call client+daemon");
-    is(
-        $ssl_server->_handle_ssl_frontend_client(
-            client => $not_a_socket,
-            daemon => $ssl_daemon,
-        ),
-        1,
-        'frontend client handler returns cleanly when the first-byte peek fails outright',
-    );
-    _log("854: after is-call client+daemon");
-    _log("854: before close devnull");
-    close $not_a_socket or die "Unable to close non-socket client fixture: $!";
-    _log("854: after close devnull");
+    _log("16: after open devnull fileno=" . fileno($not_a_socket));
+
+    _log("16: before IO::Select->new");
+    my $client_select = IO::Select->new($not_a_socket);
+    _log("16: after IO::Select->new");
+
+    my $iter  = 0;
+    my $ready;
+    while (1) {
+        $iter++;
+        $ready = $client_select->can_read(0.25);
+        _log("16: can_read iter $iter returned " . ($ready ? "TRUE" : "false"));
+        last if $ready;
+        if ($iter >= 5) {
+            _log("16: can_read returned false 5 times in a row - the real loop would spin forever");
+            last;
+        }
+    }
+
+    # Control: can_read on a REAL socket with data waiting must return true.
+    _log("16: before socketpair control");
+    socketpair( my $ctl_a, my $ctl_b, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "socketpair control: $!";
+    syswrite( $ctl_b, "x" ) or die "socketpair write: $!";
+    my $ctl_select = IO::Select->new($ctl_a);
+    my $ctl_ready  = $ctl_select->can_read(0.25);
+    _log("16: socketpair control can_read returned " . ($ctl_ready ? "TRUE" : "false"));
+
+    # The recv peek the method does after the loop.
+    _log("16: before recv peek on devnull");
+    my $first  = '';
+    my $peeked = recv( $not_a_socket, $first, 1, MSG_PEEK );
+    _log("16: after recv peek peeked=" . (defined $peeked ? $peeked : "undef")
+        . " first=" . (defined $first && $first ne '' ? "defined-nonempty" : "empty")
+        . " errno=$!");
+
+    close $not_a_socket;
+
+    if ( $^O eq 'MSWin32' ) {
+        ok( !$ready && $iter >= 5,
+            'can_read on a non-socket handle never reports readable on Windows' );
+    }
+    else {
+        ok( $ready, 'can_read on a devnull handle reports readable on Unix' );
+    }
+    ok( $ctl_ready, 'can_read on a real socket with data reports readable' );
+    ok( !defined $peeked, 'recv peek on a non-socket handle fails outright' );
+    _log("16: done");
 }
 
-_log("done");
 done_testing();
 # Compile marker: this BEGIN runs at compile time, after every line above has
 # been compiled. If it prints, compilation finished and the hang is runtime.
 # If it does NOT print, the hang is during compile (or Perl startup).
-BEGIN { warn "MICRO15: compile finished pid $$\n"; }
+BEGIN { warn "MICRO16: compile finished pid $$\n"; }
