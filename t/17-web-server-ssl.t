@@ -1182,7 +1182,13 @@ FRONTEND_PERL
             <$https_socket>;
         };
         close $https_socket;
-        like( $https_raw, qr/^HTTP\/1\.1 200 OK\r\n/, 'live SSL frontend still serves HTTPS on the public port' );
+        # The Windows backend is Plack Standalone (HTTP::Server::PSGI),
+        # which always answers HTTP/1.0 (its status line is a literal
+        # "HTTP/1.0" and its POD says to use Starman for HTTP/1.1),
+        # while Starman on Linux/macOS answers HTTP/1.1. Either version
+        # is a valid 200 response to this HTTP/1.1 request; the test is
+        # about serving HTTPS on the public port, not the version token.
+        like( $https_raw, qr/^HTTP\/1\.[01] 200 OK\r\n/, 'live SSL frontend still serves HTTPS on the public port' );
         like( $https_raw, qr/\r\n\r\nOK\z/s, 'live SSL frontend preserves the HTTPS app response body' );
     }
     else {

@@ -14,6 +14,7 @@ use IO::Select;
 use IO::Socket::INET;
 use IO::Socket::SSL ();
 use Plack::Runner;
+use POSIX ();
 use Socket qw(MSG_PEEK);
 use Time::HiRes qw(sleep time);
 
@@ -219,7 +220,16 @@ sub _serve_ssl_frontend {
     my $backend_command = $self->_ssl_backend_command($daemon);
     my $backend_pid = Developer::Dashboard::GoRoutine::spawn(
         $backend_command,
-        { process_group => 1 },
+        {
+            process_group => 1,
+            # Tell the backend which process is its frontend so its
+            # parent watchdog can end it when the frontend disappears.
+            # On Windows the frontend can be killed with TerminateProcess,
+            # which gives it no chance to run its TERM handler and stop
+            # the backend, so without this the orphaned backend holds the
+            # test harness pipes open and prove never exits. (t/17 Test 15.)
+            env => { DEVELOPER_DASHBOARD_SSL_FRONTEND_PID => $$ },
+        },
     );
 
     my $previous_term = $SIG{TERM};
@@ -384,10 +394,35 @@ sub _run_ssl_backend_process {
     # arrives from the proxy's loopback socket). Starman workers fork from here
     # and inherit the flag.
     local $ENV{DEVELOPER_DASHBOARD_SSL_PROXIED} = 1;
+    if ( is_windows() ) {
+        _start_ssl_backend_parent_watchdog( $ENV{DEVELOPER_DASHBOARD_SSL_FRONTEND_PID} );
+    }
     my $runner = $self->_build_runner($daemon);
     my $app = $self->psgi_app;
     $runner->run($app);
     return 0;
+}
+
+# _start_ssl_backend_parent_watchdog($parent_pid)
+# Starts a watchdog thread in the SSL backend that ends the backend when the
+# frontend process disappears. On Windows the frontend can be killed with
+# TerminateProcess, which gives it no chance to run its TERM handler and stop
+# the backend, so the orphaned backend would otherwise hold the test harness
+# pipes open forever and keep listening. Unix frontends stop the backend
+# through their signal handler, so the watchdog is Windows-only.
+# Input: frontend process id integer.
+# Output: true value.
+sub _start_ssl_backend_parent_watchdog {
+    my ($parent_pid) = @_;
+    return 1 if !defined $parent_pid || $parent_pid !~ /^\d+$/ || $parent_pid < 1;
+    Developer::Dashboard::GoRoutine::go(sub {
+        while (1) {
+            sleep 1;
+            next if Developer::Dashboard::GoRoutine::process_running($parent_pid);
+            POSIX::_exit(0);
+        }
+    });
+    return 1;
 }
 
 # _open_ssl_frontend_listener_or_die(%args)
