@@ -1,15 +1,13 @@
-# t/999-micro-t88-hang.t — MICRO v10: BISECTION, first half of v9's range,
-# plus a Windows-only net dump. Full t/88 lines 1-341 + lines 538-571 +
-# the test blocks lines 764-882 (through the block starting at 854) +
-# done_testing(). Scratch only, do not merge, do not ship.
+# t/999-micro-t88-hang.t — MICRO v11: BISECTION, first half of v10's range.
+# Full t/88 lines 1-341 + lines 538-571 + the test blocks lines 764-843
+# (the blocks starting at 764 and 802: the failing/late-failing SSL frontend
+# client fixtures) + done_testing(). Scratch only, do not merge, do not ship.
 #
-# Micro v9 REPRODUCED the hang in 764-974 (Windows stuck after ok 1, compile
-# marker printed, so RUNTIME phase). v10 bisects that range: first half
-# (764-882). If v10 hangs, the trigger is in this half. If v10 passes, v11
-# takes the second half (lines 883-974).
-# The _net dump is now Windows-only ($^O eq 'MSWin32'): on macOS/Linux it
-# used to run `netstat -ano | findstr`, which does not exist there, so the
-# console filled with findstr/netstat errors. Only the Windows dump matters.
+# Micro v10 REPRODUCED the hang in 764-882 (Windows stuck after ok 1,
+# compile marker printed, RUNTIME phase). v11 bisects that range: first
+# half (764-843, blocks 764+802). If v11 hangs, the trigger is in one of
+# those two blocks. If v11 passes, v12 takes the second half (844-882,
+# blocks 844+854, the SSL frontend argument-guard tests).
 #!/usr/bin/env perl
 
 use strict;
@@ -45,12 +43,12 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::Server::Daemon;
 
-sub _log { warn "MICRO10: $_[0]\n"; }
+sub _log { warn "MICRO11: $_[0]\n"; }
 sub _net {
     my ($label) = @_;
     return unless $^O eq 'MSWin32';
     my $n = `netstat -ano | findstr "$$"`;
-    warn "MICRO10 net after $label pid $$:\n$n\n";
+    warn "MICRO11 net after $label pid $$:\n$n\n";
 }
 _log("use block + definitions compiled, pid $$");
 _net("compile");
@@ -477,49 +475,10 @@ sub Local::CompletedRoutine::kill { return 1 }
 }
 
 # --- SSL frontend helper argument guards ------------------------------------
-{
-    my $ok = eval { $ssl_server->_open_ssl_frontend_listener_or_die(); 1 };
-    ok( !$ok, 'SSL listener helper refuses to run without a daemon descriptor' );
-    like(
-        $@,
-        qr/Missing SSL frontend daemon descriptor/,
-        'SSL listener helper names the missing daemon descriptor',
-    );
-}
-
-{
-    my $ok = eval { $ssl_server->_handle_ssl_frontend_client(); 1 };
-    ok( !$ok, 'frontend client handler refuses to run without a client socket' );
-    like( $@, qr/Missing frontend client socket/, 'frontend client handler names the missing client socket' );
-
-    open my $not_a_socket, '<', File::Spec->devnull
-      or die "Unable to open non-socket client fixture: $!";
-
-    my $no_daemon = eval {
-        $ssl_server->_handle_ssl_frontend_client( client => $not_a_socket );
-        1;
-    };
-    ok( !$no_daemon, 'frontend client handler refuses to run without a daemon descriptor' );
-    like( $@, qr/Missing daemon descriptor/, 'frontend client handler names the missing daemon descriptor' );
-
-    # recv() on a plain filehandle fails with ENOTSOCK, which is the only way
-    # the peek can come back undefined rather than empty.
-    is(
-        $ssl_server->_handle_ssl_frontend_client(
-            client => $not_a_socket,
-            daemon => $ssl_daemon,
-        ),
-        1,
-        'frontend client handler returns cleanly when the first-byte peek fails outright',
-    );
-    close $not_a_socket or die "Unable to close non-socket client fixture: $!";
-}
-
-# --- byte / head / target / host parsing edges ------------------------------
 
 _log("done");
 done_testing();
 # Compile marker: this BEGIN runs at compile time, after every line above has
 # been compiled. If it prints, compilation finished and the hang is runtime.
 # If it does NOT print, the hang is during compile (or Perl startup).
-BEGIN { warn "MICRO10: compile finished pid $$\n"; }
+BEGIN { warn "MICRO11: compile finished pid $$\n"; }
