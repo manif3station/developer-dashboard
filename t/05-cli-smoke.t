@@ -434,8 +434,16 @@ SKIP: {
 my $doctor_clean = json_decode( _run("$perl -I'$lib' '$dashboard' doctor") );
 ok( $doctor_clean->{ok}, 'd2 doctor reports success after repair' );
 
-my $managed_core_expected = Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core');
-my $managed_core_stale = $managed_core_expected;
+# Save the staged core's bytes before clobbering them: the test process
+# loads InternalCLI from the node's stale blib tree, so
+# _managed_helper_content() returns the OLD core while the doctor
+# subprocess (fresh dd-source) expects the NEW one. The staged file is
+# provably the expected content (the doctor run above reported ok=1), so
+# build the drift from the saved bytes and restore from them.
+open my $managed_core_saved_fh, '<:raw', $runtime_dashboard_core or die "Unable to read $runtime_dashboard_core: $!";
+my $managed_core_saved = do { local $/; <$managed_core_saved_fh> };
+close $managed_core_saved_fh or die "Unable to close $runtime_dashboard_core: $!";
+my $managed_core_stale = $managed_core_saved;
 $managed_core_stale .= "\n# stale helper drift\n";
 open my $managed_core_stale_fh, '>:raw', $runtime_dashboard_core or die "Unable to write $runtime_dashboard_core: $!";
 print {$managed_core_stale_fh} $managed_core_stale;
@@ -490,7 +498,7 @@ if ( $^O eq 'MSWin32' ) {
     # checks the repaired state rather than a repair --fix is not allowed
     # to make on Windows.
     open my $managed_core_restore_fh, '>:raw', $runtime_dashboard_core or die "Unable to write $runtime_dashboard_core: $!";
-    print {$managed_core_restore_fh} $managed_core_expected;
+    print {$managed_core_restore_fh} $managed_core_saved;
     close $managed_core_restore_fh or die "Unable to close $runtime_dashboard_core: $!";
 }
 my $doctor_helper_clean = json_decode( _run("$perl -I'$lib' '$runtime_doctor'") );
