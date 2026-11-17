@@ -213,9 +213,12 @@ OPENSSL_CONFIG
     ok(-f $key_file, 'server.key file exists');
     ok(-s $cert_file > 0, 'server.crt has content');
     ok(-s $key_file > 0, 'server.key has content');
-    is(_mode_octal($cert_dir), '0700', 'cert directory is owner-only');
-    is(_mode_octal($cert_file), '0600', 'certificate file is owner-only');
-    is(_mode_octal($key_file), '0600', 'private key file is owner-only');
+    SKIP: {
+        skip 'Unix permission modes are not a Windows security control', 3 if $^O eq 'MSWin32';
+        is(_mode_octal($cert_dir), '0700', 'cert directory is owner-only');
+        is(_mode_octal($cert_file), '0600', 'certificate file is owner-only');
+        is(_mode_octal($key_file), '0600', 'private key file is owner-only');
+    }
     
     # Verify cert is self-signed and valid
     my $cert_text = do {
@@ -1003,7 +1006,7 @@ SIGNAL_PERL
     );
     is_deeply(
         $server->_ssl_backend_command($daemon),
-        [ $^X, '/tmp/_dashboard-core', 'web-ssl-backend-foreground',
+        [ $^X, File::Spec->catfile( '/tmp', '_dashboard-core' ), 'web-ssl-backend-foreground',
           '--host', '127.0.0.1', '--port', 17898, '--workers', 1 ],
         'default SSL backend command resolves the staged core dispatcher beside its command wrapper',
     );
