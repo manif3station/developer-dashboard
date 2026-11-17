@@ -1,7 +1,10 @@
 #!/usr/bin/env perl
 
+warn "PROBE load 1: before use strict;\n";
 use strict;
+warn "PROBE load 2: before use warnings;\n";
 use warnings;
+warn "PROBE load 3: before use utf8;\n";
 use utf8;
 
 # Keep signal forwarding injectable for unit coverage without creating a
@@ -15,22 +18,38 @@ BEGIN {
     };
 }
 
+warn "PROBE load 4: before use Capture::Tiny qw(capture);\n";
 use Capture::Tiny qw(capture);
+warn "PROBE load 5: before use Errno qw(EBADF EINTR);\n";
 use Errno qw(EBADF EINTR);
+warn "PROBE load 6: before use File::Basename qw(basename dirname);\n";
 use File::Basename qw(basename dirname);
+warn "PROBE load 7: before use File::Path qw(make_path);\n";
 use File::Path qw(make_path);
+warn "PROBE load 8: before use File::Spec;\n";
 use File::Spec;
+warn "PROBE load 9: before use File::Temp qw(tempdir tempfile);\n";
 use File::Temp qw(tempdir tempfile);
+warn "PROBE load 10: before use IO::Select;\n";
 use IO::Select;
+warn "PROBE load 11: before use IO::Socket::INET;\n";
 use IO::Socket::INET;
+warn "PROBE load 12: before use Socket qw(AF_UNIX PF_UNSPEC SOCK_STREAM SOL_SOCKET SO_LINGER);\n";
 use Socket qw(AF_UNIX PF_UNSPEC SOCK_STREAM SOL_SOCKET SO_LINGER);
+warn "PROBE load 13: before use Symbol qw(gensym);\n";
 use Symbol qw(gensym);
+warn "PROBE load 14: before use Test::More;\n";
 use Test::More;
 
+warn "PROBE load 15: before use lib 'lib';\n";
 use lib 'lib';
+warn "PROBE load done: use block finished\n";
 
+warn "PROBE load 16: before use Developer::Dashboard::PathRegistry;\n";
 use Developer::Dashboard::PathRegistry;
+warn "PROBE load 17: before use Developer::Dashboard::Web::Server;\n";
 use Developer::Dashboard::Web::Server;
+warn "PROBE load 18: before use Developer::Dashboard::Web::Server::Daemon;\n";
 use Developer::Dashboard::Web::Server::Daemon;
 
 # Hermetic runtime: every layer lookup resolves from this temp home and cwd.
@@ -39,6 +58,7 @@ local $ENV{HOME} = $home;
 chdir $home or die "Unable to chdir to $home: $!";
 
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
+warn "PROBE test1: about to run first ok\n";
 ok( $paths->home_runtime_path, 'hermetic path registry resolves a home runtime path' );
 
 {
