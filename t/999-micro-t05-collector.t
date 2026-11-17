@@ -31,5 +31,9 @@ for my $case ( [ 'single-quote', $tick_single ], [ 'double-quote', $tick_double 
     print "MICRO-COLL: after run_command $label stdout=[$stdout] stderr=[$stderr] exit=$exit timed_out=$timed_out\n";
 }
 
-pass('micro collector probe ran');
+# prove without -v swallows a passing test's STDOUT, so a probe that
+# always passes prints nothing anywhere. Fail deliberately at the end so
+# the harness shows the dump above; the build verdict is meaningless
+# for this probe — the dumped lines are the result.
+fail('micro collector probe dump complete — deliberate fail so prove shows the dump');
 done_testing;

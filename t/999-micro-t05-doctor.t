@@ -69,5 +69,9 @@ else {
     print "MICRO-DOCTOR: staged helper dir MISSING: $dd_dir\n";
 }
 
-pass('micro doctor probe ran');
+# prove without -v swallows a passing test's STDOUT, so a probe that
+# always passes prints nothing anywhere. Fail deliberately at the end so
+# the harness shows the dump above; the build verdict is meaningless
+# for this probe — the dumped lines are the result.
+fail('micro doctor probe dump complete — deliberate fail so prove shows the dump');
 done_testing;
