@@ -1,17 +1,14 @@
-# t/999-micro-t88-hang.t — MICRO v14: ONE BLOCK — 854 only.
-# Full t/88 lines 1-341 + lines 538-571 + the single test block at lines
-# 854-882 (_handle_ssl_frontend_client argument guards plus the non-socket
-# recv peek: client => a plain devnull filehandle, daemon => $ssl_daemon) +
-# done_testing(). Scratch only, do not merge, do not ship.
+# t/999-micro-t88-hang.t — MICRO v15: EXPAND block 854 line by line.
+# Full t/88 lines 1-341 + lines 538-571 + block 854 (lines 854-882) with a
+# MICRO15 log before AND after every statement + done_testing().
+# Scratch only, do not merge, do not ship.
 #
-# Micro v12 hung in 844+854; v13 PASSED 844 alone. So the trigger is block
-# 854, unless it needs block 844 present too (interaction). v14 tests block
-# 854 alone. If v14 hangs, expand block 854 line by line with logs until
-# the exact stuck line is found. Prime suspect inside it: the
-# `while ( !$client_select->can_read(0.25) )` loop in
-# _handle_ssl_frontend_client (Server.pm:455) called with a non-socket
-# handle — on Windows can_read may never report readable, so the loop
-# spins forever (matches the 100% CPU thread and the select() dump frames).
+# Micro v14 reproduced the hang in block 854 ALONE. v15 names the exact
+# stuck statement: the last MICRO15 log line is the statement it hangs in.
+# Prime suspect: the is() call with client => $not_a_socket (a plain
+# devnull filehandle) + daemon => $ssl_daemon — it enters
+# _handle_ssl_frontend_client, whose `while ( !$client_select->can_read
+# (0.25) )` loop may never exit on Windows for a non-socket handle.
 #!/usr/bin/env perl
 
 use strict;
@@ -47,12 +44,12 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::Server::Daemon;
 
-sub _log { warn "MICRO14: $_[0]\n"; }
+sub _log { warn "MICRO15: $_[0]\n"; }
 sub _net {
     my ($label) = @_;
     return unless $^O eq 'MSWin32';
     my $n = `netstat -ano | findstr "$$"`;
-    warn "MICRO14 net after $label pid $$:\n$n\n";
+    warn "MICRO15 net after $label pid $$:\n$n\n";
 }
 _log("use block + definitions compiled, pid $$");
 _net("compile");
@@ -400,22 +397,36 @@ sub Local::CompletedRoutine::kill { return 1 }
 }
 
 {
+    _log("854: before eval no-client");
     my $ok = eval { $ssl_server->_handle_ssl_frontend_client(); 1 };
+    _log("854: after eval no-client");
+    _log("854: before ok no-client");
     ok( !$ok, 'frontend client handler refuses to run without a client socket' );
-    like( $@, qr/Missing frontend client socket/, 'frontend client handler names the missing client socket' );
-
+    _log("854: after ok no-client");
+    _log("854: before like no-client");
+    like(
+        $@,
+        qr/Missing frontend client socket/,
+        'frontend client handler names the missing client socket',
+    );
+    _log("854: after like no-client");
+    _log("854: before open devnull");
     open my $not_a_socket, '<', File::Spec->devnull
       or die "Unable to open non-socket client fixture: $!";
-
+    _log("854: after open devnull");
+    _log("854: before eval no-daemon");
     my $no_daemon = eval {
         $ssl_server->_handle_ssl_frontend_client( client => $not_a_socket );
         1;
     };
+    _log("854: after eval no-daemon");
+    _log("854: before ok no-daemon");
     ok( !$no_daemon, 'frontend client handler refuses to run without a daemon descriptor' );
+    _log("854: after ok no-daemon");
+    _log("854: before like no-daemon");
     like( $@, qr/Missing daemon descriptor/, 'frontend client handler names the missing daemon descriptor' );
-
-    # recv() on a plain filehandle fails with ENOTSOCK, which is the only way
-    # the peek can come back undefined rather than empty.
+    _log("854: after like no-daemon");
+    _log("854: before is-call client+daemon");
     is(
         $ssl_server->_handle_ssl_frontend_client(
             client => $not_a_socket,
@@ -424,14 +435,15 @@ sub Local::CompletedRoutine::kill { return 1 }
         1,
         'frontend client handler returns cleanly when the first-byte peek fails outright',
     );
+    _log("854: after is-call client+daemon");
+    _log("854: before close devnull");
     close $not_a_socket or die "Unable to close non-socket client fixture: $!";
+    _log("854: after close devnull");
 }
-
-# --- byte / head / target / host parsing edges ------------------------------
 
 _log("done");
 done_testing();
 # Compile marker: this BEGIN runs at compile time, after every line above has
 # been compiled. If it prints, compilation finished and the hang is runtime.
 # If it does NOT print, the hang is during compile (or Perl startup).
-BEGIN { warn "MICRO14: compile finished pid $$\n"; }
+BEGIN { warn "MICRO15: compile finished pid $$\n"; }
