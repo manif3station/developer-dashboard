@@ -1,18 +1,21 @@
-# t/999-micro-t88-hang.t — MICRO v16: EXPAND the stuck call itself.
-# Full t/88 lines 1-341 + lines 538-571 + the inside of
-# _handle_ssl_frontend_client (Server.pm:455-467) replicated with a log at
-# every step, the can_read loop BOUNDED to 5 iterations so this micro cannot
-# hang, plus a socketpair control and the recv peek + done_testing().
+# t/999-micro-t88-hang.t — MICRO v17: PROVE THE FIX in the micro first.
+# Full t/88 lines 1-341 + lines 538-571 + the FIXED logic of
+# _handle_ssl_frontend_client (Server.pm:455-467) replicated with logs:
+# probe the client with getsockopt (SOL_SOCKET/SO_TYPE) before the
+# readiness wait; a non-socket skips the wait and goes straight to the
+# recv peek; a real socket waits as before (bounded to 5 here so this
+# micro cannot hang). Plus a socketpair control + done_testing().
 # Scratch only, do not merge, do not ship.
 #
-# Micro v15 named the exact stuck statement: the is() call with client =>
-# a plain devnull filehandle + daemon => $ssl_daemon never returns. v16
-# expands that call: if can_read returns false 5 times in a row on
-# Windows, the real unbounded loop spins forever, and that is the root
-# cause. The socketpair control proves can_read itself works on Windows
-# for real sockets; the recv peek proves the test's intended outcome
-# (peek fails outright, method should return 1) is reachable once the
-# loop no longer spins.
+# Micro v16 CONFIRMED the root cause: on Windows can_read on a devnull
+# handle returns false 5 times in a row (never true), while on Unix it
+# returns true at iteration 1, and the socketpair control returns true
+# on all four legs. The recv peek fails with ENOTSOCK on all four legs.
+# v17 proves the fix logic: getsockopt must say undef for the devnull
+# handle and defined for a real socket, on all four legs, and the fixed
+# path must return 1 for the non-socket client. If v17 passes, the fix
+# goes into Server.pm on the loop branch and the real t/88 solo verifies
+# it there.
 #!/usr/bin/env perl
 
 use strict;
@@ -48,13 +51,13 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::Server::Daemon;
 
-use Socket qw(MSG_PEEK);  # micro-only: the head imports Socket without MSG_PEEK
-sub _log { warn "MICRO16: $_[0]\n"; }
+use Socket qw(MSG_PEEK SO_TYPE);  # micro-only: the head imports Socket without MSG_PEEK/SO_TYPE
+sub _log { warn "MICRO17: $_[0]\n"; }
 sub _net {
     my ($label) = @_;
     return unless $^O eq 'MSWin32';
     my $n = `netstat -ano | findstr "$$"`;
-    warn "MICRO16 net after $label pid $$:\n$n\n";
+    warn "MICRO17 net after $label pid $$:\n$n\n";
 }
 _log("use block + definitions compiled, pid $$");
 _net("compile");
@@ -403,66 +406,77 @@ sub Local::CompletedRoutine::kill { return 1 }
 
 
 {
-    # v16: expand the stuck line. This is the inside of
-    # _handle_ssl_frontend_client (Server.pm:455-467), with a log at every
-    # step, and the can_read loop BOUNDED to 5 iterations so this micro
-    # cannot hang. If all 5 return false, the real unbounded loop spins
-    # forever on Windows for a non-socket handle, and that is the cause.
-    _log("16: before open devnull");
+    # v17: prove the FIX in the micro first. Fixed logic: probe the client
+    # with getsockopt (SOL_SOCKET/SO_TYPE) before the readiness wait. A
+    # non-socket skips the wait and goes straight to the recv peek, which
+    # fails with ENOTSOCK and returns 1, as the test expects. A real
+    # socket waits as before. The wait here stays bounded to 5 iterations
+    # so this micro cannot hang.
+    _log("17: before open devnull");
     open my $not_a_socket, '<', File::Spec->devnull
       or die "Unable to open non-socket client fixture: $!";
-    _log("16: after open devnull fileno=" . fileno($not_a_socket));
+    _log("17: after open devnull fileno=" . fileno($not_a_socket));
 
-    _log("16: before IO::Select->new");
+    _log("17: before getsockopt probe on devnull");
+    my $socktype = getsockopt( $not_a_socket, SOL_SOCKET, SO_TYPE );
+    _log("17: getsockopt on devnull returned " . (defined $socktype ? "defined" : "undef") . " errno=$!");
+
     my $client_select = IO::Select->new($not_a_socket);
-    _log("16: after IO::Select->new");
-
     my $iter  = 0;
     my $ready;
-    while (1) {
-        $iter++;
-        $ready = $client_select->can_read(0.25);
-        _log("16: can_read iter $iter returned " . ($ready ? "TRUE" : "false"));
-        last if $ready;
-        if ($iter >= 5) {
-            _log("16: can_read returned false 5 times in a row - the real loop would spin forever");
-            last;
+    if ( defined $socktype ) {
+        _log("17: socket, entering readiness wait");
+        while (1) {
+            $iter++;
+            $ready = $client_select->can_read(0.25);
+            _log("17: can_read iter $iter returned " . ($ready ? "TRUE" : "false"));
+            last if $ready;
+            if ($iter >= 5) {
+                _log("17: bounded wait hit 5, giving up");
+                last;
+            }
         }
     }
+    else {
+        _log("17: not a socket, skipping readiness wait");
+    }
 
-    # Control: can_read on a REAL socket with data waiting must return true.
-    _log("16: before socketpair control");
+    _log("17: before recv peek on devnull");
+    my $first  = '';
+    my $peeked = recv( $not_a_socket, $first, 1, MSG_PEEK );
+    _log("17: after recv peek peeked=" . (defined $peeked ? $peeked : "undef")
+        . " first=" . (defined $first && $first ne '' ? "defined-nonempty" : "empty")
+        . " errno=$!");
+    my $fixed_result = ( !defined $peeked || $first eq '' ) ? 1 : 0;
+    _log("17: fixed path would return $fixed_result (test expects 1)");
+
+    # Control: a REAL socket — probe defined, wait exits, peek returns the byte.
+    _log("17: before socketpair control");
     socketpair( my $ctl_a, my $ctl_b, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
       or die "socketpair control: $!";
     syswrite( $ctl_b, "x" ) or die "socketpair write: $!";
+    my $ctl_type = getsockopt( $ctl_a, SOL_SOCKET, SO_TYPE );
+    _log("17: getsockopt on socketpair returned " . (defined $ctl_type ? "defined" : "undef") . " errno=$!");
     my $ctl_select = IO::Select->new($ctl_a);
     my $ctl_ready  = $ctl_select->can_read(0.25);
-    _log("16: socketpair control can_read returned " . ($ctl_ready ? "TRUE" : "false"));
-
-    # The recv peek the method does after the loop.
-    _log("16: before recv peek on devnull");
-    my $first  = '';
-    my $peeked = recv( $not_a_socket, $first, 1, MSG_PEEK );
-    _log("16: after recv peek peeked=" . (defined $peeked ? $peeked : "undef")
-        . " first=" . (defined $first && $first ne '' ? "defined-nonempty" : "empty")
-        . " errno=$!");
+    _log("17: socketpair control can_read returned " . ($ctl_ready ? "TRUE" : "false"));
+    my $ctl_first  = '';
+    my $ctl_peeked = recv( $ctl_a, $ctl_first, 1, MSG_PEEK );
+    _log("17: socketpair recv peek peeked=" . (defined $ctl_peeked ? $ctl_peeked : "undef")
+        . " first=" . (defined $ctl_first ? "'$ctl_first'" : "undef"));
 
     close $not_a_socket;
 
-    if ( $^O eq 'MSWin32' ) {
-        ok( !$ready && $iter >= 5,
-            'can_read on a non-socket handle never reports readable on Windows' );
-    }
-    else {
-        ok( $ready, 'can_read on a devnull handle reports readable on Unix' );
-    }
+    ok( !defined $socktype, 'getsockopt probe says the devnull handle is not a socket' );
+    ok( $fixed_result == 1, 'fixed path returns 1 for a non-socket client' );
+    ok( defined $ctl_type, 'getsockopt probe says a real socket is a socket' );
     ok( $ctl_ready, 'can_read on a real socket with data reports readable' );
-    ok( !defined $peeked, 'recv peek on a non-socket handle fails outright' );
-    _log("16: done");
+    ok( defined $ctl_peeked && $ctl_first eq 'x', 'recv peek on a real socket returns the first byte' );
+    _log("17: done");
 }
 
 done_testing();
 # Compile marker: this BEGIN runs at compile time, after every line above has
 # been compiled. If it prints, compilation finished and the hang is runtime.
 # If it does NOT print, the hang is during compile (or Perl startup).
-BEGIN { warn "MICRO16: compile finished pid $$\n"; }
+BEGIN { warn "MICRO17: compile finished pid $$\n"; }
