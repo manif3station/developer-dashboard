@@ -2,6 +2,14 @@ use strict;
 use warnings;
 use utf8;
 
+use FindBin;
+use File::Spec;
+
+# MICRO v2: load the fresh checkout lib FIRST, ahead of the node's stale
+# blib, so this process runs the tip's Perl modules exactly like the CLI
+# subprocesses already do (prove's -I only names the blib).
+use lib File::Spec->catdir( $FindBin::Bin, '..', 'lib' );
+
 use Cwd qw(getcwd);
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::JSON qw(json_encode);
