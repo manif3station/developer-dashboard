@@ -109,6 +109,12 @@ struct go_win_start {
  * process with an access violation before the worker ever runs -- that is
  * the t/17 exit-5 death on Windows. The process heap needs no context, so
  * HeapAlloc/HeapFree stay matched for these handoff structs.
+ *
+ * Second rule, same heap: Perl's malloc is per-interpreter pooled, so a
+ * struct allocated by the main interpreter must not be freed by a cloned
+ * interpreter -- that croaks "Free to wrong pool" and the croak's unwind
+ * crashes the worker. The go_job is allocated in go() (main interpreter)
+ * and freed in go_worker (cloned interpreter), so it is heap memory too.
  */
 static void *
 go_win_heap_alloc(size_t size)
@@ -776,11 +782,17 @@ go_worker(void *arg)
 
     go_tls_set(go_tls_key, NULL);
     go_control_finish(ctl, final_state);
-    /* Release the job while this thread still has a live interpreter
-     * context: free() is Perl's memory API, and once
-     * go_destroy_interpreter() has run the context is gone, so freeing
-     * after it would dereference a NULL or already-freed interpreter. */
+    /* The job was allocated in go() by the MAIN interpreter, but this
+     * thread runs a CLONED interpreter with its own memory pool: freeing
+     * Perl memory across interpreters croaks "Free to wrong pool" and the
+     * croak's unwind crashes the worker thread (t/17 exit-5, second
+     * crash). The job comes from the process heap on Windows, so free it
+     * there; on POSIX free() is the plain CRT free and is fine anywhere. */
+#ifdef _WIN32
+    go_win_heap_free(job);
+#else
     free(job);
+#endif
     go_destroy_interpreter(interp);
     go_active_dec();
     return NULL;

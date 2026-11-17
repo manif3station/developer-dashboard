@@ -47,7 +47,16 @@ go(callback)
         croak("could not map callback into cloned Perl interpreter");
     }
 
+    /* The job is freed in go_worker, which runs a CLONED interpreter with
+     * its own memory pool: freeing main-interpreter Perl memory there
+     * croaks "Free to wrong pool" and the croak's unwind kills the worker
+     * (t/17 exit-5, second crash). So on Windows the job comes from the
+     * process heap, like the other thread-handoff structs. */
+#ifdef _WIN32
+    job = (go_job *)go_win_heap_alloc(sizeof(*job));
+#else
     job = (go_job *)malloc(sizeof(*job));
+#endif
     if (job == NULL) {
         PERL_SET_CONTEXT(child);
         { dTHXa(child); SvREFCNT_dec(child_callback); }
@@ -66,7 +75,11 @@ go(callback)
         { dTHXa(child); SvREFCNT_dec(child_callback); }
         go_destroy_interpreter(child);
         PERL_SET_CONTEXT(parent);
+#ifdef _WIN32
+        go_win_heap_free(job);
+#else
         free(job);
+#endif
         go_active_dec();
         croak("native thread creation failed: %d", rc);
     }
