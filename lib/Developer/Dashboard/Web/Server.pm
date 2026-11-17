@@ -15,7 +15,7 @@ use IO::Socket::INET;
 use IO::Socket::SSL ();
 use Plack::Runner;
 use POSIX ();
-use Socket qw(MSG_PEEK);
+use Socket qw(MSG_PEEK SOL_SOCKET SO_TYPE);
 use Time::HiRes qw(sleep time);
 
 use Developer::Dashboard::GoRoutine;
@@ -457,8 +457,14 @@ sub _handle_ssl_frontend_client {
     my $client = $args{client} || die 'Missing frontend client socket';
     my $daemon = $args{daemon} || die 'Missing daemon descriptor';
     my $client_select = IO::Select->new($client);
-    while ( !$client_select->can_read(0.25) ) {
-        # Timed readiness waits let a GoRoutine worker observe cancellation.
+    # select() only works on sockets on Windows: on a plain filehandle
+    # can_read() never reports readable, so the wait below would spin
+    # forever. Probe with getsockopt first; a non-socket goes straight to
+    # the peek, which fails with ENOTSOCK and returns cleanly.
+    if ( defined getsockopt( $client, SOL_SOCKET, SO_TYPE ) ) {
+        while ( !$client_select->can_read(0.25) ) {
+            # Timed readiness waits let a GoRoutine worker observe cancellation.
+        }
     }
     my $first = '';
     my $peeked = recv( $client, $first, 1, MSG_PEEK );
