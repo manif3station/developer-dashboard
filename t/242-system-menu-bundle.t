@@ -30,9 +30,21 @@ SKIP: {
 
 SKIP: {
     my $helper_name = $^O eq 'MSWin32' ? 'system_menu_helper.exe' : 'system_menu_helper';
-    my $helper = File::Spec->catfile(
-        'blib', 'arch', 'auto', 'Developer', 'Dashboard', $helper_name,
-    );
+    # The helper is built beside the loaded Dashboard XS bundle, not
+    # necessarily beside the current directory: prove may run from a
+    # checkout whose blib lives elsewhere (Jenkins runs prove from a
+    # fresh checkout with -I pointing at an existing blib, so the old
+    # cwd-relative path found nothing). Resolve it from the loaded
+    # shared object instead; fall back to the old path if the bundle
+    # cannot be found.
+    my ($bundle) = grep {
+        ( File::Spec->splitpath($_) )[2] =~ /\ADashboard[^\/\\]*\.(?:so|dll|bundle)\z/i
+    } @DynaLoader::dl_shared_objects;
+    my $helper = defined $bundle
+        ? File::Spec->catfile( ( File::Spec->splitpath($bundle) )[1], $helper_name )
+        : File::Spec->catfile(
+            'blib', 'arch', 'auto', 'Developer', 'Dashboard', $helper_name,
+        );
     my $linux_helper_skip_reason;
     if ( $^O eq 'linux' ) {
         my ($pkg_config) = grep { -f $_ && -x $_ }
