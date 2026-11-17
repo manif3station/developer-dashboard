@@ -344,11 +344,14 @@ go_shared_calloc(size_t count, size_t size)
     return p;
 }
 
+/* Heap string duplicate for error strings that cross interpreters (a
+ * callback/handle error is allocated in the frozen interpreter and freed
+ * by the caller): the caller frees the string with go_shared_free. */
 static char *
-go_strdup(const char *s)
+go_shared_strdup(const char *s)
 {
     size_t len = strlen(s);
-    char *out = (char *)malloc(len + 1);
+    char *out = (char *)go_shared_alloc(len + 1);
     if (out != NULL) memcpy(out, s, len + 1);
     return out;
 }
@@ -1450,7 +1453,7 @@ shared_code_invoke(shared_code_state *state,
         if (SvTRUE(ERRSV)) {
             STRLEN len = 0;
             const char *msg = SvPV(ERRSV, len);
-            *out_error = (char *)malloc(len + 1);
+            *out_error = (char *)go_shared_alloc(len + 1);
             if (*out_error != NULL) {
                 memcpy(*out_error, msg, len);
                 (*out_error)[len] = '\0';
@@ -1458,9 +1461,9 @@ shared_code_invoke(shared_code_state *state,
             sv_setsv(ERRSV, &PL_sv_undef);
         }
         else if (gimme != G_VOID && count > 0) {
-            shared_node **nodes = (shared_node **)calloc((size_t)count, sizeof(*nodes));
+            shared_node **nodes = (shared_node **)go_shared_calloc((size_t)count, sizeof(*nodes));
             if (nodes == NULL) {
-                *out_error = go_strdup("out of memory storing shared callback return values");
+                *out_error = go_shared_strdup("out of memory storing shared callback return values");
             }
             else {
                 /* POPs is reverse order, so fill from the end. */
@@ -1551,7 +1554,7 @@ shared_handle_invoke(shared_handle_state *state,
         if (SvTRUE(ERRSV)) {
             STRLEN len = 0;
             const char *msg = SvPV(ERRSV, len);
-            *out_error = (char *)malloc(len + 1);
+            *out_error = (char *)go_shared_alloc(len + 1);
             if (*out_error != NULL) {
                 memcpy(*out_error, msg, len);
                 (*out_error)[len] = '\0';
@@ -1559,9 +1562,9 @@ shared_handle_invoke(shared_handle_state *state,
             sv_setsv(ERRSV, &PL_sv_undef);
         }
         else if (gimme != G_VOID && count > 0) {
-            shared_node **nodes = (shared_node **)calloc((size_t)count, sizeof(*nodes));
+            shared_node **nodes = (shared_node **)go_shared_calloc((size_t)count, sizeof(*nodes));
             if (nodes == NULL) {
-                *out_error = go_strdup("out of memory storing shared filehandle return values");
+                *out_error = go_shared_strdup("out of memory storing shared filehandle return values");
             }
             else {
                 for (i = count - 1; i >= 0; --i) {

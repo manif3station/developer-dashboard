@@ -635,8 +635,11 @@ _shared_handle_remote(ptr, op, ...)
 
     if (error != NULL) {
         SV *errsv = newSVpv(error, 0);
-        free(error);
-        if (results != NULL) free(results);
+        /* The error string and result list are allocated in the frozen
+         * handle interpreter; free them from the process heap, not that
+         * interpreter's Perl pool (see go_shared_calloc). */
+        go_shared_free(error);
+        if (results != NULL) go_shared_free(results);
         croak_sv(errsv);
     }
 
@@ -646,7 +649,7 @@ _shared_handle_remote(ptr, op, ...)
             XPUSHs(sv_2mortal(ret));
         }
     }
-    if (results != NULL) free(results);
+    if (results != NULL) go_shared_free(results);
 
 void
 _shared_code_call(ptr, ...)
@@ -706,8 +709,11 @@ _shared_code_call(ptr, ...)
 
     if (error != NULL) {
         SV *errsv = newSVpv(error, 0);
-        free(error);
-        if (results != NULL) free(results);
+        /* The error string and result list are allocated in the frozen
+         * callback interpreter; free them from the process heap, not that
+         * interpreter's Perl pool (see go_shared_calloc). */
+        go_shared_free(error);
+        if (results != NULL) go_shared_free(results);
         croak_sv(errsv);
     }
 
@@ -717,7 +723,7 @@ _shared_code_call(ptr, ...)
             XPUSHs(sv_2mortal(ret));
         }
     }
-    if (results != NULL) free(results);
+    if (results != NULL) go_shared_free(results);
 
 SV *
 _shared_node_class(ptr)
