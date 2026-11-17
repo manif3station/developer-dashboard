@@ -19,7 +19,7 @@ my $tick_double = q{perl -MTime::HiRes=time -e "printf qq{%.6f\n}, time"};
 
 for my $case ( [ 'single-quote', $tick_single ], [ 'double-quote', $tick_double ] ) {
     my ( $label, $cmd ) = @{$case};
-    print "MICRO-COLL: before run_command $label\n";
+    print STDERR "MICRO-COLL: before run_command $label\n";
     my ( $stdout, $stderr, $exit, $timed_out ) = Developer::Dashboard::CommandRunner::run_command(
         source     => $cmd,
         cwd        => $cwd,
@@ -28,12 +28,13 @@ for my $case ( [ 'single-quote', $tick_single ], [ 'double-quote', $tick_double 
     );
     $stdout = defined $stdout ? $stdout : '<undef>';
     $stderr = defined $stderr ? $stderr : '<undef>';
-    print "MICRO-COLL: after run_command $label stdout=[$stdout] stderr=[$stderr] exit=$exit timed_out=$timed_out\n";
+    print STDERR "MICRO-COLL: after run_command $label stdout=[$stdout] stderr=[$stderr] exit=$exit timed_out=$timed_out\n";
 }
 
-# prove without -v swallows a passing test's STDOUT, so a probe that
-# always passes prints nothing anywhere. Fail deliberately at the end so
-# the harness shows the dump above; the build verdict is meaningless
-# for this probe — the dumped lines are the result.
-fail('micro collector probe dump complete — deliberate fail so prove shows the dump');
+# The dump above goes to STDERR, which prove passes through even for a
+# passing test (plain STDOUT is swallowed without -v, and a deliberate
+# fail is self-defeating under fail-fast: the fastest leg fails first
+# and kills the other three before they run). So this probe PASSES by
+# design; the dumped lines are the result.
+pass('micro collector probe ran');
 done_testing;
