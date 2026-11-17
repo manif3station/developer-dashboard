@@ -1,17 +1,18 @@
-# t/999-micro-t88-hang.t — MICRO v8: v7 FIXED — the missing routine definitions
-# reinstated. Full t/88 lines 1-341 + lines 538-571 (Local::CompletedRoutine
-# is_running/kill + the Local::DelayedRoutine package) + the test blocks
-# lines 764-1190 + done_testing(). Scratch only, do not merge, do not ship.
+# t/999-micro-t88-hang.t — MICRO v9: BISECTION, first half of v8's range,
+# plus a compile-phase marker. Full t/88 lines 1-341 + lines 538-571 +
+# the test blocks lines 764-974 (through the block starting at 945) +
+# done_testing(). Scratch only, do not merge, do not ship.
 #
-# Micro v7 was INVALID: it skipped lines 538-571, so amd64 failed 5 SSL
-# frontend tests on the missing Local::CompletedRoutine::is_running and
-# Windows never ran (fail-fast). v8 reinstates exactly those definitions —
-# the only top-level package/sub definitions in the skipped range 342-763
-# (verified: no other package/sub/my/our at top level there; the 764-1190
-# blocks reference only ScriptedListener, DelayedRoutine, CompletedRoutine).
-# If v8 hangs on Windows, the trigger is in 764-1190. If v8 passes, the
-# trigger needs the 342-763 blocks present too (interaction) or is in the
-# second half of the file (1191-end).
+# Micro v8 REPRODUCED the hang in 764-1190 — but unlike v5 (which printed
+# "after ok 1" before hanging), v8's Windows printed NOTHING, not even the
+# first runtime log. The strike point varies run to run (build #7 reached
+# test ~16; v5 got past ok 1; v8 got nowhere) — a RACE, not a fixed code
+# path. The first MICRO log only runs after ALL compilation, so v8's silence
+# means its hang was during compile (or Perl startup). v9 adds a BEGIN
+# marker at the end of the file to name the phase directly, and bisects
+# 764-1190: first half (764-974). If v9 hangs and the marker is absent ->
+# compile-time trigger in this half. If v9 hangs and the marker printed ->
+# runtime trigger in this half. If v9 passes -> trigger is in 975-1190.
 #!/usr/bin/env perl
 
 use strict;
@@ -47,11 +48,11 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::Server::Daemon;
 
-sub _log { warn "MICRO8: $_[0]\n"; }
+sub _log { warn "MICRO9: $_[0]\n"; }
 sub _net {
     my ($label) = @_;
     my $n = `netstat -ano | findstr "$$"`;
-    warn "MICRO8 net after $label pid $$:\n$n\n";
+    warn "MICRO9 net after $label pid $$:\n$n\n";
 }
 _log("use block + definitions compiled, pid $$");
 _net("compile");
@@ -609,222 +610,10 @@ sub Local::CompletedRoutine::kill { return 1 }
 }
 
 # --- process and reap bookkeeping helper contracts --------------------------
-{
-    is(
-        Developer::Dashboard::Web::Server::_stop_ssl_backend(0),
-        1,
-        'backend stop helper is a no-op when no backend pid is known',
-    );
-    is(
-        Developer::Dashboard::Web::Server::_wait_for_managed_child(0),
-        1,
-        'managed-child wait helper is a no-op when no child pid is known',
-    );
-    is(
-        Developer::Dashboard::Web::Server::_wait_for_managed_child( 4321, { 4321 => 1 } ),
-        1,
-        'managed-child wait helper skips children the local CHLD handler already reaped',
-    );
-    my $waited_pid;
-    no warnings 'redefine';
-    local *Developer::Dashboard::GoRoutine::wait_process = sub { $waited_pid = $_[0]; return 0 };
-    is( Developer::Dashboard::Web::Server::_wait_for_managed_child( 4322, {} ), 1,
-        'managed-child wait proceeds when a provided reap set does not contain the child' );
-    is( $waited_pid, 4322, 'managed-child wait passes the unreaped pid to GoRoutine' );
-    is(
-        Developer::Dashboard::Web::Server::_track_reaped_child( undef, 4321 ),
-        1,
-        'track-reaped-child helper is a no-op without a reap set',
-    );
-    is(
-        Developer::Dashboard::Web::Server::_track_reaped_child( {}, undef ),
-        1,
-        'track-reaped-child helper is a no-op for an undefined child pid',
-    );
-    my %tracked;
-    is( Developer::Dashboard::Web::Server::_track_reaped_child( \%tracked, 4325 ), 1,
-        'track-reaped-child records a positive child pid' );
-    is_deeply( \%tracked, { 4325 => 1 }, 'track-reaped-child stores the pid in its reap set' );
-    is( Developer::Dashboard::Web::Server::_track_reaped_child( \%tracked, 0 ), 1,
-        'track-reaped-child ignores a non-positive child pid' );
-    is_deeply( \%tracked, { 4325 => 1 }, 'track-reaped-child leaves the reap set unchanged for a non-positive pid' );
-}
-
-# --- _https_redirect_location(): host, port, and path rebuilding ------------
-{
-    is(
-        _redirect_server('host.local')->_https_redirect_location(
-            { HTTP_HOST => 'host.local:8443', PATH_INFO => '/x' }
-        ),
-        'https://host.local:8443/x',
-        'redirect location reuses an allowlisted Host header',
-    );
-    is(
-        _redirect_server()->_https_redirect_location( {} ),
-        'https://127.0.0.1/',
-        'redirect location falls back to loopback, the default HTTPS port, and /',
-    );
-    is(
-        _redirect_server()->_https_redirect_location(
-            { SERVER_NAME => 'n.local', SERVER_PORT => '', PATH_INFO => '/p' }
-        ),
-        'https://n.local/p',
-        'redirect location omits an empty server port',
-    );
-    is(
-        _redirect_server()->_https_redirect_location(
-            {
-                SERVER_NAME  => 'n.local',
-                SERVER_PORT  => 8443,
-                PATH_INFO    => '/p',
-                QUERY_STRING => 'a=1',
-            }
-        ),
-        'https://n.local:8443/p?a=1',
-        'redirect location keeps a non-default server port and the query string',
-    );
-    is(
-        _redirect_server()->_https_redirect_location( { PATH_INFO => '' } ),
-        'https://127.0.0.1/',
-        'redirect location falls back to / when the rebuilt path is empty',
-    );
-    is(
-        _redirect_server()->_https_redirect_location( { SERVER_NAME => '', PATH_INFO => '/p' } ),
-        'https://127.0.0.1/p',
-        'redirect location falls back to loopback when the server name is unusable',
-    );
-}
-
-# --- redirect authority allowlist: accept and reject arms -------------------
-{
-    my $server = _redirect_server('Alias.Local');
-
-    is(
-        $server->_allowlisted_redirect_authority('evil.com'),
-        '',
-        'authority allowlist rejects an unrelated host',
-    );
-    is(
-        $server->_allowlisted_redirect_authority(undef),
-        '',
-        'authority allowlist rejects a missing Host header',
-    );
-    is(
-        $server->_allowlisted_redirect_authority(''),
-        '',
-        'authority allowlist rejects an empty Host header',
-    );
-    is(
-        $server->_allowlisted_redirect_authority( 'a' x 256 ),
-        '',
-        'authority allowlist rejects an over-long Host header',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('alias.local'),
-        'alias.local',
-        'authority allowlist accepts a configured SAN alias',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('ALIAS.LOCAL:8443'),
-        'alias.local:8443',
-        'authority allowlist normalizes case and keeps a valid port',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('localhost'),
-        'localhost',
-        'authority allowlist accepts the default localhost SAN',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('127.0.0.9'),
-        '127.0.0.9',
-        'authority allowlist accepts any loopback literal',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('[0:0:0:0:0:0:0:1]'),
-        '[0:0:0:0:0:0:0:1]',
-        'authority allowlist accepts the expanded IPv6 loopback literal',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('127.0.0.999'),
-        '',
-        'authority allowlist rejects an out-of-range loopback-looking octet',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('alias.local:0'),
-        '',
-        'authority allowlist rejects a zero port',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('alias.local:99999'),
-        '',
-        'authority allowlist rejects an out-of-range port',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('alias.local:'),
-        '',
-        'authority allowlist rejects a trailing empty port',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('alias.local/@evil.com'),
-        '',
-        'authority allowlist rejects an authority carrying a path separator',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('[not:an:address!]'),
-        '',
-        'authority allowlist rejects a malformed bracketed literal',
-    );
-    is(
-        $server->_allowlisted_redirect_authority('[::1]:7890'),
-        '[::1]:7890',
-        'authority allowlist re-brackets an accepted IPv6 literal with its port',
-    );
-
-    is(
-        Developer::Dashboard::Web::Server::_host_is_loopback_literal(undef),
-        0,
-        'loopback literal check rejects an undefined host',
-    );
-    is(
-        Developer::Dashboard::Web::Server::_host_is_loopback_literal(''),
-        0,
-        'loopback literal check rejects an empty host',
-    );
-    is(
-        Developer::Dashboard::Web::Server::_host_is_loopback_literal('128.0.0.1'),
-        0,
-        'loopback literal check rejects a non-loopback IPv4 literal',
-    );
-    is(
-        Developer::Dashboard::Web::Server::_host_is_loopback_literal('127.255.255.254'),
-        1,
-        'loopback literal check accepts the whole 127.0.0.0/8 range',
-    );
-
-    is(
-        Developer::Dashboard::Web::Server::_redirect_authority(undef),
-        '',
-        'authority rebuilder returns an empty string without a host',
-    );
-    is(
-        Developer::Dashboard::Web::Server::_redirect_authority(''),
-        '',
-        'authority rebuilder returns an empty string for an empty host',
-    );
-
-    is_deeply(
-        [ Developer::Dashboard::Web::Server::_split_request_authority( 'n.local:8443', 9443 ) ],
-        [ 'n.local', 9443 ],
-        'authority parser honors an explicit port override',
-    );
-    is_deeply(
-        [ Developer::Dashboard::Web::Server::_split_request_authority( 'n.local', 'bad' ) ],
-        [],
-        'authority parser rejects a non-numeric port override',
-    );
-}
-
-# --- _safe_redirect_target(): every rejection arm ---------------------------
 
 _log("done");
 done_testing();
+# Compile marker: this BEGIN runs at compile time, after every line above has
+# been compiled. If it prints, compilation finished and the hang is runtime.
+# If it does NOT print, the hang is during compile (or Perl startup).
+BEGIN { warn "MICRO9: compile finished pid $$\n"; }
