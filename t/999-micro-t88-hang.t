@@ -1,13 +1,15 @@
-# t/999-micro-t88-hang.t — MICRO v11: BISECTION, first half of v10's range.
-# Full t/88 lines 1-341 + lines 538-571 + the test blocks lines 764-843
-# (the blocks starting at 764 and 802: the failing/late-failing SSL frontend
-# client fixtures) + done_testing(). Scratch only, do not merge, do not ship.
+# t/999-micro-t88-hang.t — MICRO v12: BISECTION, second half of v10's range.
+# Full t/88 lines 1-341 + lines 538-571 + the test blocks lines 844-882
+# (the blocks starting at 844 and 854: the SSL frontend argument-guard
+# tests — _open_ssl_frontend_listener_or_die and _handle_ssl_frontend_client
+# refusing to run without a daemon descriptor / client socket) +
+# done_testing(). Scratch only, do not merge, do not ship.
 #
-# Micro v10 REPRODUCED the hang in 764-882 (Windows stuck after ok 1,
-# compile marker printed, RUNTIME phase). v11 bisects that range: first
-# half (764-843, blocks 764+802). If v11 hangs, the trigger is in one of
-# those two blocks. If v11 passes, v12 takes the second half (844-882,
-# blocks 844+854, the SSL frontend argument-guard tests).
+# Micro v10 hung in 764-882; v11 PASSED 764-843. So the trigger is in
+# 844-882, unless it needs the 764-843 blocks present too (interaction).
+# v12 runs exactly that range. If v12 hangs, bisect 844 vs 854 next. If
+# v12 passes, the trigger needs the 764-843 blocks present too — then
+# re-examine the interaction (e.g. state left by the socketpair blocks).
 #!/usr/bin/env perl
 
 use strict;
@@ -43,12 +45,12 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::Server::Daemon;
 
-sub _log { warn "MICRO11: $_[0]\n"; }
+sub _log { warn "MICRO12: $_[0]\n"; }
 sub _net {
     my ($label) = @_;
     return unless $^O eq 'MSWin32';
     my $n = `netstat -ano | findstr "$$"`;
-    warn "MICRO11 net after $label pid $$:\n$n\n";
+    warn "MICRO12 net after $label pid $$:\n$n\n";
 }
 _log("use block + definitions compiled, pid $$");
 _net("compile");
@@ -396,89 +398,48 @@ sub Local::CompletedRoutine::kill { return 1 }
 }
 
 {
-    socketpair( my $client, my $client_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to build failing frontend client fixture: $!";
-    local @Local::ScriptedListener::ACCEPTS = (
-        sub { return $client },
-        sub {
-            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
-            return;
-        },
+    my $ok = eval { $ssl_server->_open_ssl_frontend_listener_or_die(); 1 };
+    ok( !$ok, 'SSL listener helper refuses to run without a daemon descriptor' );
+    like(
+        $@,
+        qr/Missing SSL frontend daemon descriptor/,
+        'SSL listener helper names the missing daemon descriptor',
     );
-
-    my @stopped;
-    no warnings 'redefine';
-    local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
-    local *Developer::Dashboard::GoRoutine::spawn = sub { return 991002 };
-    local *Developer::Dashboard::GoRoutine::go = sub {
-        my ($callback) = @_;
-        $callback->();
-        return bless {}, 'Local::CompletedRoutine';
-    };
-    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
-    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client = sub {
-        die "simulated frontend client failure\n";
-    };
-    local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub {
-        push @stopped, $_[0];
-        return 1;
-    };
-    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready = sub { return 1 };
-
-    my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
-    ok( !$ok, 'SSL frontend reports a failed client handler after cleaning up' );
-    like( $@, qr/SSL frontend client handler failed: simulated frontend client failure/,
-        'SSL frontend preserves the client handler error in its final diagnostic' );
-    is_deeply( \@stopped, [991002], 'SSL frontend stops the backend before reporting a client handler failure' );
-    close $client_peer or die "Unable to close failing frontend client fixture peer: $!";
 }
 
 {
-    socketpair( my $client, my $client_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-      or die "Unable to build late failing frontend client fixture: $!";
-    local @Local::ScriptedListener::ACCEPTS = (
-        sub {
-            $Developer::Dashboard::Web::Server::SSL_SHUTDOWN_REQUESTED = 1;
-            return $client;
-        },
+    my $ok = eval { $ssl_server->_handle_ssl_frontend_client(); 1 };
+    ok( !$ok, 'frontend client handler refuses to run without a client socket' );
+    like( $@, qr/Missing frontend client socket/, 'frontend client handler names the missing client socket' );
+
+    open my $not_a_socket, '<', File::Spec->devnull
+      or die "Unable to open non-socket client fixture: $!";
+
+    my $no_daemon = eval {
+        $ssl_server->_handle_ssl_frontend_client( client => $not_a_socket );
+        1;
+    };
+    ok( !$no_daemon, 'frontend client handler refuses to run without a daemon descriptor' );
+    like( $@, qr/Missing daemon descriptor/, 'frontend client handler names the missing daemon descriptor' );
+
+    # recv() on a plain filehandle fails with ENOTSOCK, which is the only way
+    # the peek can come back undefined rather than empty.
+    is(
+        $ssl_server->_handle_ssl_frontend_client(
+            client => $not_a_socket,
+            daemon => $ssl_daemon,
+        ),
+        1,
+        'frontend client handler returns cleanly when the first-byte peek fails outright',
     );
-
-    my @stopped;
-    my @routines;
-    no warnings 'redefine';
-    local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
-    local *Developer::Dashboard::GoRoutine::spawn = sub { return 991003 };
-    local *Developer::Dashboard::GoRoutine::go = sub {
-        my ($callback) = @_;
-        my $routine = Local::DelayedRoutine->new;
-        $routine->{callback} = $callback;
-        push @routines, $routine;
-        return $routine;
-    };
-    local *Local::DelayedRoutine::kill = sub {
-        $_[0]->{killed}++;
-        $_[0]->{callback}->();
-        return 1;
-    };
-    local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
-    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client = sub {
-        die "late client failure during shutdown\n";
-    };
-    local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub { push @stopped, $_[0]; return 1 };
-    local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready = sub { return 1 };
-
-    my $result = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
-    ok( $result, 'SSL frontend suppresses a late client-handler failure after shutdown starts' );
-    is( $routines[0]{killed}, 1, 'SSL frontend cancels the late client routine during shutdown' );
-    is_deeply( \@stopped, [991003], 'SSL frontend still stops its backend after the late handler failure' );
-    close $client_peer or die "Unable to close late frontend client fixture peer: $!";
+    close $not_a_socket or die "Unable to close non-socket client fixture: $!";
 }
 
-# --- SSL frontend helper argument guards ------------------------------------
+# --- byte / head / target / host parsing edges ------------------------------
 
 _log("done");
 done_testing();
 # Compile marker: this BEGIN runs at compile time, after every line above has
 # been compiled. If it prints, compilation finished and the hang is runtime.
 # If it does NOT print, the hang is during compile (or Perl startup).
-BEGIN { warn "MICRO11: compile finished pid $$\n"; }
+BEGIN { warn "MICRO12: compile finished pid $$\n"; }
