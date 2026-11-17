@@ -1433,9 +1433,12 @@ PL
 
     my ( $bad_stdout, $bad_stderr, $bad_exit ) = _sh_capture("cd '$bad_env_project' && HOME='$bad_env_home' $perl -I'$lib' '$dashboard' show-env");
     ok( $bad_exit != 0, 'dashboard exits non-zero when a participating .env file is malformed' );
+    # The path separator in the reported .env path is a backslash on
+    # Windows and a forward slash everywhere else; match either so the
+    # assertion checks the message, not the platform's separator.
     like(
         decode( 'UTF-8', $bad_stdout . $bad_stderr ),
-        qr/Invalid env line .*bad-env-project\/\.env line 1/,
+        qr/Invalid env line .*bad-env-project[\/\\]\.env line 1/,
         'dashboard reports malformed .env files explicitly instead of hiding the load failure',
     );
 }
