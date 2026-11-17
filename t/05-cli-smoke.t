@@ -1577,7 +1577,7 @@ like( $shell_bootstrap, qr/tmux set-option -q status-position bottom/, 'd2 shell
 like( $shell_bootstrap, qr/tmux set-option -q status 2/, 'd2 shell bash bootstrap enables a two-line tmux status block for ticket sessions' );
 like( $shell_bootstrap, qr/tmux set-option -q status-interval 15/, 'd2 shell bash bootstrap refreshes the tmux status block automatically for ticket sessions without hot-looping' );
 like( $shell_bootstrap, qr/tmux set-option -q 'status-format\[0\]'.*tmux-status-top --width #\{client_width\}/s, 'd2 shell bash bootstrap renders the indicator strip into the first tmux status row' );
-like( $shell_bootstrap, qr/status-format\[0\]' "#\((?:'[^']+'\s+)*'\Q$dashboard\E' ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'd2 shell bash bootstrap renders the tmux ticket indicator row through the explicit d2 entrypoint path' );
+like( $shell_bootstrap_forward, qr/status-format\[0\]' "#\((?:'[^']+'\s+)*'\Q$dashboard_forward\E' ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'd2 shell bash bootstrap renders the tmux ticket indicator row through the explicit d2 entrypoint path' );
 unlike( $shell_bootstrap, qr/status-format\[0\]'? "#\(d2 ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'd2 shell bash bootstrap does not depend on a bare dashboard PATH lookup for tmux ticket status rendering' );
 like( $shell_bootstrap, qr/tmux set-option -q 'status-format\[1\]' "\$_dd_default_status"/, 'd2 shell bash bootstrap restores the normal tmux status row beneath the indicators' );
 like( $shell_bootstrap, qr/_dd_update_prompt\(\)/, 'd2 shell bash bootstrap centralizes prompt refresh through one helper so later distro PS1 assignments cannot permanently override it' );
