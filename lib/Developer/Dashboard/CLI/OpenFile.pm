@@ -510,6 +510,29 @@ sub _command_exec {
 # Output: false when exec fails, never returns on success.
 sub _exec_raw {
     my (@command) = @_;
+    if ( is_windows() ) {
+        # Perl's exec() cannot run a program whose path contains a space
+        # (e.g. C:\Program Files\Git\usr\bin\sh.exe): the path is split
+        # and the fallback shell reports "/c/Program: ... No such file or
+        # directory" while exiting 0, so the editor silently never runs
+        # (t/05 line 2403). system() quotes the program correctly; exit
+        # with the child's status so the caller still never returns, as
+        # with exec(). A failed start returns false and warns exactly as
+        # a failed exec does, so _command_exec dies (DD-910) and t/770's
+        # failure-path expectations still hold: system's own "Can't spawn"
+        # fallback warning is replaced by the "Can't exec" warning.
+        my $rc;
+        {
+            local $SIG{__WARN__} = sub { return };
+            $! = 0;
+            $rc = system { $command[0] } @command;
+        }
+        if ( $rc == -1 || $! ) {
+            warn "Can't exec \"$command[0]\": $!";
+            return 0;
+        }
+        exit( $rc >> 8 );
+    }
     return exec { $command[0] } @command;
 }
 
