@@ -1,15 +1,17 @@
-# t/999-micro-t88-hang.t — MICRO v7: BISECTION, second half of v5's range.
-# Full t/88 lines 1-341 (head + test 1 + fixtures + the shared SSL setup at
-# lines 322-341 that later blocks need) + the test blocks lines 764-1190
-# (through the block starting at 1062) + done_testing().
-# Scratch only, do not merge, do not ship.
+# t/999-micro-t88-hang.t — MICRO v8: v7 FIXED — the missing routine definitions
+# reinstated. Full t/88 lines 1-341 + lines 538-571 (Local::CompletedRoutine
+# is_running/kill + the Local::DelayedRoutine package) + the test blocks
+# lines 764-1190 + done_testing(). Scratch only, do not merge, do not ship.
 #
-# Micro v5 reproduced the hang in lines 276-1190; v6 passed lines 276-763,
-# so the trigger is in 764-1190. v7 runs exactly that range (blocks 342-763
-# skipped — proven clean by v6 — but the SSL setup at 322-341 is kept because
-# blocks at 794/836/874 use $ssl_server/$ssl_daemon). If v7 hangs, bisect
-# 764-1190 next. If v7 passes, the trigger needs the 342-763 blocks present
-# too (interaction) — then re-examine.
+# Micro v7 was INVALID: it skipped lines 538-571, so amd64 failed 5 SSL
+# frontend tests on the missing Local::CompletedRoutine::is_running and
+# Windows never ran (fail-fast). v8 reinstates exactly those definitions —
+# the only top-level package/sub definitions in the skipped range 342-763
+# (verified: no other package/sub/my/our at top level there; the 764-1190
+# blocks reference only ScriptedListener, DelayedRoutine, CompletedRoutine).
+# If v8 hangs on Windows, the trigger is in 764-1190. If v8 passes, the
+# trigger needs the 342-763 blocks present too (interaction) or is in the
+# second half of the file (1191-end).
 #!/usr/bin/env perl
 
 use strict;
@@ -45,11 +47,11 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::Server::Daemon;
 
-sub _log { warn "MICRO7: $_[0]\n"; }
+sub _log { warn "MICRO8: $_[0]\n"; }
 sub _net {
     my ($label) = @_;
     my $n = `netstat -ano | findstr "$$"`;
-    warn "MICRO7 net after $label pid $$:\n$n\n";
+    warn "MICRO8 net after $label pid $$:\n$n\n";
 }
 _log("use block + definitions compiled, pid $$");
 _net("compile");
@@ -361,6 +363,40 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     internal_host => '127.0.0.1',
     internal_port => 17903,
 );
+
+# is_running()
+# Reports that the synchronously completed test routine is no longer active.
+# Input: routine fixture object.
+# Output: false value.
+sub Local::CompletedRoutine::is_running { return 0 }
+
+# kill()
+# Satisfies the routine lifecycle interface if cleanup attempts cancellation.
+# Input: routine fixture object.
+# Output: true value.
+sub Local::CompletedRoutine::kill { return 1 }
+
+{
+    package Local::DelayedRoutine;
+
+    # new()
+    # Creates a routine fixture that stays active long enough for one shutdown poll.
+    # Input: none.
+    # Output: routine fixture with poll and kill counters.
+    sub new { return bless { checks => 0, killed => 0 }, shift }
+
+    # is_running()
+    # Reports active twice, then reports completion.
+    # Input: routine fixture object.
+    # Output: true for its first two polls, false after that.
+    sub is_running { return ++$_[0]->{checks} <= 2 }
+
+    # kill()
+    # Records that the frontend requested routine cancellation.
+    # Input: routine fixture object.
+    # Output: true value.
+    sub kill { $_[0]->{killed}++; return 1 }
+}
 
 {
     socketpair( my $client, my $client_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
