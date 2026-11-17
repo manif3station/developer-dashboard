@@ -51,7 +51,8 @@ ok( $paths->home_runtime_path, 'hermetic path registry resolves a home runtime p
 
 # A stub listen socket whose close() succeeds or fails on demand. The failing
 # variant is a read pipe from a child that exits non-zero, which is a real
-# close failure rather than a faked return value.
+# close failure rather than a faked return value. The child is the running
+# perl ($^X), not sh, so the fixture works on Windows where no sh exists.
 {
     package Local::StubSocket;
 
@@ -66,7 +67,7 @@ ok( $paths->home_runtime_path, 'hermetic path registry resolves a home runtime p
               or die "Unable to open closeable stub socket fixture: $!";
         }
         else {
-            open $fh, '-|', 'sh', '-c', 'exit 3'
+            open $fh, '-|', $^X, '-e', 'exit 3'
               or die "Unable to open uncloseable stub socket fixture: $!";
         }
         return bless $fh, $class;
@@ -103,8 +104,9 @@ ok( $paths->home_runtime_path, 'hermetic path registry resolves a home runtime p
     sub new {
         my ($class) = @_;
         my $fh;
+        # $^X, not sh: same Windows-safe failing child as Local::StubSocket.
         if ($FAIL_CLOSE) {
-            open $fh, '-|', 'sh', '-c', 'exit 3'
+            open $fh, '-|', $^X, '-e', 'exit 3'
               or die "Unable to open failing scripted listener fixture: $!";
         }
         else {
