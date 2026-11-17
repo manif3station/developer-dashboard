@@ -130,6 +130,12 @@ go_win_heap_free(void *ptr)
     }
 }
 
+static void *
+go_win_heap_realloc(void *ptr, size_t size)
+{
+    return HeapReAlloc(GetProcessHeap(), 0, ptr, size);
+}
+
 static DWORD WINAPI
 go_win_thread_thunk(LPVOID opaque)
 {
@@ -279,6 +285,28 @@ go_monotonic_seconds(void)
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
 }
+#endif
+
+/* Shared-value storage.
+ *
+ * A shared node's value storage (its string, class name, hash keys and
+ * hash/array tables) may be written by ANY worker thread, so on Windows it
+ * must come from the process heap: a worker freeing main-interpreter Perl
+ * memory croaks "Free to wrong pool" and the croak's unwind crashes the
+ * worker (t/231 exit-5: 40 workers doing `$counter += 1` and 8 doing
+ * `$text .= '!'` on main-thread shared scalars). The node structs
+ * themselves, channels, and per-call temporaries are never freed from
+ * another thread, so they stay on Perl's malloc. On POSIX the macros are
+ * plain malloc/free/realloc, which are fine across threads.
+ */
+#ifdef _WIN32
+#define go_shared_alloc(size) go_win_heap_alloc(size)
+#define go_shared_free(ptr) go_win_heap_free(ptr)
+#define go_shared_realloc(ptr, size) go_win_heap_realloc(ptr, size)
+#else
+#define go_shared_alloc(size) malloc(size)
+#define go_shared_free(ptr) free(ptr)
+#define go_shared_realloc(ptr, size) realloc(ptr, size)
 #endif
 
 static char *
@@ -826,25 +854,25 @@ shared_node_clear(shared_node *n)
     size_t i;
 
     if (n->pv != NULL) {
-        free(n->pv);
+        go_shared_free(n->pv);
         n->pv = NULL;
         n->pv_len = 0;
     }
     if (n->class_name != NULL) {
-        free(n->class_name);
+        go_shared_free(n->class_name);
         n->class_name = NULL;
     }
     if (n->hash_entries != NULL) {
         for (i = 0; i < n->hash_count; ++i) {
-            free(n->hash_entries[i].key);
+            go_shared_free(n->hash_entries[i].key);
         }
-        free(n->hash_entries);
+        go_shared_free(n->hash_entries);
         n->hash_entries = NULL;
         n->hash_count = 0;
         n->hash_capacity = 0;
     }
     if (n->array_items != NULL) {
-        free(n->array_items);
+        go_shared_free(n->array_items);
         n->array_items = NULL;
         n->array_size = 0;
         n->array_capacity = 0;
@@ -878,14 +906,14 @@ shared_set_class(shared_node *n, const char *name)
 {
     size_t len;
     if (n->class_name != NULL) {
-        free(n->class_name);
+        go_shared_free(n->class_name);
         n->class_name = NULL;
     }
     if (name == NULL || *name == '\0') {
         return;
     }
     len = strlen(name);
-    n->class_name = (char *)malloc(len + 1);
+    n->class_name = (char *)go_shared_alloc(len + 1);
     if (n->class_name == NULL) {
         croak("out of memory storing shared object class");
     }
@@ -948,7 +976,7 @@ shared_hash_reserve(shared_node *n, size_t need)
         size_t cap = n->hash_capacity ? n->hash_capacity * 2 : 8;
         shared_hash_entry *p;
         while (cap < need) cap *= 2;
-        p = (shared_hash_entry *)realloc(n->hash_entries, cap * sizeof(*p));
+        p = (shared_hash_entry *)go_shared_realloc(n->hash_entries, cap * sizeof(*p));
         if (p == NULL) {
             croak("out of memory growing shared hash");
         }
@@ -966,7 +994,7 @@ shared_array_reserve(shared_node *n, size_t need)
         size_t cap = n->array_capacity ? n->array_capacity * 2 : 8;
         shared_node **p;
         while (cap < need) cap *= 2;
-        p = (shared_node **)realloc(n->array_items, cap * sizeof(*p));
+        p = (shared_node **)go_shared_realloc(n->array_items, cap * sizeof(*p));
         if (p == NULL) {
             croak("out of memory growing shared array");
         }
@@ -1147,7 +1175,7 @@ shared_import_regexp(pTHX_ shared_node *n, SV *value)
     shared_set_class(n, class_name);
 
     pv = SvPV(value, len);
-    n->pv = (char *)malloc(len + 1);
+    n->pv = (char *)go_shared_alloc(len + 1);
     if (n->pv == NULL) croak("out of memory storing shared regexp");
     memcpy(n->pv, pv, len);
     n->pv[len] = '\0';
@@ -1177,7 +1205,7 @@ shared_import_format(pTHX_ shared_node *n, SV *value)
     slen = (STRLEN)strlen(stash);
     nlen = (STRLEN)strlen(name);
     total = (size_t)slen + 2 + (size_t)nlen;
-    n->pv = (char *)malloc(total + 1);
+    n->pv = (char *)go_shared_alloc(total + 1);
     if (n->pv == NULL) croak("out of memory storing shared format name");
     memcpy(n->pv, stash, slen);
     memcpy(n->pv + slen, "::", 2);
@@ -1556,7 +1584,7 @@ shared_import_scalar(pTHX_ shared_node *n, SV *value)
     }
 
     pv = SvPV(value, len);
-    n->pv = (char *)malloc(len + 1);
+    n->pv = (char *)go_shared_alloc(len + 1);
     if (n->pv == NULL) {
         croak("out of memory storing shared string");
     }
@@ -1628,7 +1656,7 @@ shared_import_value(pTHX_ SV *value, import_map *map, shared_node *preferred)
                 const char *k = SvPV(keysv, klen);
                 shared_node *child;
                 shared_hash_reserve(n, n->hash_count + 1);
-                n->hash_entries[n->hash_count].key = (char *)malloc(klen + 1);
+                n->hash_entries[n->hash_count].key = (char *)go_shared_alloc(klen + 1);
                 if (n->hash_entries[n->hash_count].key == NULL) {
                     croak("out of memory storing shared hash key");
                 }
@@ -1771,7 +1799,7 @@ shared_concat(pTHX_ shared_node *n, SV *arg, int reverse)
     const char *rp = SvPV(arg, rlen);
     result_utf8 = (U8)(SvUTF8(left) || SvUTF8(arg));
     STRLEN total = llen + rlen;
-    char *buf = (char *)malloc(total + 1);
+    char *buf = (char *)go_shared_alloc(total + 1);
     if (buf == NULL) {
         SvREFCNT_dec(left);
         croak("out of memory concatenating shared scalar");
@@ -1873,7 +1901,7 @@ shared_hash_ensure_node(shared_node *n, const char *key, STRLEN key_len)
     if (idx >= 0) return n->hash_entries[idx].value;
     shared_hash_reserve(n, n->hash_count + 1);
     e = &n->hash_entries[n->hash_count++];
-    e->key = (char *)malloc(key_len + 1);
+    e->key = (char *)go_shared_alloc(key_len + 1);
     if (e->key == NULL) croak("out of memory storing shared hash key");
     memcpy(e->key, key, key_len);
     e->key[key_len] = '\0';

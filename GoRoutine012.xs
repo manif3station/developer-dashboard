@@ -863,7 +863,7 @@ _shared_hash_store_ptr(ptr, key, child_ptr)
     } else {
         shared_hash_reserve(n, n->hash_count + 1);
         e = &n->hash_entries[n->hash_count++];
-        e->key = (char *)malloc(len + 1);
+        e->key = (char *)go_shared_alloc(len + 1);
         if (e->key == NULL) { shared_unlock(); croak("out of memory storing shared hash key"); }
         memcpy(e->key, k, len);
         e->key[len] = '\0';
@@ -890,7 +890,7 @@ _shared_hash_delete_ptr(ptr, key)
     idx = shared_hash_find(n, k, len);
     if (idx >= 0) {
         old = n->hash_entries[idx].value;
-        free(n->hash_entries[idx].key);
+        go_shared_free(n->hash_entries[idx].key);
         for (i = (size_t)idx + 1; i < n->hash_count; ++i) {
             n->hash_entries[i - 1] = n->hash_entries[i];
         }
@@ -911,8 +911,8 @@ _shared_hash_clear(ptr)
     shared_lock();
     n = shared_from_uv(ptr);
     if (n->type != SHARED_HASH) { shared_unlock(); croak("shared value is not a hash"); }
-    for (i = 0; i < n->hash_count; ++i) free(n->hash_entries[i].key);
-    free(n->hash_entries);
+    for (i = 0; i < n->hash_count; ++i) go_shared_free(n->hash_entries[i].key);
+    go_shared_free(n->hash_entries);
     n->hash_entries = NULL;
     n->hash_count = 0;
     n->hash_capacity = 0;
