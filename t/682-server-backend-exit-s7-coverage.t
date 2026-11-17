@@ -38,7 +38,7 @@ my $server = bless {
     };
     ok( !$ok, 'the SSL frontend reports a GoRoutine process launch failure' );
     like( $@, qr/simulated GoRoutine process launch failure/, 'the process-launch error is propagated visibly' );
-    is_deeply( \@spawned, [ [ $^X, '-e', 'exit 7' ], { process_group => 1 } ],
+    is_deeply( \@spawned, [ [ $^X, '-e', 'exit 7' ], { process_group => 1, env => { DEVELOPER_DASHBOARD_SSL_FRONTEND_PID => $$ } } ],
         'the SSL backend command is launched as a separately managed process group' );
 }
 

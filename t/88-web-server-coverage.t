@@ -749,7 +749,7 @@ sub Local::CompletedRoutine::kill { return 1 }
         1,
         'SSL frontend retries an interrupted accept and then exits once shutdown is requested',
     );
-    is_deeply( \@spawned, [ [ $^X, '-e', 'exit 0' ], { process_group => 1 } ],
+    is_deeply( \@spawned, [ [ $^X, '-e', 'exit 0' ], { process_group => 1, env => { DEVELOPER_DASHBOARD_SSL_FRONTEND_PID => $$ } } ],
         'SSL frontend starts its backend with the managed process-group option' );
     is( $handled, 1, 'accepted client is handled by one GoRoutine worker' );
     is( $routines[0]{killed}, 1, 'SSL frontend cancels a client routine during shutdown' );
