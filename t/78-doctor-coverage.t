@@ -200,8 +200,11 @@ SKIP: {
 
     my $report = $doctor->_audit_root( path => $tree, label => 'audit-tree', fix => 1 );
     ok( $report->{exists}, '_audit_root audits an existing runtime tree' );
-    ok( $report->{issue_count} >= 1, '_audit_root discovers owner-only permission drift' );
-    ok( ( grep { $_->{fixed} } @{ $report->{issues} } ), '_audit_root repairs permission drift when fix is requested' );
+    SKIP: {
+        skip 'Unix permission modes are not a Windows security control', 2 if $^O eq 'MSWin32';
+        ok( $report->{issue_count} >= 1, '_audit_root discovers owner-only permission drift' );
+        ok( ( grep { $_->{fixed} } @{ $report->{issues} } ), '_audit_root repairs permission drift when fix is requested' );
+    }
 }
 
 # ---------------------------------------------------------------------------
