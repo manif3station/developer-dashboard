@@ -1695,17 +1695,30 @@ sub Local::CompletedRoutine::kill { return 1 }
     local *Plack::Runner::new = sub { return Local::Runner->new };
     local *Developer::Dashboard::Web::Server::get_ssl_cert_paths = sub { return ( 'server.crt', 'server.key' ) };
 
+    my $server_name = Developer::Dashboard::Web::Server::is_windows() ? 'Standalone' : 'Starman';
+    my @plain_expected = ( '--server', $server_name, '--host', '127.0.0.1', '--port', 17920, '--env', 'deployment' );
+    push @plain_expected, '--workers', 1 if !Developer::Dashboard::Web::Server::is_windows();
+
     my $plain_runner = $plain->_build_runner($plain_daemon);
     is_deeply(
         $plain_runner->{parsed},
-        [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 17920, '--env', 'deployment', '--workers', 1 ],
+        \@plain_expected,
         'runner uses the public listener and omits SSL options for a plain server',
     );
+    my @ssl_expected = ( '--server', $server_name, '--host', '127.0.0.1', '--port', 17922, '--env', 'deployment' );
+    push @ssl_expected, '--workers', 1 if !Developer::Dashboard::Web::Server::is_windows();
+    push @ssl_expected, '--ssl', 1;
+    if ( Developer::Dashboard::Web::Server::is_windows() ) {
+        push @ssl_expected, '--ssl-key-file', 'server.key', '--ssl-cert-file', 'server.crt';
+    }
+    else {
+        push @ssl_expected, '--ssl-key', 'server.key', '--ssl-cert', 'server.crt';
+    }
+
     my $ssl_runner = $https->_build_runner($https_daemon);
     is_deeply(
         $ssl_runner->{parsed},
-        [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 17922, '--env', 'deployment', '--workers', 1,
-          '--ssl', 1, '--ssl-key', 'server.key', '--ssl-cert', 'server.crt' ],
+        \@ssl_expected,
         'runner selects the internal SSL listener and adds the certificate options',
     );
 
