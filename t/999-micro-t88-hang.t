@@ -1,11 +1,17 @@
-# t/999-micro-t88-hang.t — MICRO v13: ONE BLOCK — 844 only.
+# t/999-micro-t88-hang.t — MICRO v14: ONE BLOCK — 854 only.
 # Full t/88 lines 1-341 + lines 538-571 + the single test block at lines
-# 844-852 (_open_ssl_frontend_listener_or_die refusing to run without a
-# daemon descriptor) + done_testing(). Scratch only, do not merge, do not ship.
+# 854-882 (_handle_ssl_frontend_client argument guards plus the non-socket
+# recv peek: client => a plain devnull filehandle, daemon => $ssl_daemon) +
+# done_testing(). Scratch only, do not merge, do not ship.
 #
-# Micro v12 reproduced the hang in 844-882 (blocks 844+854). v13 tests block
-# 844 alone. If v13 hangs, the trigger is block 844 — then expand it line
-# by line. If v13 passes, v14 tests block 854 alone.
+# Micro v12 hung in 844+854; v13 PASSED 844 alone. So the trigger is block
+# 854, unless it needs block 844 present too (interaction). v14 tests block
+# 854 alone. If v14 hangs, expand block 854 line by line with logs until
+# the exact stuck line is found. Prime suspect inside it: the
+# `while ( !$client_select->can_read(0.25) )` loop in
+# _handle_ssl_frontend_client (Server.pm:455) called with a non-socket
+# handle — on Windows can_read may never report readable, so the loop
+# spins forever (matches the 100% CPU thread and the select() dump frames).
 #!/usr/bin/env perl
 
 use strict;
@@ -41,12 +47,12 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::Server::Daemon;
 
-sub _log { warn "MICRO13: $_[0]\n"; }
+sub _log { warn "MICRO14: $_[0]\n"; }
 sub _net {
     my ($label) = @_;
     return unless $^O eq 'MSWin32';
     my $n = `netstat -ano | findstr "$$"`;
-    warn "MICRO13 net after $label pid $$:\n$n\n";
+    warn "MICRO14 net after $label pid $$:\n$n\n";
 }
 _log("use block + definitions compiled, pid $$");
 _net("compile");
@@ -394,18 +400,38 @@ sub Local::CompletedRoutine::kill { return 1 }
 }
 
 {
-    my $ok = eval { $ssl_server->_open_ssl_frontend_listener_or_die(); 1 };
-    ok( !$ok, 'SSL listener helper refuses to run without a daemon descriptor' );
-    like(
-        $@,
-        qr/Missing SSL frontend daemon descriptor/,
-        'SSL listener helper names the missing daemon descriptor',
+    my $ok = eval { $ssl_server->_handle_ssl_frontend_client(); 1 };
+    ok( !$ok, 'frontend client handler refuses to run without a client socket' );
+    like( $@, qr/Missing frontend client socket/, 'frontend client handler names the missing client socket' );
+
+    open my $not_a_socket, '<', File::Spec->devnull
+      or die "Unable to open non-socket client fixture: $!";
+
+    my $no_daemon = eval {
+        $ssl_server->_handle_ssl_frontend_client( client => $not_a_socket );
+        1;
+    };
+    ok( !$no_daemon, 'frontend client handler refuses to run without a daemon descriptor' );
+    like( $@, qr/Missing daemon descriptor/, 'frontend client handler names the missing daemon descriptor' );
+
+    # recv() on a plain filehandle fails with ENOTSOCK, which is the only way
+    # the peek can come back undefined rather than empty.
+    is(
+        $ssl_server->_handle_ssl_frontend_client(
+            client => $not_a_socket,
+            daemon => $ssl_daemon,
+        ),
+        1,
+        'frontend client handler returns cleanly when the first-byte peek fails outright',
     );
+    close $not_a_socket or die "Unable to close non-socket client fixture: $!";
 }
+
+# --- byte / head / target / host parsing edges ------------------------------
 
 _log("done");
 done_testing();
 # Compile marker: this BEGIN runs at compile time, after every line above has
 # been compiled. If it prints, compilation finished and the hang is runtime.
 # If it does NOT print, the hang is during compile (or Perl startup).
-BEGIN { warn "MICRO13: compile finished pid $$\n"; }
+BEGIN { warn "MICRO14: compile finished pid $$\n"; }
