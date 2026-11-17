@@ -1864,6 +1864,22 @@ exit 0
 SH
 close $fake_cpanm_fh;
 chmod 0755, $fake_cpanm or die "Unable to chmod $fake_cpanm: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Windows cannot execute the extensionless sh fake above: CreateProcess
+    # skips it, and Strawberry's cpanm.bat then runs `perl -x -S`, which
+    # finds the fake by plain name and dies "No Perl script found in input"
+    # on its #!/bin/sh line (build #50). A .bat twin with the same logging
+    # behaviour is what Windows actually runs; the micro in build #51
+    # proved the twin runs while the sh fake never does.
+    my $fake_cpanm_bat = File::Spec->catfile( $fake_bin, 'cpanm.bat' );
+    open my $fake_cpanm_bat_fh, '>', $fake_cpanm_bat or die "Unable to write $fake_cpanm_bat: $!";
+    print {$fake_cpanm_bat_fh} <<"BAT";
+\@echo off
+echo %*>>"$fake_cpanm_log"
+exit /b 0
+BAT
+    close $fake_cpanm_bat_fh;
+}
 my $fake_npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
 my $fake_npx = File::Spec->catfile( $fake_bin, 'npx' );
 open my $fake_npx_fh, '>', $fake_npx or die "Unable to write $fake_npx: $!";
@@ -1881,6 +1897,28 @@ exit 0
 SH
 close $fake_npx_fh;
 chmod 0755, $fake_npx or die "Unable to chmod $fake_npx: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the cpanm fake above: the sh fake is invisible
+    # to CreateProcess, so the real Node npx ran instead and npx.log was
+    # never created (build #50 died reading it at line 1974).
+    my $fake_npx_bat = File::Spec->catfile( $fake_bin, 'npx.bat' );
+    open my $fake_npx_bat_fh, '>', $fake_npx_bat or die "Unable to write $fake_npx_bat: $!";
+    print {$fake_npx_bat_fh} <<"BAT";
+\@echo off
+echo %*^|cwd=%CD%>>"$fake_npx_log"
+shift
+shift
+shift
+:loop
+if "%~1"=="" goto done
+for /f "delims=@ tokens=1" %%a in ("%~1") do mkdir "%CD%\\node_modules\\%%a" 2>nul
+shift
+goto loop
+:done
+exit /b 0
+BAT
+    close $fake_npx_bat_fh;
+}
 my $fake_make_log = File::Spec->catfile( $fake_bin, 'make.log' );
 my $fake_make = File::Spec->catfile( $fake_bin, 'make' );
 open my $fake_make_fh, '>', $fake_make or die "Unable to write $fake_make: $!";
@@ -1891,6 +1929,18 @@ exit 0
 SH
 close $fake_make_fh;
 chmod 0755, $fake_make or die "Unable to chmod $fake_make: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the cpanm fake above: no `make` exists on the
+    # Windows node, so without this the Makefile step cannot run at all.
+    my $fake_make_bat = File::Spec->catfile( $fake_bin, 'make.bat' );
+    open my $fake_make_bat_fh, '>', $fake_make_bat or die "Unable to write $fake_make_bat: $!";
+    print {$fake_make_bat_fh} <<"BAT";
+\@echo off
+echo %*^|cwd=%CD%>>"$fake_make_log"
+exit /b 0
+BAT
+    close $fake_make_bat_fh;
+}
 my $fake_sudo = File::Spec->catfile( $fake_bin, 'sudo' );
 open my $fake_sudo_fh, '>', $fake_sudo or die "Unable to write $fake_sudo: $!";
 print {$fake_sudo_fh} <<"SH";
