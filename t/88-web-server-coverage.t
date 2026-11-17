@@ -1,3 +1,4 @@
+BEGIN { my $n = `netstat -ano | findstr "$$"`; warn "PROBE net-at-start pid $$:\n$n\n"; }
 #!/usr/bin/env perl
 
 warn "PROBE load 1: before use strict;\n";
@@ -58,6 +59,7 @@ local $ENV{HOME} = $home;
 chdir $home or die "Unable to chdir to $home: $!";
 
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
+{ my $n = `netstat -ano | findstr "$$"`; warn "PROBE net-before-test1 pid $$:\n$n\n"; }
 warn "PROBE test1: about to run first ok\n";
 ok( $paths->home_runtime_path, 'hermetic path registry resolves a home runtime path' );
 
