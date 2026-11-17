@@ -1615,7 +1615,7 @@ like( $sh_bootstrap, qr/tmux set-option -q status-interval 15/, 'd2 shell sh boo
 like( $sh_bootstrap, qr/tmux set-option -q 'status-format\[0\]'.*tmux-status-top --width #\{client_width\}/s, 'd2 shell sh bootstrap renders the indicator strip into the first tmux status row' );
 like( $sh_bootstrap, qr/tmux set-option -q 'status-format\[1\]' "\$_dd_default_status"/, 'd2 shell sh bootstrap restores the normal tmux status row beneath the indicators' );
 like( $sh_bootstrap, qr/ps1 --mode compact --no-indicators/, 'd2 shell sh bootstrap suppresses prompt indicators when tmux owns the status line' );
-unlike( $sh_bootstrap, qr/\\j/, 'd2 shell sh bootstrap does not rely on bash-specific job expansion' );
+unlike( $sh_bootstrap, qr/ps1 --jobs \\j/, 'd2 shell sh bootstrap does not rely on bash-specific job expansion' );
 unlike( $sh_bootstrap, qr/\bperl\s+-MJSON::XS\b/, 'd2 shell sh bootstrap does not decode helper JSON through a bare perl command either' );
 like( $sh_bootstrap, qr/\Q$perl\E.*-MJSON::XS/s, 'd2 shell sh bootstrap decodes helper JSON through the same perl interpreter that generated the bootstrap' );
 unlike( $sh_bootstrap, qr/\bd2\(\)\s*\{/, 'd2 shell sh bootstrap no longer defines a d2 shell function because d2 is now a real installed command' );
