@@ -1307,11 +1307,26 @@ printf '%s\\n' "\$@" > '$go_log'
 SH
         close $go_fh;
         chmod 0755, File::Spec->catfile( $fake_bin, 'go' ) or die $!;
+        if ( $^O eq 'MSWin32' ) {
+            # Windows cannot execute the extensionless sh fake above:
+            # CreateProcess skips it, so the fake go never runs and the
+            # test dies reading the log it never wrote (solo #153). A .bat
+            # twin with the same per-argument logging is what Windows
+            # actually runs; same fix class as the t/05 fake-bin twins.
+            my $fake_go_bat = File::Spec->catfile( $fake_bin, 'go.bat' );
+            open my $fake_go_bat_fh, '>', $fake_go_bat or die "Unable to write $fake_go_bat: $!";
+            print {$fake_go_bat_fh} <<"BAT";
+\@echo off
+(for %%A in (%*) do \@echo %%A) > "$go_log"
+exit /b 0
+BAT
+            close $fake_go_bat_fh;
+        }
         open my $src_fh, '>', 'exec-hook.go' or die $!;
         print {$src_fh} "package main\nfunc main() {}\n";
         close $src_fh;
         chmod 0755, 'exec-hook.go' or die $!;
-        local $ENV{PATH} = $fake_bin . ':' . ( $ENV{PATH} || '' );
+        local $ENV{PATH} = $fake_bin . ( $^O eq 'MSWin32' ? ';' : ':' ) . ( $ENV{PATH} || '' );
         local $ENV{PERL5OPT} = _child_perl5opt() if _child_perl5opt() =~ /Devel::Cover/;
         my ( undef, undef, $exit_code ) = capture {
             system $^X, '-Ilib', '-MDeveloper::Dashboard::Platform', '-e',
@@ -1366,11 +1381,28 @@ printf '%s\\n' "\$@" > '$java_log'
 SH
         close $java_fh;
         chmod 0755, File::Spec->catfile( $fake_bin, 'java' ) or die $!;
+        if ( $^O eq 'MSWin32' ) {
+            # Same Windows twin as the fake go above: the extensionless sh
+            # fakes are invisible to CreateProcess, so javac/java never run
+            # and the tests die reading logs that were never written. One
+            # .bat twin per tool, same per-argument logging as the sh fake.
+            for my $tool ( [ 'javac', $javac_log ], [ 'java', $java_log ] ) {
+                my ( $tool_name, $tool_log ) = @{$tool};
+                my $twin = File::Spec->catfile( $fake_bin, "$tool_name.bat" );
+                open my $twin_fh, '>', $twin or die "Unable to write $twin: $!";
+                print {$twin_fh} <<"BAT";
+\@echo off
+(for %%A in (%*) do \@echo %%A) > "$tool_log"
+exit /b 0
+BAT
+                close $twin_fh;
+            }
+        }
         open my $src_fh, '>', 'exec-hook.java' or die $!;
         print {$src_fh} "package foo.bar;\nclass HookRunner { public static void main(String[] args) {} }\n";
         close $src_fh;
         chmod 0755, 'exec-hook.java' or die $!;
-        local $ENV{PATH} = $fake_bin . ':' . ( $ENV{PATH} || '' );
+        local $ENV{PATH} = $fake_bin . ( $^O eq 'MSWin32' ? ';' : ':' ) . ( $ENV{PATH} || '' );
         local $ENV{PERL5OPT} = _child_perl5opt() if _child_perl5opt() =~ /Devel::Cover/;
         my ( undef, undef, $exit_code ) = capture {
             system $^X, '-Ilib', '-MDeveloper::Dashboard::Platform', '-e',
