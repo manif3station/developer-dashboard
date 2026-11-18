@@ -185,9 +185,12 @@ sub await_absent_pids {
     like( $stdout, qr/command-stdout-ready/, 'stdout written before the Windows timeout stays captured' );
     like( $stderr, qr/command-stderr-ready/, 'stderr written before the Windows timeout stays captured' );
     is( scalar @spawned_argv, 1, 'the Windows path spawns the command exactly once' );
+    # The Windows path spawns through _windows_powershell_argv, not
+    # shell_command_argv: -Command loses quotes, so the command goes
+    # base64 -EncodedCommand instead (5f1c27fb).
     is_deeply(
         $spawned_argv[0],
-        [ Developer::Dashboard::Platform::shell_command_argv( 'dd389-blocked-command', login => 0 ) ],
+        [ Developer::Dashboard::CommandRunner::_windows_powershell_argv('dd389-blocked-command') ],
         'the Windows path spawns the resolved shell argv without the POSIX pid-file launcher',
     );
 
