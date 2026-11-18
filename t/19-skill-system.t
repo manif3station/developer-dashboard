@@ -4,6 +4,12 @@ use strict;
 use warnings;
 use utf8;
 
+# `use lib` must come before the first Developer::Dashboard use: Result
+# loads Platform, and PathRegistry (loaded below) imports the new ACL
+# exports from it. With the prove -I blib ahead of lib, a Dashboard module
+# loaded first pins the stale blib Platform and the import dies.
+use lib 'lib';
+
 use Capture::Tiny qw(capture);
 use Cwd qw(abs_path getcwd);
 use File::Path qw(make_path remove_tree);
@@ -24,7 +30,6 @@ sub _without_private_var_prefix {
 local $ENV{DD_TEST_OS} = 'linux';
 local $ENV{DD_TEST_DEBIAN_LIKE} = 1;
 
-use lib 'lib';
 use Developer::Dashboard::Config;
 use Developer::Dashboard::EnvAudit;
 use Developer::Dashboard::FileRegistry;
