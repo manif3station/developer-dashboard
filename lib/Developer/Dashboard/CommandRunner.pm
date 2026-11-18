@@ -149,6 +149,17 @@ sub _windows_perl_inline_command {
 #       by micro v5 probe 2 (build #61): printf '{"a":123}' comes back
 #       intact. pwsh is NOT installed on the Windows node, so the
 #       PowerShell 7 native-argument fix is not an option here.
+#   (3) Exit-code propagation: powershell.exe does NOT return a native
+#       command's exit code as its own process exit code - a native command
+#       exiting 2 leaves powershell.exe exiting 1 (probe526 cases A/B on
+#       win-ts, Jenkins build #161: run_once reported 1 for a command
+#       exiting 2). $LASTEXITCODE inside the script IS the real code
+#       (probe526 case C), so the script exits with it explicitly. A
+#       script ending in its own `exit N` never reaches the appended
+#       statement, and a cmdlet-only script sees $LASTEXITCODE 0, so
+#       neither case changes (probe526b G1/G2). A script ending in a cmdlet
+#       after a failed native command now reports the failure instead of 0
+#       (probe526b G6) - the correct outcome for a collector.
 # The escaping is deliberately limited to single-quoted strings: a " there
 # is data, never PowerShell syntax, so \" cannot change what the script
 # means - while a " in a double-quoted region IS syntax and is left alone.
@@ -157,6 +168,7 @@ sub _windows_perl_inline_command {
 sub _windows_powershell_argv {
     my ($command) = @_;
     my $escaped = _escape_windows_powershell_single_quotes($command);
+    $escaped .= '; exit $LASTEXITCODE';
     my $encoded = encode_base64( encode( 'UTF-16LE', $escaped ), '' );
     return ( 'powershell', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
         '-EncodedCommand', $encoded );
