@@ -123,7 +123,14 @@ sub _audit_root {
         {
             no_chdir => 1,
             wanted   => sub {
-                my $entry = $File::Find::name;
+                # File::Find spells names with forward slashes on Windows
+                # even when the starting path uses backslashes, while
+                # File::Spec spells the same directory with backslashes, so
+                # the raw name never equals a catdir-built path and no
+                # consumer could match an issue back to its path. Canonicalise
+                # at this boundary (a no-op on Unix) so issue paths, the fix
+                # path and the audit all speak one spelling.
+                my $entry = File::Spec->canonpath( $File::Find::name );
                 my $issue = $self->_permission_issue_for_path($entry);
                 return if !$issue;
                 if ($fix) {
