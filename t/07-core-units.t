@@ -4117,7 +4117,15 @@ close $stale_pid;
         my $pid;
         {
             no warnings 'redefine';
-            local *Developer::Dashboard::CollectorRunner::sleep = sub { die "stop loop\n" };
+            # start_loop must return promptly, but _write_loop_state
+            # settles 0.05s on Windows before the atomic state replace:
+            # let that deliberate settle through and die only on a real
+            # wait (any longer sleep means start_loop is blocking).
+            local *Developer::Dashboard::CollectorRunner::sleep = sub {
+                my ($secs) = @_;
+                die "stop loop\n" if defined $secs && $secs > 0.05;
+                Time::HiRes::sleep( $secs // 0 );
+            };
             $pid = $runner->start_loop(
                 {
                     name     => 'stale',
@@ -4146,7 +4154,15 @@ close $stale_pid;
         my $pid;
         {
             no warnings 'redefine';
-            local *Developer::Dashboard::CollectorRunner::sleep = sub { die "stop loop\n" };
+            # start_loop must return promptly, but _write_loop_state
+            # settles 0.05s on Windows before the atomic state replace:
+            # let that deliberate settle through and die only on a real
+            # wait (any longer sleep means start_loop is blocking).
+            local *Developer::Dashboard::CollectorRunner::sleep = sub {
+                my ($secs) = @_;
+                die "stop loop\n" if defined $secs && $secs > 0.05;
+                Time::HiRes::sleep( $secs // 0 );
+            };
             $pid = $runner->start_loop(
                 {
                     name     => 'loop',
@@ -4229,7 +4245,15 @@ close $stale_pid;
         my $pid;
         {
             no warnings 'redefine';
-            local *Developer::Dashboard::CollectorRunner::sleep = sub { die "stop loop\n" };
+            # start_loop must return promptly, but _write_loop_state
+            # settles 0.05s on Windows before the atomic state replace:
+            # let that deliberate settle through and die only on a real
+            # wait (any longer sleep means start_loop is blocking).
+            local *Developer::Dashboard::CollectorRunner::sleep = sub {
+                my ($secs) = @_;
+                die "stop loop\n" if defined $secs && $secs > 0.05;
+                Time::HiRes::sleep( $secs // 0 );
+            };
             $pid = $runner->start_loop(
                 {
                     name     => 'broken-loop',
