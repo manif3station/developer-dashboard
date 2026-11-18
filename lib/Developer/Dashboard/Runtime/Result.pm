@@ -20,7 +20,11 @@ use Developer::Dashboard::Platform qw(is_windows);
 our $DEV_FD_DIR = '/dev/fd';
 # Darwin's /dev/fd proxy may share an inherited offset between Perl execs.
 # Keep a mode-0600 named tempfile readable to each child independently there.
-our $CHANNEL_USE_NAMED_PATH = $^O eq 'darwin';
+# Windows has no /dev/fd or /proc/self/fd at all, so the named tempfile path
+# is the only channel a child can open there (build #111: tests 824-828
+# saw the probe hook and final command die reading RESULT_FILE
+# "/proc/self/fd/N", which does not exist on Windows).
+our $CHANNEL_USE_NAMED_PATH = $^O eq 'darwin' || $^O eq 'MSWin32';
 
 my %CHANNEL_FILE_HANDLE;
 my %CHANNEL_FILE_PATH;
