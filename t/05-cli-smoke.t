@@ -2488,6 +2488,26 @@ printf '%s\\n' "\$*" > '$fake_editor_log'
 SH
 close $fake_vim_fh;
 chmod 0755, $fake_vim or die "Unable to chmod $fake_vim: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the docker fake: the sh fake above is
+    # invisible to Windows program search, and the product's block-form
+    # system() performs no PATH search or extension probing, so 'vim'
+    # was never found even with a correct ';' PATH (build #81, tests
+    # 694/696, exit 2, log left at the previous test's content). The
+    # micros in builds #82/#83 proved the extensionless fake never runs
+    # and the twin alone does not fix the run either - the product also
+    # needed to resolve the bare editor name to a runnable file first
+    # (OpenFile::_exec_raw). The twin supplies the runnable file the
+    # resolver looks for: it skips the extensionless script and returns
+    # this .bat. Mirrors the sh fake: echo the invocation to the log.
+    my $fake_vim_bat = File::Spec->catfile( $fake_editor_bin, 'vim.bat' );
+    open my $fake_vim_bat_fh, '>', $fake_vim_bat or die "Unable to write $fake_vim_bat: $!";
+    print {$fake_vim_bat_fh} <<"BAT";
+\@echo off
+echo %*>"$fake_editor_log"
+BAT
+    close $fake_vim_bat_fh;
+}
 my $blank_open_all = _run(qq{printf '\\n' | PATH='$fake_editor_bin':"\$PATH" $perl -I'$lib' '$dashboard' of '$open_root' alpha});
 like($blank_open_all, qr/> /, 'd2 of blank-enter chooser still renders the prompt before opening all matches');
 open $fake_editor_log_fh, '<', $fake_editor_log or die "Unable to read $fake_editor_log after blank open-all: $!";

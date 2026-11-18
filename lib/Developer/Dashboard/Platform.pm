@@ -17,6 +17,7 @@ our @EXPORT_OK = qw(
   normalize_shell_name
   shell_command_argv
   command_in_path
+  command_in_path_direct
   is_runnable_file
   resolve_runnable_file
   command_argv_for_path
@@ -159,6 +160,35 @@ sub command_in_path {
         next if !defined $dir || $dir eq '';
         next if $dir eq '.' || File::Spec->canonpath($dir) eq '.';
         for my $candidate ( _path_candidates( File::Spec->catfile( $dir, $name ) ) ) {
+            return $candidate if -f $candidate;
+        }
+    }
+
+    return;
+}
+
+# command_in_path_direct($name)
+# Resolves a bare command name from PATH to a file the native process spawn
+# can execute directly. On Windows only .exe/.com/.bat/.cmd candidates
+# count: an extensionless POSIX script is NOT returned, even though it is
+# a file on PATH, because neither CreateProcess nor cmd can execute it -
+# handing it to a bare system() call fails with rc 65280 (t/05 tests
+# 694/696: the fake vim). A bare name carrying a path separator is not a
+# PATH lookup at all and returns undef. On Unix this is command_in_path:
+# any executable file on PATH runs.
+# Input: bare command name.
+# Output: absolute executable path string or undef when not found.
+sub command_in_path_direct {
+    my ($name) = @_;
+    return if !defined $name || $name eq '';
+    return if $name =~ m{[\\/]};
+    return command_in_path($name) if !is_windows();
+
+    for my $dir ( File::Spec->path ) {
+        next if !defined $dir || $dir eq '';
+        next if $dir eq '.' || File::Spec->canonpath($dir) eq '.';
+        for my $candidate ( _path_candidates( File::Spec->catfile( $dir, $name ) ) ) {
+            next if $candidate !~ /\.(?:com|exe|bat|cmd)\z/i;
             return $candidate if -f $candidate;
         }
     }
