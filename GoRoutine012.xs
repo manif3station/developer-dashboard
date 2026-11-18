@@ -2,6 +2,43 @@ MODULE = Developer::Dashboard    PACKAGE = Developer::Dashboard::GoRoutine
 
 PROTOTYPES: ENABLE
 
+# _ev_invoke_callback(callback)
+# Calls a Perl callback on the main thread with exit scoped to it: an
+# exit() inside the callback (or in anything it calls) is caught and
+# reported as the __GOROUTINE_EXIT__ token instead of terminating the
+# process. Returns undef on success, or the error (string or reference)
+# the callback died with. The custom runops is installed only for the
+# duration of the call and is always restored.
+SV *
+_ev_invoke_callback(callback)
+    SV *callback
+  CODE:
+    {
+        runops_proc_t saved_runops = PL_runops;
+        SV *err = NULL;
+        PL_runops = go_ev_runops;
+        {
+            dSP;
+            ENTER;
+            SAVETMPS;
+            PUSHMARK(SP);
+            PUTBACK;
+            call_sv(callback, G_VOID | G_DISCARD | G_EVAL);
+            SPAGAIN;
+            if (SvTRUE(ERRSV)) {
+                err = newSVsv(ERRSV);
+                sv_setsv(ERRSV, &PL_sv_undef);
+            }
+            PUTBACK;
+            FREETMPS;
+            LEAVE;
+        }
+        PL_runops = saved_runops;
+        RETVAL = err ? err : &PL_sv_undef;
+    }
+  OUTPUT:
+    RETVAL
+
 # _ev_now()
 # Monotonic clock in seconds, for scheduling timers on the event loop.
 # Input: none. Output: seconds since an arbitrary fixed point.

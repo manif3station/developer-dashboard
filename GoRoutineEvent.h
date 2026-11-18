@@ -22,6 +22,29 @@
 #include <string.h>
 #include <errno.h>
 
+/* ------------------------------------------------------------------ */
+/* Routine-local exit (needs perl.h, included before this header)      */
+/* ------------------------------------------------------------------ */
+/* A runtime CORE::GLOBAL::exit override cannot scope exit() to a
+ * routine: a callback is compiled long before it is dispatched, and Perl
+ * resolves exit to the core op at compile time. Intercepting OP_EXIT in
+ * the op dispatcher catches every exit call during dispatch, whenever the
+ * code was compiled. This is the same mechanism the old threaded engine
+ * used (its go_runops); the threads are gone, the op interception stays.
+ * Installed only for the duration of one callback invocation. */
+static int
+go_ev_runops(pTHX)
+{
+    while (PL_op) {
+        if (PL_op->op_type == OP_EXIT) {
+            croak("__GOROUTINE_EXIT__");
+        }
+        PL_op = CALL_FPTR(PL_op->op_ppaddr)(aTHX);
+        PERL_ASYNC_CHECK();
+    }
+    return 0;
+}
+
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -282,6 +305,15 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
             }
         }
     }
+
+    /* Something is already due: return it now instead of waiting for
+       the next deadline. Waiting would collect timers due later into
+       the same batch, and the caller dispatches the batch in order, so
+       a later timer would run only after an earlier long-running
+       routine returns instead of firing during it (a nested pump
+       cannot dispatch it: it is no longer in the list). */
+    if (count > 0)
+        return count;
 
     /* How long to wait: the caller's bound, or the next timer deadline. */
     if (go_ev_timers != NULL)
