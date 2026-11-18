@@ -3753,7 +3753,15 @@ sub _gate_lines {
     _gate_file( File::Spec->catfile( $home_hooks, 'foo.pl' ), "#!$perl\nprint \"foo.pl\\n\";\n", 0755 );
     _gate_file( File::Spec->catfile( $proj_hooks, 'bar.pl' ), "#!$perl\nprint \"bar.pl\\n\";\n", 0755 );
     my ( $stdout, $stderr, $exit ) = _gate_run( $home, $proj, $d2_entrypoint, 'version' );
-    is( $stdout, "bar.pl\nfoo.pl\n$expected_version\n",
+    # Hook stdout is streamed through live, so on Windows each hook line
+    # arrives with CRLF (the hook child's :crlf layer) while the version
+    # line is bare LF: normalize the line endings in a copy so the
+    # comparison checks the order and the content, not the platform's
+    # line endings. The streamed display itself stays untouched (bare LF
+    # would stair-step in cmd.exe).
+    my $stdout_lf = $stdout;
+    $stdout_lf =~ s/\r\n/\n/g;
+    is( $stdout_lf, "bar.pl\nfoo.pl\n$expected_version\n",
         'AC-11: project hook (deepest) runs first, HOME hook last, then the command' );
     is( $stderr, '', 'AC-11: ordering scenario writes nothing to stderr' );
     is( $exit,   0,  'AC-11: ordering scenario exits 0' );
