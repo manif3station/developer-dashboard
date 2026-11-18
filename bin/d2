@@ -346,6 +346,17 @@ sub _run_command_hook_streaming {
     }
 
     waitpid( $pid, 0 );
+    if ( $^O eq 'MSWin32' ) {
+        # The hook child writes through Perl's :crlf layer, so its
+        # captured stdout/stderr carry \r\n; later hooks and commands
+        # read RESULT expecting \n, as on Unix (build #108: tests 782
+        # and 809 saw "hook-one\r\n" / "custom-hook\r\n"). Normalize
+        # the captured text so the RESULT contract is LF-only on every
+        # platform. The streamed display already happened in the drain
+        # callback, so this changes only what RESULT records.
+        $stdout_text =~ s/\r\n/\n/g;
+        $stderr_text =~ s/\r\n/\n/g;
+    }
     return {
         stdout    => $stdout_text,
         stderr    => $stderr_text,
