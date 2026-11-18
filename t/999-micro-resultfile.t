@@ -2,8 +2,17 @@ use strict;
 use warnings;
 use utf8;
 
-# Micro-repro v8 for Jenkins builds #111/#112: t/05 tests 824-828 fail
-# on Windows only, byte-identically in both builds, even though build
+# Micro-repro v9 for Jenkins build #114: v8 (build #113) named the real
+# cause - chmod 0600 on a filehandle dies on Strawberry Perl ("The
+# fchmod function is unimplemented"), so _open_channel_file died before
+# the named-path branch ever ran. The loop-branch fix (chmod by path on
+# Windows) is cherry-picked onto this probe branch, and v9 also fixes
+# v8's two micro bugs: (1) stage-a-child.pl declared `my $fh` inside
+# the `if` condition, so <$fh>/close $fh failed to compile (test 3);
+# (2) the ENTRY_OK diag lines were not KEY=value, so _slurp_diag filed
+# them under "ENTRY_OK stderr_len" and $probe->{ENTRY_OK} came back
+# undef (tests 8/11). t/05 tests 824-828 fail
+# on Windows only, byte-identically in builds #111/#112, even though build
 # #112 ran with commit 23175f66 (Result.pm: $CHANNEL_USE_NAMED_PATH
 # also true on MSWin32, so _open_channel_file should hand children the
 # named tempfile path instead of /proc/self/fd/N). The probe hook and
@@ -165,7 +174,8 @@ if ( $rf eq '' ) {
     print "READ-FAIL: RESULT_FILE is empty\n";
     exit 0;
 }
-if ( !open my $fh, '<:raw', $rf ) {
+my $fh;
+if ( !open $fh, '<:raw', $rf ) {
     print "READ-FAIL: open $rf: $!\n";
     exit 0;
 }
@@ -233,7 +243,7 @@ if (\$loaded) {
     my \$entry;
     if (eval { \$entry = Developer::Dashboard::Runtime::Result::current(); 1 }) {
         my \$e = \$entry->{'01-big'} || {};
-        print {\$dfh} "ENTRY_OK stdout_len=" . length(\$e->{stdout} // '') . " stderr_len=" . length(\$e->{stderr} // '') . "\\n";
+        print {\$dfh} "ENTRY_OK=stdout_len=" . length(\$e->{stdout} // '') . " stderr_len=" . length(\$e->{stderr} // '') . "\\n";
         print "stdout=", length(\$e->{stdout} // ''), "\\n";
         print "stderr=", length(\$e->{stderr} // ''), "\\n";
         print "result_file=", ((\$ENV{RESULT_FILE} || '') ne '' ? 1 : 0), "\\n";
@@ -288,7 +298,7 @@ if (\$loaded) {
     print {\$dfh} "RF_EXISTS=" . (-e \$rf ? 1 : 0) . " RF_SIZE=" . (-s \$rf // -1) . "\\n";
     my \$entry;
     if (eval { \$entry = Developer::Dashboard::Runtime::Result::entry('01-big'); 1 }) {
-        print {\$dfh} "ENTRY_OK stderr_len=" . length(\$entry->{stderr} // '') . "\\n";
+        print {\$dfh} "ENTRY_OK=stderr_len=" . length(\$entry->{stderr} // '') . "\\n";
         print 'probe-stderr=', length(\$entry->{stderr} // ''), "\\n";
     }
     else {
