@@ -2000,7 +2000,8 @@ sub _write_collector_supervisor_state {
     my $tmp = $self->_pending_collector_supervisor_state_file($file);
     open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode( $data || {} );
-    close $fh;
+    # CORE::close: plain close is POSIX::close in this file (raw, no flush).
+    CORE::close $fh;
     $self->{paths}->secure_file_permissions($tmp);
     $self->_replace_state_file( $tmp, $file );
     $self->{paths}->secure_file_permissions($file);
@@ -2494,7 +2495,8 @@ sub _write_web_state {
     my $tmp = $self->_pending_web_state_file($file);
     open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode($payload);
-    close $fh;
+    # CORE::close: plain close is POSIX::close in this file (raw, no flush).
+    CORE::close $fh;
     $self->{paths}->secure_file_permissions($tmp);
     $self->_replace_state_file( $tmp, $file );
     $self->{paths}->secure_file_permissions($file);

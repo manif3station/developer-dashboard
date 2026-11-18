@@ -483,13 +483,17 @@ sub _adopt_existing_loop_if_running {
             # collector invisible to stop and to status, which both key off that
             # file - one missing record causing two more symptoms.
             #
-            # close is unchecked, like the original write further down: checking it
-            # raised "Bad file descriptor" and killed start_loop outright, which is
-            # a far worse outcome than an unclosed handle.
+            # CORE::close, not the plain close: this file imports POSIX::close,
+            # which shadows the built-in with the raw close(2) - it closes the
+            # descriptor WITHOUT flushing the stdio buffer, so the pid written
+            # above stayed buffered and the pidfile on disk was empty until
+            # this handle went out of scope (the same hazard left loop.json
+            # empty and killed t/07 test 577). The close stays unchecked, as
+            # before: a failed close must not kill start_loop outright.
             if ( !-f $pidfile ) {
                 open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
                 print {$fh} $pid;
-                close $fh;
+                CORE::close $fh;
                 $self->{paths}->secure_file_permissions($pidfile);
             }
             return $pid;
@@ -557,7 +561,8 @@ sub _start_windows_loop_process {
     );
     open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
     print {$fh} $pid;
-    close $fh;
+    # CORE::close: plain close is POSIX::close in this file (raw, no flush).
+    CORE::close $fh;
     $self->{paths}->secure_file_permissions($pidfile);
     return $pid;
 }
@@ -1520,7 +1525,12 @@ sub _write_loop_state {
     my $tmp = $self->_pending_loop_state_file($file);
     open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode( \%state );
-    close $fh;
+    # CORE::close, not the plain close: this file imports POSIX::close, which
+    # shadows the built-in with the raw close(2) - it closes the descriptor
+    # WITHOUT flushing the stdio buffer, so the state JSON stayed buffered and
+    # the staging file on disk was empty (and held open) when _replace_state_file
+    # read it, leaving loop.json empty and killing t/07 test 577.
+    CORE::close $fh;
     if ( is_windows() ) {
         sleep 0.05;
     }
