@@ -2778,6 +2778,23 @@ printf '%s\\n' "\$@" > '$which_editor_log'
 SH
 close $which_editor_fh;
 chmod 0755, $which_editor or die "Unable to chmod $which_editor: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the vim fake above (build #81): the sh fake
+    # is invisible to Windows program search, and the shebang route
+    # through Git sh silently never writes the log (build #99, test
+    # 781, exit 2 at the log read). Point EDITOR at the .bat twin
+    # instead; the product runs .bat files by full path
+    # (OpenFile::_exec_raw) and the twin echoes the invocation to the
+    # same log. Mirrors the sh fake: echo the invocation to the log.
+    my $which_editor_bat = File::Spec->catfile( $ENV{HOME}, 'fake-editor.bat' );
+    open my $which_editor_bat_fh, '>', $which_editor_bat or die "Unable to write $which_editor_bat: $!";
+    print {$which_editor_bat_fh} <<"BAT";
+\@echo off
+echo %*>"$which_editor_log"
+BAT
+    close $which_editor_bat_fh;
+    $which_editor = $which_editor_bat;
+}
 my ( $jq_which_edit_stdout, $jq_which_edit_stderr, $jq_which_edit_exit ) = capture {
     local $ENV{EDITOR} = $which_editor;
     system $perl, '-I' . $lib, $dashboard, 'which', '--edit', 'jq';
