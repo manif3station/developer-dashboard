@@ -2675,7 +2675,7 @@ like( $fake_ticket_log_text, qr/^show-options -gqv status-format\[0\]$/m, 'd2 wo
 like( $fake_ticket_log_text, qr/^set-option -gq status-position bottom$/m, 'd2 workspace keeps the tmux status block anchored at the bottom' );
 like( $fake_ticket_log_text, qr/^set-option -gq status 2$/m, 'd2 workspace enables a two-line tmux status block for dashboard-managed workspace sessions' );
 like( $fake_ticket_log_text, qr/^set-option -gq status-interval 15$/m, 'd2 workspace refreshes the tmux status block automatically for dashboard-managed workspace sessions without hot-looping' );
-like( $fake_ticket_log_text, qr/^set-option -gq status-format\[0\] #\('.*d2' ps1 --mode tmux-status-top --width #\{client_width\}\)$/m, 'd2 workspace configures the first tmux status row to render dashboard indicators through the explicit d2 entrypoint path' );
+like( $fake_ticket_log_text, qr/^set-option -gq status-format\[0\] "?#\('.*d2' ps1 --mode tmux-status-top --width #\{client_width\}\)"?$/m, 'd2 workspace configures the first tmux status row to render dashboard indicators through the explicit d2 entrypoint path' );
 like( $fake_ticket_log_text, qr/^set-option -gq status-format\[1\] /m, 'd2 workspace restores the normal tmux bottom-row status beneath the indicator strip' );
 like( $fake_ticket_log_text, qr/^set-option -guq status-format\[2\]$/m, 'd2 workspace clears any stale third tmux status row after configuring the workspace status block' );
 like( $fake_ticket_log_text, qr/^attach-session -t DD-NEW$/m, 'd2 workspace attaches to the requested tmux session' );
@@ -2691,7 +2691,7 @@ my $runtime_ticket_log_text = do { local $/; <$runtime_ticket_log_fh> };
 close $runtime_ticket_log_fh;
 like( $runtime_ticket_log_text, qr/^has-session -t DD-EXISTING$/m, 'private runtime workspace helper checks the requested session' );
 unlike( $runtime_ticket_log_text, qr/^new-session /m, 'private runtime workspace helper skips session creation when tmux reports it already exists' );
-like( $runtime_ticket_log_text, qr/^set-option -gq status-format\[0\] #\('.*d2' ps1 --mode tmux-status-top --width #\{client_width\}\)$/m, 'private runtime workspace helper also reapplies the indicator tmux status row for existing workspace sessions' );
+like( $runtime_ticket_log_text, qr/^set-option -gq status-format\[0\] "?#\('.*d2' ps1 --mode tmux-status-top --width #\{client_width\}\)"?$/m, 'private runtime workspace helper also reapplies the indicator tmux status row for existing workspace sessions' );
 like( $runtime_ticket_log_text, qr/^attach-session -t DD-EXISTING$/m, 'private runtime workspace helper attaches to existing sessions' );
 
 my $json_value = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
