@@ -407,6 +407,15 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
                 }
             }
             free(fds);
+        } else {
+            /* malloc failed: sleep for the wait period so we do not busy-loop. */
+            struct pollfd dummy;
+            int rc;
+            dummy.fd = -1;
+            dummy.events = 0;
+            dummy.revents = 0;
+            do { rc = poll(&dummy, 0, (int)wait_ms); }
+            while (rc < 0 && errno == EINTR);
         }
 #endif
     } else if (wait_ms > 0) {
