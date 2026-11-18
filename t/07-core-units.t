@@ -1880,7 +1880,7 @@ $files->write( 'prompt_log', undef );
 is( $files->read('prompt_log'), '', 'write stores empty content when undef is provided' );
 $files->append( 'prompt_log', undef );
 is( $files->read('prompt_log'), '', 'append treats undef content as empty text' );
-like( $files->dashboard_index, qr{/index$}, 'dashboard_index resolves the saved page bookmark file' );
+like( $files->dashboard_index, qr{(?:^|[/\\])index$}, 'dashboard_index resolves the saved page bookmark file' );
 like( $files->global_config, qr/config\.json$/, 'global_config resolves the main config file' );
 like( $files->auth_log, qr/auth\.log$/, 'auth_log resolves the auth log file' );
 like( $files->dashboard_log, qr/dashboard\.log$/, 'dashboard_log resolves the d2 log file' );
