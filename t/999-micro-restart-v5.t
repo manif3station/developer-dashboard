@@ -128,6 +128,7 @@ BAT
     require Developer::Dashboard::CLI::Which;
     my $d2_on_path = command_in_path_direct('d2');
     _log( 'command_in_path_direct(d2): ' . ( defined $d2_on_path ? $d2_on_path : 'undef (no runnable d2 on PATH)' ) );
+    _log( sprintf( '$0 is %s: -f=%d -x=%d', $0, -f $0 ? 1 : 0, -x $0 ? 1 : 0 ) );
     my @entry = Developer::Dashboard::CLI::Which::_dashboard_entry_command();
     _log( 'dashboard_entry_command() returns: [' . join( ', ', map { "'$_'" } @entry ) . ']' );
     _log("\$0 in this process: $0");
