@@ -387,9 +387,9 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     local *Developer::Dashboard::Web::Server::_wait_for_ssl_backend_ready = sub { return 1 };
 
     my $ok = eval { $ssl_server->_serve_ssl_frontend($ssl_daemon); 1 };
-    ok( !$ok, 'SSL frontend reports a client release close failure' );
-    like( $@, qr/Unable to release SSL frontend client/, 'client release close failure is explicit' );
-    is_deeply( \@stopped, [991005], 'SSL backend is stopped after client release close failure' );
+    ok( !$ok, 'SSL frontend reports a client close failure during shutdown' );
+    like( $@, qr/Unable to close SSL frontend client/, 'client close failure is explicit' );
+    is_deeply( \@stopped, [991005], 'SSL backend is stopped after client close failure' );
 }
 
 {
@@ -736,7 +736,7 @@ sub Local::CompletedRoutine::kill { return 1 }
         push @routines, $routine;
         return $routine;
     };
-    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client = sub { $handled++; return 1 };
+    local *Developer::Dashboard::Web::Server::_ssl_frontend_client_step = sub { $handled++; return 1 };
     local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub {
         push @stopped, $_[0];
         return 1;
@@ -753,7 +753,7 @@ sub Local::CompletedRoutine::kill { return 1 }
         'SSL frontend starts its backend with the managed process-group option' );
     is( $handled, 1, 'accepted client is handled by one GoRoutine worker' );
     is( $routines[0]{killed}, 1, 'SSL frontend cancels a client routine during shutdown' );
-    is( $routines[0]{checks}, 3, 'SSL frontend waits for a running client routine to finish' );
+    is( $routines[0]{checks}, 0, 'SSL frontend cancels a client routine without polling is_running' );
     is_deeply( \@stopped, [991001], 'SSL frontend stops the internal backend before returning' );
 
     close $client_peer or die "Unable to close frontend client fixture peer: $!";
@@ -780,8 +780,10 @@ sub Local::CompletedRoutine::kill { return 1 }
         return bless {}, 'Local::CompletedRoutine';
     };
     local *IO::Socket::INET::new = sub { return Local::ScriptedListener->new };
-    local *Developer::Dashboard::Web::Server::_handle_ssl_frontend_client = sub {
-        die "simulated frontend client failure\n";
+    local *Developer::Dashboard::Web::Server::_ssl_frontend_client_step = sub {
+        my ($state) = @_;
+        push @{ $state->{errors} }, "simulated frontend client failure\n";
+        return 1;
     };
     local *Developer::Dashboard::Web::Server::_stop_ssl_backend = sub {
         push @stopped, $_[0];
@@ -1812,20 +1814,23 @@ sub Local::CompletedRoutine::kill { return 1 }
 {
     socketpair( my $client, my $peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
       or die "Unable to build TLS peek fixture: $!";
+    socketpair( my $backend, my $backend_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "Unable to build TLS backend fixture: $!";
     syswrite( $peer, "\x16" ) == 1 or die "Unable to prime TLS peek fixture: $!";
-    my $backend = _tied_handle('Local::WorkingHandle');
-    my $proxied = 0;
+    close $peer or die "Unable to close TLS peek fixture peer: $!";
     no warnings 'redefine';
     local *IO::Socket::INET::new = sub { return $backend };
-    local *Developer::Dashboard::Web::Server::_proxy_streams = sub { $proxied++; return 1 };
     is(
         $ssl_server->_handle_ssl_frontend_client( client => $client, daemon => $ssl_daemon ),
         1,
         'frontend routes a TLS handshake byte to the internal backend',
     );
-    is( $proxied, 1, 'frontend proxies the TLS client stream exactly once' );
+    my $relayed = '';
+    my $got = sysread( $backend_peer, $relayed, 1 );
+    is( $got, 1, 'frontend proxies the TLS client stream to the backend' );
+    is( $relayed, "\x16", 'frontend relays the TLS handshake byte unchanged' );
     close $client or die "Unable to close TLS peek fixture client: $!";
-    close $peer or die "Unable to close TLS peek fixture peer: $!";
+    close $backend_peer or die "Unable to close TLS peek fixture backend peer: $!";
 }
 
 {
