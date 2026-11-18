@@ -266,7 +266,16 @@ sub _open_channel_file {
     # wrong when a platform or File::Temp version behaves differently than
     # assumed. The RESULT channel can carry hook stdout/stderr, so an
     # unexpectedly permissive mode would be a real exposure.
-    chmod 0600, $fh or die "Unable to chmod RESULT tempfile $path to 0600: $!";
+    # Strawberry Perl has no fchmod: chmod on a filehandle dies with
+    # "The fchmod function is unimplemented". On Windows chmod by path
+    # (which only toggles the read-only attribute) and keep the handle
+    # form on Unix, where the explicit mode is the DD-621 TOCTOU guard.
+    if ( is_windows() ) {
+        chmod 0600, $path or die "Unable to chmod RESULT tempfile $path to 0600: $!";
+    }
+    else {
+        chmod 0600, $fh or die "Unable to chmod RESULT tempfile $path to 0600: $!";
+    }
 
     if ( !is_windows() ) {
         # Close-on-exec is a Unix descriptor flag: F_GETFD and F_SETFD
