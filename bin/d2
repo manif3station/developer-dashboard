@@ -135,8 +135,17 @@ if ( my ( $skill_name, $skill_command ) = _skill_dotted_command_parts($cmd) ) {
 }
 
 if ( my $skill_name = _skill_bare_init_command_name($cmd) ) {
-    my $helper_path = _builtin_helper_path('skills');
-    _exec_switchboard_command( $helper_path, '_exec', $skill_name, '__init__', @ARGV );
+    # Same Windows dashboard-core shape as the dotted branch above:
+    # _builtin_helper_path('skills') returns '' on Windows because the
+    # skills helper carries a non-empty argv, which made every bare
+    # "d2 <skill>" fall through to "Unknown d2 command" (build #79,
+    # tests 670/671). The micro in build #80 proved the name lookup
+    # itself resolves fine on Windows; only the helper form was wrong.
+    # Passing the helper argv through invokes the core as
+    # `core skills _exec <skill> __init__` on Windows and keeps the
+    # direct-helper call unchanged on Unix (where the argv is empty).
+    my ( $helper_path, @helper_argv ) = _builtin_helper_command('skills');
+    _exec_switchboard_command( $helper_path, @helper_argv, '_exec', $skill_name, '__init__', @ARGV );
 }
 
 if ( $cmd ne '' ) {
