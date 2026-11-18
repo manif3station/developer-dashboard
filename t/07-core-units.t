@@ -6753,7 +6753,10 @@ EOF
     my $paths = Developer::Dashboard::PathRegistry->new( home => $bad_home );
     dies_like(
         sub { Developer::Dashboard::EnvLoader->load_runtime_layers( paths => $paths ) },
-        qr/Invalid env line .*bad-env-project\/\.env line 1/,
+        # The path separator in the reported .env path is a backslash on
+        # Windows and a forward slash everywhere else; match either so the
+        # assertion checks the message, not the platform's separator.
+        qr/Invalid env line .*bad-env-project[\/\\]\.env line 1/,
         'EnvLoader dies explicitly when one .env line is malformed',
     );
     chdir $previous_cwd or die "Unable to chdir back to $previous_cwd: $!";
@@ -6773,7 +6776,8 @@ EOF
     my $paths = Developer::Dashboard::PathRegistry->new( home => $bad_home );
     dies_like(
         sub { Developer::Dashboard::EnvLoader->load_runtime_layers( paths => $paths ) },
-        qr/Invalid env key .*bad-env-key-project\/\.env line 1/,
+        # Same separator note as the malformed-line test above.
+        qr/Invalid env key .*bad-env-key-project[\/\\]\.env line 1/,
         'EnvLoader rejects invalid environment variable names explicitly',
     );
     chdir $previous_cwd or die "Unable to chdir back to $previous_cwd: $!";
