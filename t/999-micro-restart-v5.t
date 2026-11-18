@@ -177,6 +177,29 @@ BAT
         ok( 1, 'micro d2 open-file log test skipped on non-Windows' );
     }
 
+    # Phase 3b: the open-file half WITHOUT -I, exactly as the which
+    # re-entry exec invokes it (perl bin/d2 open-file ...). bin/d2
+    # adds its own lib via FindBin, so this must find the fresh code
+    # without the explicit -I. If this fails while phase 3 passes, the
+    # re-entered process loads stale code (blib wins over bin/d2's
+    # own lib) and the editor never runs there. Windows-only, same
+    # guard as phase 2 (build #103).
+    if ($IS_WINDOWS) {
+        {
+            local $ENV{EDITOR} = $editor_bat;
+            ( $out, $rc ) = _run_logged( 'open-file-no-I', "cd '$home' && $perl '$dashboard' open-file '$runtime_jq'" );
+        }
+        my $log_after_open_noI = _slurp($editor_log);
+        _log( 'log after open-file (no -I): ' . ( defined $log_after_open_noI ? "'$log_after_open_noI'" : 'MISSING (never written)' ) );
+        is( $rc, 0, 'micro d2 open-file without -I exits 0' );
+        ok( defined $log_after_open_noI, 'micro d2 open-file without -I invokes the .bat editor and writes the log' );
+        unlink $editor_log if -f $editor_log;
+    }
+    else {
+        ok( 1, 'micro d2 open-file without -I test skipped on non-Windows' );
+        ok( 1, 'micro d2 open-file without -I log test skipped on non-Windows' );
+    }
+
     # Phase 4: the which half, the exact failing scenario.
     # Windows-only, same guard as phase 2 (build #103).
     if ($IS_WINDOWS) {
@@ -188,6 +211,14 @@ BAT
         _log( 'log after which --edit: ' . ( defined $log_after_which ? "'$log_after_which'" : 'MISSING (never written)' ) );
         is( $rc, 0, 'micro d2 which --edit exits 0' );
         ok( defined $log_after_which, 'micro d2 which --edit invokes the .bat editor and writes the log' );
+        # Recheck after a delay: if Perl's exec on Windows does not wait
+        # for the re-entered process, the editor may run asynchronously
+        # and the log may appear late. That distinguishes an async exec
+        # (log appears after the sleep) from a genuinely missing editor
+        # invocation (log never appears).
+        sleep 3;
+        my $log_after_which_delayed = _slurp($editor_log);
+        _log( 'log after which --edit +3s delay: ' . ( defined $log_after_which_delayed ? "'$log_after_which_delayed'" : 'STILL MISSING after 3s' ) );
         unlink $editor_log if -f $editor_log;
     }
     else {
