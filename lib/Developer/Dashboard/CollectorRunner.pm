@@ -885,11 +885,24 @@ sub _terminate_loop_workers {
         next if !$self->_pid_is_running($pid);
         kill 15, -$pid if !is_windows();
         if ( is_windows() ) {
-            # Perl kill TERM never reaches a CreateProcess child (it has no
-            # console to deliver the event to); terminate through the native
-            # process API instead.
-            require Developer::Dashboard::GoRoutine;
-            Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
+            # Tree-kill FIRST, while the worker is still alive. taskkill /T
+            # roots the kill at the worker pid, and a worker already dead
+            # from TERM answers "process not found", so its
+            # powershell/command descendants survive orphaned: probe643
+            # proved stop_loop left the singleton worker's powershell and
+            # long-running perl command running (t/07 643), because the
+            # TERM below killed the worker at once and the tree kill in
+            # the escalation loop below was then skipped as "not running".
+            # A tree kill on the live worker takes the whole subtree down
+            # (probe643 part C). Perl kill TERM never reaches a
+            # CreateProcess child (it has no console to deliver the event
+            # to); terminate through the native process API instead, for
+            # any worker the tree kill leaves behind.
+            capture { system 'taskkill', '/PID', $pid, '/T', '/F' };
+            if ( $self->_pid_is_running($pid) ) {
+                require Developer::Dashboard::GoRoutine;
+                Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
+            }
         }
         else {
             kill 15, $pid;
@@ -1245,11 +1258,27 @@ sub _is_managed_loop {
     # The pid-reuse risk (a stale pidfile pid reassigned to a foreign
     # process) is negligible next to that certain orphaning, and the stop
     # fallback already targets from the pidfile alone.
+    #
+    # A title or marker that POSITIVELY disagrees vetoes this fallback
+    # (t/07 645): a live foreign process whose command line says something
+    # else is not our loop, even when a pidfile names its pid - without
+    # the veto, stop_loop('foreign') signalled the test process itself.
+    # Only an unavailable title/marker (undef or empty - the process
+    # table has no entry for the pid) or a title showing our own
+    # loop-helper argv (collector-loop-foreground --name <name>, the shape
+    # a real Windows loop child's CIM command line always has, since $0
+    # never rewrites it) leaves the fallback in place for the slow / torn
+    # loop.json replace it was added for.
     if ( $^O eq 'MSWin32' ) {
-        my $recorded = eval { slurp_file( $self->_pidfile($name) ) };
-        if ( !$@ && defined $recorded ) {
-            chomp $recorded;
-            return 1 if $recorded =~ /^\d+$/ && $recorded == $pid;
+        my $title_disagrees = defined $title && $title ne ''
+          && !( $title =~ /\bcollector-loop-foreground\b/ && $title =~ /--name\s+\Q$name\E(?:\s|\z)/ );
+        my $marker_disagrees = defined $marker && $marker ne $name;
+        if ( !$title_disagrees && !$marker_disagrees ) {
+            my $recorded = eval { slurp_file( $self->_pidfile($name) ) };
+            if ( !$@ && defined $recorded ) {
+                chomp $recorded;
+                return 1 if $recorded =~ /^\d+$/ && $recorded == $pid;
+            }
         }
     }
     return 0;
