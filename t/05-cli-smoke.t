@@ -2761,10 +2761,10 @@ close $jq_hook_skipped_fh;
 chmod 0600, $jq_hook_skipped or die "Unable to chmod $jq_hook_skipped: $!";
 my ( $jq_hooked_stdout, $jq_hooked_stderr, $jq_hooked_exit ) = _sh_capture(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
 is( $jq_hooked_exit, 0, 'd2 jq succeeds when command hook files exist' );
-like( $jq_hooked_stdout, qr/^hook-one\n/s, 'd2 jq streams hook stdout before the main command output' );
-like( $jq_hooked_stdout, qr/hook-two\n2\n\z/s, 'd2 jq keeps the main command output after streamed hook stdout' );
-like( $jq_hooked_stderr, qr/hook-one-err\n/, 'd2 jq streams hook stderr live' );
-like( $jq_hooked_stderr, qr/hook-two-err\n/, 'd2 jq keeps later hook stderr visible' );
+like( $jq_hooked_stdout, qr/^hook-one\r?\n/s, 'd2 jq streams hook stdout before the main command output' );
+like( $jq_hooked_stdout, qr/hook-two\r?\n2\r?\n\z/s, 'd2 jq keeps the main command output after streamed hook stdout' );
+like( $jq_hooked_stderr, qr/hook-one-err\r?\n/, 'd2 jq streams hook stderr live' );
+like( $jq_hooked_stderr, qr/hook-two-err\r?\n/, 'd2 jq keeps later hook stderr visible' );
 my $jq_which = _run("$perl -I'$lib' '$dashboard' which jq");
 like( $jq_which, qr/^COMMAND \Q$runtime_jq\E$/m, 'd2 which jq reports the staged built-in helper path' );
 like( $jq_which, qr/^HOOK \Q$jq_hook_one\E$/m, 'd2 which jq lists the first participating hook file' );
@@ -2819,7 +2819,7 @@ GO
     is( $jq_go_exit, 0, 'd2 jq succeeds when an executable Go hook file exists' );
     like( $jq_go_stdout, qr/hook-go\n2\n\z/s, 'd2 jq runs the Go hook before the main command output' );
     like( $jq_go_stderr, qr/hook-go-err\n/, 'd2 jq keeps Go hook stderr visible' );
-    like( $jq_go_stdout, qr/^hook-one\nhook-two\nhook-go\n/s, 'd2 jq keeps Go hook ordering with earlier hook files' );
+    like( $jq_go_stdout, qr/^hook-one\r?\nhook-two\r?\nhook-go\r?\n/s, 'd2 jq keeps Go hook ordering with earlier hook files' );
 }
 
 SKIP: {
@@ -2842,7 +2842,7 @@ JAVA
     is( $jq_java_exit, 0, 'd2 jq succeeds when an executable Java hook file exists' );
     like( $jq_java_stdout, qr/hook-java\n2\n\z/s, 'd2 jq runs the Java hook before the main command output' );
     like( $jq_java_stderr, qr/hook-java-err\n/, 'd2 jq keeps Java hook stderr visible' );
-    like( $jq_java_stdout, qr/^hook-one\nhook-two\n(?:hook-go\n)?hook-java\n/s, 'd2 jq keeps Java hook ordering with the earlier hook files' );
+    like( $jq_java_stdout, qr/^hook-one\r?\nhook-two\r?\n(?:hook-go\r?\n)?hook-java\r?\n/s, 'd2 jq keeps Java hook ordering with the earlier hook files' );
 }
 
 local $ENV{RESULT} = json_encode(
@@ -2922,8 +2922,8 @@ close $custom_run_fh;
 chmod 0755, $custom_run or die "Unable to chmod $custom_run: $!";
 my ( $custom_stdout, $custom_stderr, $custom_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' inspect-result");
 is( $custom_exit, 0, 'directory-backed custom command succeeds after hook streaming' );
-like( $custom_stdout, qr/^custom-hook\n/s, 'directory-backed custom command streams hook stdout before the final RESULT json' );
-like( $custom_stderr, qr/custom-hook-err\n/, 'directory-backed custom command streams hook stderr live' );
+like( $custom_stdout, qr/^custom-hook\r?\n/s, 'directory-backed custom command streams hook stdout before the final RESULT json' );
+like( $custom_stderr, qr/custom-hook-err\r?\n/, 'directory-backed custom command streams hook stderr live' );
 my ($custom_json) = $custom_stdout =~ /(\{[\s\S]*\})\s*\z/;
 ok( defined $custom_json, 'directory-backed custom command leaves trailing RESULT json after streamed hook output' );
 my $custom_result_data = json_decode($custom_json);
@@ -2964,7 +2964,7 @@ my ( $report_stdout, $report_stderr, $report_exit ) = _sh_capture("$perl -I'$lib
 $report_stdout = decode( 'UTF-8', $report_stdout );
 $report_stderr = decode( 'UTF-8', $report_stderr );
 is( $report_exit, 0, 'directory-backed custom commands can print Runtime::Result reports after hook execution' );
-like( $report_stdout, qr/^report-hook\n/s, 'Runtime::Result report command still streams hook stdout before the final report' );
+like( $report_stdout, qr/^report-hook\r?\n/s, 'Runtime::Result report command still streams hook stdout before the final report' );
 like( $report_stdout, qr/report-result Run Report/, 'Runtime::Result report titles the report with the current command name' );
 like( $report_stdout, qr/✅ 00-first\.pl/, 'Runtime::Result report marks successful hooks with a success glyph' );
 like( $report_stdout, qr/🚨 01-second\.pl/, 'Runtime::Result report marks failing hooks with an error glyph' );
