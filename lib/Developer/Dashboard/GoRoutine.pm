@@ -25,6 +25,169 @@ die "Developer::Dashboard XS bundle is not loaded; GoRoutine requires its native
     if !$Developer::Dashboard::HtmlEscape::XS_LOADED;
 
 # -------------------------------------------------------------------------
+# Windows spawn wrappers
+# -------------------------------------------------------------------------
+#
+# On Windows a child process object is destroyed as soon as the last handle
+# to it closes, and the native spawn layer closes its own handle immediately
+# after CreateProcess, so a child that exits and is only inspected afterwards
+# has no exit code left to report: wait_process answers the 255 "unknown"
+# sentinel and process_running reports 0 for a completed child that has not
+# been reaped yet. POSIX keeps the child as a zombie until it is reaped, so
+# the same code reports the real exit status there. To give Windows the same
+# shape, spawn keeps one handle open per child until wait_process collects
+# it. That handle is what makes a completed child still "exist" until it is
+# reaped, matching the documented contract that process_running is process
+# existence and process_exited is completion state. A child whose handle
+# could not be opened (it already exited, or Win32::Process is unavailable)
+# simply falls back to the previous behaviour.
+#
+# The redesign runs no cloned interpreters, so nothing can close a registry
+# handle behind the owner's back: the handle is released only when
+# wait_process collects the child, or when the registry itself is destroyed
+# at process exit.
+
+my %_SPAWN_CHILDREN;    # pid => Win32::Process object, or 1 when no handle is held
+
+# The platform this process really runs on, captured at load time.
+# Runtime $^O is mockable, so it must never decide whether the spawn
+# registry exists. On POSIX the registry is always empty by design, and
+# "not in registry" only means "already reaped" on real Windows.
+my $_REAL_OS_IS_WINDOWS = $^O eq 'MSWin32';
+
+my $_XS_SPAWN           = \&spawn;
+my $_XS_PROCESS_RUNNING = \&process_running;
+my $_XS_PROCESS_EXITED  = \&process_exited;
+my $_XS_WAIT_PROCESS    = \&wait_process;
+
+# _keep_spawn_handle($pid)
+# Records one spawned child and, on Windows, opens a process handle for it
+# so its process object (and exit code) survives until wait_process collects
+# it. Input: child process id integer. Output: nothing.
+sub _keep_spawn_handle {
+    my ($pid) = @_;
+    return if !defined $pid || $pid < 1;
+    # The registry only exists to keep a Windows process object alive until
+    # wait_process collects it (the POSIX branch has zombies for that), so
+    # a child spawned anywhere else is never recorded.
+    return if $^O ne 'MSWin32';
+    my $handle = 1;
+    if ( $^O eq 'MSWin32' ) {
+        my $opened = eval {
+            require Win32::Process;
+            my $object;
+            Win32::Process::Open( $object, $pid, 0 )
+              or die "unable to open GoRoutine child process $pid\n";
+            $object;
+        };
+        $handle = $opened if $opened && !$@;
+    }
+    $_SPAWN_CHILDREN{$pid} = $handle;
+    return;
+}
+
+# _spawn_wrapper($argv, $options)
+# Wraps the native spawn: on Windows the native layer ignores the env
+# option (it has no environment-block builder), so the overrides are merged
+# into the parent environment for the duration of the spawn, because a
+# CreateProcess child inherits a copy of its parent environment at creation
+# time. Input: argument array reference and options hash reference.
+# Output: child process id integer.
+sub _spawn_wrapper ($$) {
+    my ( $argv, $options ) = @_;
+    my $pid;
+    if (   $^O eq 'MSWin32'
+        && ref($options) eq 'HASH'
+        && ref( $options->{env} ) eq 'HASH'
+        && %{ $options->{env} } )
+    {
+        my $overrides = $options->{env};
+        for my $key ( keys %{$overrides} ) {
+            die "GoRoutine child environment keys must be non-empty and contain no '=' or NUL\n"
+              if $key eq '' || $key =~ /=/ || $key =~ /\0/;
+            die "GoRoutine child environment values must be defined scalars\n"
+              if !defined $overrides->{$key} || ref $overrides->{$key};
+            die "GoRoutine child environment values must not contain NUL\n"
+              if $overrides->{$key} =~ /\0/;
+        }
+        my @keys   = keys %{$overrides};
+        my @values = @{ $overrides }{@keys};
+        {
+            local @ENV{@keys} = @values;
+            $pid = $_XS_SPAWN->( $argv, $options );
+        }
+    }
+    else {
+        $pid = $_XS_SPAWN->( $argv, $options );
+    }
+    _keep_spawn_handle($pid);
+    return $pid;
+}
+
+# _process_running_wrapper($pid)
+# Wraps the native liveness check: on Windows a spawned child whose process
+# object is held open by the registry still exists until wait_process
+# collects it, even after it has exited, so it reports as running. That is
+# the POSIX zombie shape, and the contract callers such as
+# ActionRunner::_reap_child_process rely on: without it an exited child can
+# never be reaped on Windows. Input: child process id integer.
+# Output: boolean true when the process still exists.
+sub _process_running_wrapper ($) {
+    my ($pid) = @_;
+    if ( $^O eq 'MSWin32' ) {
+        return 1 if defined $pid && exists $_SPAWN_CHILDREN{$pid};
+    }
+    return $_XS_PROCESS_RUNNING->($pid);
+}
+
+# _wait_process_wrapper($pid)
+# Wraps the native wait: collects the exit status, then releases the
+# registry handle so the process object can finally go away and a second
+# wait reports the 255 unknown status, as documented. Input: child process
+# id integer. Output: shell-style exit status integer.
+sub _wait_process_wrapper ($) {
+    my ($pid) = @_;
+    # Already waited or reaped (Windows only): the registry handle is
+    # gone, so the native wait would croak opening a process object that
+    # no longer exists (Windows error 87). This happens when a supervisor
+    # reap collects the child first and a later wait asks for it again.
+    # Report the documented 255 unknown status instead. On POSIX the
+    # registry is always empty (_keep_spawn_handle is a Windows-only
+    # no-op there), so this must not fire off Windows, and the check keys
+    # off the load-time platform, not runtime $^O, because tests localize
+    # $^O to MSWin32 on Linux.
+    if ( $_REAL_OS_IS_WINDOWS && defined $pid && !exists $_SPAWN_CHILDREN{$pid} ) {
+        # Only a plausible child pid can be an already-reaped child: the
+        # native wait croaks "invalid GoRoutine child process identifier"
+        # for pid 0 and for pids above the Windows DWORD range (2**32 - 1),
+        # and those can never be a valid child, so let them reach the XS
+        # instead of masking the error as the 255 unknown status. A
+        # positive pid inside the DWORD range keeps the 255 answer, so a
+        # second wait on an already-reaped child still reports unknown
+        # instead of the native wait croaking (Windows error 87). The
+        # bounds match the native wait_process contract exactly.
+        return 255 if $pid =~ /^\d+$/ && $pid >= 1 && $pid <= 4294967295;
+    }
+    my $code = $_XS_WAIT_PROCESS->($pid);
+    delete $_SPAWN_CHILDREN{$pid} if defined $pid;
+    return $code;
+}
+
+# The wrappers replace the native entries in this package so every caller,
+# whether it imports the names or calls them fully qualified, sees the same
+# behaviour. This runs at load time, before any importer reads the stash.
+# The native subs carry prototypes (spawn takes two arguments, the other
+# two take one), so the wrappers declare the same prototypes to keep the
+# call contract identical; the redefinition warning is silenced because
+# replacing the native entries is the whole point of this block.
+{
+    no warnings 'redefine';
+    *spawn           = \&_spawn_wrapper;
+    *process_running = \&_process_running_wrapper;
+    *wait_process    = \&_wait_process_wrapper;
+}
+
+# -------------------------------------------------------------------------
 # User syntax
 # -------------------------------------------------------------------------
 #
@@ -663,8 +826,7 @@ sub channel {
         queue            => [],
         closed           => 0,
         capacity         => 0 + $capacity,
-        sender_waiting   => 0,
-        sender_value     => undef,
+        sender_queue     => [],
         receiver_waiting => 0,
     }, 'Developer::Dashboard::GoRoutine::Channel';
 }
@@ -727,9 +889,12 @@ sub send {
         push @{ $self->{queue} }, $value;
         return $self;
     }
-    $self->{sender_waiting} = 1;
-    $self->{sender_value} = $value;
-    while ($self->{sender_waiting}) {
+    # No receiver is waiting: join the queue of pending senders. Each
+    # sender waits for its own entry to be taken, so a second concurrent
+    # send cannot overwrite the first sender's value.
+    my $entry = [$value];
+    push @{ $self->{sender_queue} }, $entry;
+    while (grep { $_ == $entry } @{ $self->{sender_queue} }) {
         die "send on closed channel" if $self->{closed};
         Developer::Dashboard::GoRoutine::pump(0.05);
         die "send on closed channel" if $self->{closed};
@@ -750,15 +915,15 @@ sub receive {
         my $value = shift @{ $self->{queue} };
         return wantarray ? ($value, 1) : $value;
     }
-    if ($self->{sender_waiting}) {
-        my $value = delete $self->{sender_value};
-        $self->{sender_waiting} = 0;
+    if (@{ $self->{sender_queue} }) {
+        my $entry = shift @{ $self->{sender_queue} };
+        my $value = $entry->[0];
         return wantarray ? ($value, 1) : $value;
     }
     return wantarray ? (undef, 0) : undef if $self->{closed};
     $self->{receiver_waiting} = 1;
     while (1) {
-        last if @{ $self->{queue} } || $self->{sender_waiting} || $self->{closed};
+        last if @{ $self->{queue} } || @{ $self->{sender_queue} } || $self->{closed};
         Developer::Dashboard::GoRoutine::pump(0.05);
     }
     $self->{receiver_waiting} = 0;
@@ -766,9 +931,9 @@ sub receive {
         my $value = shift @{ $self->{queue} };
         return wantarray ? ($value, 1) : $value;
     }
-    if ($self->{sender_waiting}) {
-        my $value = delete $self->{sender_value};
-        $self->{sender_waiting} = 0;
+    if (@{ $self->{sender_queue} }) {
+        my $entry = shift @{ $self->{sender_queue} };
+        my $value = $entry->[0];
         return wantarray ? ($value, 1) : $value;
     }
     return wantarray ? (undef, 0) : undef;
@@ -1038,7 +1203,12 @@ C<process_exited($pid)> checks completion without reaping a POSIX child, which
 allows a supervisor to poll safely before collecting its exit result.
 C<wait_process($pid)> waits for and returns the shell-style exit status.
 On Windows, waiting for a child that has already exited and been reaped
-returns 255 because no exit code survives to report.
+returns 255 because no exit code survives to report. The Windows spawn
+wrapper keeps one handle open per child until C<wait_process> collects it,
+so a completed child still reports as running and its real exit code
+survives; it also merges the C<env> overrides into the parent environment
+for the duration of the spawn, because the native layer has no
+environment-block builder and the child inherits its parent environment.
 C<terminate_process($pid, $signal)> sends C<TERM>, C<KILL>, C<HUP>, or C<INT>
 on POSIX. Windows supports C<TERM> and C<KILL>, mapped to native process
 termination because POSIX signal handlers are unavailable there. Unsupported
