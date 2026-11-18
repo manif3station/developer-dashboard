@@ -22,6 +22,19 @@
 #include <string.h>
 #include <errno.h>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#else
+#include <poll.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
+#endif
+
 /* ------------------------------------------------------------------ */
 /* Routine-local exit (needs perl.h, included before this header)      */
 /* ------------------------------------------------------------------ */
@@ -44,19 +57,6 @@ go_ev_runops(pTHX)
     }
     return 0;
 }
-
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <windows.h>
-#else
-#include <poll.h>
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <time.h>
-#include <unistd.h>
-#endif
 
 /* ------------------------------------------------------------------ */
 /* Monotonic clock                                                     */
