@@ -1227,7 +1227,26 @@ sub _is_managed_loop {
     # the title cannot confirm the loop, so fall through to the persisted
     # loop state, which requires pid+name+process_name to match and still
     # answers 0 for a foreign pid.
-    return $self->_state_confirms_managed_loop( $name, $pid ) ? 1 : 0;
+    return 1 if $self->_state_confirms_managed_loop( $name, $pid );
+    # Windows-only fallback: the env marker and the process title are both
+    # unobservable there (no /proc, no ps), and loop.json lands slowly
+    # through the atomic replace, so a live loop can have a pidfile but no
+    # confirming state yet - or a torn read mid-replace. A live pid that
+    # matches the pidfile we wrote for this name is a loop we started;
+    # refusing to recognise it makes running_loops delete the pidfile and
+    # the state, orphaning the live loop permanently (no /proc scan on
+    # Windows can ever recover it), and stop_loop then never signals it.
+    # The pid-reuse risk (a stale pidfile pid reassigned to a foreign
+    # process) is negligible next to that certain orphaning, and the stop
+    # fallback already targets from the pidfile alone.
+    if ( $^O eq 'MSWin32' ) {
+        my $recorded = eval { slurp_file( $self->_pidfile($name) ) };
+        if ( !$@ && defined $recorded ) {
+            chomp $recorded;
+            return 1 if $recorded =~ /^\d+$/ && $recorded == $pid;
+        }
+    }
+    return 0;
 }
 
 # Default Linux procfs root. A test may use a private directory to exercise
