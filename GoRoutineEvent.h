@@ -1,0 +1,434 @@
+/* GoRoutineEvent.h - single-threaded C event loop for GoRoutine.
+ *
+ * This header replaces GoRoutine012Native.h. There are no threads, no fork,
+ * and no perl_clone here: the engine only waits (timers, IO readiness,
+ * process exit) and reports which routines are due. Perl dispatches the
+ * callbacks on the main thread. All state is plain malloc/free: one thread
+ * and one interpreter, so nothing is ever freed across interpreters.
+ *
+ * Trigger kinds: a due id is returned positive when the callback should run
+ * ("fire"), and negative when a timeout fired for that routine (the Perl
+ * side cancels it with status timed_out). The sign encoding keeps the
+ * _ev_wait return value a flat list of integers.
+ *
+ * Due ids are collected before any callback runs (the Perl side dispatches
+ * after _ev_wait returns), so a callback that registers or cancels other
+ * routines cannot corrupt the engine lists.
+ */
+#ifndef GOROUTINE_EVENT_H
+#define GOROUTINE_EVENT_H
+
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#else
+#include <poll.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
+#endif
+
+/* ------------------------------------------------------------------ */
+/* Monotonic clock                                                     */
+/* ------------------------------------------------------------------ */
+
+static double
+go_ev_now(void)
+{
+#ifdef _WIN32
+    return (double)GetTickCount64() / 1000.0;
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+        return 0.0;
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
+#endif
+}
+
+/* ------------------------------------------------------------------ */
+/* Process-exit check (non-reaping, same logic as process_exited)      */
+/* ------------------------------------------------------------------ */
+
+static int
+go_ev_pid_exited(long pid)
+{
+#ifdef _WIN32
+    HANDLE process;
+    DWORD result;
+    if (pid <= 0 || pid > 0xFFFFFFFFL)
+        return 1;
+    process = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)pid);
+    if (process == NULL)
+        return GetLastError() == ERROR_INVALID_PARAMETER ? 1 : 0;
+    result = WaitForSingleObject(process, 0);
+    CloseHandle(process);
+    return result == WAIT_OBJECT_0 ? 1 : 0;
+#else
+    siginfo_t info;
+    int result;
+    if (pid <= 0)
+        return 1;
+    memset(&info, 0, sizeof(info));
+    do { result = waitid(P_PID, (id_t)pid, &info, WEXITED | WNOHANG | WNOWAIT); }
+    while (result < 0 && errno == EINTR);
+    if (result < 0 && errno == ECHILD) {
+        if (kill((pid_t)pid, 0) == 0 || errno == EPERM)
+            return 0;
+        if (errno == ESRCH)
+            return 1;
+        return 0;
+    }
+    if (result < 0)
+        return 0;
+    return info.si_pid != 0 ? 1 : 0;
+#endif
+}
+
+/* ------------------------------------------------------------------ */
+/* Trigger lists                                                       */
+/* ------------------------------------------------------------------ */
+
+#define GO_EV_FIRE    0
+#define GO_EV_TIMEOUT 1
+
+typedef struct go_ev_timer {
+    double when;            /* absolute monotonic time */
+    double interval;        /* 0 = one-shot, > 0 = repeating */
+    int id;                 /* routine id (Perl side) */
+    int kind;               /* GO_EV_FIRE or GO_EV_TIMEOUT */
+    struct go_ev_timer *next;
+} go_ev_timer;
+
+typedef struct go_ev_io {
+    int id;
+#ifdef _WIN32
+    SOCKET fd;
+#else
+    int fd;
+#endif
+    int want_read;
+    int want_write;
+    int repeat;             /* 1 = stays registered after firing */
+    struct go_ev_io *next;
+} go_ev_io;
+
+typedef struct go_ev_pid {
+    int id;
+    long pid;
+    struct go_ev_pid *next;
+} go_ev_pid;
+
+static go_ev_timer *go_ev_timers = NULL;
+static go_ev_io    *go_ev_ios    = NULL;
+static go_ev_pid   *go_ev_pids   = NULL;
+
+/* ------------------------------------------------------------------ */
+/* Registration                                                        */
+/* ------------------------------------------------------------------ */
+
+static void
+go_ev_add_timer(int id, double when, double interval, int kind)
+{
+    go_ev_timer *t = (go_ev_timer *)malloc(sizeof(*t));
+    go_ev_timer **at;
+    if (t == NULL)
+        return;
+    t->when = when;
+    t->interval = interval;
+    t->id = id;
+    t->kind = kind;
+    /* Sorted insert by deadline, stable: equal deadlines keep insertion order. */
+    at = &go_ev_timers;
+    while (*at != NULL && (*at)->when <= when)
+        at = &(*at)->next;
+    t->next = *at;
+    *at = t;
+}
+
+static void
+go_ev_add_io(int id,
+#ifdef _WIN32
+             SOCKET fd,
+#else
+             int fd,
+#endif
+             int want_read, int want_write, int repeat)
+{
+    go_ev_io *io = (go_ev_io *)malloc(sizeof(*io));
+    if (io == NULL)
+        return;
+    io->id = id;
+    io->fd = fd;
+    io->want_read = want_read;
+    io->want_write = want_write;
+    io->repeat = repeat;
+    io->next = go_ev_ios;
+    go_ev_ios = io;
+}
+
+static void
+go_ev_add_pid(int id, long pid)
+{
+    go_ev_pid *p = (go_ev_pid *)malloc(sizeof(*p));
+    if (p == NULL)
+        return;
+    p->id = id;
+    p->pid = pid;
+    p->next = go_ev_pids;
+    go_ev_pids = p;
+}
+
+/* Remove every trigger registered for one routine id. */
+static void
+go_ev_cancel(int id)
+{
+    go_ev_timer **at = &go_ev_timers;
+    while (*at != NULL) {
+        if ((*at)->id == id) {
+            go_ev_timer *dead = *at;
+            *at = dead->next;
+            free(dead);
+        } else {
+            at = &(*at)->next;
+        }
+    }
+    {
+        go_ev_io **iat = &go_ev_ios;
+        while (*iat != NULL) {
+            if ((*iat)->id == id) {
+                go_ev_io *dead = *iat;
+                *iat = dead->next;
+                free(dead);
+            } else {
+                iat = &(*iat)->next;
+            }
+        }
+    }
+    {
+        go_ev_pid **pat = &go_ev_pids;
+        while (*pat != NULL) {
+            if ((*pat)->id == id) {
+                go_ev_pid *dead = *pat;
+                *pat = dead->next;
+                free(dead);
+            } else {
+                pat = &(*pat)->next;
+            }
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Waiting                                                             */
+/*                                                                     */
+/* go_ev_wait collects due ids into the caller's buffer (capacity      */
+/* given by max_due) and returns how many were stored. timeout_ms:     */
+/*   >= 0 : wait at most that long for a trigger                       */
+/*   < 0  : wait until the next trigger fires (or return at once when  */
+/*          nothing is registered)                                     */
+/*                                                                     */
+/* One call collects expired timers, ready IO, and exited pids.        */
+/* Repeating timers re-arm; one-shot triggers are removed as they      */
+/* fire. Due ids come back in deadline order; when a routine's         */
+/* fire-timer and timeout-timer are both due in one wait, the Perl     */
+/* side resolves them by checking the routine's state before acting,   */
+/* so the order does not matter.                                       */
+/* ------------------------------------------------------------------ */
+
+static int
+go_ev_wait(long timeout_ms, int *due, int max_due)
+{
+    double now = go_ev_now();
+    double deadline;
+    long wait_ms;
+    int count = 0;
+
+    /* Expired timers first: collect and re-arm or remove. */
+    while (go_ev_timers != NULL && go_ev_timers->when <= now) {
+        go_ev_timer *t = go_ev_timers;
+        int signed_id;
+        go_ev_timers = t->next;
+        signed_id = t->kind == GO_EV_TIMEOUT ? -t->id : t->id;
+        if (count < max_due)
+            due[count++] = signed_id;
+        if (t->interval > 0.0) {
+            double next = t->when + t->interval;
+            while (next <= now)
+                next += t->interval;
+            go_ev_add_timer(t->id, next, t->interval, t->kind);
+        }
+        free(t);
+    }
+
+    /* Exited pids: collect and remove. */
+    {
+        go_ev_pid **pat = &go_ev_pids;
+        while (*pat != NULL) {
+            if (go_ev_pid_exited((*pat)->pid)) {
+                go_ev_pid *dead = *pat;
+                *pat = dead->next;
+                if (count < max_due)
+                    due[count++] = dead->id;
+                free(dead);
+            } else {
+                pat = &(*pat)->next;
+            }
+        }
+    }
+
+    /* How long to wait: the caller's bound, or the next timer deadline. */
+    if (go_ev_timers != NULL)
+        deadline = go_ev_timers->when;
+    else
+        deadline = now + 3600.0;
+    wait_ms = (long)((deadline - now) * 1000.0) + 1;
+    /* The +1 rounds the deadline wait UP: truncating to whole
+       milliseconds would wake up to 1ms before the deadline and the
+       collection below would miss the timer. */
+    if (wait_ms < 0)
+        wait_ms = 0;
+    if (timeout_ms >= 0 && timeout_ms < wait_ms)
+        wait_ms = timeout_ms;
+    if (timeout_ms < 0 && go_ev_timers == NULL && go_ev_ios == NULL && go_ev_pids == NULL)
+        wait_ms = 0;
+
+    /* Wait for IO readiness, or just sleep until the deadline. Ready ids
+       are collected in a first pass; non-repeating triggers are cancelled
+       in a second pass, so cancelling cannot disturb the scan. */
+    if (go_ev_ios != NULL) {
+#ifdef _WIN32
+        fd_set read_set, write_set;
+        struct timeval tv;
+        go_ev_io *io;
+        FD_ZERO(&read_set);
+        FD_ZERO(&write_set);
+        for (io = go_ev_ios; io != NULL; io = io->next) {
+            if (io->want_read)
+                FD_SET(io->fd, &read_set);
+            if (io->want_write)
+                FD_SET(io->fd, &write_set);
+        }
+        tv.tv_sec = (long)(wait_ms / 1000);
+        tv.tv_usec = (long)((wait_ms % 1000) * 1000);
+        select(0, &read_set, &write_set, NULL, &tv);
+        for (io = go_ev_ios; io != NULL; io = io->next) {
+            int ready = 0;
+            if (io->want_read && FD_ISSET(io->fd, &read_set))
+                ready = 1;
+            if (io->want_write && FD_ISSET(io->fd, &write_set))
+                ready = 1;
+            if (ready && count < max_due)
+                due[count++] = io->id;
+        }
+        for (io = go_ev_ios; io != NULL; ) {
+            go_ev_io *next = io->next;
+            int ready = 0;
+            if (io->want_read && FD_ISSET(io->fd, &read_set))
+                ready = 1;
+            if (io->want_write && FD_ISSET(io->fd, &write_set))
+                ready = 1;
+            if (ready && !io->repeat)
+                go_ev_cancel(io->id);
+            io = next;
+        }
+#else
+        int n = 0;
+        go_ev_io *io;
+        struct pollfd *fds;
+        for (io = go_ev_ios; io != NULL; io = io->next)
+            n++;
+        fds = (struct pollfd *)malloc(sizeof(*fds) * (size_t)(n > 0 ? n : 1));
+        if (fds != NULL) {
+            int i = 0;
+            int rc;
+            for (io = go_ev_ios; io != NULL; io = io->next, i++) {
+                fds[i].fd = io->fd;
+                fds[i].events = 0;
+                if (io->want_read)
+                    fds[i].events |= POLLIN;
+                if (io->want_write)
+                    fds[i].events |= POLLOUT;
+                fds[i].revents = 0;
+            }
+            do { rc = poll(fds, (nfds_t)n, (int)wait_ms); }
+            while (rc < 0 && errno == EINTR);
+            if (rc > 0) {
+                i = 0;
+                for (io = go_ev_ios; io != NULL; io = io->next, i++) {
+                    if (fds[i].revents != 0 && count < max_due)
+                        due[count++] = io->id;
+                }
+                i = 0;
+                for (io = go_ev_ios; io != NULL; ) {
+                    go_ev_io *next = io->next;
+                    if (fds[i].revents != 0 && !io->repeat)
+                        go_ev_cancel(io->id);
+                    io = next;
+                    i++;
+                }
+            }
+            free(fds);
+        }
+#endif
+    } else if (wait_ms > 0) {
+        /* No IO registered: sleep until the deadline with a zero-fd poll. */
+#ifndef _WIN32
+        {
+            struct pollfd dummy;
+            int rc;
+            dummy.fd = -1;
+            dummy.events = 0;
+            dummy.revents = 0;
+            do { rc = poll(&dummy, 0, (int)wait_ms); }
+            while (rc < 0 && errno == EINTR);
+        }
+#else
+        Sleep((DWORD)wait_ms);
+#endif
+    }
+
+    /* Timers that expired during the wait. */
+    now = go_ev_now();
+    while (go_ev_timers != NULL && go_ev_timers->when <= now) {
+        go_ev_timer *t = go_ev_timers;
+        int signed_id;
+        go_ev_timers = t->next;
+        signed_id = t->kind == GO_EV_TIMEOUT ? -t->id : t->id;
+        if (count < max_due)
+            due[count++] = signed_id;
+        if (t->interval > 0.0) {
+            double next = t->when + t->interval;
+            while (next <= now)
+                next += t->interval;
+            go_ev_add_timer(t->id, next, t->interval, t->kind);
+        }
+        free(t);
+    }
+
+    /* Pids that exited during the wait. */
+    {
+        go_ev_pid **pat = &go_ev_pids;
+        while (*pat != NULL) {
+            if (go_ev_pid_exited((*pat)->pid)) {
+                go_ev_pid *dead = *pat;
+                *pat = dead->next;
+                if (count < max_due)
+                    due[count++] = dead->id;
+                free(dead);
+            } else {
+                pat = &(*pat)->next;
+            }
+        }
+    }
+
+    return count;
+}
+
+#endif /* GOROUTINE_EVENT_H */
