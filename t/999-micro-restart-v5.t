@@ -208,17 +208,19 @@ BAT
             ( $out, $rc ) = _run_logged( 'which-edit', "cd '$home' && $perl -I'$lib' '$dashboard' which --edit jq" );
         }
         my $log_after_which = _slurp($editor_log);
-        _log( 'log after which --edit: ' . ( defined $log_after_which ? "'$log_after_which'" : 'MISSING (never written)' ) );
-        is( $rc, 0, 'micro d2 which --edit exits 0' );
-        ok( defined $log_after_which, 'micro d2 which --edit invokes the .bat editor and writes the log' );
-        # Recheck after a delay: if Perl's exec on Windows does not wait
-        # for the re-entered process, the editor may run asynchronously
-        # and the log may appear late. That distinguishes an async exec
-        # (log appears after the sleep) from a genuinely missing editor
-        # invocation (log never appears).
+        _log( 'log after which --edit (immediate): ' . ( defined $log_after_which ? "'$log_after_which'" : 'MISSING (never written)' ) );
+        # The re-entered open-file may still be running: Perl's exec on
+        # Windows may not wait for the child, so the editor can run
+        # asynchronously and the log can appear late. Recheck AFTER the
+        # delay and assert on the delayed value, so a late log is
+        # distinguished from a genuinely missing editor invocation.
+        # (Build #106 put the recheck after the failing assertion, so
+        # the fail-safe killed prove before the sleep ever ran.)
         sleep 3;
         my $log_after_which_delayed = _slurp($editor_log);
         _log( 'log after which --edit +3s delay: ' . ( defined $log_after_which_delayed ? "'$log_after_which_delayed'" : 'STILL MISSING after 3s' ) );
+        is( $rc, 0, 'micro d2 which --edit exits 0' );
+        ok( defined $log_after_which_delayed, 'micro d2 which --edit invokes the .bat editor and writes the log' );
         unlink $editor_log if -f $editor_log;
     }
     else {
