@@ -2979,6 +2979,17 @@ sub _listener_pids_for_port {
     local $?;
     return () if !$port;
     if (is_windows()) {
+        # Netstat is ~100x faster than the PowerShell Get-NetTCPConnection
+        # lookup on Windows (~0.03s vs ~4s per call, Jenkins build #98),
+        # and every readiness wait polls this on each iteration
+        # (_start_web_windows_background, _web_runtime_ready,
+        # _wait_for_port_release). At PowerShell prices a stop whose
+        # port-release wait runs its full 50-poll budget burns ~200s and
+        # trips the 3-minute fail-safe (build #98 stop-cleanup). Try the
+        # fast netstat path first; fall back to PowerShell only when
+        # netstat finds no listener.
+        my @netstat_pids = $self->_listener_pids_for_port_via_netstat($port);
+        return @netstat_pids if @netstat_pids;
         my $powershell = _powershell_command;
         return () if !length $powershell;
         my ( $stdout, undef, $exit_code ) = capture {
@@ -2995,7 +3006,7 @@ sub _listener_pids_for_port {
             my %seen;
             return grep { !$seen{$_}++ } map { /^\s*(\d+)\s*$/ ? ($1 + 0) : () } split /\n/, $stdout;
         }
-        return $self->_listener_pids_for_port_via_netstat($port);
+        return ();
     }
     if ( !command_in_path('ss') ) {
         my @pids = $self->_listener_pids_for_port_via_lsof($port);
