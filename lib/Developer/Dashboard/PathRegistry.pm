@@ -2086,7 +2086,13 @@ sub _ancestor_runtime_layers {
     while ($dir) {
         for my $candidate ( $self->_existing_layer_dirs_for($dir) ) {
             next if $home_runtime{ $self->_path_identity($candidate) };
-            my $visible_candidate = $self->_display_path($candidate);
+            # The walk starts at the canonical cwd, so candidates are
+            # spelled through the physical path even when home (or the
+            # project root) is addressed through a symlink alias. Restyle
+            # them through the boundary directory first, so the layers
+            # keep the spelling the caller used; _prefer_reference_style
+            # leaves the path untouched when it is not below the boundary.
+            my $visible_candidate = $self->_display_path( $self->_prefer_reference_style( $candidate, $stop_dir ) );
             unshift @layers, $visible_candidate;
         }
         last if $dir eq $stop_dir;
