@@ -135,42 +135,64 @@ BAT
     ok( 1, 'micro entrypoint resolution logged' );
 
     # Phase 2: Perl block-form system() on a .bat by full path, the
-    # exact call OpenFile::_exec_raw makes on Windows.
-    _log("BEFORE system-bat: system { '$editor_bat' } '$editor_bat', '$runtime_jq'");
-    my $sys_start = time();
-    my $sys_rc;
-    {
-        local $SIG{__WARN__} = sub { _log("system-bat warning: $_[0]") };
-        $! = 0;
-        $sys_rc = system { $editor_bat } $editor_bat, $runtime_jq;
+    # exact call OpenFile::_exec_raw makes on Windows. Windows-only:
+    # a .bat cannot exec on Unix, and a Unix failure here fail-fasts
+    # the whole build and kills the Windows leg before it runs (build
+    # #103). Guard it so Windows gets to run.
+    if ($IS_WINDOWS) {
+        _log("BEFORE system-bat: system { '$editor_bat' } '$editor_bat', '$runtime_jq'");
+        my $sys_start = time();
+        my $sys_rc;
+        {
+            local $SIG{__WARN__} = sub { _log("system-bat warning: $_[0]") };
+            $! = 0;
+            $sys_rc = system { $editor_bat } $editor_bat, $runtime_jq;
+        }
+        _log( sprintf( 'AFTER system-bat: rc=%d ($! = %s) in %.1fs', $sys_rc, $! // '', time() - $sys_start ) );
+        my $log_after_system = _slurp($editor_log);
+        _log( 'log after system-bat: ' . ( defined $log_after_system ? "'$log_after_system'" : 'MISSING (never written)' ) );
+        ok( defined $log_after_system, 'micro block-form system runs the .bat and writes the log' );
+        unlink $editor_log if -f $editor_log;
     }
-    _log( sprintf( 'AFTER system-bat: rc=%d ($! = %s) in %.1fs', $sys_rc, $! // '', time() - $sys_start ) );
-    my $log_after_system = _slurp($editor_log);
-    _log( 'log after system-bat: ' . ( defined $log_after_system ? "'$log_after_system'" : 'MISSING (never written)' ) );
-    ok( defined $log_after_system, 'micro block-form system runs the .bat and writes the log' );
-    unlink $editor_log if -f $editor_log;
+    else {
+        ok( 1, 'micro block-form system test skipped on non-Windows (.bat is Windows-only)' );
+    }
 
     # Phase 3: the open-file half, as a subprocess with EDITOR set.
-    {
-        local $ENV{EDITOR} = $editor_bat;
-        ( $out, $rc ) = _run_logged( 'open-file', "cd '$home' && $perl -I'$lib' '$dashboard' open-file '$runtime_jq'" );
+    # Windows-only, same guard as phase 2 (build #103).
+    if ($IS_WINDOWS) {
+        {
+            local $ENV{EDITOR} = $editor_bat;
+            ( $out, $rc ) = _run_logged( 'open-file', "cd '$home' && $perl -I'$lib' '$dashboard' open-file '$runtime_jq'" );
+        }
+        my $log_after_open = _slurp($editor_log);
+        _log( 'log after open-file: ' . ( defined $log_after_open ? "'$log_after_open'" : 'MISSING (never written)' ) );
+        is( $rc, 0, 'micro d2 open-file exits 0' );
+        ok( defined $log_after_open, 'micro d2 open-file invokes the .bat editor and writes the log' );
+        unlink $editor_log if -f $editor_log;
     }
-    my $log_after_open = _slurp($editor_log);
-    _log( 'log after open-file: ' . ( defined $log_after_open ? "'$log_after_open'" : 'MISSING (never written)' ) );
-    is( $rc, 0, 'micro d2 open-file exits 0' );
-    ok( defined $log_after_open, 'micro d2 open-file invokes the .bat editor and writes the log' );
-    unlink $editor_log if -f $editor_log;
+    else {
+        ok( 1, 'micro d2 open-file test skipped on non-Windows' );
+        ok( 1, 'micro d2 open-file log test skipped on non-Windows' );
+    }
 
     # Phase 4: the which half, the exact failing scenario.
-    {
-        local $ENV{EDITOR} = $editor_bat;
-        ( $out, $rc ) = _run_logged( 'which-edit', "cd '$home' && $perl -I'$lib' '$dashboard' which --edit jq" );
+    # Windows-only, same guard as phase 2 (build #103).
+    if ($IS_WINDOWS) {
+        {
+            local $ENV{EDITOR} = $editor_bat;
+            ( $out, $rc ) = _run_logged( 'which-edit', "cd '$home' && $perl -I'$lib' '$dashboard' which --edit jq" );
+        }
+        my $log_after_which = _slurp($editor_log);
+        _log( 'log after which --edit: ' . ( defined $log_after_which ? "'$log_after_which'" : 'MISSING (never written)' ) );
+        is( $rc, 0, 'micro d2 which --edit exits 0' );
+        ok( defined $log_after_which, 'micro d2 which --edit invokes the .bat editor and writes the log' );
+        unlink $editor_log if -f $editor_log;
     }
-    my $log_after_which = _slurp($editor_log);
-    _log( 'log after which --edit: ' . ( defined $log_after_which ? "'$log_after_which'" : 'MISSING (never written)' ) );
-    is( $rc, 0, 'micro d2 which --edit exits 0' );
-    ok( defined $log_after_which, 'micro d2 which --edit invokes the .bat editor and writes the log' );
-    unlink $editor_log if -f $editor_log;
+    else {
+        ok( 1, 'micro d2 which --edit test skipped on non-Windows' );
+        ok( 1, 'micro d2 which --edit log test skipped on non-Windows' );
+    }
 }
 
 done_testing;
