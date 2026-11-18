@@ -2085,7 +2085,7 @@ my $portable_npm_stage_root = _portable_path(
 );
 like(
     _portable_output_text($fake_npx_steps[0]),
-    qr/^--yes npm install left-pad\@1\.3\.0\|cwd=\Q$portable_npm_stage_root\E\/npm-install-/,
+    qr/^--yes npm install left-pad\@1\.3\.0\|cwd=\Q$portable_npm_stage_root\E[\/\\]npm-install-/,
     'd2 skills install stages npx-wrapped npm work under the dashboard runtime cache instead of using bare HOME as the npm project root',
 );
 ok(
@@ -2095,13 +2095,14 @@ ok(
 open my $fake_make_log_fh, '<', $fake_make_log or die "Unable to read $fake_make_log: $!";
 my @fake_make_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$fake_make_log_fh>;
 close $fake_make_log_fh;
+my $demo_skill_dir = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'skills', 'demo-skill' );
 is_deeply(
     [ map { _portable_output_text($_) } @fake_make_steps[ -4 .. -1 ] ],
     [ map { _portable_output_text($_) } (
-        "|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-        "test|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-        "install|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-        "clean|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
+        "|cwd=$demo_skill_dir",
+        "test|cwd=$demo_skill_dir",
+        "install|cwd=$demo_skill_dir",
+        "clean|cwd=$demo_skill_dir",
     ) ],
     'd2 skills install runs the default Makefile command chain for skills that ship a Makefile',
 );
@@ -2114,9 +2115,9 @@ close $fake_make_notest_fh;
 is_deeply(
     [ map { _portable_output_text($_) } @fake_make_notest_steps[ -3 .. -1 ] ],
     [ map { _portable_output_text($_) } (
-        "|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-        "install|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-        "clean|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
+        "|cwd=$demo_skill_dir",
+        "install|cwd=$demo_skill_dir",
+        "clean|cwd=$demo_skill_dir",
     ) ],
     'd2 skills install --notest skips the Makefile test target while still running make, make install, and make clean',
 );
