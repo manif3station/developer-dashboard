@@ -28,7 +28,7 @@ use Developer::Dashboard::CLI::OpenFileJavaSource qw(
 );
 use Developer::Dashboard::CLI::OpenFileUtil qw(_unique_matches _unique_existing_dirs);
 use Developer::Dashboard::Config;
-use Developer::Dashboard::Platform qw(command_argv_for_path is_windows);
+use Developer::Dashboard::Platform qw(command_argv_for_path command_in_path_direct is_windows);
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 
@@ -521,11 +521,33 @@ sub _exec_raw {
         # a failed exec does, so _command_exec dies (DD-910) and t/770's
         # failure-path expectations still hold: system's own "Can't spawn"
         # fallback warning is replaced by the "Can't exec" warning.
+        # A BARE editor name is resolved to a full path first: the block
+        # form performs no PATH search and no extension probing, so
+        # 'vim' is never found even when a vim.bat sits on PATH (t/05
+        # tests 694/696 - the block form returns rc 65280 for a bare
+        # name with and without the twin, while the list form finds the
+        # twin). command_in_path_direct returns the first directly
+        # runnable file on PATH (.exe/.com/.bat/.cmd); an extensionless
+        # POSIX script is never returned, since neither CreateProcess
+        # nor cmd can run it. A resolved full path keeps the block form:
+        # it runs .bat files by full path and paths with spaces, as the
+        # 2403 probes verified. When nothing resolves, fail exactly as
+        # a failed exec does, with ENOENT so the die names the cause.
+        my @spawn = @command;
+        if ( $command[0] !~ m{[\\/]} ) {
+            my $resolved = command_in_path_direct( $command[0] );
+            if ( !defined $resolved ) {
+                $! = 2;    # ENOENT
+                warn "Can't exec \"$command[0]\": $!";
+                return 0;
+            }
+            @spawn = ( $resolved, @command[ 1 .. $#command ] );
+        }
         my $rc;
         {
             local $SIG{__WARN__} = sub { return };
             $! = 0;
-            $rc = system { $command[0] } @command;
+            $rc = system { $spawn[0] } @spawn;
         }
         if ( $rc == -1 || $! ) {
             warn "Can't exec \"$command[0]\": $!";

@@ -16,6 +16,7 @@ use Developer::Dashboard::Platform qw(
   normalize_shell_name
   shell_command_argv
   command_in_path
+  command_in_path_direct
   resolve_runnable_file
   command_argv_for_path
   shell_quote_for
@@ -220,6 +221,46 @@ ok( !defined command_in_path(''),    'command_in_path empty-string returns undef
     my $found = command_in_path('python');
     ok( $found && File::Spec->file_name_is_absolute($found),
         'command_in_path returns an absolute path, never relative (DD-765 AC-2)' );
+}
+
+# ---------------------------------------------------------------------------
+# command_in_path_direct : only a file the native spawn can execute
+# directly counts. On Windows an extensionless POSIX script is never
+# returned, even though it is a file on PATH, because neither
+# CreateProcess nor cmd can execute it (t/05 tests 694/696 - the fake
+# vim). The .bat twin next to it IS returned.
+# ---------------------------------------------------------------------------
+ok( !defined command_in_path_direct(undef), 'command_in_path_direct(undef) returns undef' );
+ok( !defined command_in_path_direct(''),    'command_in_path_direct empty-string returns undef' );
+ok( !defined command_in_path_direct('definitely-absent-xyz'),
+    'command_in_path_direct returns undef for an absent command' );
+ok( !defined command_in_path_direct( File::Spec->catfile( $bin, 'python' ) ),
+    'command_in_path_direct never resolves a separator-bearing path, it is a bare-name lookup only' );
+{
+    local $ENV{PATH} = $bin;
+    my $sh_fake = File::Spec->catfile( $bin, 'vim' );
+    write_file( $sh_fake, "#!/bin/sh\necho vim\n" );
+    chmod 0755, $sh_fake;
+    my $bat_twin = File::Spec->catfile( $bin, 'vim.bat' );
+    write_file( $bat_twin, "echo vim\n" );
+    if ( $^O eq 'MSWin32' ) {
+        is( command_in_path_direct('vim'), $bat_twin,
+            'command_in_path_direct skips the extensionless script and returns the .bat twin on Windows' );
+    }
+    else {
+        is( command_in_path_direct('vim'), $sh_fake,
+            'command_in_path_direct returns the executable script itself on Unix' );
+    }
+    unlink $bat_twin;
+    if ( $^O eq 'MSWin32' ) {
+        ok( !defined command_in_path_direct('vim'),
+            'command_in_path_direct returns undef on Windows when only the extensionless script is on PATH' );
+    }
+    else {
+        is( command_in_path_direct('vim'), $sh_fake,
+            'command_in_path_direct still returns the script on Unix once the twin is gone' );
+    }
+    unlink $sh_fake;
 }
 
 # ---------------------------------------------------------------------------
