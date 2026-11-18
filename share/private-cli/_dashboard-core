@@ -1121,6 +1121,27 @@ elsif ( $cmd eq 'web-foreground' ) {
     } );
     exit 0;
 }
+elsif ( $cmd eq 'system-menu-foreground' ) {
+    die "Usage: d2 system-menu-foreground\n" if @ARGV;
+    require JSON::XS;
+    require Developer::Dashboard::System::Menu;
+    local $/;
+    my $items_json = <STDIN>;
+    die "system-menu-foreground requires menu items JSON on stdin\n"
+      if !defined $items_json || $items_json eq '';
+    my $items = JSON::XS->new->utf8->decode($items_json);
+    die "system-menu-foreground requires a menu items array\n"
+      if ref($items) ne 'ARRAY';
+    my $menu = Developer::Dashboard::System::Menu::menu();
+    # A TERM/INT from the parent (the menu runner stopping the worker)
+    # asks the menu to stop cleanly: the run loop sees active=0, exits,
+    # and the native helper is stopped. Without this the child would die
+    # at once and leave the helper running.
+    local $SIG{TERM} = sub { $menu->stop; };
+    local $SIG{INT}  = sub { $menu->stop; };
+    $menu->run($items);
+    exit 0;
+}
 elsif ( $cmd eq 'web-ssl-backend-foreground' ) {
     _load_configured_path_aliases();
     _migrate_saved_pages();
