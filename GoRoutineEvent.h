@@ -248,6 +248,24 @@ go_ev_cancel(int id)
     }
 }
 
+/* Remove one IO node from the list, by pointer. The IO removal passes
+   must use this, not go_ev_cancel: the broad cancel frees every trigger
+   for the id, which would free the saved next node when one routine
+   registered both a readable and a writable trigger. */
+static void
+go_ev_cancel_io(go_ev_io *dead)
+{
+    go_ev_io **at = &go_ev_ios;
+    while (*at != NULL) {
+        if (*at == dead) {
+            *at = dead->next;
+            free(dead);
+            return;
+        }
+        at = &(*at)->next;
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* Waiting                                                             */
 /*                                                                     */
@@ -367,7 +385,7 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
             if (io->want_write && FD_ISSET(io->fd, &write_set))
                 ready = 1;
             if (ready && !io->repeat)
-                go_ev_cancel(io->id);
+                go_ev_cancel_io(io);
             io = next;
         }
 #else
@@ -401,7 +419,7 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
                 for (io = go_ev_ios; io != NULL; ) {
                     go_ev_io *next = io->next;
                     if (fds[i].revents != 0 && !io->repeat)
-                        go_ev_cancel(io->id);
+                        go_ev_cancel_io(io);
                     io = next;
                     i++;
                 }

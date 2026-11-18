@@ -537,20 +537,19 @@ sub _dispatch_routine {
     $rec->{state} = 'running';
     my $err = _ev_invoke_callback($rec->{cb});
     $rec = $ROUTINES{$id};
-    return 0 unless $rec;
     if (!defined $err) {
-        if ($rec->{cancel_requested}) {
+        if ($rec && $rec->{cancel_requested}) {
             _finish_routine($id, $rec->{cancel_kind} || 'killed');
         }
-        else {
+        elsif ($rec) {
             _finish_routine($id, 'done');
         }
     }
     elsif ($err =~ /__GOROUTINE_EXIT__/) {
-        _finish_routine($id, 'exited');
+        _finish_routine($id, 'exited') if $rec;
     }
     else {
-        _finish_routine($id, 'failed', $err);
+        _finish_routine($id, 'failed', $err) if $rec;
     }
     return 1;
 }
@@ -641,7 +640,12 @@ sub wait_all {
             values %ROUTINES;
         last unless @pending;
         my $progress = pump(undef);
-        last if $progress == 0;
+        next if $progress > 0;
+        # No work was ready: a routine can still be pending on an IO
+        # trigger or a process exit that has not fired yet, so keep
+        # waiting instead of abandoning it. A short bounded pump
+        # avoids spinning if nothing is registered at all.
+        pump(0.05);
     }
     return;
 }

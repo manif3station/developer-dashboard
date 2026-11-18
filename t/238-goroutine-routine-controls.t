@@ -4,6 +4,7 @@ use Test::More;
 use Time::HiRes qw(time sleep);
 use File::Spec;
 use FindBin;
+use IO::Socket::INET;
 
 use Developer::Dashboard::GoRoutine;
 
@@ -183,6 +184,31 @@ isa_ok($normal, 'Developer::Dashboard::GoRoutine::Routine',
         is($ran, 1, 'routine still runs after its handle is released');
     }
     pass('worker reference keeps native control alive after handle release');
+}
+
+# A routine registered for both readable and writable on one socket pair
+# exercises the IO removal pass with two nodes for one routine id: the
+# engine must remove only the node that fired, not its sibling. (Q
+# review 5953161892 on PR #82: the broad go_ev_cancel freed the saved
+# next node, a use-after-free.) Sockets, not pipes: on Windows select
+# only works on sockets.
+{
+    my $server = IO::Socket::INET->new(
+        Listen => 1, LocalAddr => '127.0.0.1', LocalPort => 0,
+        Proto => 'tcp', ReuseAddr => 1,
+    ) or die "cannot listen: $!";
+    my $client = IO::Socket::INET->new(
+        PeerAddr => '127.0.0.1', PeerPort => $server->sockport, Proto => 'tcp',
+    ) or die "cannot connect: $!";
+    my $accepted = $server->accept or die "cannot accept: $!";
+    $client->autoflush(1);
+    print $client "x";
+    my $ran = 0;
+    my $routine = go sub { $ran++ },
+        { readable => $accepted, writable => $client };
+    wait_all();
+    is($ran, 1, 'routine with both readable and writable triggers runs once');
+    is($routine->status, 'done', 'both-direction routine finishes done');
 }
 
 done_testing;
