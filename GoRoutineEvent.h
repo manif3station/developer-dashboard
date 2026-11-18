@@ -20,6 +20,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>   /* intptr_t for _get_osfhandle's return */
 #include <errno.h>
 
 /* ------------------------------------------------------------------ */
@@ -49,6 +50,7 @@ go_ev_runops(pTHX)
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <io.h>      /* _get_osfhandle: CRT fd -> Windows SOCKET */
 #else
 #include <poll.h>
 #include <signal.h>

@@ -69,9 +69,15 @@ _ev_add_timer(id, when, interval, kind)
     go_ev_add_timer((int)id, when, interval, (int)kind);
 
 # _ev_add_io(id, fd, want_read, want_write, repeat)
-# Registers an IO-readiness trigger for a routine id. fd is a Unix file
-# descriptor or, on Windows, a SOCKET value (Perl fileno on a socket).
+# Registers an IO-readiness trigger for a routine id. fd is a Perl file
+# descriptor (fileno() on a filehandle, as passed by GoRoutine.pm).
 # repeat 1 keeps the trigger registered after it fires; 0 removes it.
+# On Windows the descriptor is a CRT fd, not a SOCKET: Winsock select()
+# only accepts SOCKET values, so the fd is translated with
+# _get_osfhandle first. Passing the CRT fd straight to select fails with
+# WSAENOTSOCK and the trigger never fires (t/238 test 57 hung in
+# wait_all on Windows for exactly this reason). A descriptor with no OS
+# handle croaks at registration instead of hanging wait_all forever.
 void
 _ev_add_io(id, fd, want_read, want_write, repeat)
     IV id
@@ -81,7 +87,13 @@ _ev_add_io(id, fd, want_read, want_write, repeat)
     IV repeat
   CODE:
 #ifdef _WIN32
-    go_ev_add_io((int)id, (SOCKET)fd, (int)want_read, (int)want_write, (int)repeat);
+    {
+        intptr_t sock = _get_osfhandle((int)fd);
+        if (sock == -1)
+            croak("GoRoutine: _ev_add_io: file descriptor %d has no Windows socket handle",
+                (int)fd);
+        go_ev_add_io((int)id, (SOCKET)sock, (int)want_read, (int)want_write, (int)repeat);
+    }
 #else
     go_ev_add_io((int)id, (int)fd, (int)want_read, (int)want_write, (int)repeat);
 #endif
