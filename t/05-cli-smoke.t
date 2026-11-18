@@ -3874,7 +3874,15 @@ sub _gate_lines {
     }
     my ( $stdout, $stderr, $exit ) = _gate_run( $home, $proj, $dashboard, 'version' );
     is( $exit, 0, 'AC-3: discovery scenario exits 0' );
-    is_deeply( [ _gate_lines($marker) ], [ '10-a.sh', '20-b.sh' ],
+    # On Windows there are no Unix mode bits: chmod 0644 and 0755 leave
+    # identical filesystem state (both stat 0666, verified live on win-ts),
+    # so a 0644 .sh file is runnable there by the platform's own rule
+    # (extension + interpreter + shebang) and runs. This is not a skip:
+    # the expectation still asserts the full discovery behavior on every
+    # platform, and the sub/ and run skips below hold everywhere - only
+    # the mode-bit part of the expectation is platform-conditional.
+    my @ac3_expected = $^O eq 'MSWin32' ? ( '10-a.sh', '20-b.sh', '30-c.sh' ) : ( '10-a.sh', '20-b.sh' );
+    is_deeply( [ _gate_lines($marker) ], \@ac3_expected,
         'AC-3: only executable regular files directly under hooks/ run, in lexical order; 0644, sub/ and run are skipped' );
     is( $stderr, '', 'AC-3: skipped entries produce no warning' );
 }
@@ -3904,11 +3912,15 @@ sub _gate_lines {
         [ map { _portable_output_text($_) } (
             'HOOK ' . File::Spec->catfile( $proj_hooks, '10-a.sh' ),
             'HOOK ' . File::Spec->catfile( $proj_hooks, '20-b.sh' ),
+            # Same Windows mode-bit rule as AC-3 above: 30-c.sh is
+            # runnable there, so which lists it too.
+            ( $^O eq 'MSWin32' ? ( 'HOOK ' . File::Spec->catfile( $proj_hooks, '30-c.sh' ) ) : () ),
             "HOOK $cmd_hook",
         ) ],
         'AC-6: which jq lists the main-gate hooks in run order before the per-command hook, skipping 0644, sub/ and run'
     );
-    is_deeply( [ _gate_lines($hook_marker) ], [ '10-a.sh', '20-b.sh' ],
+    is_deeply( [ _gate_lines($hook_marker) ],
+        $^O eq 'MSWin32' ? [ '10-a.sh', '20-b.sh', '30-c.sh' ] : [ '10-a.sh', '20-b.sh' ],
         'AC-6: which jq itself passed through the main gate exactly once' );
 }
 
