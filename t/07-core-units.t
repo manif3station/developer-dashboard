@@ -22,6 +22,41 @@ sub _portable_path_string {
     $path =~ s{/private(?=/var/folders/)}{}g if defined $path;
     return $path;
 }
+
+# Compile a tiny fake go/java executable for Windows: it logs every
+# argument, one per line, to the file named by FAKE_TOOL_LOG and exits 0.
+# A .bat twin cannot be used here: Perl exec() cannot reliably execute a
+# .bat on Windows (it hands the file to cmd without waiting, so the child
+# exits 0 before the log is written, and each exec leaves an orphaned cmd
+# behind - solo #156 proved the .bat path flaky run to run). A real go or
+# java on Windows is a .exe, so this also exercises the real exec path.
+# gcc is the Strawberry toolchain (C:\Strawberry\c\bin\gcc.exe, on PATH on
+# win-ts and on the Jenkins Windows agent); the compile dies loudly if the
+# toolchain is missing rather than letting the test pass silently.
+sub _compile_fake_tool_exe {
+    my ( $fake_bin, $tool_name ) = @_;
+    my $c_source = File::Spec->catfile( $fake_bin, 'fake-tool.c' );
+    open my $c_fh, '>', $c_source or die "Unable to write $c_source: $!";
+    print {$c_fh} <<'C';
+#include <stdio.h>
+#include <stdlib.h>
+/* Fake go/java: log every argument, one per line, to FAKE_TOOL_LOG. */
+int main(int argc, char **argv) {
+    const char *log = getenv("FAKE_TOOL_LOG");
+    if (!log) return 1;
+    FILE *f = fopen(log, "w");
+    if (!f) return 1;
+    for (int i = 1; i < argc; i++) fprintf(f, "%s\n", argv[i]);
+    fclose(f);
+    return 0;
+}
+C
+    close $c_fh;
+    my $exe = File::Spec->catfile( $fake_bin, "$tool_name.exe" );
+    system( 'gcc', '-O2', '-o', $exe, $c_source ) == 0
+      or die "Unable to compile fake $tool_name.exe with gcc: $?";
+    return $exe;
+}
 # Perl's builtin sleep takes an integer, so every sub-second sleep in this file
 # silently became sleep(0) and the poll loops below spun with no delay at all.
 # That is what actually made the live-singleton pid probe flake under load, not
@@ -1301,20 +1336,13 @@ is_deeply(
         make_path($fake_bin);
         my $go_log = File::Spec->catfile( $home, 'fake-go.log' );
         if ( $^O eq 'MSWin32' ) {
-            # Windows gets ONLY the .bat twin below: the extensionless sh
-            # fake must not exist here at all. Perl exec resolves the bare
-            # name to it and exits 0 without running it, so the log is
-            # never written and the test dies reading it (solo #155). With
-            # only go.bat present, exec finds it through PATHEXT and the
-            # .bat twin runs with the same per-argument logging.
-            my $fake_go_bat = File::Spec->catfile( $fake_bin, 'go.bat' );
-            open my $fake_go_bat_fh, '>', $fake_go_bat or die "Unable to write $fake_go_bat: $!";
-            print {$fake_go_bat_fh} <<"BAT";
-\@echo off
-(for %%A in (%*) do \@echo %%A) > "$go_log"
-exit /b 0
-BAT
-            close $fake_go_bat_fh;
+            # Windows gets a real go.exe fake (compiled above with the
+            # Strawberry gcc): a .bat twin does not work here, Perl exec()
+            # cannot reliably execute one (solo #156 - the child exits 0
+            # before cmd writes the log, and each exec leaves an orphaned
+            # cmd behind). The fake reads its log path from FAKE_TOOL_LOG,
+            # set below for the child process.
+            _compile_fake_tool_exe( $fake_bin, 'go' );
         } else {
             open my $go_fh, '>', File::Spec->catfile( $fake_bin, 'go' ) or die $!;
             print {$go_fh} <<"SH";
@@ -1328,6 +1356,7 @@ SH
         print {$src_fh} "package main\nfunc main() {}\n";
         close $src_fh;
         chmod 0755, 'exec-hook.go' or die $!;
+        local $ENV{FAKE_TOOL_LOG} = $go_log if $^O eq 'MSWin32';
         local $ENV{PATH} = $fake_bin . ( $^O eq 'MSWin32' ? ';' : ':' ) . ( $ENV{PATH} || '' );
         local $ENV{PERL5OPT} = _child_perl5opt() if _child_perl5opt() =~ /Devel::Cover/;
         my ( undef, undef, $exit_code ) = capture {
@@ -1370,23 +1399,21 @@ SH
         my $javac_log = File::Spec->catfile( $home, 'fake-javac.log' );
         my $java_log = File::Spec->catfile( $home, 'fake-java.log' );
         if ( $^O eq 'MSWin32' ) {
-            # Windows gets ONLY the .bat twins below: the extensionless sh
-            # fakes must not exist here at all. Perl exec and system resolve
-            # the bare names to them and exit 0 without running them, so the
-            # logs are never written and the tests die reading them (same
-            # hijack as the fake go, solo #155). With only the .bat twins
-            # present, both resolve through PATHEXT with the same logging.
-            for my $tool ( [ 'javac', $javac_log ], [ 'java', $java_log ] ) {
-                my ( $tool_name, $tool_log ) = @{$tool};
-                my $twin = File::Spec->catfile( $fake_bin, "$tool_name.bat" );
-                open my $twin_fh, '>', $twin or die "Unable to write $twin: $!";
-                print {$twin_fh} <<"BAT";
+            # Windows: javac keeps its .bat twin - it runs through
+            # system(), which hands .bat files to cmd and waits, so it is
+            # reliable. java gets a real java.exe fake instead: it runs
+            # through exec(), which cannot reliably execute a .bat (same
+            # failure as the fake go, solo #156). The fake reads its log
+            # path from FAKE_TOOL_LOG, set below for the child process.
+            my $twin = File::Spec->catfile( $fake_bin, 'javac.bat' );
+            open my $twin_fh, '>', $twin or die "Unable to write $twin: $!";
+            print {$twin_fh} <<"BAT";
 \@echo off
-(for %%A in (%*) do \@echo %%A) > "$tool_log"
+(for %%A in (%*) do \@echo %%A) > "$javac_log"
 exit /b 0
 BAT
-                close $twin_fh;
-            }
+            close $twin_fh;
+            _compile_fake_tool_exe( $fake_bin, 'java' );
         } else {
             open my $javac_fh, '>', File::Spec->catfile( $fake_bin, 'javac' ) or die $!;
             print {$javac_fh} <<"SH";
@@ -1407,6 +1434,7 @@ SH
         print {$src_fh} "package foo.bar;\nclass HookRunner { public static void main(String[] args) {} }\n";
         close $src_fh;
         chmod 0755, 'exec-hook.java' or die $!;
+        local $ENV{FAKE_TOOL_LOG} = $java_log if $^O eq 'MSWin32';
         local $ENV{PATH} = $fake_bin . ( $^O eq 'MSWin32' ? ';' : ':' ) . ( $ENV{PATH} || '' );
         local $ENV{PERL5OPT} = _child_perl5opt() if _child_perl5opt() =~ /Devel::Cover/;
         my ( undef, undef, $exit_code ) = capture {
