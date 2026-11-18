@@ -678,7 +678,10 @@ sub _module_source_looks_like_blib_build {
 
 # _abs_existing_path($path)
 # Canonicalizes one existing filesystem path when possible without warning on
-# missing candidates.
+# missing candidates. The resolved path goes through File::Spec->canonpath
+# so it uses the platform's separator spelling: abs_path returns forward
+# slashes on Windows while the rest of the codebase spells paths with
+# File::Spec, and the two spellings must not meet unnormalized.
 # Input: absolute or relative path string.
 # Output: canonical absolute path string when the path exists, otherwise the
 # original path string.
@@ -687,7 +690,7 @@ sub _abs_existing_path {
     return '' if !defined $path || $path eq '';
     return $path if !-e $path;
     my $resolved = abs_path($path);
-    return $resolved if $resolved;
+    return File::Spec->canonpath($resolved) if $resolved;
     return $path;
 }
 

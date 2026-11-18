@@ -820,9 +820,16 @@ is( Developer::Dashboard::PathRegistry->new( home => $home )->app_name, 'develop
 is_deeply( [ $paths->workspace_roots ], [ $workspace, $projects ], 'workspace roots returned' );
 is_deeply( [ $paths->project_roots ], [$projects], 'project roots returned' );
 
+# The die path needs every home source cleared: on Windows USERPROFILE
+# and HOMEDRIVE+HOMEPATH are always set in the environment and the
+# registry falls back to them (tests 112-113), so clearing HOME alone
+# never reaches the die there.
 dies_like(
     sub {
         local $ENV{HOME};
+        local $ENV{USERPROFILE};
+        local $ENV{HOMEDRIVE};
+        local $ENV{HOMEPATH};
         Developer::Dashboard::PathRegistry->new( home => undef );
     },
     qr/Missing home directory/,
