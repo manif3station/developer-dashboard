@@ -282,6 +282,13 @@ sub _follow_log_sources {
             my $new_text = substr( $text, $old_offset );
             if ( $new_text ne '' ) {
                 $new_text = _timestamp_log_text($new_text) if $args{timestamps};
+                # On Windows, the poll's source read re-enables :crlf
+                # translation on STDOUT, so the single binmode in
+                # _run_log_command does not survive the first poll and
+                # each followed chunk would gain a \r. Re-assert binary
+                # mode here so the followed lines keep the snapshot's
+                # \n endings.
+                binmode STDOUT if $^O eq 'MSWin32';
                 print $new_text;
             }
             $offset{$source} = length $text;
