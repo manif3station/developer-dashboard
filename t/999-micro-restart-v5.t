@@ -56,9 +56,10 @@ local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
 
-my $perl      = $^X;
-my $lib       = File::Spec->catdir( $repo, 'lib' );
-my $dashboard = File::Spec->catfile( $repo, 'bin', 'd2' );
+my $perl       = $^X;
+my $lib        = File::Spec->catdir( $repo, 'lib' );
+my $dashboard  = File::Spec->catfile( $repo, 'bin', 'd2' );
+my $IS_WINDOWS = $^O eq 'MSWin32';
 
 my $T0 = time();
 
