@@ -1300,19 +1300,13 @@ is_deeply(
         my $fake_bin = File::Spec->catdir( $home, 'platform-fake-bin' );
         make_path($fake_bin);
         my $go_log = File::Spec->catfile( $home, 'fake-go.log' );
-        open my $go_fh, '>', File::Spec->catfile( $fake_bin, 'go' ) or die $!;
-        print {$go_fh} <<"SH";
-#!/bin/sh
-printf '%s\\n' "\$@" > '$go_log'
-SH
-        close $go_fh;
-        chmod 0755, File::Spec->catfile( $fake_bin, 'go' ) or die $!;
         if ( $^O eq 'MSWin32' ) {
-            # Windows cannot execute the extensionless sh fake above:
-            # CreateProcess skips it, so the fake go never runs and the
-            # test dies reading the log it never wrote (solo #153). A .bat
-            # twin with the same per-argument logging is what Windows
-            # actually runs; same fix class as the t/05 fake-bin twins.
+            # Windows gets ONLY the .bat twin below: the extensionless sh
+            # fake must not exist here at all. Perl exec resolves the bare
+            # name to it and exits 0 without running it, so the log is
+            # never written and the test dies reading it (solo #155). With
+            # only go.bat present, exec finds it through PATHEXT and the
+            # .bat twin runs with the same per-argument logging.
             my $fake_go_bat = File::Spec->catfile( $fake_bin, 'go.bat' );
             open my $fake_go_bat_fh, '>', $fake_go_bat or die "Unable to write $fake_go_bat: $!";
             print {$fake_go_bat_fh} <<"BAT";
@@ -1321,6 +1315,14 @@ SH
 exit /b 0
 BAT
             close $fake_go_bat_fh;
+        } else {
+            open my $go_fh, '>', File::Spec->catfile( $fake_bin, 'go' ) or die $!;
+            print {$go_fh} <<"SH";
+#!/bin/sh
+printf '%s\\n' "\$@" > '$go_log'
+SH
+            close $go_fh;
+            chmod 0755, File::Spec->catfile( $fake_bin, 'go' ) or die $!;
         }
         open my $src_fh, '>', 'exec-hook.go' or die $!;
         print {$src_fh} "package main\nfunc main() {}\n";
@@ -1367,25 +1369,13 @@ BAT
         make_path($fake_bin);
         my $javac_log = File::Spec->catfile( $home, 'fake-javac.log' );
         my $java_log = File::Spec->catfile( $home, 'fake-java.log' );
-        open my $javac_fh, '>', File::Spec->catfile( $fake_bin, 'javac' ) or die $!;
-        print {$javac_fh} <<"SH";
-#!/bin/sh
-printf '%s\\n' "\$@" > '$javac_log'
-SH
-        close $javac_fh;
-        chmod 0755, File::Spec->catfile( $fake_bin, 'javac' ) or die $!;
-        open my $java_fh, '>', File::Spec->catfile( $fake_bin, 'java' ) or die $!;
-        print {$java_fh} <<"SH";
-#!/bin/sh
-printf '%s\\n' "\$@" > '$java_log'
-SH
-        close $java_fh;
-        chmod 0755, File::Spec->catfile( $fake_bin, 'java' ) or die $!;
         if ( $^O eq 'MSWin32' ) {
-            # Same Windows twin as the fake go above: the extensionless sh
-            # fakes are invisible to CreateProcess, so javac/java never run
-            # and the tests die reading logs that were never written. One
-            # .bat twin per tool, same per-argument logging as the sh fake.
+            # Windows gets ONLY the .bat twins below: the extensionless sh
+            # fakes must not exist here at all. Perl exec and system resolve
+            # the bare names to them and exit 0 without running them, so the
+            # logs are never written and the tests die reading them (same
+            # hijack as the fake go, solo #155). With only the .bat twins
+            # present, both resolve through PATHEXT with the same logging.
             for my $tool ( [ 'javac', $javac_log ], [ 'java', $java_log ] ) {
                 my ( $tool_name, $tool_log ) = @{$tool};
                 my $twin = File::Spec->catfile( $fake_bin, "$tool_name.bat" );
@@ -1397,6 +1387,21 @@ exit /b 0
 BAT
                 close $twin_fh;
             }
+        } else {
+            open my $javac_fh, '>', File::Spec->catfile( $fake_bin, 'javac' ) or die $!;
+            print {$javac_fh} <<"SH";
+#!/bin/sh
+printf '%s\\n' "\$@" > '$javac_log'
+SH
+            close $javac_fh;
+            chmod 0755, File::Spec->catfile( $fake_bin, 'javac' ) or die $!;
+            open my $java_fh, '>', File::Spec->catfile( $fake_bin, 'java' ) or die $!;
+            print {$java_fh} <<"SH";
+#!/bin/sh
+printf '%s\\n' "\$@" > '$java_log'
+SH
+            close $java_fh;
+            chmod 0755, File::Spec->catfile( $fake_bin, 'java' ) or die $!;
         }
         open my $src_fh, '>', 'exec-hook.java' or die $!;
         print {$src_fh} "package foo.bar;\nclass HookRunner { public static void main(String[] args) {} }\n";
