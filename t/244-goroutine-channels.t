@@ -2,6 +2,7 @@ use strict;
 use warnings;
 
 use Test::More;
+use Scalar::Util qw(refaddr);
 use Developer::Dashboard::GoRoutine qw(go share wait_all);
 
 my $channel_factory = Developer::Dashboard::GoRoutine->can('channel');
@@ -11,44 +12,77 @@ ok(
     'channel is exported by the existing GoRoutine module',
 );
 
-SKIP: {
-    skip 'channel API is not integrated yet', 11 if !$channel_factory;
+my $unbuffered = $channel_factory->();
+isa_ok( $unbuffered, 'Developer::Dashboard::GoRoutine::Channel' );
+is( $unbuffered->capacity, 0, 'channel() creates an unbuffered channel' );
 
-    my $unbuffered = $channel_factory->();
-    isa_ok( $unbuffered, 'Developer::Dashboard::GoRoutine::Channel' );
-    is( $unbuffered->capacity, 0, 'channel() creates an unbuffered channel' );
+share my $received = '';
+my $receiver = go sub { $received = $unbuffered->receive };
+$unbuffered->send('rendezvous');
+wait_all();
+is( $received, 'rendezvous', 'unbuffered send waits for a receiver' );
+is( $receiver->status, 'done', 'receiver routine finishes after rendezvous' );
 
-    share my $received = '';
-    my $receiver = go sub { $received = $unbuffered->receive };
-    $unbuffered->send('rendezvous');
-    wait_all();
-    is( $received, 'rendezvous', 'unbuffered send waits for a receiver' );
-    is( $receiver->status, 'done', 'receiver routine finishes after rendezvous' );
+my $buffered = $channel_factory->(2);
+is( $buffered->capacity, 2, 'channel(N) creates the requested buffer capacity' );
+$buffered->send('first');
+$buffered->send('second');
+is( $buffered->size, 2, 'buffered sends do not wait until the buffer is full' );
+my ( $first, $first_ok ) = $buffered->receive;
+my ( $second, $second_ok ) = $buffered->receive;
+is_deeply( [ $first, $first_ok, $second, $second_ok ],
+    [ 'first', 1, 'second', 1 ], 'buffered receive preserves FIFO values and open status' );
 
-    my $buffered = $channel_factory->(2);
-    is( $buffered->capacity, 2, 'channel(N) creates the requested buffer capacity' );
-    $buffered->send('first');
-    $buffered->send('second');
-    is( $buffered->size, 2, 'buffered sends do not wait until the buffer is full' );
-    my ( $first, $first_ok ) = $buffered->receive;
-    my ( $second, $second_ok ) = $buffered->receive;
-    is_deeply( [ $first, $first_ok, $second, $second_ok ],
-        [ 'first', 1, 'second', 1 ], 'buffered receive preserves FIFO values and open status' );
+$buffered->close;
+my ( $closed_value, $closed_ok ) = $buffered->receive;
+is_deeply( [ $closed_value, $closed_ok ], [ undef, 0 ],
+    'receive from a closed drained channel reports closed state' );
+my $closed_scalar = $buffered->receive;
+is( $closed_scalar, undef,
+    'scalar receive from a closed drained channel returns undef' );
+my $send_error = eval { $buffered->send('after-close'); 1 } ? '' : $@;
+like( $send_error, qr/closed channel/i, 'sending after close fails explicitly' );
 
-    $buffered->close;
-    my ( $closed_value, $closed_ok ) = $buffered->receive;
-    is_deeply( [ $closed_value, $closed_ok ], [ undef, 0 ],
-        'receive from a closed drained channel reports closed state' );
-    my $send_error = eval { $buffered->send('after-close'); 1 } ? '' : $@;
-    like( $send_error, qr/closed channel/i, 'sending after close fails explicitly' );
+# Values cross a channel by reference, not by copy: there is one
+# interpreter and no marshalling boundary, so the receiver gets the same
+# Perl value the sender sent.
+my $shared_ref = $channel_factory->(1);
+my $sent = [ 1, 2, 3 ];
+$shared_ref->send($sent);
+my ($got_ref) = $shared_ref->receive;
+is( refaddr($got_ref), refaddr($sent),
+    'channel passes a reference through unchanged' );
+push @$got_ref, 4;
+is_deeply( $sent, [ 1, 2, 3, 4 ],
+    'receiver and sender see the same referenced value' );
 
-    my $waiting = $channel_factory->();
-    my $blocked = go sub { $waiting->receive };
-    select undef, undef, undef, 0.05;
-    ok( $blocked->kill, 'a routine blocked on receive accepts cancellation' );
-    wait_all();
-    is( $blocked->status, 'killed', 'a cancelled channel waiter terminates cleanly' );
-}
+# A routine waiting to receive is still pending until the engine dispatches
+# it, so kill cancels it at once and it never receives.
+my $pending_channel = $channel_factory->();
+my $pending_received = 0;
+my $pending_waiter = go sub { $pending_channel->receive; $pending_received = 1 };
+ok( $pending_waiter->kill, 'a routine waiting to receive accepts cancellation' );
+wait_all();
+is( $pending_waiter->status, 'killed', 'a cancelled channel waiter terminates cleanly' );
+is( $pending_received, 0, 'a cancelled channel waiter never receives' );
+
+# A routine already blocked inside receive cannot be killed by a flag it
+# never checks, because it runs on the main thread; instead, closing the
+# channel wakes it, which is the documented way to release a waiter.
+my $waiting = $channel_factory->();
+my $woken_value = 'unset';
+my $woken_ok = -1;
+my $blocked = go sub {
+    my ( $value, $ok ) = $waiting->receive;
+    $woken_value = defined $value ? $value : 'closed';
+    $woken_ok = $ok;
+};
+my $closer = go(sub { $waiting->close }, { after => 0.05 });
+wait_all();
+is( $blocked->status, 'done', 'a channel waiter woken by close finishes normally' );
+is( $woken_value, 'closed', 'a waiter woken by close receives no value' );
+is( $woken_ok, 0, 'a waiter woken by close reports closed state' );
+is( $closer->status, 'done', 'the routine that closed the channel completes normally' );
 
 done_testing;
 
@@ -61,8 +95,9 @@ t/244-goroutine-channels.t - GoRoutine 0.12 channel contract tests
 =head1 PURPOSE
 
 Verifies the GoRoutine channel API: unbuffered rendezvous, buffered FIFO
-transport, close behavior, explicit errors for sends after close, and
-cancellation while a routine is blocked on receive.
+transport, close behavior, explicit errors for sends after close, values
+passed by reference, cancellation of a channel waiter before it runs, and
+waking a blocked receiver by closing the channel.
 
 =head1 WHY IT EXISTS
 

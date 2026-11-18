@@ -19,7 +19,7 @@ for ( 1 .. 40 ) {
     };
 }
 wait_all();
-is 0 + $counter, 40, 'concurrent compound updates are visible to the caller';
+is 0 + $counter, 40, 'routine compound updates are visible to the caller';
 
 share my $text = 'worker';
 for ( 1 .. 8 ) {
@@ -28,7 +28,7 @@ for ( 1 .. 8 ) {
     };
 }
 wait_all();
-is "$text", 'worker!!!!!!!!', 'concurrent string updates are shared';
+is "$text", 'worker!!!!!!!!', 'routine string updates are shared';
 
 $counter = 100;
 $counter -= 7;
@@ -68,8 +68,8 @@ __END__
 =head1 DESCRIPTION
 
 This integration test checks that the Developer::Dashboard distribution
-provides its GoRoutine API, waits for asynchronous workers, and exposes
-mutex-protected scalar updates to the calling interpreter. It is a regression
+provides its GoRoutine API, waits for routines, and exposes
+shared scalar updates to the calling interpreter. It is a regression
 contract for packaging the XS extension with the existing distribution rather
 than relying on a separately installed development copy.
 
@@ -77,7 +77,7 @@ than relying on a separately installed development copy.
 
 The GoRoutine package is intended to replace direct Perl C<fork> usage for
 asynchronous work. These checks cover the public API and the shared scalar
-operations needed by concurrent workers. They do not by themselves prove
+operations needed by routines. They do not by themselves prove
 Windows or macOS portability, process lifecycle parity, or integration with
 every existing runtime call site; those require their own tests and hosted
 platform evidence.
@@ -92,18 +92,18 @@ before collectors or runtime supervision depend on the new concurrency layer.
 
 Run this test in the dev Docker container after configuring and building the
 distribution's XS extension, or as part of the full test suite. A missing
-module, failed XS load, unfinished worker, lost scalar update, or corrupted
+module, failed XS load, unfinished routine, lost scalar update, or corrupted
 shared string is a test failure.
 
 =head1 HOW TO USE
 
   d2 docker compose exec dev prove -lv t/231-goroutine-integration.t
 
-The test starts forty workers that update one shared integer, waits for them,
-and checks the final value. It then starts eight workers that append to a
+The test starts forty routines that update one shared integer, waits for them,
+and checks the final value. It then starts eight routines that append to a
 shared string and checks the final string. It also checks the supported
 compound numeric operations, decrement, a shared right-hand operand, explicit
-callback validation, and division-by-zero reporting. The exact worker
+callback validation, and division-by-zero reporting. The exact routine
 completion order is intentionally unspecified.
 
 =head1 WHAT USES IT

@@ -23,26 +23,30 @@ sub run_child {
     is_deeply( \@lines, $expected, "$name drains the expected worker output" );
 }
 
+# The child schedules a short routine on a timer trigger and exits without
+# wait_all. The END-block drain in GoRoutine.pm runs while the interpreter
+# can still execute code, on the main thread, so the routine runs before
+# the process ends. There is no second interpreter to tear down, so the
+# old shutdown access violation cannot recur.
 run_child(
     'automatic-shutdown',
-    q{go sub { select undef, undef, undef, 0.12; print "worker-finished\n"; };
+    q{go(sub { print "worker-finished\n"; }, { after => 0.12 });
       print "main-finished\n";},
     [ "main-finished\n", "worker-finished\n" ],
 );
 
 run_child(
     'explicit-exit',
-    q{go sub { select undef, undef, undef, 0.12; print "exit-worker-finished\n"; };
+    q{go(sub { print "exit-worker-finished\n"; }, { after => 0.12 });
       print "main-exit\n"; exit 0;},
     [ "main-exit\n", "exit-worker-finished\n" ],
 );
 
 run_child(
     'nested-shutdown',
-    q{go sub {
-          select undef, undef, undef, 0.05;
-          go sub { select undef, undef, undef, 0.05; print "nested-finished\n"; };
-      };
+    q{go(sub {
+          go(sub { print "nested-finished\n"; }, { after => 0.05 });
+      }, { after => 0.05 });
       print "nested-main-finished\n";},
     [ "nested-main-finished\n", "nested-finished\n" ],
 );
@@ -64,20 +68,24 @@ each child drains its workers before returning.
 
 =head1 PURPOSE
 
-Confirm the GoRoutine XS extension registers a root-interpreter shutdown drain,
-including nested routines and explicit normal C<exit>, without requiring
-application code to add an C<END> block.
+Confirm the GoRoutine END-block shutdown drain runs outstanding finite
+routines before the process ends, including nested routines and explicit
+normal C<exit>, without requiring application code to add an C<END> block.
 
 =head1 WHY IT EXISTS
 
 Detached work must not be silently abandoned when a Perl program exits. The
 test checks that normal, explicit, and nested shutdown paths drain workers
-without every caller having to remember a separate wait operation.
+without every caller having to remember a separate wait operation. The drain
+runs in a Perl C<END> block on the main thread, while the interpreter can
+still execute code, so the teardown race of the old threaded engine, where
+the main interpreter destroyed itself while a worker on a cloned interpreter
+still ran, cannot recur: there is no second interpreter.
 
 =head1 WHEN TO USE
 
 Run after rebuilding the distribution XS in the dev Docker container. This is
-the regression test for GoRoutine 0.03 automatic shutdown behaviour.
+the regression test for GoRoutine automatic shutdown behaviour.
 
 =head1 HOW TO USE
 
@@ -94,7 +102,7 @@ detached asynchronous callbacks and nested worker routines.
 
 =head1 EXAMPLES
 
-  go sub { print "worker complete\n" };
+  go(sub { print "worker complete\n" }, { after => 0.1 });
   exit 0; # Normal exit drains the worker without an explicit wait_all().
 
 =cut
