@@ -8,7 +8,9 @@ PROTOTYPES: ENABLE
 # reported as the __GOROUTINE_EXIT__ token instead of terminating the
 # process. Returns undef on success, or the error (string or reference)
 # the callback died with. The custom runops is installed only for the
-# duration of the call and is always restored.
+# duration of the call and is restored as soon as the callback returns,
+# before mortal cleanup, so a destructor that dies there cannot leave
+# it installed.
 SV *
 _ev_invoke_callback(callback)
     SV *callback
@@ -24,6 +26,10 @@ _ev_invoke_callback(callback)
             PUSHMARK(SP);
             PUTBACK;
             call_sv(callback, G_VOID | G_DISCARD | G_EVAL);
+            /* Restore before the mortal cleanup below: FREETMPS and LEAVE
+               can run destructors, and a destructor that dies would croak
+               out of this frame and leave the custom runops installed. */
+            PL_runops = saved_runops;
             SPAGAIN;
             if (SvTRUE(ERRSV)) {
                 err = newSVsv(ERRSV);
@@ -33,7 +39,6 @@ _ev_invoke_callback(callback)
             FREETMPS;
             LEAVE;
         }
-        PL_runops = saved_runops;
         RETVAL = err ? err : newSV(0);
     }
   OUTPUT:

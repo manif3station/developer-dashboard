@@ -162,7 +162,7 @@ go_ev_add_timer(int id, double when, double interval, int kind)
     go_ev_timer *t = (go_ev_timer *)malloc(sizeof(*t));
     go_ev_timer **at;
     if (t == NULL)
-        return;
+        croak("GoRoutine: out of memory registering a timer trigger");
     t->when = when;
     t->interval = interval;
     t->id = id;
@@ -186,7 +186,7 @@ go_ev_add_io(int id,
 {
     go_ev_io *io = (go_ev_io *)malloc(sizeof(*io));
     if (io == NULL)
-        return;
+        croak("GoRoutine: out of memory registering an IO trigger");
     io->id = id;
     io->fd = fd;
     io->want_read = want_read;
@@ -201,7 +201,7 @@ go_ev_add_pid(int id, long pid)
 {
     go_ev_pid *p = (go_ev_pid *)malloc(sizeof(*p));
     if (p == NULL)
-        return;
+        croak("GoRoutine: out of memory registering a process trigger");
     p->id = id;
     p->pid = pid;
     p->next = go_ev_pids;
@@ -375,8 +375,10 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
         }
         tv.tv_sec = (long)(wait_ms / 1000);
         tv.tv_usec = (long)((wait_ms % 1000) * 1000);
-        select(0, &read_set, &write_set, NULL, &tv);
-        {
+        /* A failed select leaves the fd_sets unpopulated, so only scan
+           them when select reports ready fds, as the Unix poll path does. */
+        int sel_rc = select(0, &read_set, &write_set, NULL, &tv);
+        if (sel_rc > 0) {
             int stored_io = 0;
             for (io = go_ev_ios; io != NULL; io = io->next) {
                 int ready = 0;

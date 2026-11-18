@@ -72,16 +72,14 @@ sub _keep_spawn_handle {
     # a child spawned anywhere else is never recorded.
     return if $^O ne 'MSWin32';
     my $handle = 1;
-    if ( $^O eq 'MSWin32' ) {
-        my $opened = eval {
-            require Win32::Process;
-            my $object;
-            Win32::Process::Open( $object, $pid, 0 )
-              or die "unable to open GoRoutine child process $pid\n";
-            $object;
-        };
-        $handle = $opened if $opened && !$@;
-    }
+    my $opened = eval {
+        require Win32::Process;
+        my $object;
+        Win32::Process::Open( $object, $pid, 0 )
+          or die "unable to open GoRoutine child process $pid\n";
+        $object;
+    };
+    $handle = $opened if $opened && !$@;
     $_SPAWN_CHILDREN{$pid} = $handle;
     return;
 }
