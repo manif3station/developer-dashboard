@@ -70,7 +70,7 @@ go_ev_now(void)
 #else
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
-        return 0.0;
+        croak("go_ev_now: clock_gettime failed");
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
 #endif
 }
@@ -291,10 +291,15 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
     long wait_ms;
     int count = 0;
 
-    /* Expired timers first: collect and re-arm or remove. */
+    /* Expired timers first: collect and re-arm or remove. Stop at
+       max_due: timers past the cap stay queued for the next call
+       instead of being freed with their ids dropped. */
     while (go_ev_timers != NULL && go_ev_timers->when <= now) {
-        go_ev_timer *t = go_ev_timers;
+        go_ev_timer *t;
         int signed_id;
+        if (count >= max_due)
+            break;
+        t = go_ev_timers;
         go_ev_timers = t->next;
         signed_id = t->kind == GO_EV_TIMEOUT ? -t->id : t->id;
         if (count < max_due)
@@ -308,12 +313,15 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
         free(t);
     }
 
-    /* Exited pids: collect and remove. */
+    /* Exited pids: collect and remove. Stop at max_due, as above. */
     {
         go_ev_pid **pat = &go_ev_pids;
         while (*pat != NULL) {
             if (go_ev_pid_exited((*pat)->pid)) {
-                go_ev_pid *dead = *pat;
+                go_ev_pid *dead;
+                if (count >= max_due)
+                    break;
+                dead = *pat;
                 *pat = dead->next;
                 if (count < max_due)
                     due[count++] = dead->id;
@@ -368,25 +376,37 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
         tv.tv_sec = (long)(wait_ms / 1000);
         tv.tv_usec = (long)((wait_ms % 1000) * 1000);
         select(0, &read_set, &write_set, NULL, &tv);
-        for (io = go_ev_ios; io != NULL; io = io->next) {
-            int ready = 0;
-            if (io->want_read && FD_ISSET(io->fd, &read_set))
-                ready = 1;
-            if (io->want_write && FD_ISSET(io->fd, &write_set))
-                ready = 1;
-            if (ready && count < max_due)
-                due[count++] = io->id;
-        }
-        for (io = go_ev_ios; io != NULL; ) {
-            go_ev_io *next = io->next;
-            int ready = 0;
-            if (io->want_read && FD_ISSET(io->fd, &read_set))
-                ready = 1;
-            if (io->want_write && FD_ISSET(io->fd, &write_set))
-                ready = 1;
-            if (ready && !io->repeat)
-                go_ev_cancel_io(io);
-            io = next;
+        {
+            int stored_io = 0;
+            for (io = go_ev_ios; io != NULL; io = io->next) {
+                int ready = 0;
+                if (io->want_read && FD_ISSET(io->fd, &read_set))
+                    ready = 1;
+                if (io->want_write && FD_ISSET(io->fd, &write_set))
+                    ready = 1;
+                if (ready && count < max_due) {
+                    due[count++] = io->id;
+                    stored_io++;
+                }
+            }
+            /* Cancel only the nodes whose ids were stored above: nodes
+               past the cap stay registered for the next call. */
+            {
+                int seen_io = 0;
+                for (io = go_ev_ios; io != NULL; ) {
+                    go_ev_io *next = io->next;
+                    int ready = 0;
+                    if (io->want_read && FD_ISSET(io->fd, &read_set))
+                        ready = 1;
+                    if (io->want_write && FD_ISSET(io->fd, &write_set))
+                        ready = 1;
+                    if (ready)
+                        seen_io++;
+                    if (ready && !io->repeat && seen_io <= stored_io)
+                        go_ev_cancel_io(io);
+                    io = next;
+                }
+            }
         }
 #else
         int n = 0;
@@ -410,18 +430,28 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
             do { rc = poll(fds, (nfds_t)n, (int)wait_ms); }
             while (rc < 0 && errno == EINTR);
             if (rc > 0) {
+                int stored_io = 0;
                 i = 0;
                 for (io = go_ev_ios; io != NULL; io = io->next, i++) {
-                    if (fds[i].revents != 0 && count < max_due)
+                    if (fds[i].revents != 0 && count < max_due) {
                         due[count++] = io->id;
+                        stored_io++;
+                    }
                 }
+                /* Cancel only the nodes whose ids were stored above. */
                 i = 0;
-                for (io = go_ev_ios; io != NULL; ) {
-                    go_ev_io *next = io->next;
-                    if (fds[i].revents != 0 && !io->repeat)
-                        go_ev_cancel_io(io);
-                    io = next;
-                    i++;
+                {
+                    int seen_io = 0;
+                    for (io = go_ev_ios; io != NULL; ) {
+                        go_ev_io *next = io->next;
+                        if (fds[i].revents != 0)
+                            seen_io++;
+                        if (fds[i].revents != 0 && !io->repeat
+                            && seen_io <= stored_io)
+                            go_ev_cancel_io(io);
+                        io = next;
+                        i++;
+                    }
                 }
             }
             free(fds);
@@ -453,11 +483,14 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
 #endif
     }
 
-    /* Timers that expired during the wait. */
+    /* Timers that expired during the wait. Stop at max_due, as above. */
     now = go_ev_now();
     while (go_ev_timers != NULL && go_ev_timers->when <= now) {
-        go_ev_timer *t = go_ev_timers;
+        go_ev_timer *t;
         int signed_id;
+        if (count >= max_due)
+            break;
+        t = go_ev_timers;
         go_ev_timers = t->next;
         signed_id = t->kind == GO_EV_TIMEOUT ? -t->id : t->id;
         if (count < max_due)
@@ -471,12 +504,15 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
         free(t);
     }
 
-    /* Pids that exited during the wait. */
+    /* Pids that exited during the wait. Stop at max_due, as above. */
     {
         go_ev_pid **pat = &go_ev_pids;
         while (*pat != NULL) {
             if (go_ev_pid_exited((*pat)->pid)) {
-                go_ev_pid *dead = *pat;
+                go_ev_pid *dead;
+                if (count >= max_due)
+                    break;
+                dead = *pat;
                 *pat = dead->next;
                 if (count < max_due)
                     due[count++] = dead->id;

@@ -84,6 +84,23 @@ is( $woken_value, 'closed', 'a waiter woken by close receives no value' );
 is( $woken_ok, 0, 'a waiter woken by close reports closed state' );
 is( $closer->status, 'done', 'the routine that closed the channel completes normally' );
 
+# Two routines sending on the same unbuffered channel before any
+# receiver runs must both deliver, in order: the second send must not
+# overwrite the first sender's value. (Q review 5953551354 on PR #82.)
+my $two_channel = $channel_factory->();
+share my @received_two;
+my $first_sender = go sub { $two_channel->send('first') };
+my $second_sender = go sub { $two_channel->send('second') };
+my $two_receiver = go sub {
+    push @received_two, scalar $two_channel->receive for 1 .. 2;
+};
+wait_all();
+is_deeply( \@received_two, [ 'first', 'second' ],
+    'two concurrent unbuffered sends both arrive, in order' );
+is( $first_sender->status, 'done', 'first sender finishes after delivery' );
+is( $second_sender->status, 'done', 'second sender finishes after delivery' );
+is( $two_receiver->status, 'done', 'receiver finishes after both values' );
+
 done_testing;
 
 __END__

@@ -34,7 +34,7 @@ _ev_invoke_callback(callback)
             LEAVE;
         }
         PL_runops = saved_runops;
-        RETVAL = err ? err : &PL_sv_undef;
+        RETVAL = err ? err : newSV(0);
     }
   OUTPUT:
     RETVAL
@@ -100,25 +100,22 @@ _ev_cancel(id)
     go_ev_cancel((int)id);
 
 # _ev_wait(timeout_ms)
-# Waits for the next trigger and returns the due routine ids as a flat
-# list. A positive id means run the callback; a negative id means a
-# timeout fired for that routine (id is the absolute value). timeout_ms
-# >= 0 bounds the wait; < 0 waits until the next trigger, or returns at
-# once when nothing is registered.
+# Waits for the next trigger and returns the due routine id as a flat
+# list (at most one). A positive id means run the callback; a negative
+# id means a timeout fired for that routine (id is the absolute value).
+# Only one id per call: a callback may block (a channel send waits for
+# its receiver), and a batch collected up front cannot be reached by
+# the nested wait inside that callback, so due ids are dispatched one
+# at a time. timeout_ms >= 0 bounds the wait; < 0 waits until the next
+# trigger, or returns at once when nothing is registered.
 void
 _ev_wait(timeout_ms)
     IV timeout_ms
   PPCODE:
     {
-        int due[256];
+        int due[1];
         long timeout = (long)timeout_ms;
-        int n;
-        do {
-            int i;
-            n = go_ev_wait(timeout, due, 256);
-            for (i = 0; i < n; i++)
-                XPUSHs(sv_2mortal(newSViv(due[i])));
-            /* Drain any overflow without waiting again. */
-            timeout = 0;
-        } while (n == 256);
+        int n = go_ev_wait(timeout, due, 1);
+        if (n > 0)
+            XPUSHs(sv_2mortal(newSViv(due[0])));
     }

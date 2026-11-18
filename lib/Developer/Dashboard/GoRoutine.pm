@@ -747,29 +747,39 @@ sub pump {
         $wait_ms = $until if $wait_ms < 0 || $until < $wait_ms;
     }
 
-    my @due = _ev_wait($wait_ms);
     my $progress = 0;
-    for my $signed (@due) {
-        $progress++;
-        if ($signed < 0) {
-            # Engine timeout trigger. The Perl side implements timeouts
-            # itself (see _set_routine_timeout), but a timeout trigger
-            # arriving here is honoured the same way.
-            my $id = -$signed;
-            my $rec = $ROUTINES{$id};
-            next unless $rec;
-            if ($rec->{state} eq 'pending') {
-                $rec->{cancel_kind} = 'timed_out';
-                _finish_routine($id, 'timed_out');
+    # Dispatch one due routine at a time: _ev_wait consumes a trigger
+    # when it returns its id, so taking a batch up front would leave
+    # siblings undispatched while a callback that blocks (a channel
+    # send waiting for its receiver) waits inside a nested pump and
+    # finds nothing. Re-waiting with a zero bound after each dispatch
+    # picks up anything already due without blocking again.
+    while (1) {
+        my @due = _ev_wait($wait_ms);
+        last unless @due;
+        for my $signed (@due) {
+            $progress++;
+            if ($signed < 0) {
+                # Engine timeout trigger. The Perl side implements timeouts
+                # itself (see _set_routine_timeout), but a timeout trigger
+                # arriving here is honoured the same way.
+                my $id = -$signed;
+                my $rec = $ROUTINES{$id};
+                next unless $rec;
+                if ($rec->{state} eq 'pending') {
+                    $rec->{cancel_kind} = 'timed_out';
+                    _finish_routine($id, 'timed_out');
+                }
+                elsif ($rec->{state} eq 'running') {
+                    $rec->{cancel_requested} = 1;
+                    $rec->{cancel_kind} = 'timed_out';
+                }
             }
-            elsif ($rec->{state} eq 'running') {
-                $rec->{cancel_requested} = 1;
-                $rec->{cancel_kind} = 'timed_out';
+            else {
+                _dispatch_routine($signed);
             }
         }
-        else {
-            _dispatch_routine($signed);
-        }
+        $wait_ms = 0;
     }
 
     # Perl-side timeout check.
