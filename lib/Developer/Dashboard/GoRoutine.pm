@@ -712,7 +712,10 @@ sub _dispatch_routine {
             _finish_routine($id, 'done');
         }
     }
-    elsif ($err =~ /__GOROUTINE_EXIT__/) {
+    # The exit token is raised only by the C runops loop's croak, which
+    # puts it first in the error. Anchor the match: a user callback that
+    # merely mentions the token in its own die message is a failure.
+    elsif ($err =~ /\A__GOROUTINE_EXIT__/) {
         _finish_routine($id, 'exited') if $rec;
     }
     else {
@@ -869,23 +872,29 @@ END {
         next if _is_finished_state($rec->{state});
         _cancel_routine($id, 'killed');
     }
-    my $deadline = _ev_now() + 30;
-    while (1) {
-        my @pending = grep { $_->{state} eq 'pending' } values %ROUTINES;
-        last unless @pending;
-        # A callback dispatched during the drain can register a new
-        # repeating routine; cancel it too, or the drain would pump
-        # for its timer until the deadline instead of finishing.
-        for my $rec (@pending) {
-            next unless $rec->{repeating};
-            _cancel_routine($rec->{id}, 'killed');
+    # The drain reads the clock (_ev_now) and pumps, and the clock can
+    # croak if clock_gettime fails. At shutdown that must end the drain,
+    # not abort it, so the clock-touching drain runs inside an eval.
+    eval {
+        my $deadline = _ev_now() + 30;
+        while (1) {
+            my @pending = grep { $_->{state} eq 'pending' } values %ROUTINES;
+            last unless @pending;
+            # A callback dispatched during the drain can register a new
+            # repeating routine; cancel it too, or the drain would pump
+            # for its timer until the deadline instead of finishing.
+            for my $rec (@pending) {
+                next unless $rec->{repeating};
+                _cancel_routine($rec->{id}, 'killed');
+            }
+            @pending = grep { $_->{state} eq 'pending' } values %ROUTINES;
+            last unless @pending;
+            my $remaining = $deadline - _ev_now();
+            last if $remaining <= 0;
+            pump($remaining);
         }
-        @pending = grep { $_->{state} eq 'pending' } values %ROUTINES;
-        last unless @pending;
-        my $remaining = $deadline - _ev_now();
-        last if $remaining <= 0;
-        pump($remaining);
-    }
+        1;
+    };
 }
 
 package Developer::Dashboard::GoRoutine::Channel;
@@ -1235,7 +1244,7 @@ through the Dashboard XS bundle. It accepts literal argument strings and
 supports C<cwd>, C<env>, C<stdin>, C<stdout>, C<stderr>, and C<process_group>
 options. The returned positive process id identifies the child independently
 of the Perl interpreter. This API is separate from C<go>: a go routine runs a
-Perl callback in a cloned interpreter, while C<spawn> starts a process that can
+Perl callback on the main thread, while C<spawn> starts a process that can
 outlive its caller.
 
 C<process_running($pid)> reports whether the process appears live.

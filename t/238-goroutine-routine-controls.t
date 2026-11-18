@@ -157,6 +157,19 @@ isa_ok($normal, 'Developer::Dashboard::GoRoutine::Routine',
     ok(!$exited->is_killed, 'routine-local exit is not reported as a kill');
     pass('main interpreter continues after routine-local exit');
 
+    # A die that merely mentions the exit token is a failure, not an
+    # exit: the token counts as an exit only when the C runops loop
+    # raises it first in the error, so a user message containing it
+    # mid-string must not match.
+    my $token_in_message = go sub {
+        die "boom __GOROUTINE_EXIT__ boom";
+    };
+    wait_all();
+    is( $token_in_message->status, 'failed',
+        'a die mentioning the exit token mid-message reports failed' );
+    ok( defined $token_in_message->error,
+        'a die mentioning the exit token mid-message records its error' );
+
     my $invalid = go sub {
         sleep 0.05;
     };

@@ -58,6 +58,16 @@ static char **dd_argv_from_av(pTHX_ AV *array, I32 *argc_out) {
 }
 
 #ifndef _WIN32
+/* Frees a child environment built by dd_child_environment, including a
+ * partially built one: the array is calloc-zeroed, so it is always
+ * NULL-terminated at the first unfilled slot. It sits above the builder
+ * because the builder frees its partial result before every croak. */
+static void dd_child_environment_free(char **environment) {
+    if (environment == NULL || environment == environ) return;
+    for (size_t i = 0; environment[i] != NULL; ++i) free(environment[i]);
+    free(environment);
+}
+
 static char **dd_child_environment(pTHX_ HV *options) {
     SV **slot = hv_fetch(options, "env", 3, 0);
     char **result;
@@ -75,7 +85,10 @@ static char **dd_child_environment(pTHX_ HV *options) {
 
     for (size_t i = 0; i < count; ++i) {
         result[i] = strdup(environ[i]);
-        if (result[i] == NULL) croak("out of memory copying child environment");
+        if (result[i] == NULL) {
+            dd_child_environment_free(result);
+            croak("out of memory copying child environment");
+        }
     }
 
     HV *overrides = (HV *)SvRV(*slot);
@@ -87,16 +100,25 @@ static char **dd_child_environment(pTHX_ HV *options) {
         STRLEN key_len = 0, value_len = 0;
         const char *key = SvPVbyte(key_sv, key_len);
         const char *value;
-        if (key_len == 0 || memchr(key, '=', key_len) || memchr(key, '\0', key_len))
+        if (key_len == 0 || memchr(key, '=', key_len) || memchr(key, '\0', key_len)) {
+            dd_child_environment_free(result);
             croak("GoRoutine child environment keys must be non-empty and contain no '=' or NUL");
-        if (!SvOK(value_sv) || SvROK(value_sv))
+        }
+        if (!SvOK(value_sv) || SvROK(value_sv)) {
+            dd_child_environment_free(result);
             croak("GoRoutine child environment values must be defined scalars");
+        }
         value = SvPVbyte(value_sv, value_len);
-        if (memchr(value, '\0', value_len))
+        if (memchr(value, '\0', value_len)) {
+            dd_child_environment_free(result);
             croak("GoRoutine child environment values must not contain NUL");
+        }
 
         char *assignment = (char *)malloc((size_t)key_len + (size_t)value_len + 2);
-        if (assignment == NULL) croak("out of memory preparing child environment override");
+        if (assignment == NULL) {
+            dd_child_environment_free(result);
+            croak("out of memory preparing child environment override");
+        }
         memcpy(assignment, key, key_len);
         assignment[key_len] = '=';
         memcpy(assignment + key_len + 1, value, value_len);
@@ -114,12 +136,6 @@ static char **dd_child_environment(pTHX_ HV *options) {
     }
     result[count] = NULL;
     return result;
-}
-
-static void dd_child_environment_free(char **environment) {
-    if (environment == NULL || environment == environ) return;
-    for (size_t i = 0; environment[i] != NULL; ++i) free(environment[i]);
-    free(environment);
 }
 #endif
 
@@ -289,14 +305,14 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
 #if defined(__GLIBC__) || defined(__APPLE__)
         rc = posix_spawn_file_actions_addchdir_np(&actions, cwd);
         if (rc != 0) {
-            posix_spawn_file_actions_destroy(&actions); free(argv);
+            posix_spawn_file_actions_destroy(&actions); dd_child_environment_free(child_env); free(argv);
             croak("unable to set GoRoutine child working directory: %s", strerror(rc));
         }
 #else
         static char chdir_script[] = "cd \"$1\" || exit; shift; exec \"$@\"";
         wrapped_argv = (char **)calloc((size_t)argc + 5, sizeof(char *));
         if (wrapped_argv == NULL) {
-            posix_spawn_file_actions_destroy(&actions); free(argv);
+            posix_spawn_file_actions_destroy(&actions); dd_child_environment_free(child_env); free(argv);
             croak("out of memory preparing GoRoutine child working directory");
         }
         wrapped_argv[0] = (char *)"/bin/sh";
