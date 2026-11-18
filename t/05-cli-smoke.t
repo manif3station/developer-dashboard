@@ -30,6 +30,7 @@ use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::InternalCLI;
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::Platform qw(effective_mode_octal);
 use Encode qw(decode encode);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
@@ -398,32 +399,24 @@ chmod 0700, $doctor_hook or die "Unable to chmod $doctor_hook: $!";
 
 my $doctor_report = json_decode( _run("$perl -I'$lib' '$dashboard' doctor") );
 
-# The Unix permission-mode audit is skipped on Windows, so the loose
-# bookmark modes are not findings there and the doctor report is clean;
-# on Unix the same modes are reported before repair.
-if ( $^O eq 'MSWin32' ) {
-    ok( $doctor_report->{ok}, 'd2 doctor has no Unix permission-mode findings on Windows' );
-}
-else {
-    ok( !$doctor_report->{ok}, 'd2 doctor reports insecure legacy permissions before repair' );
-}
-SKIP: {
-    skip 'Unix permission modes are not a Windows security control', 2 if $^O eq 'MSWin32';
-    ok(
-        grep(
-            { $_->{path} eq $legacy_bookmarks_root && $_->{expected_mode} eq '0700' }
-              @{ $doctor_report->{issues} || [] }
-        ),
-        'd2 doctor reports insecure legacy bookmark directories',
-    );
-    ok(
-        grep(
-            { $_->{path} eq $legacy_bookmark_file && $_->{expected_mode} eq '0600' }
-              @{ $doctor_report->{issues} || [] }
-        ),
-        'd2 doctor reports insecure legacy bookmark files',
-    );
-}
+# The doctor audits owner-only permission modes on every platform now
+# (Windows via icacls since the ACL work): the loose bookmark modes are
+# findings everywhere, so the report is not clean before repair.
+ok( !$doctor_report->{ok}, 'd2 doctor reports insecure legacy permissions before repair' );
+ok(
+    grep(
+        { $_->{path} eq $legacy_bookmarks_root && $_->{expected_mode} eq '0700' }
+          @{ $doctor_report->{issues} || [] }
+    ),
+    'd2 doctor reports insecure legacy bookmark directories',
+);
+ok(
+    grep(
+        { $_->{path} eq $legacy_bookmark_file && $_->{expected_mode} eq '0600' }
+          @{ $doctor_report->{issues} || [] }
+    ),
+    'd2 doctor reports insecure legacy bookmark files',
+);
 ok(
     grep(
         { ref($_) eq 'HASH' && $_->{stdout} && $_->{stdout} =~ /^doctor-hook-ok\r?\n$/ }
@@ -433,14 +426,15 @@ ok(
 );
 
 my $doctor_fixed = json_decode( _run("$perl -I'$lib' '$dashboard' doctor --fix") );
+ok( !$doctor_fixed->{ok}, 'd2 doctor --fix still reports the findings it repaired in that run' );
+# stat() cannot see the ACL repair on Windows (the mode bits stay 0777/0666
+# after icacls), so read the DACL-derived mode there instead - the same
+# judgement the doctor itself makes.
 if ( $^O eq 'MSWin32' ) {
-    ok( $doctor_fixed->{ok}, 'd2 doctor --fix reports success on Windows where there are no Unix permission modes to repair' );
+    is( effective_mode_octal($legacy_bookmarks_root), '0700', 'd2 doctor --fix tightens legacy bookmark directory permissions' );
+    is( effective_mode_octal($legacy_bookmark_file), '0600', 'd2 doctor --fix tightens legacy bookmark file permissions' );
 }
 else {
-    ok( !$doctor_fixed->{ok}, 'd2 doctor --fix still reports the findings it repaired in that run' );
-}
-SKIP: {
-    skip 'chmod cannot tighten Unix permission modes on Windows', 2 if $^O eq 'MSWin32';
     is( sprintf( '%04o', ( stat($legacy_bookmarks_root) )[2] & 07777 ), '0700', 'd2 doctor --fix tightens legacy bookmark directory permissions' );
     is( sprintf( '%04o', ( stat($legacy_bookmark_file) )[2] & 07777 ), '0600', 'd2 doctor --fix tightens legacy bookmark file permissions' );
 }
