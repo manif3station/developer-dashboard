@@ -70,7 +70,7 @@ sub _keep_spawn_handle {
     # The registry only exists to keep a Windows process object alive until
     # wait_process collects it (the POSIX branch has zombies for that), so
     # a child spawned anywhere else is never recorded.
-    return if $^O ne 'MSWin32';
+    return unless $_REAL_OS_IS_WINDOWS;
     my $handle = 1;
     my $opened = eval {
         require Win32::Process;
@@ -132,7 +132,7 @@ sub _spawn_wrapper ($$) {
 # Output: boolean true when the process still exists.
 sub _process_running_wrapper ($) {
     my ($pid) = @_;
-    if ( $^O eq 'MSWin32' ) {
+    if ( $_REAL_OS_IS_WINDOWS ) {
         return 1 if defined $pid && exists $_SPAWN_CHILDREN{$pid};
     }
     return $_XS_PROCESS_RUNNING->($pid);
@@ -872,6 +872,15 @@ END {
     my $deadline = _ev_now() + 30;
     while (1) {
         my @pending = grep { $_->{state} eq 'pending' } values %ROUTINES;
+        last unless @pending;
+        # A callback dispatched during the drain can register a new
+        # repeating routine; cancel it too, or the drain would pump
+        # for its timer until the deadline instead of finishing.
+        for my $rec (@pending) {
+            next unless $rec->{repeating};
+            _cancel_routine($rec->{id}, 'killed');
+        }
+        @pending = grep { $_->{state} eq 'pending' } values %ROUTINES;
         last unless @pending;
         my $remaining = $deadline - _ev_now();
         last if $remaining <= 0;

@@ -139,6 +139,7 @@ typedef struct go_ev_io {
     int want_read;
     int want_write;
     int repeat;             /* 1 = stays registered after firing */
+    int ready;              /* readiness sampled in the collection pass; the cancellation pass reuses it instead of re-sampling the socket */
     struct go_ev_io *next;
 } go_ev_io;
 
@@ -192,6 +193,7 @@ go_ev_add_io(int id,
     io->want_read = want_read;
     io->want_write = want_write;
     io->repeat = repeat;
+    io->ready = 0;
     io->next = go_ev_ios;
     go_ev_ios = io;
 }
@@ -339,8 +341,7 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
         t = go_ev_timers;
         go_ev_timers = t->next;
         signed_id = t->kind == GO_EV_TIMEOUT ? -t->id : t->id;
-        if (count < max_due)
-            due[count++] = signed_id;
+        due[count++] = signed_id;
         if (t->interval > 0.0) {
             double next = t->when + t->interval;
             while (next <= now)
@@ -360,8 +361,7 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
                     break;
                 dead = *pat;
                 *pat = dead->next;
-                if (count < max_due)
-                    due[count++] = dead->id;
+                due[count++] = dead->id;
                 free(dead);
             } else {
                 pat = &(*pat)->next;
@@ -410,8 +410,12 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
         if (n_io > FD_SETSIZE) {
             int stored_io = 0;
             for (io = go_ev_ios; io != NULL; io = io->next) {
-                int ready = go_ev_io_ready(io);
-                if (ready && count < max_due) {
+                /* Sample once and keep it: the cancellation pass below
+                   reuses io->ready instead of calling go_ev_io_ready
+                   again, so a socket whose readiness changes between
+                   the two passes cannot be miscounted. */
+                io->ready = go_ev_io_ready(io);
+                if (io->ready && count < max_due) {
                     due[count++] = io->id;
                     stored_io++;
                 }
@@ -420,7 +424,10 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
                 int seen_io = 0;
                 for (io = go_ev_ios; io != NULL; ) {
                     go_ev_io *next = io->next;
-                    int ready = go_ev_io_ready(io);
+                    /* Reuse the readiness sampled in the collection
+                       pass; re-calling go_ev_io_ready here would
+                       re-sample a live socket and could disagree. */
+                    int ready = io->ready;
                     if (ready)
                         seen_io++;
                     if (ready && !io->repeat && seen_io <= stored_io)
@@ -569,8 +576,7 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
         t = go_ev_timers;
         go_ev_timers = t->next;
         signed_id = t->kind == GO_EV_TIMEOUT ? -t->id : t->id;
-        if (count < max_due)
-            due[count++] = signed_id;
+        due[count++] = signed_id;
         if (t->interval > 0.0) {
             double next = t->when + t->interval;
             while (next <= now)
@@ -590,8 +596,7 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
                     break;
                 dead = *pat;
                 *pat = dead->next;
-                if (count < max_due)
-                    due[count++] = dead->id;
+                due[count++] = dead->id;
                 free(dead);
             } else {
                 pat = &(*pat)->next;

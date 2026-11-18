@@ -3,6 +3,7 @@ use warnings;
 
 use File::Temp qw(tempdir);
 use Test::More;
+use Time::HiRes qw(time);
 
 use Developer::Dashboard::GoRoutine ();
 
@@ -50,6 +51,38 @@ run_child(
       print "nested-main-finished\n";},
     [ "nested-main-finished\n", "nested-finished\n" ],
 );
+
+# A callback dispatched during the END drain registers a new repeating
+# routine. The drain must cancel it too: a repeating routine never
+# finishes on its own, so without the in-loop cancel the drain would
+# pump for its timer until the 30 second deadline instead of exiting.
+# The child must exit promptly, not after 30 seconds.
+{
+    my $name   = 'drain-repeating';
+    my $output = "$dir/$name.txt";
+    my $source = q{go(sub {
+          go(sub { }, { every => 0.5 });
+          print "finite-finished\n";
+      }, { after => 0.05 });
+      print "drain-main-finished\n";};
+    my $script = "use strict; use warnings; use Developer::Dashboard::GoRoutine;\n$source";
+    my $start  = time();
+    my $child  = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', $script ],
+        { stdout => $output, stderr => $output },
+    );
+    is( Developer::Dashboard::GoRoutine::wait_process($child), 0,
+        "$name child exits successfully" );
+    my $elapsed = time() - $start;
+    ok( $elapsed < 10,
+        "$name child exits promptly (took $elapsed seconds, not the 30s drain deadline)"
+    );
+    open my $fh, '<', $output or die "Unable to read child output '$output': $!";
+    my @lines = <$fh>;
+    close $fh or die "Unable to close child output '$output': $!";
+    is_deeply( \@lines, [ "drain-main-finished\n", "finite-finished\n" ],
+        "$name drains the expected worker output" );
+}
 
 done_testing;
 
