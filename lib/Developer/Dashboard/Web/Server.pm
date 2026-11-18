@@ -247,12 +247,23 @@ sub _serve_ssl_frontend {
     }, ref($self);
     my $listener_select = IO::Select->new($listener);
 
+    # select() only works on sockets on Windows: on a plain filehandle
+    # can_read() never reports readable, so the accept below would never
+    # run and the loop would spin forever in pump(). Probe with
+    # getsockopt first; a non-socket skips the readiness wait and goes
+    # straight to accept, which fails and exits the loop (t/17
+    # devnull-listener case, same class as the t/88 client hang fixed
+    # in 1c1034de). A real socket waits exactly as before.
+    my $listener_is_socket = defined getsockopt( $listener, SOL_SOCKET, SO_TYPE );
+
     # Pump the engine (drives the client routines) and accept any pending
-    # client without blocking. The accept never blocks: can_read(0) proves
-    # a connection is waiting before accept is called.
+    # client without blocking. The accept never blocks on a real socket:
+    # can_read(0) proves a connection is waiting before accept is called.
+    # A non-socket listener has no readiness to prove, so accept is called
+    # directly and its failure exits the loop.
     FRONTEND: while ( !$SSL_SHUTDOWN_REQUESTED ) {
         Developer::Dashboard::GoRoutine::pump(0.05);
-        while ( $listener_select->can_read(0) ) {
+        while ( !$listener_is_socket || $listener_select->can_read(0) ) {
             my $client = $listener->accept;
             if ( !defined $client ) {
                 next if $! == EINTR && !$SSL_SHUTDOWN_REQUESTED;
