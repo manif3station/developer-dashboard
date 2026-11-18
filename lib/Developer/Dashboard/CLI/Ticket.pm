@@ -14,7 +14,7 @@ use File::Basename qw(dirname);
 use File::Spec ();
 use Developer::Dashboard::EnvAudit;
 use Developer::Dashboard::EnvLoader;
-use Developer::Dashboard::Platform qw(command_in_path shell_quote_for);
+use Developer::Dashboard::Platform qw(command_in_path command_in_path_direct shell_quote_for);
 
 our @EXPORT_OK = qw(
   apply_ticket_status
@@ -271,6 +271,37 @@ sub exec_workspace_attach {
 # Output: false when exec fails, never returns on success.
 sub _exec_tmux {
     my (@args) = @_;
+    if ( $^O eq 'MSWin32' ) {
+        # Perl's exec() with a bare name on Windows falls back to cmd,
+        # which runs a .bat twin - but the calling process exits before
+        # the batch completes, so the attach-session log line lands after
+        # the caller has already read the log (t/05 tests 725/726: the
+        # attach step raced the test's log read). Resolve 'tmux' to a
+        # runnable file first (a .bat twin counts, an extensionless
+        # script does not), then run it with system() and exit with the
+        # child's status, so the caller still never returns and the
+        # attach completes before the caller resumes - the same shape as
+        # OpenFile::_exec_raw's Windows branch (t/05 line 2403). When
+        # nothing resolves, return false exactly as a failed exec does,
+        # so exec_workspace_attach dies and t/770's failure path holds.
+        my $resolved = command_in_path_direct('tmux');
+        if ( !defined $resolved ) {
+            $! = 2;    # ENOENT
+            warn "Can't exec \"tmux\": $!";
+            return 0;
+        }
+        my $rc;
+        {
+            local $SIG{__WARN__} = sub { return };
+            $! = 0;
+            $rc = system { $resolved } ( $resolved, @args );
+        }
+        if ( $rc == -1 || $! ) {
+            warn "Can't exec \"tmux\": $!";
+            return 0;
+        }
+        exit( $rc >> 8 );
+    }
     return exec 'tmux', @args;
 }
 

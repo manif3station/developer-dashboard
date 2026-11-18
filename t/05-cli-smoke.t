@@ -2636,6 +2636,33 @@ exit 0
 SH
 close $fake_ticket_tmux_fh;
 chmod 0755, $fake_ticket_tmux or die "Unable to chmod $fake_ticket_tmux: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the docker/vim fakes: the sh fake above is
+    # invisible to Windows program search, so 'tmux' was never found
+    # and d2 workspace died with 'Unable to create tmux ticket session'
+    # (build #86, tests 725/726). The micro in build #87 proved the
+    # twin alone fixes the session-creation calls (tmux_command is
+    # list-form system, which finds .bat files), but two details
+    # matter. First, the log line must use the redirect-first form:
+    # 'echo %*>>log' drops a trailing digit, because cmd parses '2>>'
+    # as a stderr redirect - the 'set-option -gq status 2' line was
+    # lost that way on win-ts, while '>>log echo %*' keeps it. Second,
+    # the attach step is a bare exec, which on Windows returns before
+    # the batch completes, so the attach-session line raced the log
+    # read; Ticket::_exec_tmux now runs it synchronously with system.
+    # Mirrors the sh fake: log the invocation, exit 1 when the session
+    # is missing, answer the status-format snapshot, else exit 0.
+    my $fake_ticket_tmux_bat = File::Spec->catfile( $fake_ticket_bin, 'tmux.bat' );
+    open my $fake_ticket_tmux_bat_fh, '>', $fake_ticket_tmux_bat or die "Unable to write $fake_ticket_tmux_bat: $!";
+    print {$fake_ticket_tmux_bat_fh} <<"BAT";
+\@echo off
+>>"$fake_ticket_log" echo %*
+if "%~1"=="has-session" if "%~3"=="DD-NEW" exit /b 1
+if "%~1"=="show-options" if "%~3"=="status-format[0]" echo #[default]DEFAULT-ROW
+exit /b 0
+BAT
+    close $fake_ticket_tmux_bat_fh;
+}
 my $ticket_output = _run("PATH='$fake_ticket_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' workspace DD-NEW");
 is( $ticket_output, '', 'd2 workspace stays quiet on success while tmux handles the terminal attach' );
 open my $fake_ticket_log_fh, '<', $fake_ticket_log or die "Unable to read $fake_ticket_log: $!";
