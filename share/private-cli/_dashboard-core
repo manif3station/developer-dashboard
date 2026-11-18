@@ -1259,6 +1259,14 @@ elsif ( $cmd eq 'skills' ) {
     );
     exit $exit_code;
 }
+elsif ( $cmd eq 'which' ) {
+    require Developer::Dashboard::CLI::Which;
+    my $exit_code = Developer::Dashboard::CLI::Which::run_which_command(
+        command => $cmd,
+        args    => \@ARGV,
+    );
+    exit $exit_code;
+}
 elsif ( $cmd eq 'complete' ) {
     die "d2 complete should have exited before runtime bootstrap\n";
 }
