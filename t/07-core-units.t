@@ -4976,7 +4976,11 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     }
 
     {
+        # POSIX branch only, proved on every platform by localizing the
+        # platform: ps is the fallback when procfs has no state for the
+        # pid. The capture stub means no real ps runs anywhere.
         no warnings 'redefine';
+        local $Developer::Dashboard::Platform::OS_NAME = 'linux';
         local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return '' };
         local *Developer::Dashboard::CollectorRunner::capture = sub (&) {
             return ( "Z+\n", '', 0 );
@@ -4985,6 +4989,40 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             $runner->_read_process_state(4242),
             'Z',
             '_read_process_state falls back to ps output when procfs state is unavailable',
+        );
+    }
+
+    {
+        # Windows branch, proved on every platform the same way: there is
+        # no procfs and no ps on Windows, so a state procfs did not supply
+        # is undef, and the reader spawns nothing at all. This is the
+        # documented Windows outcome, not a gap: probed live on win-ts,
+        # Win32_Process carries no state field (Status and ExecutionState
+        # both come back empty for a live pid), and an exited pid vanishes
+        # from the table at once even while a handle to it is still held,
+        # so there is no letter a CIM fallback could honestly return - the
+        # only CIM signal, present-or-absent, is exactly what kill(0) in
+        # _process_exists already answers for _pid_is_running, the sole
+        # caller, which treats only 'Z' as stopped. The same undef-on-
+        # Windows outcome is asserted for the other two copies in t/81,
+        # t/100 and t/11.
+        no warnings 'redefine';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        my $capture_called = 0;
+        local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return '' };
+        local *Developer::Dashboard::CollectorRunner::capture = sub (&) {
+            $capture_called++;
+            return ( "Z+\n", '', 0 );
+        };
+        is(
+            $runner->_read_process_state(4242),
+            undef,
+            '_read_process_state returns undef on Windows, where there is no procfs and no ps',
+        );
+        is(
+            $capture_called,
+            0,
+            'on Windows _read_process_state does not spawn ps at all',
         );
     }
 }
