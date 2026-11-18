@@ -41,77 +41,16 @@ like( $security, qr/Reporting A Vulnerability/i,
 like( $security, qr/security@/i,
     'SECURITY.md includes a private reporting contact' );
 
-my $mac_workflow_path = File::Spec->catfile( $WORKFLOWS, 'five-platform-coverage.yml' );
-ok( -f $mac_workflow_path, 'the five-platform coverage orchestrator is present' );
-my $mac_workflow = _slurp($mac_workflow_path);
-like( $mac_workflow, qr/^permissions:\s*$/m,
-    'the macOS coverage workflow declares token permissions explicitly' );
-like( $mac_workflow, qr/^\s+contents:\s*read\s*$/m,
-    'the macOS coverage workflow only requests read access' );
-unlike( $mac_workflow, qr/^\s+\w[\w-]*:\s*write\s*$/m,
-    'the macOS coverage workflow requests no write permissions' );
-like( $mac_workflow, qr/^concurrency:\s*$/m,
-    'the macOS coverage workflow bounds concurrent runs' );
-like( $mac_workflow, qr/^\s+timeout-minutes:\s*\d+\s*$/m,
-    'the macOS coverage workflow has an explicit timeout' );
-unlike( $mac_workflow, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/,
-    'the macOS coverage workflow does not use floating action tags' );
-my @pins;
-while ( $mac_workflow =~ /uses:\s*(\S+)\@([^\s#]+)/g ) {
-    my ( $action, $pin ) = ( $1, $2 );
-    push @pins, $action;
-    like( $pin, qr/\A[0-9a-f]{40}\z/,
-        "the macOS coverage workflow pins $action to a full commit SHA" );
-}
-cmp_ok( scalar(@pins), '>=', 2, 'the macOS coverage workflow has pinned dependencies' );
-
 for my $retired (qw(
   coverage.yml dockerhub-image.yml platform-compatibility.yml release-github.yml
   test.yml codeql.yml package-ghcr.yml fuzz-js.yml
   unit-tests.yml test-coverage.yml
+  five-platform-coverage.yml linux-coverage.yml
+  windows-amd64-unit-tests.yml windows-arm64-coverage.yml
 )) {
     ok( !-e File::Spec->catfile( $WORKFLOWS, $retired ),
         "$retired stays absent from the active workflow set" );
 }
-
-like( $mac_workflow, qr/perl script\/coverage-gate --jobs 10/,
-    'the full macOS coverage suite runs with ten workers' );
-
-my $windows_workflow_path = File::Spec->catfile( $WORKFLOWS, 'windows-amd64-unit-tests.yml' );
-ok( -f $windows_workflow_path, 'the dependent Windows coverage workflow is present' );
-my $windows_workflow = _slurp($windows_workflow_path);
-like( $windows_workflow, qr/^permissions:\s*$/m,
-    'coverage declares token permissions explicitly' );
-like( $windows_workflow, qr/^\s+contents:\s*read\s*$/m,
-    'coverage requests read-only permission' );
-unlike( $windows_workflow, qr/^\s+\w[\w-]*:\s*write\s*$/m,
-    'coverage requests no write permission' );
-unlike( $windows_workflow, qr/^concurrency:\s*$/m,
-    'the macOS workflow owns concurrency for both platforms' );
-like( $windows_workflow, qr/^\s+timeout-minutes:\s*\d+\s*$/m,
-    'coverage sets an explicit timeout' );
-unlike( $windows_workflow, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/,
-    'coverage avoids floating action tags' );
-my @coverage_pins;
-while ( $windows_workflow =~ /uses:\s*(\S+)\@([^\s#]+)/g ) {
-    my ( $action, $pin ) = ( $1, $2 );
-    push @coverage_pins, $action;
-    like( $pin, qr/\A[0-9a-f]{40}\z/,
-        "coverage pins $action by full SHA" );
-}
-cmp_ok( scalar(@coverage_pins), '>=', 2,
-    'coverage has SHA-pinned actions' );
-like( $windows_workflow, qr/^\s*workflow_call:\s*$/m,
-    'Windows accepts only the reusable workflow trigger' );
-like( $mac_workflow, qr/needs:\s*\[select-platforms,\s*linux-arm64\]/,
-    'Windows waits for the preceding selected platform while allowing skipped stages' );
-like( $mac_workflow, qr/!cancelled\(\)\s*&&\s*!failure\(\)/,
-    'later selected stages still stop when an earlier selected stage fails' );
-like( $windows_workflow, qr/perl script\/coverage-gate --jobs 10/,
-    'Windows coverage enforces all metrics with ten workers' );
-
-unlike( $mac_workflow, qr/gh\s+release\s+(?:create|upload)\b|docker\/build-push-action/,
-    'the macOS coverage workflow does not publish releases or Docker images' );
 
 my $property_test = _slurp( File::Spec->catfile( $ROOT, 't', '35-js-fast-check.t' ) );
 like( $property_test, qr/'fuzz:scorecard'/,
@@ -123,29 +62,31 @@ __END__
 
 =head1 NAME
 
-34-scorecard-guardrails.t - guard the retained CI and release security surface
+34-scorecard-guardrails.t - guard the retained release security surface
 
 =head1 DESCRIPTION
 
-Checks security policy and the five-platform coverage orchestrator for pinned
-actions, read-only permissions, timeouts and mandatory 100 percent coverage.
+Checks security policy and that no GitHub Actions workflow is present: pull
+requests are checked by the shared Jenkins job D2/testing-v1 instead.
 
 =head1 PURPOSE
 
-Keep the reduced workflow set secure without reintroducing CodeQL, GHCR,
-Dependabot automation, a standalone Test workflow, or a standalone JavaScript
-fuzz workflow merely to satisfy historical Scorecard assumptions.
+Keep the repository free of GitHub Actions workflows without reintroducing
+CodeQL, GHCR, Dependabot automation, a standalone Test workflow, or a
+standalone JavaScript fuzz workflow merely to satisfy historical Scorecard
+assumptions.
 
 =head1 WHY IT EXISTS
 
 Removing workflows changes which automated Scorecard signals exist, but the
-five-platform coverage chain handles quality and identity. Its least-privilege
-and coverage properties must remain explicit.
+Jenkins job handles quality and identity. The absence of every retired
+workflow, including the five-platform coverage orchestrator and its three
+reusable platform workflows, must remain explicit.
 
 =head1 WHEN TO USE
 
 Run this test whenever changing F<.github/workflows/>, test or coverage
-permissions, action pins, coverage gates or the decision to keep Dependabot
+permissions, coverage gates or the decision to keep Dependabot
 automation disabled.
 
 =head1 HOW TO USE
@@ -154,12 +95,12 @@ automation disabled.
 
 =head1 WHAT USES IT
 
-The source-tree coverage orchestrator and reusable Windows workflow use these
-assertions to guard the retained CI security surface.
+The Jenkins PR check and the release process use these assertions to guard
+the retained security surface.
 
 =head1 EXAMPLES
 
-Check the workflow security contract directly:
+Check the workflow-absence contract directly:
 
   prove -lv t/34-scorecard-guardrails.t
 

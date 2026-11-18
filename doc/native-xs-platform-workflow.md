@@ -32,9 +32,7 @@ The active Linux coverage job builds the Linux System Menu helper as part of
 the native XS extension. Before `make`, it installs both
 `libayatana-appindicator3-dev` and `libgtk-3-dev`; these packages provide the
 `ayatana-appindicator3-0.1` and `gtk+-3.0` pkg-config metadata and headers used
-by `native/system_menu_helper_linux.c`. The static workflow contract test
-`t/811-linux-coverage-workflow-dependencies.t` guards this package list and the
-`DD_REQUIRE_SYSTEM_MENU_HELPER=1` setting. This strict setting keeps CI from
+by `native/system_menu_helper_linux.c`. This strict setting keeps CI from
 silently omitting the helper if dependency installation or pkg-config
 detection fails. Ordinary Linux source-distribution builds may omit this
 optional desktop helper with an explicit configure notice when the modules are
