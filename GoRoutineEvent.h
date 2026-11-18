@@ -20,7 +20,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>   /* intptr_t for _get_osfhandle's return */
 #include <errno.h>
 
 /* ------------------------------------------------------------------ */
@@ -50,7 +49,6 @@ go_ev_runops(pTHX)
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
-#include <io.h>      /* _get_osfhandle: CRT fd -> Windows SOCKET */
 #else
 #include <poll.h>
 #include <signal.h>
@@ -273,18 +271,24 @@ go_ev_cancel_io(go_ev_io *dead)
 /* go_ev_io_ready(io) - zero-timeout readiness check for one IO entry.
    Used when more entries are registered than one fd_set holds: Winsock
    silently drops sockets past FD_SETSIZE, so a single select over all
-   of them would starve the extras. One fd per select never overflows. */
+   of them would starve the extras. One fd per select never overflows.
+   nfds is this fd + 1, not 0: Perl's headers redirect select() to
+   win32_select(), which only scans fds below nfds, so passing 0 (the
+   Winsock convention, where nfds is ignored) would scan nothing and no
+   trigger would ever fire. */
 static int
 go_ev_io_ready(go_ev_io *io)
 {
     struct timeval tv_zero;
+    int nfds;
     tv_zero.tv_sec = 0;
     tv_zero.tv_usec = 0;
+    nfds = (int)io->fd + 1;
     if (io->want_read) {
         fd_set set;
         FD_ZERO(&set);
         FD_SET(io->fd, &set);
-        if (select(0, &set, NULL, NULL, &tv_zero) > 0
+        if (select(nfds, &set, NULL, NULL, &tv_zero) > 0
             && FD_ISSET(io->fd, &set))
             return 1;
     }
@@ -292,7 +296,7 @@ go_ev_io_ready(go_ev_io *io)
         fd_set set;
         FD_ZERO(&set);
         FD_SET(io->fd, &set);
-        if (select(0, NULL, &set, NULL, &tv_zero) > 0
+        if (select(nfds, NULL, &set, NULL, &tv_zero) > 0
             && FD_ISSET(io->fd, &set))
             return 1;
     }
@@ -427,9 +431,12 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
         } else {
             fd_set read_set, write_set;
             struct timeval tv;
+            int max_fd = -1;
             FD_ZERO(&read_set);
             FD_ZERO(&write_set);
             for (io = go_ev_ios; io != NULL; io = io->next) {
+                if ((int)io->fd > max_fd)
+                    max_fd = (int)io->fd;
                 if (io->want_read)
                     FD_SET(io->fd, &read_set);
                 if (io->want_write)
@@ -438,8 +445,12 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
             tv.tv_sec = (long)(wait_ms / 1000);
             tv.tv_usec = (long)((wait_ms % 1000) * 1000);
             /* A failed select leaves the fd_sets unpopulated, so only scan
-               them when select reports ready fds, as the Unix poll path does. */
-            int sel_rc = select(0, &read_set, &write_set, NULL, &tv);
+               them when select reports ready fds, as the Unix poll path does.
+               nfds is max_fd + 1, not 0: Perl's headers redirect select()
+               to win32_select(), which only scans fds below nfds, so
+               passing 0 (the Winsock convention) would scan nothing and no
+               IO trigger would ever fire. */
+            int sel_rc = select(max_fd + 1, &read_set, &write_set, NULL, &tv);
             if (sel_rc > 0) {
                 int stored_io = 0;
                 for (io = go_ev_ios; io != NULL; io = io->next) {
