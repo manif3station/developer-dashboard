@@ -3578,8 +3578,12 @@ $project_local_paths_forward =~ s/\\/\//g;
 like( $project_local_paths_forward, qr/runtime_root\s+\Q$project_root_forward\/.developer-dashboard\E/, 'd2 paths reports the project-local runtime root when present' );
 like( $project_local_paths_forward, qr/dashboards_root\s+\Q$project_local_bookmarks_forward\E/, 'd2 paths reports the project-local dashboards root when present' );
 my $project_cpan_output = _run("cd '$project_root' && PATH='$fake_bin':\"\$PATH\" $perl -I'$repo/lib' '$repo/bin/d2' cpan DBD::Mock");
+# The cpan output is JSON, so each Windows backslash arrives escaped as
+# a pair: normalize each PAIR to one slash, not each backslash (that
+# doubled every separator in build 117). Plain-text outputs below still
+# use the single-backslash form.
 my $project_cpan_output_forward = $project_cpan_output;
-$project_cpan_output_forward =~ s/\\/\//g;
+$project_cpan_output_forward =~ s/\\\\/\//g;
 like( $project_cpan_output_forward, qr/"ok"\s*:\s*1/, 'd2 cpan reports success' );
 like( $project_cpan_output_forward, qr/"runtime_root"\s*:\s*"\Q$project_root_forward\/.developer-dashboard\E"/, 'd2 cpan reports the project-local runtime root' );
 like( $project_cpan_output_forward, qr/"cpanfile"\s*:\s*"\Q$project_root_forward\/.developer-dashboard\/cpanfile\E"/, 'd2 cpan reports the runtime cpanfile path' );
@@ -3593,7 +3597,11 @@ like( $project_cpanfile, qr/requires 'DBD::Mock';/, 'd2 cpan records the request
 open my $fake_cpanm_log_fh, '<', $fake_cpanm_log or die "Unable to read $fake_cpanm_log: $!";
 my $fake_cpanm_args = do { local $/; <$fake_cpanm_log_fh> };
 close $fake_cpanm_log_fh;
-like( $fake_cpanm_args, qr/-L \Q$project_root\/.developer-dashboard\/local\E/, 'd2 cpan installs into the project-local runtime local library' );
+# The fake-cpanm log is plain text with single backslashes on Windows,
+# so it takes the single-backslash normalization, like the paths output.
+my $fake_cpanm_args_forward = $fake_cpanm_args;
+$fake_cpanm_args_forward =~ s/\\/\//g;
+like( $fake_cpanm_args_forward, qr/-L \Q$project_root_forward\/.developer-dashboard\/local\E/, 'd2 cpan installs into the project-local runtime local library' );
 like( $fake_cpanm_args, qr/\bDBI\b/, 'd2 cpan installs DBI automatically for DBD drivers' );
 like( $fake_cpanm_args, qr/\bDBD::Mock\b/, 'd2 cpan installs the requested DBD driver' );
 
