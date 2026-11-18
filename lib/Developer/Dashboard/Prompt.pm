@@ -47,6 +47,13 @@ sub render {
     my $home = $self->{paths}->home;
     my $cwd_for_home = $cwd // '';
     my $home_for_match = $home // '';
+    # Home and cwd can arrive spelled with different separators on Windows:
+    # abs_path spells with forward slashes while catdir spells with
+    # backslashes, so a literal prefix match never shortens the home
+    # directory there. Normalise both to forward slashes first; the
+    # captured suffix is then already in the ~/... form the prompt shows.
+    $cwd_for_home =~ s{\\}{/}g;
+    $home_for_match =~ s{\\}{/}g;
     $cwd_for_home =~ s{\A/private(?=/var/folders/)}{};
     $home_for_match =~ s{\A/private(?=/var/folders/)}{};
     if ( defined $home_for_match && $home_for_match ne ''
