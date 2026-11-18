@@ -452,7 +452,7 @@ ok( $doctor_clean->{ok}, 'd2 doctor reports success after repair' );
 # _managed_helper_content() returns the OLD core while the doctor
 # subprocess (fresh dd-source) expects the NEW one. The staged file is
 # provably the expected content (the doctor run above reported ok=1), so
-# build the drift from the saved bytes and restore from them.
+# build the drift from the saved bytes.
 open my $managed_core_saved_fh, '<:raw', $runtime_dashboard_core or die "Unable to read $runtime_dashboard_core: $!";
 my $managed_core_saved = do { local $/; <$managed_core_saved_fh> };
 close $managed_core_saved_fh or die "Unable to close $runtime_dashboard_core: $!";
@@ -477,43 +477,19 @@ ok(
 
 my $doctor_helper_fixed = json_decode( _run("$perl -I'$lib' '$runtime_doctor' --fix") );
 ok( !$doctor_helper_fixed->{ok}, 'd2 doctor --fix reports the helper drift it repaired in that run' );
-if ( $^O eq 'MSWin32' ) {
-    # Windows always defers the _dashboard-core restage while the helper
-    # chain runs, so --fix cannot repair the drift itself; assert the
-    # deferral instead of the repair.
-    ok(
-        grep(
-            {
-                $_->{path} eq $runtime_dashboard_core
-                  && $_->{kind} eq 'helper'
-                  && $_->{problem} eq 'stale managed helper content'
-                  && !$_->{fixed}
-            } @{ $doctor_helper_fixed->{issues} || [] }
-        ),
-        'd2 doctor --fix leaves stale _dashboard-core drift unrepaired on Windows where the core restage is deferred',
-    );
-}
-else {
-    ok(
-        grep(
-            {
-                $_->{path} eq $runtime_dashboard_core
-                  && $_->{kind} eq 'helper'
-                  && $_->{fixed}
-            } @{ $doctor_helper_fixed->{issues} || [] }
-        ),
-        'd2 doctor --fix marks stale helper drift as repaired through the staged helper runtime',
-    );
-}
-if ( $^O eq 'MSWin32' ) {
-    # The deferred restage above means the drift is still in the staged
-    # core; restore the managed content directly so the clean run below
-    # checks the repaired state rather than a repair --fix is not allowed
-    # to make on Windows.
-    open my $managed_core_restore_fh, '>:raw', $runtime_dashboard_core or die "Unable to write $runtime_dashboard_core: $!";
-    print {$managed_core_restore_fh} $managed_core_saved;
-    close $managed_core_restore_fh or die "Unable to close $runtime_dashboard_core: $!";
-}
+# The _dashboard-core restage is no longer blanket-deferred on Windows:
+# the lock probe finds the staged helper unlocked here, so --fix repairs
+# the drift on every platform.
+ok(
+    grep(
+        {
+            $_->{path} eq $runtime_dashboard_core
+              && $_->{kind} eq 'helper'
+              && $_->{fixed}
+        } @{ $doctor_helper_fixed->{issues} || [] }
+    ),
+    'd2 doctor --fix marks stale helper drift as repaired through the staged helper runtime',
+);
 my $doctor_helper_clean = json_decode( _run("$perl -I'$lib' '$runtime_doctor'") );
 ok( $doctor_helper_clean->{ok}, 'd2 doctor reports success after helper restaging repair' );
 

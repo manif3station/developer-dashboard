@@ -232,18 +232,41 @@ sub _stage_managed_helper {
 }
 
 # _should_defer_windows_helper_refresh($name, $target)
-# Skips replacing Windows helper files that can still be locked by the active
-# helper chain during command startup. The shared staged _dashboard-core helper
-# is always deferred on Windows, and the currently running wrapper helper is
-# also preserved until the next refresh pass.
+# Skips replacing a Windows helper file that is actually locked by a live
+# process. The shared staged _dashboard-core helper is probed with a
+# rename aside and back: a rename that fails means the file cannot be
+# replaced right now, so the refresh is deferred; a rename that succeeds
+# proves the file is not locked and the restage proceeds. The currently
+# running wrapper helper is also preserved until the next refresh pass.
 # Input: helper name string and final helper target path.
 # Output: boolean true when the Windows helper refresh should be deferred.
 sub _should_defer_windows_helper_refresh {
     my ( $name, $target ) = @_;
     require Developer::Dashboard::Platform;
     return 0 if !Developer::Dashboard::Platform::is_windows();
-    return 1 if defined $name && $name eq '_dashboard-core';
+    return _helper_file_is_locked($target) if defined $name && $name eq '_dashboard-core';
     return _running_helper_matches_target($target);
+}
+
+# _helper_file_is_locked($target)
+# Probes whether a helper file is currently locked by a live process by
+# attempting the exact operation a restage needs: renaming it aside and
+# back. On Windows a file held by a running process cannot be renamed, so
+# a failed rename means the file must not be replaced; a successful rename
+# aside and back proves it can. The probe restores the file immediately,
+# and dies loudly if the restore itself fails rather than leaving the
+# helper missing.
+# Input: helper target path.
+# Output: boolean true when the file is locked and must not be replaced.
+sub _helper_file_is_locked {
+    my ($target) = @_;
+    return 0 if !defined $target || $target eq '' || !-e $target;
+    my $probe = $target . '.lockprobe.' . $$ . '.' . int( rand(1_000_000) );
+    return 1 if !_rename_path( $target, $probe );
+    if ( !_rename_path( $probe, $target ) ) {
+        die "Unable to restore $target after Windows helper lock probe: $!";
+    }
+    return 0;
 }
 
 # _running_helper_matches_target($target)

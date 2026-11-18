@@ -989,6 +989,9 @@ ok(
     close $replace_read_fh or die "Unable to close $replace_target after retry verification: $!";
 }
 {
+    # The running _dashboard-core helper is restaged on Windows when it is
+    # not actually locked: the lock probe renames it aside and back, which
+    # succeeds here, so the refresh proceeds instead of deferring.
     my $defer_home = tempdir( CLEANUP => 1 );
     my $defer_target = File::Spec->catfile( $defer_home, '_dashboard-core' );
     my $stale_core = Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core') . "# stale\n";
@@ -1001,16 +1004,45 @@ ok(
     local *Developer::Dashboard::Platform::is_windows = sub { return 1 };
 
     ok(
+        Developer::Dashboard::InternalCLI::_stage_managed_helper(
+            paths  => $paths,
+            name   => '_dashboard-core',
+            target => $defer_target,
+        ),
+        '_stage_managed_helper restages the running _dashboard-core helper on Windows when the lock probe shows it is not locked',
+    );
+    open my $defer_read_fh, '<:raw', $defer_target or die "Unable to read $defer_target: $!";
+    local $/;
+    is( <$defer_read_fh>, Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core'), '_stage_managed_helper leaves the restaged Windows _dashboard-core helper with the current body' );
+    close $defer_read_fh or die "Unable to close $defer_target after verification: $!";
+}
+{
+    # When the lock probe fails the refresh is still deferred: the rename
+    # is stubbed to fail here to simulate the Windows sharing violation a
+    # live helper process causes, and the stale body must survive.
+    my $defer_home = tempdir( CLEANUP => 1 );
+    my $defer_target = File::Spec->catfile( $defer_home, '_dashboard-core' );
+    my $stale_core = Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core') . "# stale\n";
+    open my $defer_fh, '>:raw', $defer_target or die "Unable to write $defer_target: $!";
+    print {$defer_fh} $stale_core;
+    close $defer_fh or die "Unable to close $defer_target: $!";
+
+    local $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER} = $defer_target;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Platform::is_windows = sub { return 1 };
+    local *Developer::Dashboard::InternalCLI::_rename_path = sub { return 0 };
+
+    ok(
         !Developer::Dashboard::InternalCLI::_stage_managed_helper(
             paths  => $paths,
             name   => '_dashboard-core',
             target => $defer_target,
         ),
-        '_stage_managed_helper defers replacing the running _dashboard-core helper on Windows instead of dying',
+        '_stage_managed_helper defers replacing the running _dashboard-core helper on Windows when the lock probe fails instead of dying',
     );
     open my $defer_read_fh, '<:raw', $defer_target or die "Unable to read $defer_target: $!";
     local $/;
-    is( <$defer_read_fh>, $stale_core, '_stage_managed_helper leaves the running Windows _dashboard-core helper unchanged when refresh is deferred' );
+    is( <$defer_read_fh>, $stale_core, '_stage_managed_helper leaves the locked Windows _dashboard-core helper unchanged when refresh is deferred' );
     close $defer_read_fh or die "Unable to close $defer_target after verification: $!";
 }
 {
