@@ -25,13 +25,23 @@ _ev_invoke_callback(callback)
             SAVETMPS;
             PUSHMARK(SP);
             PUTBACK;
+            /* Clear $@ first, then read it back after the call. A
+               successful G_EVAL call leaves $@ as "" (defined but
+               empty) in this Perl, so definedness alone is not a die:
+               the error is real only when $@ is non-empty (a reference
+               is caught by SvTRUE; a false die value such as "" or 0
+               still produces a non-empty message because Perl appends
+               " at FILE line LINE" to it). Testing truth alone would
+               miss a callback that dies with a false value and silently
+               mark the routine done instead of failed. */
+            sv_setsv(ERRSV, &PL_sv_undef);
             call_sv(callback, G_VOID | G_DISCARD | G_EVAL);
             /* Restore before the mortal cleanup below: FREETMPS and LEAVE
                can run destructors, and a destructor that dies would croak
                out of this frame and leave the custom runops installed. */
             PL_runops = saved_runops;
             SPAGAIN;
-            if (SvTRUE(ERRSV)) {
+            if (SvOK(ERRSV) && (SvTRUE(ERRSV) || SvCUR(ERRSV) > 0)) {
                 err = newSVsv(ERRSV);
                 sv_setsv(ERRSV, &PL_sv_undef);
             }
@@ -39,7 +49,9 @@ _ev_invoke_callback(callback)
             FREETMPS;
             LEAVE;
         }
-        RETVAL = err ? err : newSV(0);
+        /* Undef on success: the Perl caller tests !defined $err, so a
+           defined value here (even 0) would be read as a failure. */
+        RETVAL = err ? err : &PL_sv_undef;
     }
   OUTPUT:
     RETVAL

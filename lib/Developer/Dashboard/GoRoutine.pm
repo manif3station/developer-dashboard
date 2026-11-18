@@ -534,6 +534,12 @@ FILTER_ONLY code => sub {
 
 my %ROUTINES;
 my $NEXT_ROUTINE_ID = 0;
+
+# Nesting depth of pump(): a callback that sends on a channel pumps to
+# let the receiver run, and that pump can dispatch another callback
+# that sends again. Without a bound that recursion grows until the
+# stack overflows; the guard in pump() turns it into a catchable error.
+our $_PUMP_DEPTH = 0;
 my $_LOAD_PID = $$; # forked children must not drain the parent's queue
 
 sub _routine_record {
@@ -723,6 +729,14 @@ sub _dispatch_routine {
 # registered at all.
 sub pump {
     my ($timeout) = @_;
+    # Bound the nesting: a callback that pumps re-entrantly without
+    # returning (a channel send waiting for a receiver that never runs
+    # while new senders keep arriving) would otherwise recurse until
+    # the stack overflows. local restores the depth on every exit,
+    # including a die, so the count is exact at each level.
+    local $_PUMP_DEPTH = $_PUMP_DEPTH + 1;
+    die "GoRoutine pump recursion too deep: more than 100 nested pump() calls, a callback is pumping without returning"
+        if $_PUMP_DEPTH > 100;
     my $wait_ms;
     if (!defined $timeout) {
         $wait_ms = -1;
@@ -1019,6 +1033,15 @@ sub timeout {
 sub status {
     my ($self) = @_;
     return $self->_rec->{state};
+}
+
+# error()
+# The error a failed routine died with, or undef when it did not fail.
+# A routine that dies with a false value ("" or 0) still records it:
+# the error is defined, even though it is false.
+sub error {
+    my ($self) = @_;
+    return $self->_rec->{error};
 }
 
 sub is_killed {

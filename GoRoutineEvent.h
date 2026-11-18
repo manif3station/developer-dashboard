@@ -269,6 +269,37 @@ go_ev_cancel_io(go_ev_io *dead)
 }
 
 /* ------------------------------------------------------------------ */
+#ifdef _WIN32
+/* go_ev_io_ready(io) - zero-timeout readiness check for one IO entry.
+   Used when more entries are registered than one fd_set holds: Winsock
+   silently drops sockets past FD_SETSIZE, so a single select over all
+   of them would starve the extras. One fd per select never overflows. */
+static int
+go_ev_io_ready(go_ev_io *io)
+{
+    struct timeval tv_zero;
+    tv_zero.tv_sec = 0;
+    tv_zero.tv_usec = 0;
+    if (io->want_read) {
+        fd_set set;
+        FD_ZERO(&set);
+        FD_SET(io->fd, &set);
+        if (select(0, &set, NULL, NULL, &tv_zero) > 0
+            && FD_ISSET(io->fd, &set))
+            return 1;
+    }
+    if (io->want_write) {
+        fd_set set;
+        FD_ZERO(&set);
+        FD_SET(io->fd, &set);
+        if (select(0, NULL, &set, NULL, &tv_zero) > 0
+            && FD_ISSET(io->fd, &set))
+            return 1;
+    }
+    return 0;
+}
+#endif
+
 /* Waiting                                                             */
 /*                                                                     */
 /* go_ev_wait collects due ids into the caller's buffer (capacity      */
@@ -364,51 +395,81 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
        in a second pass, so cancelling cannot disturb the scan. */
     if (go_ev_ios != NULL) {
 #ifdef _WIN32
-        fd_set read_set, write_set;
-        struct timeval tv;
+        /* Count the IO entries first: Winsock silently drops sockets
+           past FD_SETSIZE from an fd_set, so more than 64 entries
+           would starve the extras. Over the limit, check each socket
+           on its own with a zero-timeout select instead. */
+        int n_io = 0;
         go_ev_io *io;
-        FD_ZERO(&read_set);
-        FD_ZERO(&write_set);
-        for (io = go_ev_ios; io != NULL; io = io->next) {
-            if (io->want_read)
-                FD_SET(io->fd, &read_set);
-            if (io->want_write)
-                FD_SET(io->fd, &write_set);
-        }
-        tv.tv_sec = (long)(wait_ms / 1000);
-        tv.tv_usec = (long)((wait_ms % 1000) * 1000);
-        /* A failed select leaves the fd_sets unpopulated, so only scan
-           them when select reports ready fds, as the Unix poll path does. */
-        int sel_rc = select(0, &read_set, &write_set, NULL, &tv);
-        if (sel_rc > 0) {
+        for (io = go_ev_ios; io != NULL; io = io->next)
+            n_io++;
+        if (n_io > FD_SETSIZE) {
             int stored_io = 0;
             for (io = go_ev_ios; io != NULL; io = io->next) {
-                int ready = 0;
-                if (io->want_read && FD_ISSET(io->fd, &read_set))
-                    ready = 1;
-                if (io->want_write && FD_ISSET(io->fd, &write_set))
-                    ready = 1;
+                int ready = go_ev_io_ready(io);
                 if (ready && count < max_due) {
                     due[count++] = io->id;
                     stored_io++;
                 }
             }
-            /* Cancel only the nodes whose ids were stored above: nodes
-               past the cap stay registered for the next call. */
             {
                 int seen_io = 0;
                 for (io = go_ev_ios; io != NULL; ) {
                     go_ev_io *next = io->next;
-                    int ready = 0;
-                    if (io->want_read && FD_ISSET(io->fd, &read_set))
-                        ready = 1;
-                    if (io->want_write && FD_ISSET(io->fd, &write_set))
-                        ready = 1;
+                    int ready = go_ev_io_ready(io);
                     if (ready)
                         seen_io++;
                     if (ready && !io->repeat && seen_io <= stored_io)
                         go_ev_cancel_io(io);
                     io = next;
+                }
+            }
+        } else {
+            fd_set read_set, write_set;
+            struct timeval tv;
+            FD_ZERO(&read_set);
+            FD_ZERO(&write_set);
+            for (io = go_ev_ios; io != NULL; io = io->next) {
+                if (io->want_read)
+                    FD_SET(io->fd, &read_set);
+                if (io->want_write)
+                    FD_SET(io->fd, &write_set);
+            }
+            tv.tv_sec = (long)(wait_ms / 1000);
+            tv.tv_usec = (long)((wait_ms % 1000) * 1000);
+            /* A failed select leaves the fd_sets unpopulated, so only scan
+               them when select reports ready fds, as the Unix poll path does. */
+            int sel_rc = select(0, &read_set, &write_set, NULL, &tv);
+            if (sel_rc > 0) {
+                int stored_io = 0;
+                for (io = go_ev_ios; io != NULL; io = io->next) {
+                    int ready = 0;
+                    if (io->want_read && FD_ISSET(io->fd, &read_set))
+                        ready = 1;
+                    if (io->want_write && FD_ISSET(io->fd, &write_set))
+                        ready = 1;
+                    if (ready && count < max_due) {
+                        due[count++] = io->id;
+                        stored_io++;
+                    }
+                }
+                /* Cancel only the nodes whose ids were stored above: nodes
+                   past the cap stay registered for the next call. */
+                {
+                    int seen_io = 0;
+                    for (io = go_ev_ios; io != NULL; ) {
+                        go_ev_io *next = io->next;
+                        int ready = 0;
+                        if (io->want_read && FD_ISSET(io->fd, &read_set))
+                            ready = 1;
+                        if (io->want_write && FD_ISSET(io->fd, &write_set))
+                            ready = 1;
+                        if (ready)
+                            seen_io++;
+                        if (ready && !io->repeat && seen_io <= stored_io)
+                            go_ev_cancel_io(io);
+                        io = next;
+                    }
                 }
             }
         }

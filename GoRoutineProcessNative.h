@@ -245,7 +245,6 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     return (UV)process.dwProcessId;
 }
 #else
-extern char **environ;
 
 static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     I32 argc = 0;

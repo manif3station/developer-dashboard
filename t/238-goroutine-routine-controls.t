@@ -211,6 +211,83 @@ isa_ok($normal, 'Developer::Dashboard::GoRoutine::Routine',
     is($routine->status, 'done', 'both-direction routine finishes done');
 }
 
+# A callback that dies with a false value ("" or 0) still fails the
+# routine: the XS error check must not test truth, or the exception is
+# swallowed and the routine is wrongly marked done. Perl appends
+# " at FILE line LINE" to a die value without a trailing newline, so
+# the recorded error is the value plus that suffix, not the bare value.
+for my $false_die ( "", 0 ) {
+    my $label = $false_die eq "" ? 'empty string' : 'zero';
+    my $pat = $false_die eq "" ? qr/\ADied at / : qr/\A0 at /;
+    my $failed = go sub { die $false_die };
+    wait_all();
+    is( $failed->status, 'failed',
+        "routine dying with $label reports failed" );
+    ok( defined $failed->error,
+        "routine dying with $label records its error" );
+    like( $failed->error, $pat,
+        "routine dying with $label keeps the die value" );
+}
+
+# pump() re-entered from a dispatched callback nests on the stack: a
+# chain of routines whose callbacks each call pump(0) nests until the
+# depth guard trips, so those routines fail with the guard error and
+# the process stays up. (Calling pump() and then recursing in the same
+# callback does not nest: each pump returns before the next call, so
+# the guard never fires.) With a chain of 105 and a guard at 100, the
+# six routines dispatched once 100 callbacks are on the stack fail;
+# the other ninety-nine complete normally.
+my @chain;
+for ( 1 .. 105 ) {
+    push @chain, go sub { Developer::Dashboard::GoRoutine::pump(0) };
+}
+{
+    # The chain nests the dispatcher 100 deep on purpose; silence
+    # Perl's deep-recursion warning for this block, it is expected here.
+    local $SIG{__WARN__} = sub {
+        my ($msg) = @_;
+        warn $msg unless $msg =~ /Deep recursion/;
+    };
+    wait_all();
+}
+my @guard_failed = grep {
+    defined $_->error && $_->error =~ /recursion too deep/
+} @chain;
+is( scalar @guard_failed, 6,
+    'the routines past the pump depth guard fail with the guard error' );
+is( ( grep { $_->status eq 'done' } @chain ), 99,
+    'the routines before the guard complete normally' );
+
+# More IO routines than one Windows fd_set holds (FD_SETSIZE is 64):
+# Winsock silently drops the extras, so they would never fire. Every
+# registered routine must still run. The wait is bounded so a starved
+# routine fails the test instead of hanging it.
+{
+    my $server = IO::Socket::INET->new(
+        Listen => 1, LocalAddr => '127.0.0.1', LocalPort => 0,
+        Proto => 'tcp', ReuseAddr => 1,
+    ) or die "cannot listen: $!";
+    my $client = IO::Socket::INET->new(
+        PeerAddr => '127.0.0.1', PeerPort => $server->sockport, Proto => 'tcp',
+    ) or die "cannot connect: $!";
+    my $accepted = $server->accept or die "cannot accept: $!";
+    $client->autoflush(1);
+    print $client "x";
+    my $fired = 0;
+    my @many;
+    for ( 1 .. 70 ) {
+        push @many, go sub { $fired++ }, { readable => $accepted };
+    }
+    my $deadline = time() + 10;
+    while ( time() < $deadline ) {
+        last if $fired == 70;
+        Developer::Dashboard::GoRoutine::pump(0.1);
+    }
+    is( $fired, 70, 'all 70 IO routines fire past the 64-entry fd_set limit' );
+    is( ( grep { $_->status eq 'done' } @many ), 70,
+        'all 70 IO routines finish done' );
+}
+
 done_testing;
 
 __END__
