@@ -1375,6 +1375,7 @@ sub _read_process_title {
     # CI run 32011417394 died exactly that way. Containing $? here fixes it for
     # every caller rather than for the one test that noticed.
     local $?;
+    return if !defined $pid;
     my $proc = "/proc/$pid/cmdline";
     my $cmdline = $self->_read_proc_file($proc);
     if ( defined $cmdline && $cmdline ne '' ) {
@@ -1384,13 +1385,40 @@ sub _read_process_title {
     }
 
     if ( is_windows() ) {
-        # ps does not exist on Windows, and there is no Windows-native
-        # command-line reader in this layer, so a title that procfs did
-        # not supply is simply unavailable. Callers already treat undef
-        # as unknown; spawning cmd.exe for a ps that can never exist
-        # would only waste a process and surface its "not recognized"
-        # text through the capture.
-        return;
+        # ps does not exist on Windows, so read the command line from
+        # the Windows process table via CIM, the same source
+        # RuntimeManager::_ps_processes uses: a $0 assignment never
+        # rewrites the Windows launch command line, but a child spawned
+        # with the assignment in its arguments still carries it there,
+        # so the command line is the title, the same shape ps args
+        # gives on POSIX. The Where-Object filter keeps this to the one
+        # pid instead of scanning the whole table, and the command line
+        # is flattened to one line first, mirroring _ps_processes, so a
+        # child spawned with a multi-line -e script cannot split the
+        # output. A pid the table no longer lists is simply unknown.
+        # Callers already treat undef as unknown; spawning cmd.exe for
+        # a ps that can never exist would only waste a process and
+        # surface its "not recognized" text through the capture.
+        return if !defined $pid || $pid !~ /^\d+$/;
+        my $powershell = _powershell_command;
+        return if !length $powershell;
+        # The pid is interpolated with %d, never as a bare string: the
+        # q{} literal below holds balanced braces throughout, so a
+        # concatenation inside it would silently become part of the
+        # script text instead of Perl code.
+        my $script = sprintf(
+            q{$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq %d } | ForEach-Object { $cmd = $_.CommandLine; if ($null -eq $cmd) { $cmd = '' }; $cmd = $cmd -replace '\s+', ' '; [Console]::Out.WriteLine($cmd) }},
+            $pid,
+        );
+        my ( $title, undef, $exit_code ) = capture {
+            system( $powershell, '-NoLogo', '-NoProfile', '-Command', $script );
+            return $? >> 8;
+        };
+        return if defined $exit_code && $exit_code != 0;
+        return if !defined $title;
+        $title =~ s/\s+$//;
+        return if $title eq '';
+        return $title;
     }
 
     my ( $title, undef, $exit_code ) = capture {
