@@ -291,6 +291,18 @@ sub _dashboard_entry_command {
 # Output: never returns during normal command execution.
 sub _command_exec {
     my (@command) = @_;
+    if ( $^O eq 'MSWin32' ) {
+        # Perl's exec does not wait for the child on Windows: it spawns
+        # the re-entered process and exits at once, so which --edit
+        # returns before the editor has run (build #107: the editor log
+        # appears only after a delay, and the test reading it at once
+        # finds it missing). Use system + exit so the caller waits for
+        # the re-entered process and propagates its status, matching
+        # Unix exec semantics.
+        my $rc = system { $command[0] } @command;
+        die "Unable to run command '$command[0]': $!\n" if $rc == -1;
+        exit( $rc == 0 ? 0 : ( $rc >> 8 || 1 ) );
+    }
     exec { $command[0] } @command;
 
     # Reached only when exec fails: without this check a missing or
