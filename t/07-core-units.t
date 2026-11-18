@@ -1636,7 +1636,7 @@ SH
     ok( is_runnable_file('runner.sh'), 'is_runnable_file treats .sh files as runnable on Windows when a POSIX shell is available' );
     my @runner_sh = command_argv_for_path('runner.sh');
     is( $runner_sh[1], 'runner.sh', 'command_argv_for_path keeps the shell-script path when dispatching through an available POSIX shell on Windows' );
-    like( $runner_sh[0], qr{(?:^|/)sh$}, 'command_argv_for_path resolves .sh scripts through an available POSIX shell on Windows' );
+    like( $runner_sh[0], qr{(?:^|[/\\])sh(?:\.exe)?$}, 'command_argv_for_path resolves .sh scripts through an available POSIX shell on Windows' );
     {
         open my $fh, '>', 'runner-no-extension' or die $!;
         print {$fh} "#!/bin/sh\necho extensionless-ok\n";
@@ -1645,7 +1645,7 @@ SH
     ok( is_runnable_file('runner-no-extension'),
         'Windows recognizes an extensionless shell-shebang skill command' );
     my @extensionless_sh = command_argv_for_path('runner-no-extension');
-    like( $extensionless_sh[0], qr{(?:^|/)sh$},
+    like( $extensionless_sh[0], qr{(?:^|[/\\])sh(?:\.exe)?$},
         'Windows executes extensionless shell shebangs through a POSIX shell, not Perl' );
     is( $extensionless_sh[1], 'runner-no-extension',
         'Windows preserves a relative extensionless shell-script path' );
@@ -1740,8 +1740,13 @@ SH
     local *Developer::Dashboard::PathRegistry::_path_identity = sub {
         my ( $self, $path ) = @_;
         return '' if !defined $path;
-        $path =~ s{^/private}{};
-        return $path;
+        # The production identity resolves /private aliases and
+        # canonicalises separators, so the stub must do both: a
+        # forward-slash-only strip never matches a backslash-spelled
+        # Windows path, and an uncanonicalised reference keeps its
+        # forward slashes while the path identity uses backslashes.
+        $path =~ s{^[/\\]private(?=[/\\]|$)}{};
+        return File::Spec->canonpath($path);
     };
     is(
         $paths->_prefer_reference_style( $private_var, '/var' ),
@@ -1837,7 +1842,7 @@ is_deeply(
 );
 is( $paths->_expand_home(undef), undef, '_expand_home leaves undefined values unchanged' );
 is( $paths->_expand_home('$HOME/shared-path'), File::Spec->catdir( $home, 'shared-path' ), '_expand_home expands leading $HOME tokens' );
-is( $paths->_expand_home('$HOME'), $home, '_expand_home expands a bare $HOME token' );
+is( $paths->_expand_home('$HOME'), File::Spec->canonpath($home), '_expand_home expands a bare $HOME token' );
 {
     no warnings 'redefine';
     local *Developer::Dashboard::PathRegistry::_native_windows_paths = sub { return 1 };

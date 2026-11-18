@@ -2184,9 +2184,16 @@ sub _display_path {
     return $path if !defined $path || $path eq '';
 
     for my $alias_prefix ( '/private/tmp', '/private/var' ) {
-        next if index( $path, $alias_prefix ) != 0;
-        my $short_prefix = substr( $alias_prefix, length('/private') );
-        my $candidate = $short_prefix . substr( $path, length($alias_prefix) );
+        # The alias prefixes are written in Unix spelling, but on Windows
+        # the same paths arrive backslash-spelled and a forward-slash
+        # prefix can never match them. Compare and rebuild in the native
+        # separator; on Unix rootdir is '/', so this is an identity.
+        my $native_prefix = $alias_prefix;
+        $native_prefix =~ s{/}{File::Spec->rootdir}ge;
+        next if index( $path, $native_prefix ) != 0;
+        my $short_prefix = $native_prefix;
+        $short_prefix =~ s{^[/\\]private}{};
+        my $candidate = $short_prefix . substr( $path, length($native_prefix) );
         next if $self->_path_identity($candidate) ne $self->_path_identity($path);
         return $candidate;
     }
