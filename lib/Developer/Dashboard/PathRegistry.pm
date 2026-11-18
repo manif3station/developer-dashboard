@@ -13,6 +13,7 @@ use File::Spec;
 use Scalar::Util qw(blessed);
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::PathIdentity ();
+use Developer::Dashboard::Platform qw(is_real_windows windows_acl_is_owner_only windows_acl_set_owner_only);
 
 # _resolved_home_from_env()
 # Resolves the current user home directory from the available process
@@ -1781,6 +1782,55 @@ sub is_runtime_layer_path {
     return $self->runtime_layer_root_for($path) ne '' ? 1 : 0;
 }
 
+# _apply_dir_mode($path)
+# Tightens one existing directory to owner-only, by the mechanism that
+# means something on this platform. On Unix that is chmod 0700, skipped
+# when the mode already matches. On Windows chmod is a no-op (it only
+# toggles the read-only attribute and stat keeps reporting 0777), so the
+# directory gets a real owner-only DACL instead, skipped when the DACL
+# already grants only the current user. The Windows branch keys off the
+# REAL operating system (is_real_windows), not the localizable is_windows:
+# tests simulate Windows on Linux, and a simulated Windows has no icacls.
+# Callers keep their own gating (which directories to secure); this only
+# does the per-path mechanism.
+# Input: directory path string.
+# Output: directory path string.
+sub _apply_dir_mode {
+    my ( $self, $path ) = @_;
+    if ( is_real_windows() ) {
+        return $path if windows_acl_is_owner_only($path);
+        windows_acl_set_owner_only($path);
+        return $path;
+    }
+    my @dir_stat = stat $path;
+    die "Unable to inspect runtime directory $path: $!" if !@dir_stat;
+    if ( ( $dir_stat[2] & 07777 ) != 0700 ) {
+        chmod 0700, $path or die "Unable to chmod $path to 0700: $!";
+    }
+    return $path;
+}
+
+# _apply_file_mode($path, $mode)
+# Tightens one existing file to the given owner-only mode, by the
+# mechanism that means something on this platform. On Unix that is an
+# unconditional chmod to $mode (0600, or 0700 for an executable). On
+# Windows chmod is a no-op, so the file gets a real owner-only DACL
+# instead, skipped when the DACL already grants only the current user;
+# the DACL is full control either way, and the 0700/0600 distinction
+# lives in the effective-mode reading (via -x), not in the ACL.
+# Input: file path string and target permission mode integer.
+# Output: file path string.
+sub _apply_file_mode {
+    my ( $self, $path, $mode ) = @_;
+    if ( is_real_windows() ) {
+        return $path if windows_acl_is_owner_only($path);
+        windows_acl_set_owner_only($path);
+        return $path;
+    }
+    chmod $mode, $path or die sprintf 'Unable to chmod %s to %04o: %s', $path, $mode, $!;
+    return $path;
+}
+
 # secure_dir_permissions($dir)
 # Tightens one runtime directory chain to owner-only mode, skipping chmod
 # syscalls when each directory already has the required mode.
@@ -1799,11 +1849,7 @@ sub secure_dir_permissions {
 
     my $path = $layer_root;
     if ( -d $path ) {
-        my @dir_stat = stat $path;
-        die "Unable to inspect runtime directory $path: $!" if !@dir_stat;
-        if ( ( $dir_stat[2] & 07777 ) != 0700 ) {
-            chmod 0700, $path or die "Unable to chmod $path to 0700: $!";
-        }
+        $self->_apply_dir_mode($path);
     }
     return $dir if $dir eq $layer_root;
 
@@ -1822,11 +1868,7 @@ sub secure_dir_permissions {
     for my $part (@parts) {
         $path = File::Spec->catdir( $path, $part );
         next if !-d $path;
-        my @dir_stat = stat $path;
-        die "Unable to inspect runtime directory $path: $!" if !@dir_stat;
-        if ( ( $dir_stat[2] & 07777 ) != 0700 ) {
-            chmod 0700, $path or die "Unable to chmod $path to 0700: $!";
-        }
+        $self->_apply_dir_mode($path);
     }
 
     return $dir;
@@ -1847,8 +1889,25 @@ sub secure_file_permissions {
     return $file if !$self->is_runtime_layer_path($file) && !$self->_is_state_path($file);
     return $file if !-e $file;
     my $mode = $args{executable} ? 0700 : 0600;
-    chmod $mode, $file or die sprintf 'Unable to chmod %s to %04o: %s', $file, $mode, $!;
-    return $file;
+    return $self->_apply_file_mode( $file, $mode );
+}
+
+# secure_path_permissions($path, %args)
+# Tightens one existing path to owner-only, wherever it lives, without
+# the runtime-layer gating secure_dir_permissions and
+# secure_file_permissions apply. The doctor needs this: it audits (and
+# repairs) arbitrary paths under a root, including legacy locations
+# outside any runtime layer, where the gated helpers would return early
+# without securing anything. Directories take the directory mechanism,
+# files take the file mechanism with the executable flag deciding 0700/0600.
+# Input: path string plus optional executable boolean.
+# Output: path string.
+sub secure_path_permissions {
+    my ( $self, $path, %args ) = @_;
+    return $path if !defined $path || $path eq '' || !-e $path;
+    return $self->_apply_dir_mode($path) if -d $path;
+    my $mode = $args{executable} ? 0700 : 0600;
+    return $self->_apply_file_mode( $path, $mode );
 }
 
 # atomic_write_secure($tmp, $file, $content, %opts)
@@ -1907,8 +1966,7 @@ sub atomic_write_secure {
 # Output: staging file path string.
 sub _chmod_pending {
     my ( $self, $tmp, $mode ) = @_;
-    chmod $mode, $tmp or die sprintf 'Unable to chmod %s to %04o: %s', $tmp, $mode, $!;
-    return $tmp;
+    return $self->_apply_file_mode( $tmp, $mode );
 }
 
 # _is_state_path($path)
@@ -1955,11 +2013,14 @@ sub _ensure_state_dir {
         make_path( $dir, { mode => 0700 } );
     }
     else {
+        # The stat reuses the _ buffer the -d test above populated, and its
+        # failure message names the state directory: t/620 pins both.
+        # The mode pre-check is a Unix truth; on Windows stat always reads
+        # 0777, so _apply_dir_mode is always entered there and its own
+        # DACL check decides whether anything needs setting.
         my @dir_stat = stat _;
         die "Unable to inspect state directory $dir: $!" if !@dir_stat;
-        chmod 0700, $dir
-          or die sprintf 'Unable to chmod %s to 0700: %s', $dir, $!
-          if ( $dir_stat[2] & 07777 ) != 0700;
+        $self->_apply_dir_mode($dir) if ( $dir_stat[2] & 07777 ) != 0700;
     }
     return $dir;
 }
@@ -2210,10 +2271,25 @@ Report the effective working directory: the explicit constructor C<cwd> when one
 =head2 _ensure_state_dir
 
 Creates a missing state directory with mode C<0700>. For an existing directory,
-it inspects the mode from the directory check and calls C<chmod 0700> only when
-the complete permission/special-bit mask is not already exactly C<0700>. The
-directory remains private after either path; inspection or chmod errors are
-reported instead of being ignored. It accepts a directory path and returns
+it inspects the mode from the directory check and tightens it to owner-only
+only when the complete permission/special-bit mask is not already exactly
+C<0700> (chmod on Unix, an owner-only ACL on Windows). The directory remains
+private after either path; inspection or tightening errors are reported
+instead of being ignored. It accepts a directory path and returns that same
+path on success.
+
+=head2 secure_dir_permissions, secure_file_permissions, secure_path_permissions
+
+Tighten runtime paths to owner-only. secure_dir_permissions() hardens one
+runtime directory chain, secure_file_permissions() hardens one runtime file
+(0600, or 0700 for an executable), and secure_path_permissions() hardens one
+arbitrary existing path without the runtime-layer gating the other two apply,
+so the doctor can repair legacy locations outside any runtime layer. On Unix
+the mechanism is chmod; on Windows chmod cannot express owner-only, so the
+mechanism is a real owner-only DACL (one full-control ACE for the current
+user, inheritance disabled) and the check reads the DACL back through icacls.
+Each accepts a path string (secure_file_permissions() and
+secure_path_permissions() take an optional C<executable> boolean) and returns
 that same path on success.
 
 =head2 validated_path_segments

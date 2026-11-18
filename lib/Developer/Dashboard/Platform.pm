@@ -6,6 +6,7 @@ use warnings;
 our $VERSION = '6.31';
 
 use Exporter 'import';
+use Capture::Tiny qw(capture);
 use File::Basename qw(basename dirname);
 use File::Copy qw(copy);
 use File::Spec;
@@ -24,11 +25,24 @@ our @EXPORT_OK = qw(
   shell_quote_for
   passwd_user_name
   passwd_home_directory
+  is_real_windows
+  effective_mode_octal
+  windows_acl_is_owner_only
+  windows_acl_set_owner_only
 );
 
 our $OS_NAME = $^O;
 our $EXEC_LAUNCHER = sub { exec @_ };
 our $SYSTEM_LAUNCHER = sub { system @_ };
+
+# The real operating system, captured at load time. $OS_NAME above is a
+# localizable package variable: tests set it to MSWin32 to simulate Windows
+# on Linux (for shell argv, PowerShell quoting and the like). That simulation
+# cannot extend to ACLs - icacls and Windows DACLs do not exist on Linux -
+# so every function below that touches the real filesystem keys off this
+# flag, never off is_windows(). Same pattern as
+# Developer::Dashboard::GoRoutine's $_REAL_OS_IS_WINDOWS.
+my $_REAL_OS_IS_WINDOWS = $^O eq 'MSWin32';
 
 # is_windows()
 # Detects whether the active Perl runtime is running on Windows.
@@ -36,6 +50,17 @@ our $SYSTEM_LAUNCHER = sub { system @_ };
 # Output: boolean true for Strawberry/Windows-style runtimes, false otherwise.
 sub is_windows {
     return $OS_NAME eq 'MSWin32' ? 1 : 0;
+}
+
+# is_real_windows()
+# Detects whether the process is really running on Windows, immune to the
+# $OS_NAME simulation tests use. Use this (not is_windows()) for any branch
+# that touches the real Windows filesystem or a Windows-only tool: a
+# simulated Windows on Linux has no icacls and no DACL to read or set.
+# Input: none.
+# Output: boolean true only on a real Windows runtime, false otherwise.
+sub is_real_windows {
+    return $_REAL_OS_IS_WINDOWS ? 1 : 0;
 }
 
 # _passwd_entry($uid)
@@ -71,6 +96,128 @@ sub passwd_home_directory {
     my ($uid) = @_;
     my @entry = _passwd_entry($uid);
     return @entry ? $entry[7] : undef;
+}
+
+# _windows_current_user()
+# Resolves the current Windows account as the DOMAIN\user identity icacls
+# prints. The environment names come first (a logon always sets them); whoami
+# is the fallback for a service logon without them. whoami lower-cases the
+# spelling, so callers must compare identities case-insensitively.
+# Input: none.
+# Output: DOMAIN\user string, or undef when neither source can answer.
+sub _windows_current_user {
+    if ( defined $ENV{USERNAME} && $ENV{USERNAME} ne '' ) {
+        return defined $ENV{USERDOMAIN} && $ENV{USERDOMAIN} ne '' ? "$ENV{USERDOMAIN}\\$ENV{USERNAME}" : $ENV{USERNAME};
+    }
+    my ( $out, undef, $rc ) = capture { $SYSTEM_LAUNCHER->('whoami') };
+    return if $rc != 0;
+    $out =~ s/\s+\z//;
+    return $out ne '' ? $out : undef;
+}
+
+# _windows_icacls_aces($path)
+# Reads one path's DACL through icacls and returns its access entries.
+# icacls is used instead of a Win32 API binding because Win32::FileSecurity
+# is not installed on Strawberry Perl and the raw advapi32 calls need
+# hand-packed SID/ACL structs; icacls ships with every Windows and its ACE
+# lines (identity and parenthesised flags) are not localised, so parsing
+# them is stable. Only lines that parse as an ACE are collected; the
+# "Successfully processed" trailer and any other text are ignored.
+# Input: file or directory path string.
+# Output: array reference of [identity, flags] pairs, or undef when icacls
+# fails (including a missing path), meaning the ACL cannot be verified.
+sub _windows_icacls_aces {
+    my ($path) = @_;
+    my ( $out, $err, $rc ) = capture { $SYSTEM_LAUNCHER->( 'icacls', $path ) };
+    return if $rc != 0;
+    my @aces;
+    for my $line ( split /\r?\n/, $out ) {
+        $line =~ s/^\s+//;
+        $line =~ s/\s+\z//;
+        next if $line eq '';
+        # The first line carries the path ahead of its first ACE; strip the
+        # exact path passed in so a drive-letter colon can never be mistaken
+        # for the ACE delimiter. Later lines hold one ACE each.
+        if ( index( $line, $path ) == 0 ) {
+            $line = substr( $line, length($path) );
+            $line =~ s/^\s+//;
+        }
+        next if $line !~ /\A(.+?):((?:\([^)]*\))+)\z/;
+        push @aces, [ $1, $2 ];
+    }
+    return \@aces;
+}
+
+# windows_acl_is_owner_only($path)
+# Checks whether one path's Windows DACL grants access to the current user
+# only, with full control. The check is strict on purpose: any ACE for
+# another identity, any inherited ACE, any deny or no-access ACE, any ACE
+# without full control, and (for directories) any ACE missing the
+# container/object inherit flags all fail it, because each one leaves a
+# way in for someone other than the owner or lets a future child escape.
+# Input: file or directory path string.
+# Output: 1 when the DACL is owner-only, 0 when it is not, undef when the
+# ACL cannot be verified (missing path, unknown user, icacls failure).
+# Non-Windows callers get undef: this is a Windows-only check.
+sub windows_acl_is_owner_only {
+    my ($path) = @_;
+    return if !defined $path || $path eq '' || !-e $path;
+    return if !is_real_windows();
+    my $user = _windows_current_user();
+    return if !defined $user;
+    my $aces = _windows_icacls_aces($path);
+    return if !defined $aces;
+    return 0 if !@$aces;
+    my $is_dir = -d $path ? 1 : 0;
+    for my $ace (@$aces) {
+        my ( $identity, $flags ) = @$ace;
+        return 0 if lc($identity) ne lc($user);
+        return 0 if $flags =~ /\(I\)/ || $flags =~ /\(DENY\)/i || $flags =~ /\(IO\)/ || $flags =~ /\(N\)/;
+        return 0 if $flags !~ /\(F\)/;
+        return 0 if $is_dir && ( $flags !~ /\(OI\)/ || $flags !~ /\(CI\)/ );
+    }
+    return 1;
+}
+
+# windows_acl_set_owner_only($path)
+# Replaces one path's Windows DACL with a single full-control ACE for the
+# current user and disables inheritance, so no other account keeps access
+# through an inherited entry. Directories get container/object inherit
+# flags so children created inside inherit the same owner-only DACL.
+# Input: file or directory path string.
+# Output: the path string. Dies when the user cannot be determined or
+# icacls fails, with the icacls output attached so the failure is diagnosable.
+sub windows_acl_set_owner_only {
+    my ($path) = @_;
+    die "Missing path for Windows owner-only ACL\n" if !defined $path || $path eq '';
+    my $user = _windows_current_user();
+    die "Unable to determine the current Windows user for owner-only ACL on $path\n" if !defined $user;
+    my $grant = -d $path ? "$user:(OI)(CI)F" : "$user:F";
+    my ( $out, $err, $rc ) = capture { $SYSTEM_LAUNCHER->( 'icacls', $path, '/inheritance:r', '/grant:r', $grant ) };
+    die sprintf "Unable to set owner-only ACL on %s: icacls exited %d: %s%s\n", $path, $rc, $out, $err if $rc != 0;
+    return $path;
+}
+
+# effective_mode_octal($path)
+# Returns the permission bits for one file-system entry in four-digit octal
+# form, in the terms the product's owner-only policy understands on this
+# platform. On Unix that is the stat mode, unchanged. On Windows stat mode
+# bits do not reflect ACLs (a file stays 0666 whatever its DACL says), so
+# the mode is derived from the DACL instead: owner-only maps to 0700 for a
+# directory, and to 0700 for an executable file or 0600 otherwise - the
+# same -x rule the doctor's expected mode uses, so the two can never
+# disagree. A path whose DACL is not owner-only reports its stat mode, so
+# a loose path still reads loose and still gets flagged.
+# Input: file or directory path string.
+# Output: four-digit octal mode string or undef when stat fails.
+sub effective_mode_octal {
+    my ($path) = @_;
+    my @stat = stat($path);
+    return undef if !@stat;
+    return sprintf '%04o', $stat[2] & 07777 if !is_real_windows();
+    return sprintf '%04o', $stat[2] & 07777 if !windows_acl_is_owner_only($path);
+    return '0700' if -d $path;
+    return -x $path ? '0700' : '0600';
 }
 
 # native_shell_name($requested)
@@ -735,12 +882,28 @@ Windows Strawberry Perl installs.
 
 Platform and shell helpers used by the CLI and runtime.
 
+=head2 is_real_windows
+
+Real-OS Windows detection, immune to the C<$OS_NAME> simulation tests use.
+Use this for any branch that touches the real Windows filesystem or a
+Windows-only tool.
+
 =head2 passwd_user_name, passwd_home_directory
 
 Guarded passwd database accessors. Windows perl leaves the passwd functions
 unimplemented and dies when one is called, so both accessors report undef
 instead of a fatal error whenever the current runtime cannot answer the lookup.
 Callers use them as one step of an environment-first fallback chain.
+
+=head2 effective_mode_octal, windows_acl_is_owner_only, windows_acl_set_owner_only
+
+Windows owner-only permissions through real ACLs. Unix mode bits do not exist
+on Windows (chmod only toggles the read-only attribute and stat keeps
+reporting 0777/0666), so the setter replaces the DACL with one full-control
+ACE for the current user and disables inheritance, the checker reads the DACL
+back through icacls, and the mode helper reports 0700/0600 from the DACL
+instead of the meaningless stat bits. On Unix the mode helper is the stat mode
+unchanged.
 
 =for comment FULL-POD-DOC START
 

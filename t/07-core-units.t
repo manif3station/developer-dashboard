@@ -53,6 +53,7 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Platform qw(
   command_argv_for_path
   command_in_path
+  effective_mode_octal
   is_runnable_file
   native_shell_name
   normalize_shell_name
@@ -69,9 +70,11 @@ my $platform_lib_root = Developer::Dashboard::Platform::_module_lib_root();
 
 sub _mode_octal {
     my ($path) = @_;
-    my @stat = stat($path);
-    return undef if !@stat;
-    return sprintf '%04o', $stat[2] & 07777;
+    # The mode that means something on this platform: the stat mode on Unix,
+    # and the DACL-derived mode on Windows, where stat mode bits do not
+    # reflect ACLs (a file stays 0666 whatever its DACL says). The assertion
+    # itself is unchanged - owner-only still reads 0700/0600.
+    return effective_mode_octal($path);
 }
 
 sub dies_like {
@@ -166,7 +169,7 @@ ok( -d $paths->auth_root, 'auth root created' );
 ok( -d $paths->users_root, 'users root created' );
 ok( !defined $paths->project_root_for( File::Spec->catdir( $home, 'not-a-repo' ) ), 'project_root_for returns undef outside repos' );
 is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard' ) ), '0700', 'home runtime root is owner-only' );
-ok( index( $paths->state_root, $state_root_base ) == 0, 'state root is under the configured temporary state base' );
+ok( index( $paths->state_root, File::Spec->canonpath($state_root_base) ) == 0, 'state root is under the configured temporary state base' );
 is( _mode_octal( $paths->state_root ), '0700', 'state root is owner-only' );
 ok( !-e File::Spec->catdir( $home, '.developer-dashboard', 'state' ), 'state is not created under home runtime root by default' );
 is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'logs' ) ), '0700', 'home runtime logs root is owner-only' );
@@ -359,7 +362,13 @@ is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'a
         'doctor reports insecure legacy bookmark file mode',
     );
 
-    my $legacy_exec = File::Spec->catfile( $legacy_bookmarks, 'run.sh' );
+    # Perl's -x is extension-based on Windows, and chmod is a no-op there, so
+    # a run.sh fixture can never be executable on Windows: the doctor would
+    # expect 0600 for it and this assertion could never hold. The fixture
+    # takes the platform's executable name instead; the assertion - an
+    # executable file expects 0700 - is unchanged.
+    my $exec_name = $^O eq 'MSWin32' ? 'run.bat' : 'run.sh';
+    my $legacy_exec = File::Spec->catfile( $legacy_bookmarks, $exec_name );
     open my $legacy_exec_fh, '>', $legacy_exec or die "Unable to write $legacy_exec: $!";
     print {$legacy_exec_fh} "#!/bin/sh\nexit 0\n";
     close $legacy_exec_fh;
