@@ -11,7 +11,7 @@ use Getopt::Long qw(GetOptionsFromArray);
 use Developer::Dashboard::InternalCLI;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::CLI::TableHelpers qw(build_paths);
-use Developer::Dashboard::Platform qw(command_argv_for_path resolve_runnable_file is_runnable_file);
+use Developer::Dashboard::Platform qw(command_argv_for_path command_in_path_direct resolve_runnable_file is_runnable_file);
 use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::SkillManager;
 
@@ -267,6 +267,20 @@ sub _resolve_directory_runner {
 sub _dashboard_entry_command {
     my $entrypoint = $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} || 'd2';
     return ( $^X, $entrypoint ) if -f $entrypoint && !-x $entrypoint;
+    if ( $entrypoint !~ m{[\\/]} ) {
+        # Bare name: it must resolve to something the native spawn can
+        # execute, or the re-entry exec fails silently and which --edit
+        # exits 0 having done nothing (build #99/#100, test 781: no
+        # runnable d2 on PATH on the Windows checkout, where an
+        # extensionless script is not runnable). Fall back to the
+        # dashboard script this process is already running ($0), which
+        # is always the real entrypoint.
+        my $resolved = command_in_path_direct($entrypoint);
+        return ($resolved) if defined $resolved;
+        my $self = $0;
+        return ( $^X, $self ) if -f $self && !-x $self;
+        return ($self) if -f $self;
+    }
     return ($entrypoint);
 }
 
@@ -278,6 +292,11 @@ sub _dashboard_entry_command {
 sub _command_exec {
     my (@command) = @_;
     exec { $command[0] } @command;
+
+    # Reached only when exec fails: without this check a missing or
+    # unexecutable entrypoint falls through silently and which --edit
+    # exits 0 as though it had run (DD-910 class; build #99/#100).
+    die "Unable to run command '$command[0]': $!\n";
 }
 
 1;
