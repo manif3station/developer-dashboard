@@ -36,6 +36,7 @@ use Developer::Dashboard::ProcessSupervision qw(
     _powershell_command
     _rename_path
     _replace_state_file
+    _source_is_movable
     _unlink_path
     _helper_file_supports_internal_command
     _same_pid_namespace

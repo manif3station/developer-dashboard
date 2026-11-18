@@ -55,6 +55,7 @@ our @EXPORT_OK = qw(
     _reap_child_process
     _rename_path
     _replace_state_file
+    _source_is_movable
     _unlink_path
     _helper_file_supports_internal_command
     _same_pid_namespace
@@ -114,6 +115,25 @@ sub _replace_state_file {
 
     my $rename_error = $!;
     if ( $self->is_windows ) {
+        # A rename can fail two ways: the target already exists (a collision,
+        # where the source itself is movable) or the source is locked against
+        # rename/delete (which the writer itself holds briefly after close).
+        # Only the second case goes straight to the in-place overwrite: it
+        # reads the source (which still works while the source is locked) and
+        # rewrites the target without ever removing it, so a reader never
+        # finds the target missing. The unlink-then-rename and PowerShell
+        # paths below delete the target first and can leave it missing for
+        # seconds (PowerShell startup) while a locked source defeats every
+        # move, which starved loop_state and killed the t/07 stale-loop
+        # test at 580.
+        if ( !$self->_source_is_movable($source) ) {
+            my ( $overwrite_ok, $overwrite_error ) = $self->_overwrite_state_file_in_place( $source, $target );
+            return 1 if $overwrite_ok;
+            if ( defined $overwrite_error && $overwrite_error ne '' ) {
+                chomp $overwrite_error;
+                $rename_error = "$rename_error; in-place overwrite fallback failed: $overwrite_error";
+            }
+        }
         for my $attempt ( 1 .. 10 ) {
             if ( -e $target ) {
                 $self->_unlink_path($target)
@@ -163,6 +183,25 @@ sub _rename_path {
 sub _unlink_path {
     my ( $self, $path ) = @_;
     return unlink $path;
+}
+
+# _source_is_movable($source)
+# Probes whether a prepared temporary file can be renamed, to tell a target
+# collision (the rename failed only because the destination exists) from a
+# locked source (the rename fails because the source itself cannot be moved).
+# Renames the source to a probe name and straight back, so the file ends up
+# exactly where it started; uses the real rename, not the _rename_path
+# wrapper, so a test stubbing that wrapper to simulate a collision still sees
+# the true movability of the file on disk.
+# Input: temporary source path string.
+# Output: true when the source renames away and back, false otherwise.
+sub _source_is_movable {
+    my ( $self, $source ) = @_;
+    my $probe = $source . '.movable-probe';
+    return 0 if !CORE::rename( $source, $probe );
+    CORE::rename( $probe, $source )
+      or die "Unable to restore $source after movability probe: $!";
+    return 1;
 }
 
 # _overwrite_state_file_in_place($source, $target)
