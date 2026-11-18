@@ -457,7 +457,7 @@ sub _start_ssl_frontend_client {
     my $state = _start_ssl_frontend_client_state( $worker_server, $daemon, $client, $errors );
     $state->{routine} = Developer::Dashboard::GoRoutine::go(
         sub { _ssl_frontend_client_step($state) },
-        { every => 0.05, repeat => 1 },
+        { every => 0.05 },
     );
     return $state;
 }
@@ -604,8 +604,14 @@ sub _ssl_frontend_client_proxy_dir {
         if ( $state->{$off_key} >= length $state->{$buf_key} ) {
             $state->{$buf_key} = '';
             $state->{$off_key} = 0;
+            # Buffer fully flushed: fall through and read in the same
+            # step instead of waiting for the next 50ms tick. A partial
+            # write still returns here, so a new chunk can never
+            # overwrite data that has not been flushed yet.
         }
-        return;
+        else {
+            return;
+        }
     }
     my $select = IO::Select->new($from);
     return if !$select->can_read(0);
@@ -829,6 +835,7 @@ sub _stop_ssl_backend {
     my ( $pid, $reaped_children ) = @_;
     return 1 if !$pid;
     return 1 if $SSL_BACKEND_REAPED{$pid};
+    return 1 if ref($reaped_children) eq 'HASH' && $reaped_children->{$pid};
     Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' )
       if Developer::Dashboard::GoRoutine::process_running($pid);
     Developer::Dashboard::GoRoutine::wait_process($pid);

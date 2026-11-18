@@ -242,6 +242,19 @@ for my $false_die ( "", 0 ) {
         "routine dying with $label keeps the die value" );
 }
 
+# A callback that dies with undef still fails the routine: Perl supplies
+# the default "Died at FILE line LINE" message, so $@ is defined and the
+# XS error check sees it (Q round 8 asked this to be verified).
+{
+    my $failed = go sub { die undef };
+    wait_all();
+    is( $failed->status, 'failed', 'routine dying with undef reports failed' );
+    ok( defined $failed->error,
+        'routine dying with undef records its error' );
+    like( $failed->error, qr/\ADied at /,
+        'routine dying with undef keeps the default die message' );
+}
+
 # pump() re-entered from a dispatched callback nests on the stack: a
 # chain of routines whose callbacks each call pump(0) nests until the
 # depth guard trips, so those routines fail with the guard error and
