@@ -58,6 +58,75 @@ C
     return $exe;
 }
 
+# Compile a fake powershell.exe for Windows: it parses the -Command
+# "Move-Item -LiteralPath 'source' -Destination 'target' -Force" string
+# the production code passes and really moves the file (MoveFileEx with
+# REPLACE_EXISTING, the Move-Item -Force equivalent). With
+# FAKE_POWERSHELL_FAIL set it instead prints 'collector move failed' to
+# stderr and exits 9. A #!/bin/sh text file cannot be used here: the
+# Windows loader rejects it as an executable incompatible with the OS,
+# so the success case never moves anything and the failure case reports
+# the loader message instead of the native failure text (solo #170,
+# tests 718/719/721). Same Strawberry gcc pattern as
+# _compile_fake_tool_exe above; the compile dies loudly if the toolchain
+# is missing rather than letting the test pass silently.
+sub _compile_fake_powershell_exe {
+    my ($fake_bin) = @_;
+    my $c_source = File::Spec->catfile( $fake_bin, 'fake-powershell.c' );
+    open my $c_fh, '>', $c_source or die "Unable to write $c_source: $!";
+    print {$c_fh} <<'C';
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <windows.h>
+/* Fake powershell.exe for _replace_path_via_powershell tests. */
+static const char *find_quoted(const char *p, char *out, size_t cap) {
+    while (*p == ' ') p++;
+    if (*p != '\'') return NULL;
+    p++;
+    size_t n = 0;
+    while (*p) {
+        if (*p == '\'') {
+            if (p[1] == '\'') { if (n + 1 < cap) out[n++] = '\''; p += 2; continue; }
+            p++;
+            out[n] = '\0';
+            return p;
+        }
+        if (n + 1 < cap) out[n++] = *p;
+        p++;
+    }
+    return NULL;
+}
+int main(int argc, char **argv) {
+    if (getenv("FAKE_POWERSHELL_FAIL")) {
+        fprintf(stderr, "collector move failed\n");
+        return 9;
+    }
+    const char *cmd = NULL;
+    for (int i = 1; i + 1 < argc; i++) {
+        if (strcmp(argv[i], "-Command") == 0) { cmd = argv[i + 1]; break; }
+    }
+    if (!cmd) { fprintf(stderr, "collector move failed: no -Command argument\n"); return 9; }
+    const char *lit = strstr(cmd, "-LiteralPath");
+    const char *dst = strstr(cmd, "-Destination");
+    if (!lit || !dst) { fprintf(stderr, "collector move failed: no Move-Item paths\n"); return 9; }
+    char src[4096]; char target[4096];
+    if (!find_quoted(lit + strlen("-LiteralPath"), src, sizeof src)) { fprintf(stderr, "collector move failed: bad source path\n"); return 9; }
+    if (!find_quoted(dst + strlen("-Destination"), target, sizeof target)) { fprintf(stderr, "collector move failed: bad target path\n"); return 9; }
+    if (!MoveFileExA(src, target, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        fprintf(stderr, "collector move failed: MoveFileEx error %lu\n", (unsigned long)GetLastError());
+        return 9;
+    }
+    return 0;
+}
+C
+    close $c_fh;
+    my $exe = File::Spec->catfile( $fake_bin, 'powershell.exe' );
+    system( 'gcc', '-O2', '-o', $exe, $c_source ) == 0
+      or die "Unable to compile fake powershell.exe with gcc: $?";
+    return $exe;
+}
+
 # Wait for a file to appear, polling briefly. On Windows the fake go/java
 # helpers run through Perl exec(), which spawns the process and returns
 # immediately without waiting for it (Strawberry Perl: the child perl exits
@@ -5619,14 +5688,23 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         open my $source_fh, '>', $source or die "Unable to write $source: $!";
         print {$source_fh} qq({"status":"running"});
         close $source_fh or die "Unable to close $source: $!";
-        open my $ps_fh, '>', $powershell or die "Unable to write $powershell: $!";
-        print {$ps_fh} <<"SCRIPT";
+        if ( $^O eq 'MSWin32' ) {
+            # Windows only: a #!/bin/sh text file is not a runnable
+            # powershell.exe - the loader rejects it (solo #170) - so
+            # compile a real fake that parses the -Command Move-Item
+            # string and really moves the file.
+            $powershell = _compile_fake_powershell_exe($fakebin);
+        }
+        else {
+            open my $ps_fh, '>', $powershell or die "Unable to write $powershell: $!";
+            print {$ps_fh} <<"SCRIPT";
 #!/bin/sh
 mv "$source" "$target"
 exit 0
 SCRIPT
-        close $ps_fh or die "Unable to close $powershell: $!";
-        chmod 0755, $powershell or die "Unable to chmod $powershell: $!";
+            close $ps_fh or die "Unable to close $powershell: $!";
+            chmod 0755, $powershell or die "Unable to chmod $powershell: $!";
+        }
 
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
@@ -5636,20 +5714,28 @@ SCRIPT
           or diag $error;
         ok( -f $target, '_replace_path_via_powershell leaves the target file in place after a successful Move-Item fallback' );
 
-        open my $ps_fail_fh, '>', $powershell or die "Unable to rewrite $powershell: $!";
-        print {$ps_fail_fh} <<"SCRIPT";
-#!/bin/sh
-printf '%s\n' 'collector move failed' >&2
-exit 9
-SCRIPT
-        close $ps_fail_fh or die "Unable to close $powershell after rewrite: $!";
-        chmod 0755, $powershell or die "Unable to chmod $powershell after rewrite: $!";
-
         open my $retry_fh, '>', $source or die "Unable to rewrite $source: $!";
         print {$retry_fh} qq({"status":"retry"});
         close $retry_fh or die "Unable to close $source after rewrite: $!";
 
-        ( $ok, $error ) = $runner->_replace_path_via_powershell( $source, $target );
+        if ( $^O eq 'MSWin32' ) {
+            # The compiled fake reports failure through
+            # FAKE_POWERSHELL_FAIL instead of a rewritten script.
+            local $ENV{FAKE_POWERSHELL_FAIL} = '1';
+            ( $ok, $error ) = $runner->_replace_path_via_powershell( $source, $target );
+        }
+        else {
+            open my $ps_fail_fh, '>', $powershell or die "Unable to rewrite $powershell: $!";
+            print {$ps_fail_fh} <<"SCRIPT";
+#!/bin/sh
+printf '%s\n' 'collector move failed' >&2
+exit 9
+SCRIPT
+            close $ps_fail_fh or die "Unable to close $powershell after rewrite: $!";
+            chmod 0755, $powershell or die "Unable to chmod $powershell after rewrite: $!";
+
+            ( $ok, $error ) = $runner->_replace_path_via_powershell( $source, $target );
+        }
         ok( !$ok, '_replace_path_via_powershell returns failure when the Windows Move-Item fallback exits non-zero' );
         like( $error, qr/collector move failed/, '_replace_path_via_powershell returns the native PowerShell failure text' );
     }
