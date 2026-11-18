@@ -340,7 +340,7 @@ PL
     ok( defined $final && ( $final->{ENTRY_OK} // '' ) =~ /stdout_len=32\b/ && ( $final->{ENTRY_OK} // '' ) =~ /stderr_len=$E_LEN\b/,
         'stage B: the final command reads the oversized RESULT entry' );
     is( $d2_rc, 0, 'stage B: d2 micro-resultfile exits 0' );
-    like( $d2_out, qr/probe-stderr=$E_LEN\n/, 'stage B: probe output reaches the test' );
+    like( $d2_out, qr/probe-stderr=$E_LEN\r?\n/, 'stage B: probe output reaches the test' );
 }
 
 done_testing();
