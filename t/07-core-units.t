@@ -57,6 +57,26 @@ C
       or die "Unable to compile fake $tool_name.exe with gcc: $?";
     return $exe;
 }
+
+# Wait for a file to appear, polling briefly. On Windows the fake go/java
+# helpers run through Perl exec(), which spawns the process and returns
+# immediately without waiting for it (Strawberry Perl: the child perl exits
+# 0 the moment the spawn succeeds and the helper keeps running orphaned),
+# so the log the helper writes can appear a few dozen milliseconds after
+# the child perl has already exited 0 - opening it straight away races the
+# write and dies with "No such file or directory" (solos #156/#159). Poll
+# for up to 10 seconds, then give up so a genuinely missing log still fails
+# loudly instead of hanging. Uses the Time::HiRes sleep imported below.
+sub _wait_for_file {
+    my ( $path, $timeout_s ) = @_;
+    $timeout_s //= 10;
+    my $tries = int( $timeout_s / 0.05 );
+    for ( 1 .. $tries ) {
+        return 1 if -e $path;
+        sleep 0.05;
+    }
+    return -e $path ? 1 : 0;
+}
 # Perl's builtin sleep takes an integer, so every sub-second sleep in this file
 # silently became sleep(0) and the poll loops below spun with no delay at all.
 # That is what actually made the live-singleton pid probe flake under load, not
@@ -1365,6 +1385,8 @@ SH
             return $? >> 8;
         };
         is( $exit_code, 0, '_exec_go_source execs go run successfully through PATH lookup' );
+        _wait_for_file($go_log)
+          or die "Fake go log never appeared: $go_log";
         open my $go_log_fh, '<', $go_log or die $!;
         is(
             do { local $/; <$go_log_fh> },
@@ -1443,6 +1465,8 @@ SH
             return $? >> 8;
         };
         is( $exit_code, 0, '_exec_java_source compiles and execs Java successfully through PATH lookup' );
+        _wait_for_file($javac_log)
+          or die "Fake javac log never appeared: $javac_log";
         open my $javac_log_fh, '<', $javac_log or die $!;
         like(
             do { local $/; <$javac_log_fh> },
@@ -1450,6 +1474,8 @@ SH
             '_exec_java_source invokes javac with an isolated output directory and a staged source file named for the resolved class',
         );
         close $javac_log_fh;
+        _wait_for_file($java_log)
+          or die "Fake java log never appeared: $java_log";
         open my $java_log_fh, '<', $java_log or die $!;
         like(
             do { local $/; <$java_log_fh> },
