@@ -4292,8 +4292,14 @@ is( $timeout_result->{exit_code}, 124, 'collector runner enforces timeouts' );
 ok( $timeout_result->{timed_out}, 'collector runner marks timed out jobs' );
 
 my $env_job = {
-    name    => 'env.collector',
-    command => 'printf "$COLLECTOR_ENV"',
+    name => 'env.collector',
+    # On Windows the command runs under PowerShell, where "$VAR" is an
+    # (unset) PowerShell variable and the inherited process env var is
+    # spelled $env:VAR. Probe599 on win-ts proved it: the Unix spelling
+    # prints nothing (printf.exe: missing operand, exit 1) while
+    # 'printf $env:COLLECTOR_ENV' prints collector-ok, exit 0 - the env
+    # var itself reaches the child fine either way.
+    command => $^O eq 'MSWin32' ? 'printf $env:COLLECTOR_ENV' : 'printf "$COLLECTOR_ENV"',
     cwd     => 'home',
     env     => { COLLECTOR_ENV => 'collector-ok' },
 };
