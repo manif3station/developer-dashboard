@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '6.30';
+our $VERSION = '6.31';
 
 use Capture::Tiny qw(capture);
 use Errno qw(EAGAIN EINTR EWOULDBLOCK);

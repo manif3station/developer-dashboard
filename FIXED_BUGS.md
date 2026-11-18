@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 6.31
+
+- Fix the GoRoutine shutdown crash on Windows (t/240 access violation):
+  the old engine ran Perl callbacks on cloned interpreters and the
+  shutdown drain raced interpreter teardown. The redesigned engine has
+  no cloned interpreter, and the drain runs from a Perl END block on the
+  main thread, so the race cannot recur.
+
 ## 6.30
 
 - Prevent headless Linux CPAN Testers from failing during Makefile generation

@@ -1,3 +1,21 @@
+6.31  2026-11-18
+
+  - Replace the GoRoutine perl_clone/ithreads engine with a fully
+    independent single-threaded C event loop (timers, IO readiness,
+    process-exit waiting). Perl only uses it for async; nothing depends
+    on fork, threads.pm, or perl_clone. go registers a callback plus an
+    optional trigger and the engine invokes it on the main thread;
+    wait_all and the shutdown drain run on the main thread, so the
+    Windows shutdown teardown race (t/240 access violation) cannot
+    recur. channel and share are reimplemented on the new engine (a
+    main-thread queue and plain values); every public API piece is
+    preserved, with two inherent adjustments: no true parallelism
+    (callbacks run interleaved) and no force-kill of a running routine
+    (cooperative cancel instead).
+  - Migrate the SSL frontend to pump-driven client state machines and
+    run the system menu in its own worker process instead of a GoRoutine.
+  - Rewrite the thirteen goroutine test files to the new semantics.
+
 6.30  2026-11-08
 
   - Allow headless Linux CPAN builds to omit the optional GTK/Ayatana System
