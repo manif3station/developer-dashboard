@@ -3565,13 +3565,25 @@ like( $layered_which, qr/^HOOK \Q$leaf_hook\E$/m, 'd2 which includes the leaf-la
 my $project_local_bookmarks = File::Spec->catdir( $project_root, '.developer-dashboard', 'dashboards' );
 make_path($project_local_bookmarks);
 my $project_local_paths = _run("cd '$project_root' && $perl -I'$repo/lib' '$repo/bin/d2' paths");
-like( $project_local_paths, qr/runtime_root\s+\Q$project_root\/.developer-dashboard\E/, 'd2 paths reports the project-local runtime root when present' );
-like( $project_local_paths, qr/dashboards_root\s+\Q$project_local_bookmarks\E/, 'd2 paths reports the project-local dashboards root when present' );
+# The paths output spells separators natively (backslashes on Windows,
+# forward slashes everywhere else), and $project_root is built with
+# File::Spec. Compare separator-normalized copies so the assertions
+# check the paths, not the spelling of the separator.
+my $project_root_forward = $project_root;
+$project_root_forward =~ s/\\/\//g;
+my $project_local_bookmarks_forward = $project_local_bookmarks;
+$project_local_bookmarks_forward =~ s/\\/\//g;
+my $project_local_paths_forward = $project_local_paths;
+$project_local_paths_forward =~ s/\\/\//g;
+like( $project_local_paths_forward, qr/runtime_root\s+\Q$project_root_forward\/.developer-dashboard\E/, 'd2 paths reports the project-local runtime root when present' );
+like( $project_local_paths_forward, qr/dashboards_root\s+\Q$project_local_bookmarks_forward\E/, 'd2 paths reports the project-local dashboards root when present' );
 my $project_cpan_output = _run("cd '$project_root' && PATH='$fake_bin':\"\$PATH\" $perl -I'$repo/lib' '$repo/bin/d2' cpan DBD::Mock");
-like( $project_cpan_output, qr/"ok"\s*:\s*1/, 'd2 cpan reports success' );
-like( $project_cpan_output, qr/"runtime_root"\s*:\s*"\Q$project_root\/.developer-dashboard\E"/, 'd2 cpan reports the project-local runtime root' );
-like( $project_cpan_output, qr/"cpanfile"\s*:\s*"\Q$project_root\/.developer-dashboard\/cpanfile\E"/, 'd2 cpan reports the runtime cpanfile path' );
-like( $project_cpan_output, qr/"local_root"\s*:\s*"\Q$project_root\/.developer-dashboard\/local\E"/, 'd2 cpan reports the runtime local library root' );
+my $project_cpan_output_forward = $project_cpan_output;
+$project_cpan_output_forward =~ s/\\/\//g;
+like( $project_cpan_output_forward, qr/"ok"\s*:\s*1/, 'd2 cpan reports success' );
+like( $project_cpan_output_forward, qr/"runtime_root"\s*:\s*"\Q$project_root_forward\/.developer-dashboard\E"/, 'd2 cpan reports the project-local runtime root' );
+like( $project_cpan_output_forward, qr/"cpanfile"\s*:\s*"\Q$project_root_forward\/.developer-dashboard\/cpanfile\E"/, 'd2 cpan reports the runtime cpanfile path' );
+like( $project_cpan_output_forward, qr/"local_root"\s*:\s*"\Q$project_root_forward\/.developer-dashboard\/local\E"/, 'd2 cpan reports the runtime local library root' );
 open my $project_cpanfile_fh, '<', File::Spec->catfile( $project_root, '.developer-dashboard', 'cpanfile' )
   or die "Unable to read project runtime cpanfile: $!";
 my $project_cpanfile = do { local $/; <$project_cpanfile_fh> };
