@@ -3068,7 +3068,7 @@ chmod 0755, $huge_probe or die "Unable to chmod $huge_probe: $!";
 
 my ( $huge_stdout, $huge_stderr, $huge_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' huge-result");
 is( $huge_exit, 0, 'dashboard custom commands still succeed when RESULT grows beyond the inline exec-safe environment size' );
-like( $huge_stdout, qr/probe-stderr=1800000\n/s, 'later hook files can still read oversized RESULT state through the fallback channel' );
+like( $huge_stdout, qr/probe-stderr=1800000\r?\n/s, 'later hook files can still read oversized RESULT state through the fallback channel' );
 like( $huge_stdout, qr/stdout=32\n/s, 'final command still receives the oversized hook stdout length through Runtime::Result' );
 like( $huge_stdout, qr/stderr=1800000\n/s, 'final command still receives the oversized hook stderr length through Runtime::Result' );
 like( $huge_stdout, qr/result_file=1\n/s, 'final command sees the explicit RESULT_FILE fallback when hook output would otherwise overflow exec' );
@@ -3132,8 +3132,8 @@ chmod 0755, $stop_third or die "Unable to chmod $stop_third: $!";
 
 my ( $stop_stdout, $stop_stderr, $stop_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' hook-stop-check");
 is( $stop_exit, 0, 'dashboard returns to the main command after a hook emits the explicit stop marker' );
-like( $stop_stdout, qr/^ABC\n/s, 'dashboard still streams stdout from hooks that ran before the stop marker' );
-like( $stop_stdout, qr/stop-hook\n/s, 'dashboard still streams stdout from the hook that requested stop' );
+like( $stop_stdout, qr/^ABC\r?\n/s, 'dashboard still streams stdout from hooks that ran before the stop marker' );
+like( $stop_stdout, qr/stop-hook\r?\n/s, 'dashboard still streams stdout from the hook that requested stop' );
 unlike( $stop_stdout, qr/third-hook\n/s, 'dashboard skips later hook scripts after a stop marker appears on stderr' );
 like( $stop_stderr, qr/\[\[STOP\]\] stop requested by 01-stop\.pl/, 'dashboard keeps the explicit stop marker visible on stderr' );
 ok( !-e $stop_sentinel, 'dashboard does not execute later hook files once the stop marker is seen' );
