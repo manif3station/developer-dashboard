@@ -473,7 +473,14 @@ sub shell_quote_for {
 sub _path_candidates {
     my ($path) = @_;
     my @candidates = ($path);
-    return @candidates if !is_windows();
+    # PATHEXT expansion is a real-filesystem concern: the candidates feed
+    # -f checks, so they must follow the real OS, not the simulated one.
+    # On real Windows the variants are needed even when the caller
+    # localized $OS_NAME to 'linux' - without them command_in_path('node')
+    # cannot find node.exe although it is on PATH (t/07 test 170, solo
+    # #154). The gate still honors the simulation on Linux, where
+    # is_real_windows() is false and nothing changes.
+    return @candidates if !is_windows() && !is_real_windows();
     return @candidates if $path =~ /\.[^\\\/.]+\z/;
 
     my @extensions = split /;/, ( $ENV{PATHEXT} || '.COM;.EXE;.BAT;.CMD;.PS1' );
