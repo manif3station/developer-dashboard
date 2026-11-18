@@ -365,6 +365,15 @@ sub resolve_runnable_file {
         next if !-f $candidate;
         return $candidate if !is_windows() && -x $candidate;
         return $candidate if is_windows() && _is_windows_runnable_candidate($candidate);
+        # The simulated platform cannot change the real filesystem: on
+        # real Windows -x is extension-based, so a script file fails it
+        # even when the dashboard can run it through an interpreter. When
+        # the simulated platform says Linux but the real OS is Windows,
+        # accept what the real platform can run. This line cannot fire on
+        # real Linux (is_real_windows() is false) or in production on real
+        # Windows (is_windows() is true there); it only repairs the
+        # simulation, where the caller localized $OS_NAME to 'linux'.
+        return $candidate if !is_windows() && is_real_windows() && _is_windows_runnable_candidate($candidate);
     }
 
     return;

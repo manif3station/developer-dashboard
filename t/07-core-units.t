@@ -1232,12 +1232,17 @@ is_deeply(
                 [ '/usr/local/bin/python', 'unix-hook.py' ],
                 'command_argv_for_path resolves executable Python source files through python',
             );
+            # The lookup itself also consults the interpreter's presence on
+            # Windows (via _is_windows_runnable_candidate), so the same
+            # simulated python covers it; python is not installed on the
+            # Windows test node, and the assertion below is about the
+            # suffix-omission lookup, not about the interpreter existing.
+            is(
+                resolve_runnable_file('unix-hook'),
+                'unix-hook.py',
+                'resolve_runnable_file finds executable Python sources when the logical command name omits the .py suffix',
+            );
         }
-        is(
-            resolve_runnable_file('unix-hook'),
-            'unix-hook.py',
-            'resolve_runnable_file finds executable Python sources when the logical command name omits the .py suffix',
-        );
         unlink 'unix-hook.py' or die $!;
     }
     {
