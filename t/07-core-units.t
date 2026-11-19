@@ -4802,14 +4802,29 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         Developer::Dashboard::GoRoutine::wait_process($pid);
         return 1;
     };
+    # A just-spawned child has not execed yet, so the first read sees the
+    # spawner's environ and command line, not the marker or the token; poll
+    # briefly for the exec instead of asserting on a single immediate read
+    # (micro t/995, solo #336: pre-exec environ is byte-identical to the
+    # parent's, and the marker appears only after exec; the race bit test
+    # 652 on ARM64 in round 32, build #334). The poll returns at once on
+    # success, so the common case costs nothing.
+    my $matches_eventually = sub {
+        my ( $pid, $name ) = @_;
+        for ( 1 .. 40 ) {
+            return 1 if $runner->_loop_runtime_matches( $pid, $name );
+            sleep(0.05);
+        }
+        return 0;
+    };
     SKIP: {
         skip 'the runtime env marker is only readable where /proc exists', 1 if !-d '/proc';
         my $marked = $spawn_fixture->( undef, $key );
-        ok( $runner->_loop_runtime_matches( $marked, 'fixture.marker' ), '_loop_runtime_matches accepts a process carrying this runtime marker in its initial environ' );
+        ok( $matches_eventually->( $marked, 'fixture.marker' ), '_loop_runtime_matches accepts a process carrying this runtime marker in its initial environ' );
         $reap_fixture->($marked);
     }
     my $tokened = $spawn_fixture->( "collector-loop-foreground --name fixture.runtime --runtime $key", undef );
-    ok( $runner->_loop_runtime_matches( $tokened, 'fixture.runtime' ), '_loop_runtime_matches accepts a process whose command line carries this runtime token' );
+    ok( $matches_eventually->( $tokened, 'fixture.runtime' ), '_loop_runtime_matches accepts a process whose command line carries this runtime token' );
     $reap_fixture->($tokened);
     my $foreign_token = $spawn_fixture->( 'collector-loop-foreground --name fixture.runtime --runtime 00000000000000000000000000000000', undef );
     ok( !$runner->_loop_runtime_matches( $foreign_token, 'fixture.runtime' ), '_loop_runtime_matches rejects a process carrying another runtime token' );
