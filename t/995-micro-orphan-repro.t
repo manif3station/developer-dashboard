@@ -130,8 +130,14 @@ sub _wait_for_file {
 # measured, not assumed. Perl's POSIX module has setsid but no getpgid
 # or getsid, so read them from the kernel: /proc/<pid>/stat fields 4, 5
 # and 6 on Linux (ppid, pgrp, session after the comm), `ps -o
-# ppid=,pgid=,sid=` on macOS. A session leader's pgid and sid both equal
-# its pid, which is how the replica is validated.
+# ppid=,pgid=,sid=` on Linux without /proc, `ps -o ppid=,pgid=,sess=`
+# on macOS. The session value is an OPAQUE TOKEN, not a pid: on Linux
+# it is the numeric session id (a session leader's sid equals its pid),
+# but on macOS `sess` is a session POINTER (Darwin ps man page: "sess
+# session pointer"), printed in hex - v4 read it as a number and got
+# the "0" from "0x..." on every process (solo #229). Compare tokens
+# for equality (same session vs detached), never against a pid, on
+# macOS. A session leader's pgid always equals its pid, on both.
 sub _proc_ids {
     my ($pid) = @_;
     return if !defined $pid || $pid !~ /^\A\d+\z/;
@@ -143,18 +149,17 @@ sub _proc_ids {
         my @fields = split /\s+/, $after_paren;
         return if @fields < 4;
         return if grep { !defined $_ || $_ !~ /^\A-?\d+\z/ } @fields[ 1, 2, 3 ];
-        return { ppid => $fields[1] + 0, pgrp => $fields[2] + 0, session => $fields[3] + 0 };
+        return { ppid => $fields[1] + 0, pgrp => $fields[2] + 0, session => $fields[3] };
     }
     # No /proc (macOS): ask ps. The session keyword differs by
-    # platform - `sid` on Linux, `sess` on macOS - so try both; v3 used
-    # `sid` only, which macOS ps rejects, and every topology read on
-    # macOS came back unreadable (solo #228, test 2). `ppid` and `pgid`
-    # are valid keywords on both.
+    # platform - `sid` on Linux, `sess` on macOS - so try both. `ppid`
+    # and `pgid` are valid keywords on both. The third field is captured
+    # as a bare token, never as a number: macOS `sess` is a pointer.
     for my $keyword (qw(sid sess)) {
         my ( $out, $exit ) = _run_quiet("ps -o ppid=,pgid=,$keyword= -p $pid");
         next if $exit != 0 || !defined $out;
-        my ( $ppid, $pgrp, $session ) = $out =~ /(\d+)\s+(\d+)\s+(\d+)/ or next;
-        return { ppid => $ppid + 0, pgrp => $pgrp + 0, session => $session + 0 };
+        my ( $ppid, $pgrp, $session ) = $out =~ /(\d+)\s+(\d+)\s+(\S+)/ or next;
+        return { ppid => $ppid + 0, pgrp => $pgrp + 0, session => $session };
     }
     return;
 }
@@ -185,7 +190,7 @@ sub _diag_topology {
     my ( $label, $pid ) = @_;
     my $ids = _proc_ids($pid);
     if ($ids) {
-        diag("micro: topology $label pid $pid ppid $ids->{ppid} pgid $ids->{pgrp} sid $ids->{session}");
+        diag("micro: topology $label pid $pid ppid $ids->{ppid} pgid $ids->{pgrp} session $ids->{session}");
     }
     else {
         diag("micro: topology $label pid $pid unreadable");
@@ -424,8 +429,17 @@ eval {
     # the wrong replica. v3 records the whole topology and lets the
     # kill result speak.
     my $standin_ids = _diag_topology( 'stand-in', $parent_pid );
-    ok( $standin_ids && $standin_ids->{pgrp} == $parent_pid && $standin_ids->{session} == $parent_pid,
-        'micro: stand-in is a session leader like prove (pgid == sid == pid)' );
+    # Session leadership on both platforms: a process-group leader has
+    # pgid == pid, and the stand-in called setsid() - which dies on
+    # failure - before serving, so it is a session leader if it is
+    # alive with pgid == pid. The session TOKEN is only checked present,
+    # never compared to the pid: on Linux it is the numeric sid (which
+    # does equal the leader's pid), but on macOS it is a session
+    # pointer, an opaque hex token. v4 compared it to the pid and
+    # failed macOS test 2 on every process reading "0" (the "0" of
+    # "0x...", solo #229).
+    ok( $standin_ids && $standin_ids->{pgrp} == $parent_pid && defined $standin_ids->{session} && $standin_ids->{session} ne '',
+        'micro: stand-in is a session leader like prove (pgid == pid, session token present)' );
     _diag_topology( 'web', $standin->{web_pid} ) if $standin->{web_pid};
     my $sup_ids = _diag_topology( 'supervisor', $sup_pid );
     my $all_pids = _collect_managed_pids($state_root);
@@ -454,11 +468,25 @@ eval {
     # hiding it. The loop start times say whether the loops in this
     # state root belong to this run or predate it.
     _diag_topology( 'supervisor-steady', $sup_pid );
+    my $steady_sup_ids = _proc_ids($sup_pid);
+    if ( $standin_ids && $steady_sup_ids ) {
+        diag( 'micro: supervisor session token ' . $steady_sup_ids->{session} . ' vs stand-in ' . $standin_ids->{session}
+              . ( $steady_sup_ids->{session} ne $standin_ids->{session} ? ' - DETACHED into its own session' : ' - STILL in the stand-in session' ) );
+    }
     my $steady_pids = _collect_managed_pids($state_root);
     for my $label ( sort keys %{$steady_pids} ) {
         next if $label eq 'supervisor';
         my $started = _proc_start( $steady_pids->{$label} );
-        diag( 'micro: loop ' . $label . ' pid ' . $steady_pids->{$label} . ' started ' . ( $started || 'unknown' ) );
+        # The pidfile mtime next to the process start time is the
+        # adoption proof: a fresh pidfile naming an old process means
+        # this run's supervisor ADOPTED an already-running loop from
+        # the process table (CollectorRunner
+        # _adopt_existing_loop_if_running) instead of spawning a fresh
+        # one. An old pidfile would mean a shared state root instead.
+        my ($loop_name) = $label =~ /\Aloop:(.*)\z/;
+        my $pidfile = defined $loop_name ? File::Spec->catfile( $state_root, 'collectors', "$loop_name.pid" ) : undef;
+        my $mtime = $pidfile && -f $pidfile ? scalar localtime( ( stat($pidfile) )[9] ) : 'missing';
+        diag( 'micro: loop ' . $label . ' pid ' . $steady_pids->{$label} . ' started ' . ( $started || 'unknown' ) . ', pidfile mtime ' . $mtime );
     }
 
     # Fail-fast, exactly as failsafe.pl does it: TERM to the negative
@@ -630,7 +658,21 @@ landing in that window takes the supervisor down (which is what v2's
 solo #226 measured). v4 fixes the macOS topology reader (ps needs
 `sess`, not `sid`) and adds a steady-state re-read plus loop start
 times; solo #228's macOS leg failed test 2 on the unreadable topology
-and tripped fail-fast before the other legs finished.
+and tripped fail-fast before the other legs finished. Solo #229 (v4)
+confirmed the survival a SECOND time on a Linux leg (10/10 before
+cascade, supervisor re-sessioned itself before the kill) and resolved
+the loop puzzle: the loops in the fresh state root started 16 and 38
+minutes before the run - they are orphans from earlier runs, and the
+supervisor ADOPTS them (CollectorRunner
+_adopt_existing_loop_if_running: if the pidfile is missing it asks the
+process table by name and rewrites the record) instead of spawning
+fresh ones, so orphaned loops are never replaced and never die across
+runs. v4's macOS leg failed test 2 again, differently: `sess` is a
+session POINTER (Darwin ps man page), printed in hex, and the numeric
+regex read the "0" of "0x..." on every process. v5 treats the session
+as an opaque token (equality only, never compared to a pid) and adds
+the pidfile mtime to the loop diag, which is the adoption proof
+(fresh pidfile naming an old process).
 
 =head1 WHY IT EXISTS
 
