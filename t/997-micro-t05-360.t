@@ -13,6 +13,7 @@ use lib File::Spec->catdir( $FindBin::Bin, '..', 'lib' );
 use Cwd qw(getcwd);
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Encode qw(decode encode);
+use File::Find ();
 use File::Path qw(make_path);
 use File::Temp qw(tempdir);
 use IO::Socket::INET;
@@ -176,29 +177,52 @@ if ( !$UNDER_COVER ) {
     note( sprintf 'micro: polls=%d total_elapsed=%.2fs', $poll_count, time() - $t0 );
 
     # Post-mortem diagnostics, before the assertion that may fail.
-    my $status_raw = _run_quiet_in_home( $serve_home, "$perl -I'$lib' '$dashboard' collector status tick.collector" );
-    diag("micro: final collector status:\n$status_raw");
-    # Prefer the JSON "pid" key (the loop pid). Fall back to a bare pid
-    # field, but never the web pid: "web pid" is the serve process, not
-    # the loop, and reporting it alive would misattribute liveness.
-    my ($loop_pid) = $status_raw =~ /"pid"\s*:\s*(\d+)/;
-    if ( !$loop_pid ) {
-        my @pids = $status_raw =~ /(?<!web\s)\bpid\b\s*[:=]\s*(\d+)/gi;
-        $loop_pid = $pids[0] if @pids;
+    # v1 asked the collector STATUS store and got {} on ARM64, which says
+    # no worker ever completed a run but says nothing about the loop child
+    # itself. v2 walks the temp home on disk instead: the loop state file
+    # (loop.json), the pidfile, the collector log and its .stderr sibling,
+    # and the stdout snapshot. Those files show whether the loop child
+    # ever wrote its first state, whether it is alive, and whether it died
+    # at startup (a startup death lands in the .stderr file, which the
+    # `collector log` command never shows).
+    my @found_files;
+    File::Find::find(
+        sub {
+            return if !-f $_;
+            push @found_files, $File::Find::name;
+        },
+        $serve_home
+    );
+    diag( sprintf 'micro: %d files under serve home:', scalar @found_files );
+    for my $path ( sort @found_files ) {
+        diag( sprintf 'micro: file %s size=%s', $path, -s $path );
     }
-    if ($loop_pid) {
-        diag( sprintf 'micro: loop pid %s alive=%d', $loop_pid, kill( 0, $loop_pid ) ? 1 : 0 );
+    my $loop_state_raw;
+    for my $path ( sort @found_files ) {
+        next if $path !~ /(?:loop\.json|\.pid|collector\.log|\.stderr|stdout|last_run|status\.json)\z/;
+        open my $fh, '<:raw', $path or next;
+        local $/;
+        my $content = <$fh>;
+        close $fh;
+        $content = '' if !defined $content;
+        $loop_state_raw = $content if $path =~ /loop\.json\z/;
+        $content = substr( $content, 0, 3000 ) if length($content) > 3000;
+        $content =~ s/\n/\\n/g;
+        diag("micro: content $path:\n$content");
+    }
+    if ( defined $loop_state_raw && $loop_state_raw ne '' ) {
+        diag("micro: loop.json raw: $loop_state_raw");
+        my ($loop_pid) = $loop_state_raw =~ /"pid"\s*:\s*(\d+)/;
+        if ($loop_pid) {
+            diag( sprintf 'micro: loop pid %s alive=%d', $loop_pid, kill( 0, $loop_pid ) ? 1 : 0 );
+        }
+        else {
+            diag('micro: no loop pid parsed from loop.json');
+        }
     }
     else {
-        diag('micro: no loop pid parsed from collector status');
+        diag('micro: no loop.json found under serve home (loop child never wrote state)');
     }
-    my $inspect_raw = _run_quiet_in_home( $serve_home, "$perl -I'$lib' '$dashboard' collector inspect tick.collector" );
-    diag("micro: collector inspect:\n$inspect_raw");
-    my $log_raw = _run_quiet_in_home( $serve_home, "$perl -I'$lib' '$dashboard' collector log tick.collector" );
-    my @log_lines = split /\n/, $log_raw;
-    my $tail_from = @log_lines > 30 ? @log_lines - 30 : 0;
-    my $log_tail  = join "\n", @log_lines[ $tail_from .. $#log_lines ];
-    diag("micro: collector log tail (last 30 lines):\n$log_tail");
 
     # Stop everything so no orphan loop or web server lingers. The like
     # below reads the already-captured $first_stdout, so stopping first
@@ -247,9 +271,18 @@ Trigger with the durable helper:
 python3 ~/workspace/jenkins-cli/trigger.py windows/loop6-combined t/997-micro-t05-360.t 1
 Read the console: each poll logs its index, elapsed time, poll duration
 and stdout value; every tenth poll logs the collector status; after the
-loop the micro prints the final collector status, the loop pid liveness,
-the collector inspect output and the last 30 lines of the collector log,
-then asserts the output appeared.
+loop the micro walks the temp home on disk and prints every file with its
+size, then the contents of the loop state file (loop.json), the pidfile,
+the collector log and its .stderr sibling, and the stdout snapshot, plus
+whether the loop pid from loop.json is still alive, then asserts the
+output appeared.
+
+v1 asked the collector status store and got {} on ARM64, which proved no
+worker ever completed a run but said nothing about the loop child. v2
+reads the loop child's own files instead: loop.json shows whether the
+child ever wrote its first state and whether it is alive; the .stderr
+file shows a startup death, which the `collector log` command never
+shows.
 
 =head1 WHAT USES IT
 
@@ -262,7 +295,8 @@ Jenkins solo on the loop branch:
 python3 ~/workspace/jenkins-cli/trigger.py windows/loop6-combined t/997-micro-t05-360.t 1
 Healthy run: the output appears within about 3 polls and the final like
 passes. Sick run (the round-25 signature): 40 polls, every stdout empty,
-and the post-mortem shows whether the loop is alive, what its status is,
-and what the collector log says about the missing ticks.
+collector status {} at every check, no log entries, and the post-mortem
+shows whether loop.json exists, what it says, whether the loop pid is
+alive, and what the .stderr file holds.
 
 =cut
