@@ -316,6 +316,19 @@ sub state_root {
     return $dir;
 }
 
+# state_root_key()
+# Returns the runtime identity key: the 32-hex directory name of this
+# runtime's state root. Two runtimes are the same runtime exactly when
+# their keys match, so this is the identity the collector loop adoption
+# scopes on. Pure: it resolves the key without creating or hardening
+# the directory, unlike state_root.
+# Input: none.
+# Output: 32-hex-character string.
+sub state_root_key {
+    my ($self) = @_;
+    return $self->_state_root_key( $self->runtime_root );
+}
+
 # state_base_root()
 # Returns the stable base directory for runtime state roots.
 # Input: none.

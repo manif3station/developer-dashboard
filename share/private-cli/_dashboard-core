@@ -1176,10 +1176,15 @@ elsif ( $cmd eq 'web-ssl-backend-foreground' ) {
 }
 elsif ( $cmd eq 'collector-loop-foreground' ) {
     my $name = '';
+    my $runtime = '';
     GetOptionsFromArray(
         \@ARGV,
-        'name=s' => \$name,
+        'name=s'    => \$name,
+        'runtime=s' => \$runtime,
     );
+    # The --runtime token is accepted and ignored: it is identity for
+    # observers (the finder scopes adoption through it, the detector
+    # confirms foreign loops through it), not an input the loop acts on.
     die "Usage: d2 collector-loop-foreground --name NAME\n" if !$name || @ARGV;
     my $job = $collectors->read_job($name) || die "Unknown collector '$name'\n";
     my $schedule_mode = $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' );

@@ -872,8 +872,10 @@ SKIP: {
             # The loop's identity marker travels in the spawn environ (the
             # trailing options hashref): the kernel environ block is fixed at
             # exec, so a post-exec $ENV assignment is invisible to /proc
-            # readers and the marker would be a dead recognition path.
-            { env => { DEVELOPER_DASHBOARD_LOOP_NAME => $dispatch_name } },
+            # readers and the marker would be a dead recognition path. The
+            # runtime marker travels the same way, so the finder can scope
+            # adoption to this runtime.
+            { env => { DEVELOPER_DASHBOARD_LOOP_NAME => $dispatch_name, DEVELOPER_DASHBOARD_LOOP_RUNTIME => $runner->_runtime_state_key } },
         ],
         'start_loop passes the prepared helper argv to the GoRoutine launcher',
     );

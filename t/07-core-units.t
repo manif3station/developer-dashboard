@@ -4282,8 +4282,10 @@ close $stale_pid;
             # The loop's identity marker travels in the spawn environ (the
             # trailing options hashref): the kernel environ block is fixed at
             # exec, so a post-exec $ENV assignment is invisible to /proc
-            # readers and the marker would be a dead recognition path.
-            { env => { DEVELOPER_DASHBOARD_LOOP_NAME => 'windows-loop' } },
+            # readers and the marker would be a dead recognition path. The
+            # runtime marker travels the same way, so the finder can scope
+            # adoption to this runtime.
+            { env => { DEVELOPER_DASHBOARD_LOOP_NAME => 'windows-loop', DEVELOPER_DASHBOARD_LOOP_RUNTIME => $runner->_runtime_state_key } },
         ],
         'start_loop launches the detached Windows collector loop helper command',
     );
@@ -4762,6 +4764,73 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         is( $runner->stop_loop('foreign'), $$, 'stop_loop returns pid even for unmanaged foreign processes' );
     }
     ok( !-f $pidfile, 'stop_loop removes stale foreign pidfiles without signalling the current process' );
+}
+
+{
+    # _loop_runtime_matches scopes adoption to this runtime: the initial
+    # environ marker where it can be read, the --runtime argv token where
+    # it cannot. A loop with neither is never this runtime's.
+    ok( !$runner->_loop_runtime_matches(undef), '_loop_runtime_matches rejects a missing pid' );
+    ok( !$runner->_loop_runtime_matches(99999999), '_loop_runtime_matches rejects a pid that does not exist' );
+    my $key = $runner->_runtime_state_key;
+    my $spawn_fixture = sub {
+        my ( $title, $runtime_marker ) = @_;
+        return Developer::Dashboard::GoRoutine::spawn(
+            [ $^X, _child_perl_inc_args(), '-MTime::HiRes', '-e', '$0 = shift; Time::HiRes::sleep(30)', $title ],
+            defined $runtime_marker ? { env => { DEVELOPER_DASHBOARD_LOOP_RUNTIME => $runtime_marker } } : {},
+        );
+    };
+    my $reap_fixture = sub {
+        my ($pid) = @_;
+        Developer::Dashboard::GoRoutine::terminate_process( $pid, 'KILL' );
+        Developer::Dashboard::GoRoutine::wait_process($pid);
+        return 1;
+    };
+    SKIP: {
+        skip 'the runtime env marker is only readable where /proc exists', 1 if !-d '/proc';
+        my $marked = $spawn_fixture->( 'd2 collector: fixture.marker', $key );
+        ok( $runner->_loop_runtime_matches($marked), '_loop_runtime_matches accepts a process carrying this runtime marker in its initial environ' );
+        $reap_fixture->($marked);
+    }
+    my $tokened = $spawn_fixture->( "collector-loop-foreground --name fixture.runtime --runtime $key", undef );
+    ok( $runner->_loop_runtime_matches($tokened), '_loop_runtime_matches accepts a process whose command line carries this runtime token' );
+    $reap_fixture->($tokened);
+    my $foreign_token = $spawn_fixture->( 'collector-loop-foreground --name fixture.runtime --runtime 00000000000000000000000000000000', undef );
+    ok( !$runner->_loop_runtime_matches($foreign_token), '_loop_runtime_matches rejects a process carrying another runtime token' );
+    $reap_fixture->($foreign_token);
+    my $plain = $spawn_fixture->( 'd2 collector: fixture.plain', undef );
+    ok( !$runner->_loop_runtime_matches($plain), '_loop_runtime_matches rejects a process with neither a runtime marker nor a runtime token' );
+    $reap_fixture->($plain);
+}
+
+{
+    # The Windows fallback confirms a loop from the pidfile alone when the
+    # title cannot be observed - but only when the title shows OUR
+    # loop-helper argv, including OUR --runtime token. A helper shape from
+    # another runtime (same --name, different or missing token) vetoes it,
+    # so stop_loop never signals another runtime's loop.
+    my $name = 'runtime-token';
+    my $pidfile = File::Spec->catfile( $paths->collectors_root, "$name.pid" );
+    open my $token_pid, '>', $pidfile or die $!;
+    print {$token_pid} "$$\n";
+    close $token_pid;
+    my $key = $runner->_runtime_state_key;
+    my $mock_title = "perl _dashboard-core collector-loop-foreground --name $name --runtime $key";
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_read_process_env_marker = sub { return };
+        local *Developer::Dashboard::CollectorRunner::_read_process_title = sub { return $mock_title };
+        is(
+            $runner->_is_managed_loop( $$, $name ) ? 1 : 0,
+            $^O eq 'MSWin32' ? 1 : 0,
+            '_is_managed_loop Windows fallback confirms a pidfile pid whose helper argv carries this runtime token',
+        );
+        $mock_title = "perl _dashboard-core collector-loop-foreground --name $name";
+        ok( !$runner->_is_managed_loop( $$, $name ), '_is_managed_loop Windows fallback vetoes a helper argv without this runtime token' );
+        $mock_title = "perl _dashboard-core collector-loop-foreground --name $name --runtime 00000000000000000000000000000000";
+        ok( !$runner->_is_managed_loop( $$, $name ), '_is_managed_loop Windows fallback vetoes a helper argv carrying another runtime token' );
+    }
+    unlink $pidfile;
 }
 
 {
@@ -5596,6 +5665,8 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
                 'collector-loop-foreground',
                 '--name',
                 'alpha.collector',
+                '--runtime',
+                $runner->_runtime_state_key,
             ],
             '_windows_background_loop_command builds the detached loop helper argv from the staged dashboard core helper',
         );

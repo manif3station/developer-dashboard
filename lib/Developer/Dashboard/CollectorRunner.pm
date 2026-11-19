@@ -540,7 +540,10 @@ sub _start_windows_loop_process {
     # the guest's $0 write never reaches the host's /proc). Workers are NOT
     # given it: _run_loop_child deletes it from %ENV before spawning any,
     # so a worker can never be mistaken for its supervisor by this test.
-    my $pid = $self->_spawn_windows_background_command( @command, { env => { DEVELOPER_DASHBOARD_LOOP_NAME => $name } } );
+    # The runtime marker travels the same way: it is the environ-visible
+    # runtime identity, and the finder scopes its title and marker branches
+    # through it, so a loop from another runtime is never adopted.
+    my $pid = $self->_spawn_windows_background_command( @command, { env => { DEVELOPER_DASHBOARD_LOOP_NAME => $name, DEVELOPER_DASHBOARD_LOOP_RUNTIME => $self->_runtime_state_key } } );
     die "Unable to launch collector '$name' on Windows\n" if !$pid;
 
     $self->_write_loop_state(
@@ -600,8 +603,10 @@ sub _run_loop_child {
     # worker forked from this loop cannot inherit it and be mistaken for a
     # second supervisor by the marker test. The loop's own /proc environ
     # block still shows it - that block is the initial one, unaffected by
-    # this delete.
+    # this delete. The runtime marker is deleted the same way, so a worker
+    # never carries this runtime's identity either.
     delete $ENV{DEVELOPER_DASHBOARD_LOOP_NAME};
+    delete $ENV{DEVELOPER_DASHBOARD_LOOP_RUNTIME};
     $ENV{DEVELOPER_DASHBOARD_LOOP_STATUS} = 'running';
     $0 = $title;
     local $SIGNAL_RUNNER    = $self;
@@ -1217,6 +1222,39 @@ sub _statefile {
     return File::Spec->catfile( $self->{paths}->collector_dir($name), 'loop.json' );
 }
 
+# _runtime_state_key()
+# Returns this runner's runtime identity key (the 32-hex state-root key).
+# Input: none.
+# Output: 32-hex-character string.
+sub _runtime_state_key {
+    my ($self) = @_;
+    return $self->{paths}->state_root_key;
+}
+
+# _loop_runtime_matches($pid)
+# Checks whether a process belongs to this runner's runtime: its initial
+# environ carries this runtime's identity marker, or its command line
+# carries this runtime's --runtime token. The marker is the channel where
+# the title cannot be observed (Linux, where $0 rewrites the cmdline but
+# the initial environ survives); the token is the channel where the
+# environ cannot be read (Windows CIM, and qemu user-mode emulation,
+# where the spawn argv is still visible). A loop with neither - started
+# by hand, or by an older version - never matches: adoption fails
+# closed, so a foreign runtime's loop is never adopted in place of a
+# fresh one.
+# Input: process id integer.
+# Output: boolean match flag.
+sub _loop_runtime_matches {
+    my ( $self, $pid ) = @_;
+    return 0 if !$pid || !kill 0, $pid;
+    my $key = $self->_runtime_state_key;
+    my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_LOOP_RUNTIME' );
+    return 1 if defined $marker && $marker eq $key;
+    my $title = $self->_read_process_title($pid);
+    return 1 if defined $title && $title =~ /--runtime\s+\Q$key\E(?:\s|\z)/;
+    return 0;
+}
+
 # _process_title($name)
 # Builds the managed process title string for a collector loop.
 # Input: collector name string.
@@ -1265,13 +1303,19 @@ sub _is_managed_loop {
     # the veto, stop_loop('foreign') signalled the test process itself.
     # Only an unavailable title/marker (undef or empty - the process
     # table has no entry for the pid) or a title showing our own
-    # loop-helper argv (collector-loop-foreground --name <name>, the shape
-    # a real Windows loop child's CIM command line always has, since $0
-    # never rewrites it) leaves the fallback in place for the slow / torn
-    # loop.json replace it was added for.
+    # loop-helper argv (collector-loop-foreground --name <name> --runtime
+    # <key>, the shape a real Windows loop child's CIM command line
+    # always has, since $0 never rewrites it) leaves the fallback in place
+    # for the slow / torn loop.json replace it was added for. The shape
+    # alone is not enough: a loop from another runtime has the same
+    # helper shape with a different --runtime token, and confirming it
+    # here would let stop_loop signal another runtime's loop.
     if ( $^O eq 'MSWin32' ) {
+        my $runtime_key = $self->_runtime_state_key;
         my $title_disagrees = defined $title && $title ne ''
-          && !( $title =~ /\bcollector-loop-foreground\b/ && $title =~ /--name\s+\Q$name\E(?:\s|\z)/ );
+          && !( $title =~ /\bcollector-loop-foreground\b/
+            && $title =~ /--name\s+\Q$name\E(?:\s|\z)/
+            && $title =~ /--runtime\s+\Q$runtime_key\E(?:\s|\z)/ );
         my $marker_disagrees = defined $marker && $marker ne $name;
         if ( !$title_disagrees && !$marker_disagrees ) {
             my $recorded = eval { slurp_file( $self->_pidfile($name) ) };
@@ -1357,16 +1401,26 @@ sub _find_running_loop {
         # A process carrying this collector's exact title while living in a
         # DIFFERENT pid namespace cannot be constructed from a test without a
         # container runtime.
-        return $pid if $running eq $title && $self->_same_pid_namespace($pid);
+        #
+        # Every branch below is also scoped to this runtime
+        # (_loop_runtime_matches): the process table is global, and a loop
+        # from a dead run carries the same title, the same helper shape and
+        # the same name marker as one from this run. Without the scope, a
+        # fresh runtime adopted the dead run's loop and rewrote its pidfile
+        # and state into the fresh root, so the orphan was never replaced
+        # and never died across runs. A loop with no runtime identity at
+        # all never matches: adoption fails closed.
+        return $pid if $running eq $title && $self->_same_pid_namespace($pid) && $self->_loop_runtime_matches($pid);
         # The loop's helper command shape, visible in the spawn argv even
         # where the $0 title is not (qemu user-mode emulation).
         return $pid
           if $running =~ /collector-loop-foreground\s+--name\s+\Q$name\E(?:\s|\z)/
-          && $self->_same_pid_namespace($pid);
+          && $self->_same_pid_namespace($pid)
+          && $self->_loop_runtime_matches($pid);
         # The pre-exec identity marker, safe here because the loop deletes
         # it from %ENV before spawning workers, so no worker carries it.
         my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_LOOP_NAME' );
-        return $pid if defined $marker && $marker eq $name && $self->_same_pid_namespace($pid);
+        return $pid if defined $marker && $marker eq $name && $self->_same_pid_namespace($pid) && $self->_loop_runtime_matches($pid);
     }
     return;
 }
@@ -1617,6 +1671,11 @@ sub _windows_background_loop_command {
     my ( $self, $name ) = @_;
     my $core = $self->_dashboard_core_helper_path('collector-loop-foreground');
     my $perl = $self->_current_perl_command;
+    # The --runtime token is the argv-visible runtime identity: it is the
+    # one channel readable on every platform (CIM CommandLine on Windows,
+    # host /proc cmdline under qemu), and the finder scopes its helper-shape
+    # branch through it. The token is identity for observers, not an input
+    # the loop acts on - the helper accepts and ignores it.
     return (
         $perl,
         $self->_perl_library_args,
@@ -1624,6 +1683,8 @@ sub _windows_background_loop_command {
         'collector-loop-foreground',
         '--name',
         $name,
+        '--runtime',
+        $self->_runtime_state_key,
     );
 }
 
