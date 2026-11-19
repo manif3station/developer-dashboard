@@ -501,6 +501,15 @@ sub stop_web {
             $self->_send_signal( 'KILL', @late_listeners );
             $self->_wait_for_port_release($port);
         }
+        # The POSIX branch below reaps the stopped children so a later
+        # liveness check sees them gone; the Windows branch never did.
+        # On Windows an exited GoRoutine child stays in the spawn
+        # registry until it is reaped, and process_running reports
+        # registry membership, so an unreaped listener still read as
+        # running after stop_web (build #261 failed t/09 test 348 on
+        # Windows; micro t/989 proved the child was dead and only the
+        # registry entry survived). Mirror the reap here.
+        $self->_reap_child_processes( $pid, @listener_pids, @legacy_web_pids, @ajax_worker_pids );
         $self->_cleanup_web_files;
         $self->_progress_emit(
             $progress,
