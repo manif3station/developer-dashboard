@@ -78,10 +78,26 @@ like( $key_b, qr/\A[0-9a-f]{32}\z/, 'runtime identity B is the 32-hex state-root
 my $name = "adoption-scope-$$";
 my $job  = { name => $name, interval => 3600, mode => 'singleton', command => 'true' };
 
+# The loop child is a real helper process, and the helper resolves its
+# home from the INHERITED $ENV{HOME} - not from this process's explicit
+# PathRegistry. Without this line the child runs in the ambient Jenkins
+# home, never finds the job this runner wrote into home A, and dies with
+# "Unknown collector" before it ever adopts a title (solo #240: tests 5
+# and 6 failed exactly that way, while the state path still confirmed
+# the dead-but-unreaped child and made the adoption assertions pass for
+# the wrong reason). The cwd stays the neutral tempdir: B's runtime
+# root is resolved fresh on every unscoped call and its ancestor layers
+# come from the cwd, so chdir-ing into home A would leak A's layer into
+# B's resolution. HOME alone is what the child needs.
+local $ENV{HOME} = $home_a;
+
 my $loop_pid = $runner_a->start_loop($job);
 ok( $loop_pid, 'runtime A starts a collector loop' );
 
 my $ready = wait_for_managed_loop( $runner_a, $loop_pid, $name, ready => 1, timeout => 60 );
+if ( !$ready ) {
+    diag( 'loop child stderr: ' . _slurp_tail( $runner_a->{files}->collector_log . '.stderr' ) );
+}
 ok( $ready, 'runtime A loop is recognised and ready before anything else is asserted' );
 
 # Positive control, before the defect: discovery inside one runtime
@@ -196,6 +212,21 @@ sub _read_proc_environ {
     my $env = <$fh>;
     close $fh;
     return defined $env ? $env : '';
+}
+
+# _slurp_tail($file)
+# Reads the tail of a log file for diagnostics.
+# Input: file path string.
+# Output: last 2000 bytes, or '(unreadable)' when the file cannot be read.
+sub _slurp_tail {
+    my ($file) = @_;
+    return '(unreadable)' if !defined $file || !-r $file;
+    open my $fh, '<', $file or return '(unreadable)';
+    local $/;
+    my $content = <$fh>;
+    close $fh;
+    return '(empty)' if !defined $content || $content eq '';
+    return length($content) > 2000 ? substr( $content, -2000 ) : $content;
 }
 
 __END__
