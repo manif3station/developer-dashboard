@@ -24,6 +24,13 @@ use File::Spec;
 use File::Temp qw(tempdir);
 use IO::Socket::INET;
 
+# The Jenkins solo runs prove with -I<blib>/lib -I<blib>/arch and no -Ilib,
+# so without this the frontend child below loads Server.pm from the stale
+# 6.31 blib (built before the watchdog existed) instead of the fresh
+# checkout. t/17 loads the same way; the frontend inherits this order
+# through @library_args.
+use lib 'lib';
+
 diag '[' . time() . '] micro-ssl-watchdog: start';
 my $have_xs = eval {
     require Developer::Dashboard::GoRoutine;
