@@ -895,6 +895,12 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
+    # The ps fallback is POSIX-only: on Windows _read_process_state returns
+    # undef before ps (there is no ps there), so the parse below is never
+    # reached on a real Windows host. Hold the platform off the same way
+    # this block already holds procfs off; the Windows dispatch itself is
+    # covered by the neighbouring tests 161-164.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
     @cap = ( " R \n", '', 0 );
@@ -932,6 +938,11 @@ is( $manager->_read_process_state($$), undef, '_read_process_state returns undef
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
+    # Same as the _read_process_state block above: the ps fallback is
+    # POSIX-only (on Windows the title comes from the process table), so
+    # hold the platform off to reach the parse; the Windows dispatch is
+    # covered by the $^O-gated like-test below.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
     @cap = ( "some title   \n", '', 0 );
