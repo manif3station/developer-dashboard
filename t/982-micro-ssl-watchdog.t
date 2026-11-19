@@ -40,7 +40,9 @@ my $is_windows = $^O eq 'MSWin32' ? 1 : 0;
 my $dir = tempdir( 'micro-ssl-watchdog-XXXXXX', TMPDIR => 1, CLEANUP => 1 );
 my $temp_home = tempdir( 'micro-ssl-watchdog-home-XXXXXX', TMPDIR => 1, CLEANUP => 1 );
 my $portfile = File::Spec->catfile( $dir, 'internal.port' );
-diag "micro-ssl-watchdog: portfile=$portfile";
+my $watchdog_log = File::Spec->catfile( $dir, 'watchdog.log' );
+local $ENV{DEVELOPER_DASHBOARD_SSL_WATCHDOG_LOG} = $watchdog_log;
+diag "micro-ssl-watchdog: portfile=$portfile watchdog_log=$watchdog_log";
 
 my $listener = IO::Socket::INET->new(
     LocalAddr => '127.0.0.1',
@@ -196,6 +198,18 @@ is(
     1,
     'watchdog killed the backend after the frontend died',
 );
+
+if ( -e $watchdog_log ) {
+    open my $lfh, '<', $watchdog_log or die "cannot read watchdog log: $!";
+    my @lines = <$lfh>;
+    close $lfh or die "cannot close watchdog log: $!";
+    chomp @lines;
+    diag 'micro-ssl-watchdog: watchdog log:';
+    diag "micro-ssl-watchdog: $_" for @lines;
+}
+else {
+    diag 'micro-ssl-watchdog: no watchdog log file - the watcher never started';
+}
 
 diag '[' . time() . '] micro-ssl-watchdog: test exiting';
 done_testing();
