@@ -543,7 +543,24 @@ sub _start_windows_loop_process {
     # The runtime marker travels the same way: it is the environ-visible
     # runtime identity, and the finder scopes its title and marker branches
     # through it, so a loop from another runtime is never adopted.
-    my $pid = $self->_spawn_windows_background_command( @command, { env => { DEVELOPER_DASHBOARD_LOOP_NAME => $name, DEVELOPER_DASHBOARD_LOOP_RUNTIME => $self->_runtime_state_key } } );
+    #
+    # The markers are localized into this process's %ENV for the spawn call
+    # itself, not only passed in the env option: the GoRoutine wrapper
+    # honours that option on Windows (it merges the overrides into the
+    # parent environ for the spawn), but on POSIX the native spawn passes
+    # the parent environ verbatim and never reads the option, so the
+    # markers would never reach the child's initial environ there. The
+    # localization ends when this block exits, so the markers never leak
+    # into this process's own environment - and the loop child deletes
+    # them from its %ENV before spawning workers, while its /proc environ
+    # block (the initial one) still shows them.
+    my $runtime_key = $self->_runtime_state_key;
+    my $pid;
+    {
+        local $ENV{DEVELOPER_DASHBOARD_LOOP_NAME}    = $name;
+        local $ENV{DEVELOPER_DASHBOARD_LOOP_RUNTIME} = $runtime_key;
+        $pid = $self->_spawn_windows_background_command( @command, { env => { DEVELOPER_DASHBOARD_LOOP_NAME => $name, DEVELOPER_DASHBOARD_LOOP_RUNTIME => $runtime_key } } );
+    }
     die "Unable to launch collector '$name' on Windows\n" if !$pid;
 
     $self->_write_loop_state(
@@ -1714,10 +1731,15 @@ sub _windows_background_worker_command {
 # Launches one detached background Windows helper command and returns the
 # spawned pid.
 # Input: command list, plus an optional trailing options hashref. The only
-# option read today is `env`, extra environment variables merged into the
-# child's INITIAL environ at spawn time (see GoRoutine::spawn) - the one
-# place a process identity marker is visible to /proc readers, because a
-# post-exec $ENV assignment never reaches the kernel environ block.
+# option read today is `env`, extra environment variables for the child.
+# On Windows the GoRoutine wrapper merges them into the parent environ for
+# the duration of the spawn, so the child inherits them in its initial
+# environ at creation; on POSIX the native spawn passes the parent environ
+# verbatim and never reads the option, so a caller that needs a marker in
+# the child's initial environ localizes it into its own %ENV for the spawn
+# call instead (see _start_windows_loop_process). A post-exec $ENV
+# assignment is never a substitute: the kernel environ block is fixed at
+# exec, so it is invisible to /proc readers on every platform.
 # Output: spawned pid integer.
 sub _spawn_windows_background_command {
     my ( $self, @command ) = @_;

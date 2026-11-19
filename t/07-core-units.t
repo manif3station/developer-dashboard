@@ -4253,6 +4253,7 @@ close $stale_pid;
 
 {
     my @spawned;
+    my ( $spawned_env_name, $spawned_env_runtime );
     {
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
@@ -4263,6 +4264,12 @@ close $stale_pid;
         local *Developer::Dashboard::CollectorRunner::_spawn_windows_background_command = sub {
             my ( undef, @command ) = @_;
             @spawned = @command;
+            # The identity markers are localized into the parent environ for
+            # the spawn call itself (the POSIX native spawn passes the parent
+            # environ verbatim and never reads the env option), so the stub
+            # records what %ENV holds at call time, not only the option hash.
+            $spawned_env_name    = $ENV{DEVELOPER_DASHBOARD_LOOP_NAME};
+            $spawned_env_runtime = $ENV{DEVELOPER_DASHBOARD_LOOP_RUNTIME};
             return 6161;
         };
         my $pid = $runner->start_loop(
@@ -4289,6 +4296,8 @@ close $stale_pid;
         ],
         'start_loop launches the detached Windows collector loop helper command',
     );
+    is( $spawned_env_name, 'windows-loop', 'start_loop localizes the loop name marker into the parent environ for the spawn call' );
+    is( $spawned_env_runtime, $runner->_runtime_state_key, 'start_loop localizes the runtime marker into the parent environ for the spawn call' );
     is(
         $runner->loop_state('windows-loop')->{status},
         'starting',
