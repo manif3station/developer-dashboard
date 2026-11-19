@@ -3,6 +3,7 @@ use warnings;
 
 use Test::More;
 use Scalar::Util qw(refaddr);
+use lib 'lib';
 use Developer::Dashboard::GoRoutine qw(go share wait_all);
 
 my $channel_factory = Developer::Dashboard::GoRoutine->can('channel');
@@ -100,6 +101,36 @@ is_deeply( \@received_two, [ 'first', 'second' ],
 is( $first_sender->status, 'done', 'first sender finishes after delivery' );
 is( $second_sender->status, 'done', 'second sender finishes after delivery' );
 is( $two_receiver->status, 'done', 'receiver finishes after both values' );
+
+# size() counts values already offered by blocked senders: an
+# unbuffered send with no receiver waiting parks its value in
+# sender_queue, and receive() takes it from there, so size() must
+# report it before the receiver runs. (Q review 5979186129 on PR #82:
+# size() counted only queue and returned 0 while a value was available.)
+my $sized_channel = $channel_factory->();
+share my $observed_size = -1;
+share my $sized_value = 'unset';
+share my $sized_ok = -1;
+my $sized_sender = go sub { $sized_channel->send('pending') };
+my $sized_checker = go( sub { $observed_size = $sized_channel->size },
+    { after => 0.1 } );
+my $sized_receiver = go(
+    sub {
+        my ( $value, $ok ) = $sized_channel->receive;
+        $sized_value = defined $value ? $value : 'undef';
+        $sized_ok = $ok;
+    },
+    { after => 0.2 } );
+wait_all();
+is( $observed_size, 1,
+    'size counts a value waiting in the sender queue' );
+is( $sized_value, 'pending', 'receiver takes the pending sender value' );
+is( $sized_ok, 1, 'receive of a pending sender value reports open state' );
+is( $sized_channel->size, 0,
+    'size is zero after the pending value is received' );
+is( $sized_sender->status, 'done', 'pending sender finishes after delivery' );
+is( $sized_checker->status, 'done', 'size checker routine completes normally' );
+is( $sized_receiver->status, 'done', 'size receiver routine completes normally' );
 
 done_testing;
 

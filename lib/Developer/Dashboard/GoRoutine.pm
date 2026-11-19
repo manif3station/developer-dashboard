@@ -992,10 +992,16 @@ sub is_closed {
     return $self->{closed} ? 1 : 0;
 }
 
+# size()
+# Number of values a receive() would return at once: the buffered queue
+# plus values already offered by blocked senders. An unbuffered send
+# with no receiver waiting parks its value in sender_queue, and
+# receive() takes it from there, so counting only queue would report 0
+# while a value is available. (Q review 5979186129 on PR #82.)
 sub size {
     my ($self) = @_;
     $self->_check;
-    return 0 + @{ $self->{queue} };
+    return 0 + @{ $self->{queue} } + @{ $self->{sender_queue} };
 }
 
 sub capacity {
