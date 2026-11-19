@@ -78,51 +78,27 @@ like( $key_b, qr/\A[0-9a-f]{32}\z/, 'runtime identity B is the 32-hex state-root
 my $name = "adoption-scope-$$";
 my $job  = { name => $name, interval => 3600, mode => 'singleton', command => 'true' };
 
-# The spawned helper argv must carry the runtime identity: it is the one
-# channel visible on every platform (CIM CommandLine on Windows, host
-# /proc cmdline under qemu), and the helper-shape branch of the finder
-# can only be scoped through it.
-my @argv_a = $runner_a->_windows_background_loop_command($name);
-my $argv_text = join ' ', @argv_a;
-like(
-    $argv_text,
-    qr/--runtime\s+\Q$key_a\E(?:\s|\z)/,
-    'the spawned loop helper argv carries runtime A identity',
-);
-
 my $loop_pid = $runner_a->start_loop($job);
 ok( $loop_pid, 'runtime A starts a collector loop' );
 
 my $ready = wait_for_managed_loop( $runner_a, $loop_pid, $name, ready => 1, timeout => 60 );
 ok( $ready, 'runtime A loop is recognised and ready before anything else is asserted' );
 
-# The loop's initial environ must carry the same identity: it is the one
-# channel visible where the title cannot be observed, and the finder
-# scopes its title and marker branches through it. /proc environ is a
-# Linux-only read, so this is skipped where it does not exist.
+# Positive control, before the defect: discovery inside one runtime
+# works, so a failure below is the scoping and not the setup.
 SKIP: {
-    skip 'the runtime env marker is only readable where /proc exists', 1 if !-d '/proc';
-    my $env = _read_proc_environ($loop_pid);
-    my ($runtime_marker) = $env =~ /(?:^|\0)DEVELOPER_DASHBOARD_LOOP_RUNTIME=([^\0]*)/;
-    is( $runtime_marker, $key_a, 'the running loop carries runtime A identity in its initial environ' );
-}
-
-# Discovery is the unscoped path: the finder asks the process table,
-# which is global. Within the runtime it must still find the loop; from
-# the other runtime it must not.
-SKIP: {
-    skip 'process-table discovery without pidfiles requires Linux procfs', 2 if !-d '/proc';
+    skip 'process-table discovery without pidfiles requires Linux procfs', 1 if !-d '/proc';
     is( $runner_a->_find_running_loop($name), $loop_pid,
         'runtime A discovers its own loop in the process table' );
-    is( $runner_b->_find_running_loop($name), undef,
-        'runtime B does NOT discover runtime A loop in the process table' );
 }
 
 # THE DEFECT (round-25 orphan investigation): a fresh runtime adopted a
 # loop from a dead run's root and rewrote its pidfile and state into the
 # fresh root, so the orphaned loop was never replaced and never died
 # across runs. Adoption must only happen inside the runtime that owns
-# the loop.
+# the loop. This assertion comes before the fix-verification ones below
+# because the fail-safe kills the run at the first failure: the observed
+# failure must be the defect itself, not a missing identity carrier.
 {
     my $adopted_b = $runner_b->_adopt_existing_loop_if_running(
         pidfile       => $runner_b->_pidfile($name),
@@ -152,6 +128,37 @@ SKIP: {
     );
     is( $adopted_a, $loop_pid, 'runtime A still adopts its own loop after its pidfile is lost' );
     ok( -f $pidfile_a, 'runtime A repairs the missing pidfile on adoption' );
+}
+
+# Discovery is the unscoped path: the finder asks the process table,
+# which is global. From the other runtime it must not find the loop.
+SKIP: {
+    skip 'process-table discovery without pidfiles requires Linux procfs', 1 if !-d '/proc';
+    is( $runner_b->_find_running_loop($name), undef,
+        'runtime B does NOT discover runtime A loop in the process table' );
+}
+
+# The spawned helper argv must carry the runtime identity: it is the one
+# channel visible on every platform (CIM CommandLine on Windows, host
+# /proc cmdline under qemu), and the helper-shape branch of the finder
+# can only be scoped through it.
+my @argv_a = $runner_a->_windows_background_loop_command($name);
+my $argv_text = join ' ', @argv_a;
+like(
+    $argv_text,
+    qr/--runtime\s+\Q$key_a\E(?:\s|\z)/,
+    'the spawned loop helper argv carries runtime A identity',
+);
+
+# The loop's initial environ must carry the same identity: it is the one
+# channel visible where the title cannot be observed, and the finder
+# scopes its title and marker branches through it. /proc environ is a
+# Linux-only read, so this is skipped where it does not exist.
+SKIP: {
+    skip 'the runtime env marker is only readable where /proc exists', 1 if !-d '/proc';
+    my $env = _read_proc_environ($loop_pid);
+    my ($runtime_marker) = $env =~ /(?:^|\0)DEVELOPER_DASHBOARD_LOOP_RUNTIME=([^\0]*)/;
+    is( $runtime_marker, $key_a, 'the running loop carries runtime A identity in its initial environ' );
 }
 
 # Cleanup is this micro's own process hygiene, not orphan cleanup: the
