@@ -89,15 +89,16 @@ sub _wait_exit {
     return undef;
 }
 
-# _run_watchdog($tag, $mode)
+# _run_watchdog($tag, $mode, $pcount, $prate)
 # Spawns the real failsafe.pl against the producer and measures how long
 # after the failure block it takes to trip. $mode is 'fast' (watchdog
 # stdout to a file: a consumer that never blocks) or 'slow' (watchdog
 # stdout to a pipe drained at 20 lines/sec: a slow consumer, the Jenkins
-# console's shape). Returns ($exit_code, $latency_s, $output_text).
+# console's shape). $pcount/$prate are the producer's line count and
+# lines-per-second. Returns ($exit_code, $latency_s, $output_text).
 # Logs before and after every step, per the micro-repro method.
 sub _run_watchdog {
-    my ( $tag, $mode ) = @_;
+    my ( $tag, $mode, $pcount, $prate ) = @_;
     diag("[$tag] start: mode=$mode");
     my $log    = File::Spec->catfile( $tmp, "$tag.log" );
     my $out    = File::Spec->catfile( $tmp, "$tag.out" );
@@ -110,7 +111,11 @@ sub _run_watchdog {
         diag("[$tag] after pipe");
         # Shrink the pipe so the slow reader throttles the watchdog
         # quickly. Linux only; macOS has no F_SETPIPE_SZ and its 16KB
-        # default still fills: the producer writes 500 lines (~30KB).
+        # default still fills: the slow producer writes 500 lines
+        # (~12KB) in half a second, far more than either pipe holds.
+        # The pipe size is read back and logged: v2 showed a 4KB pipe
+        # never fills when the backlog is smaller than the pipe, so the
+        # backlog must exceed the pipe for the throttle to bite.
         if ( $^O eq 'linux' ) {
             diag("[$tag] before F_SETPIPE_SZ");
             my $set = eval {
@@ -120,6 +125,12 @@ sub _run_watchdog {
                 1;
             };
             diag( "[$tag] after F_SETPIPE_SZ: " . ( $set ? '4096 bytes' : "left default ($@)" ) );
+            my $size = eval {
+                require Fcntl;
+                my $get = Fcntl::F_GETPIPE_SZ();
+                fcntl( $wr, $get, 0 );
+            };
+            diag( "[$tag] pipe size read back: " . ( defined $size ? "$size bytes" : "unknown ($@)" ) );
         }
         diag("[$tag] before fork reader");
         $reader_pid = fork();
@@ -127,10 +138,20 @@ sub _run_watchdog {
         if ( $reader_pid == 0 ) {
             close $wr or POSIX::_exit(1);
             open my $out_fh, '>', $out or POSIX::_exit(1);
+            # Autoflush: if this reader is killed, what it already read
+            # must already be in the file, not stuck in stdio.
+            my $old_select = select($out_fh);
+            $| = 1;
+            select($old_select);
+            print STDERR "[$tag-reader] started pid=$$\n";
+            my $n = 0;
             while ( defined( my $line = <$rd> ) ) {
+                $n++;
                 print {$out_fh} $line or POSIX::_exit(1);
-                sleep(0.05);    # 20 lines/sec: the slow consumer
+                print STDERR "[$tag-reader] line $n\n" if $n % 50 == 1;
+                Time::HiRes::sleep(0.05);    # 20 lines/sec: the slow consumer
             }
+            print STDERR "[$tag-reader] EOF after $n lines\n";
             close $out_fh or POSIX::_exit(1);
             POSIX::_exit(0);
         }
@@ -151,7 +172,7 @@ sub _run_watchdog {
             close $wr or POSIX::_exit(1);
         }
         open STDERR, '>&STDOUT' or POSIX::_exit(1);
-        exec( $^X, $WATCHDOG, $log, $^X, $producer, '500', '100' )
+        exec( $^X, $WATCHDOG, $log, $^X, $producer, $pcount, $prate )
             or POSIX::_exit(1);
     }
     diag("[$tag] after fork watchdog pid=$wpid");
@@ -203,7 +224,7 @@ sub _run_watchdog {
 # trips late, the continuous-stream starvation theory is the mechanism
 # and the consumer speed is irrelevant.
 diag('[fast] case 1: fast consumer (watchdog stdout to a file)');
-my ( $fast_exit, $fast_latency, $fast_text, $fast_before ) = _run_watchdog( 'fast', 'fast' );
+my ( $fast_exit, $fast_latency, $fast_text, $fast_before ) = _run_watchdog( 'fast', 'fast', '500', '100' );
 diag("[fast] exit=$fast_exit latency=${fast_latency}s lines-before-trip=$fast_before");
 is( $fast_exit, 1, 'micro: fast consumer: watchdog trips (exit 1)' );
 like( $fast_text, qr/FAIL-SAFE: first test failure detected/,
@@ -212,13 +233,15 @@ like( $fast_text, qr/FAIL-SAFE: first test failure detected/,
 # roughly latency minus 2s: ~1s here, one sleep cycle after the failure.
 cmp_ok( $fast_latency, '<', 5, 'micro: fast consumer: trips within 5s of the failure' );
 
-# Case 2: slow consumer. The watchdog's print blocks on the slow pipe,
-# its drain rate falls below the producer's output rate, it never
-# reaches EOF while the producer runs, and the $failed check never
-# runs until the producer stops. If this trips late while case 1 trips
-# promptly, the consumer speed - not the stream - starves the check.
+# Case 2: slow consumer. The producer writes its 500 lines at
+# 1000/sec, so the whole post-failure backlog (~12KB) lands in the log
+# inside half a second - far more than the 4KB pipe holds - and the
+# watchdog can only drain it as fast as the slow reader lets it print.
+# v2 used 100/sec: the backlog then was ~2.6KB, smaller than the pipe,
+# so the watchdog drained it before the pipe could ever fill and the
+# throttle never bit.
 diag('[slow] case 2: slow consumer (watchdog stdout to a pipe drained at 20 lines/sec)');
-my ( $slow_exit, $slow_latency, $slow_text, $slow_before ) = _run_watchdog( 'slow', 'slow' );
+my ( $slow_exit, $slow_latency, $slow_text, $slow_before ) = _run_watchdog( 'slow', 'slow', '500', '1000' );
 diag("[slow] exit=$slow_exit latency=${slow_latency}s lines-before-trip=$slow_before");
 is( $slow_exit, 1, 'micro: slow consumer: watchdog trips (exit 1)' );
 like( $slow_text, qr/FAIL-SAFE: first test failure detected/,
