@@ -368,6 +368,22 @@ sub terminate_command_process {
 
     if ( is_windows() ) {
         capture { system 'taskkill', '/PID', $pid, '/T', '/F' };
+        # taskkill reports SUCCESS once termination is issued, and
+        # Perl's waitpid cannot reap a CreateProcess child on
+        # Windows (a later WNOHANG waitpid still returns the dead
+        # pid), so neither of those leaves the child gone. The
+        # spawn registry keeps one process handle open per child
+        # until it is collected, and that handle is what makes kill 0
+        # report a dead child alive - so poll the registry until the
+        # child is collected, or the caller still sees it afterwards.
+        # The poll exits on the first success (taskkill has already
+        # terminated the process, so that is normally immediate);
+        # the bound only covers a slow termination on a loaded box.
+        require Developer::Dashboard::GoRoutine;
+        for ( 1 .. 500 ) {
+            last if Developer::Dashboard::GoRoutine::reap_child($pid);
+            sleep 0.01;
+        }
         waitpid( $pid, 0 );
         return 1;
     }
