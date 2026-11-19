@@ -199,6 +199,25 @@ static HANDLE dd_windows_redirect(const char *path, DWORD access) {
                        &sa, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 }
 
+/* Close only the redirect handles this spawn actually opened. The
+   stdin handle is the process standard handle when no stdin path was
+   given and must not be closed, and a redirect handle is
+   INVALID_HANDLE_VALUE when its path was not given or its open failed.
+   The CreateProcessA failure block already closed all three; the
+   earlier croak paths below must do the same, or the already-opened
+   handles leak. (Q review 5979186129 on PR #82.) */
+static void
+dd_close_spawn_redirects(HANDLE child_in, HANDLE child_out, HANDLE child_err,
+                         const char *stdin_path, const char *stdout_path, const char *stderr_path)
+{
+    if (stdin_path && child_in != INVALID_HANDLE_VALUE)
+        CloseHandle(child_in);
+    if (stdout_path && child_out != INVALID_HANDLE_VALUE)
+        CloseHandle(child_out);
+    if (stderr_path && child_err != INVALID_HANDLE_VALUE)
+        CloseHandle(child_err);
+}
+
 static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     I32 argc = 0;
     char **argv = dd_argv_from_av(aTHX_ argv_array, &argc);
@@ -221,21 +240,38 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     HANDLE child_out = dd_windows_redirect(stdout_path, GENERIC_WRITE);
     HANDLE child_err = dd_windows_redirect(stderr_path, GENERIC_WRITE);
     if (stdin_path && child_in == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError();
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
+        free(line); free(argv);
         croak("unable to open GoRoutine child stdin (Windows error %lu)", (unsigned long)error);
     }
     if (stdout_path && child_out == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError();
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
+        free(line); free(argv);
         croak("unable to open GoRoutine child stdout (Windows error %lu)", (unsigned long)error);
     }
     if (stderr_path && child_err == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError();
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
+        free(line); free(argv);
         croak("unable to open GoRoutine child stderr (Windows error %lu)", (unsigned long)error);
     }
     if (stdout_path && SetFilePointer(child_out, 0, NULL, FILE_END) == INVALID_SET_FILE_POINTER
-        && GetLastError() != NO_ERROR) croak("unable to seek GoRoutine child stdout");
+        && GetLastError() != NO_ERROR) {
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
+        croak("unable to seek GoRoutine child stdout");
+    }
     if (stderr_path && SetFilePointer(child_err, 0, NULL, FILE_END) == INVALID_SET_FILE_POINTER
-        && GetLastError() != NO_ERROR) croak("unable to seek GoRoutine child stderr");
+        && GetLastError() != NO_ERROR) {
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
+        croak("unable to seek GoRoutine child stderr");
+    }
     ZeroMemory(&startup, sizeof(startup));
     ZeroMemory(&process, sizeof(process));
     startup.cb = sizeof(startup);
@@ -246,9 +282,8 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     if (!CreateProcessA(NULL, line, NULL, NULL, TRUE, CREATE_NO_WINDOW,
                         NULL, cwd, &startup, &process)) {
         DWORD error = GetLastError();
-        if (stdin_path) CloseHandle(child_in);
-        if (stdout_path) CloseHandle(child_out);
-        if (stderr_path) CloseHandle(child_err);
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
         free(line); free(argv);
         croak("unable to create GoRoutine child process (Windows error %lu)", (unsigned long)error);
     }
