@@ -4776,16 +4776,23 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 }
 
 {
-    # _loop_runtime_matches scopes adoption to this runtime: the initial
-    # environ marker where it can be read, the --runtime argv token where
-    # it cannot. A loop with neither is never this runtime's.
-    ok( !$runner->_loop_runtime_matches(undef), '_loop_runtime_matches rejects a missing pid' );
-    ok( !$runner->_loop_runtime_matches(99999999), '_loop_runtime_matches rejects a pid that does not exist' );
+    # _loop_runtime_matches scopes adoption to this runtime through three
+    # channels: the initial-environ marker where it can be read, the
+    # --runtime argv token where it cannot, and our own loop state where
+    # neither survives (on Linux the loop's $0 assignment overwrites its
+    # own /proc environ with spaces, so the marker is unreadable for a
+    # running loop there - the fixture that tests the marker therefore
+    # never sets $0). A loop with none of the three is never this
+    # runtime's.
+    ok( !$runner->_loop_runtime_matches( undef, 'fixture.missing' ), '_loop_runtime_matches rejects a missing pid' );
+    ok( !$runner->_loop_runtime_matches( 99999999, 'fixture.missing' ), '_loop_runtime_matches rejects a pid that does not exist' );
     my $key = $runner->_runtime_state_key;
     my $spawn_fixture = sub {
         my ( $title, $runtime_marker ) = @_;
+        my @argv = ( $^X, _child_perl_inc_args(), '-MTime::HiRes', '-e', 'my $t = shift; $0 = $t if defined $t && length $t; Time::HiRes::sleep(30)' );
+        push @argv, $title if defined $title;
         return Developer::Dashboard::GoRoutine::spawn(
-            [ $^X, _child_perl_inc_args(), '-MTime::HiRes', '-e', '$0 = shift; Time::HiRes::sleep(30)', $title ],
+            \@argv,
             defined $runtime_marker ? { env => { DEVELOPER_DASHBOARD_LOOP_RUNTIME => $runtime_marker } } : {},
         );
     };
@@ -4797,19 +4804,32 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     };
     SKIP: {
         skip 'the runtime env marker is only readable where /proc exists', 1 if !-d '/proc';
-        my $marked = $spawn_fixture->( 'd2 collector: fixture.marker', $key );
-        ok( $runner->_loop_runtime_matches($marked), '_loop_runtime_matches accepts a process carrying this runtime marker in its initial environ' );
+        my $marked = $spawn_fixture->( undef, $key );
+        ok( $runner->_loop_runtime_matches( $marked, 'fixture.marker' ), '_loop_runtime_matches accepts a process carrying this runtime marker in its initial environ' );
         $reap_fixture->($marked);
     }
     my $tokened = $spawn_fixture->( "collector-loop-foreground --name fixture.runtime --runtime $key", undef );
-    ok( $runner->_loop_runtime_matches($tokened), '_loop_runtime_matches accepts a process whose command line carries this runtime token' );
+    ok( $runner->_loop_runtime_matches( $tokened, 'fixture.runtime' ), '_loop_runtime_matches accepts a process whose command line carries this runtime token' );
     $reap_fixture->($tokened);
     my $foreign_token = $spawn_fixture->( 'collector-loop-foreground --name fixture.runtime --runtime 00000000000000000000000000000000', undef );
-    ok( !$runner->_loop_runtime_matches($foreign_token), '_loop_runtime_matches rejects a process carrying another runtime token' );
+    ok( !$runner->_loop_runtime_matches( $foreign_token, 'fixture.runtime' ), '_loop_runtime_matches rejects a process carrying another runtime token' );
     $reap_fixture->($foreign_token);
     my $plain = $spawn_fixture->( 'd2 collector: fixture.plain', undef );
-    ok( !$runner->_loop_runtime_matches($plain), '_loop_runtime_matches rejects a process with neither a runtime marker nor a runtime token' );
+    ok( !$runner->_loop_runtime_matches( $plain, 'fixture.plain' ), '_loop_runtime_matches rejects a process with neither a runtime marker, a runtime token, nor confirming loop state' );
     $reap_fixture->($plain);
+    my $stateful = $spawn_fixture->( 'd2 collector: fixture.state', undef );
+    $runner->_write_loop_state(
+        'fixture.state',
+        {
+            pid          => $stateful,
+            name         => 'fixture.state',
+            process_name => 'd2 collector: fixture.state',
+            status       => 'running',
+        },
+    );
+    ok( $runner->_loop_runtime_matches( $stateful, 'fixture.state' ), '_loop_runtime_matches accepts a process our loop state names when neither the marker nor the token is readable' );
+    $reap_fixture->($stateful);
+    $runner->_cleanup_loop_files('fixture.state');
 }
 
 {

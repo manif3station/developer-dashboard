@@ -1248,27 +1248,33 @@ sub _runtime_state_key {
     return $self->{paths}->state_root_key;
 }
 
-# _loop_runtime_matches($pid)
-# Checks whether a process belongs to this runner's runtime: its initial
-# environ carries this runtime's identity marker, or its command line
-# carries this runtime's --runtime token. The marker is the channel where
-# the title cannot be observed (Linux, where $0 rewrites the cmdline but
-# the initial environ survives); the token is the channel where the
-# environ cannot be read (Windows CIM, and qemu user-mode emulation,
-# where the spawn argv is still visible). A loop with neither - started
-# by hand, or by an older version - never matches: adoption fails
-# closed, so a foreign runtime's loop is never adopted in place of a
-# fresh one.
-# Input: process id integer.
+# _loop_runtime_matches($pid, $name)
+# Checks whether a process belongs to this runner's runtime, through any
+# of three channels. The initial-environ marker is the channel where the
+# title cannot be observed, and the --runtime command-line token is the
+# channel where the environ cannot be read (Windows CIM, and qemu
+# user-mode emulation, where the spawn argv is still visible). Neither
+# survives on Linux for a RUNNING loop: the loop's $0 assignment
+# overwrites its own /proc environ with spaces and its cmdline with the
+# title, so both are unreadable there once the loop has started (verified
+# with a local fork probe, and by solo #247's diag, which showed a
+# one-entry environ of spaces). The third channel covers exactly that:
+# the loop's own persisted state still names it, so our loop.json (pid,
+# name, title, status) confirms a pid is our loop even when neither
+# process-table channel can. A loop with none of the three - started by
+# hand, or by an older version - never matches: adoption fails closed,
+# so a foreign runtime's loop is never adopted in place of a fresh one.
+# Input: process id integer and collector name string.
 # Output: boolean match flag.
 sub _loop_runtime_matches {
-    my ( $self, $pid ) = @_;
+    my ( $self, $pid, $name ) = @_;
     return 0 if !$pid || !kill 0, $pid;
     my $key = $self->_runtime_state_key;
     my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_LOOP_RUNTIME' );
     return 1 if defined $marker && $marker eq $key;
     my $title = $self->_read_process_title($pid);
     return 1 if defined $title && $title =~ /--runtime\s+\Q$key\E(?:\s|\z)/;
+    return 1 if $self->_state_confirms_managed_loop( $name, $pid );
     return 0;
 }
 
@@ -1426,18 +1432,22 @@ sub _find_running_loop {
         # fresh runtime adopted the dead run's loop and rewrote its pidfile
         # and state into the fresh root, so the orphan was never replaced
         # and never died across runs. A loop with no runtime identity at
-        # all never matches: adoption fails closed.
-        return $pid if $running eq $title && $self->_same_pid_namespace($pid) && $self->_loop_runtime_matches($pid);
+        # all never matches: adoption fails closed. The scope's state
+        # channel is what makes this work on Linux, where the loop's $0
+        # assignment has already overwritten its own /proc environ with
+        # spaces and its cmdline with the title, so neither the marker nor
+        # the token is readable for a running loop there.
+        return $pid if $running eq $title && $self->_same_pid_namespace($pid) && $self->_loop_runtime_matches( $pid, $name );
         # The loop's helper command shape, visible in the spawn argv even
         # where the $0 title is not (qemu user-mode emulation).
         return $pid
           if $running =~ /collector-loop-foreground\s+--name\s+\Q$name\E(?:\s|\z)/
           && $self->_same_pid_namespace($pid)
-          && $self->_loop_runtime_matches($pid);
+          && $self->_loop_runtime_matches( $pid, $name );
         # The pre-exec identity marker, safe here because the loop deletes
         # it from %ENV before spawning workers, so no worker carries it.
         my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_LOOP_NAME' );
-        return $pid if defined $marker && $marker eq $name && $self->_same_pid_namespace($pid) && $self->_loop_runtime_matches($pid);
+        return $pid if defined $marker && $marker eq $name && $self->_same_pid_namespace($pid) && $self->_loop_runtime_matches( $pid, $name );
     }
     return;
 }

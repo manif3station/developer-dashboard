@@ -166,32 +166,20 @@ like(
     'the spawned loop helper argv carries runtime A identity',
 );
 
-# The loop's initial environ must carry the same identity: it is the one
-# channel visible where the title cannot be observed, and the finder
-# scopes its title and marker branches through it. /proc environ is a
-# Linux-only read, so this is skipped where it does not exist.
-SKIP: {
-    skip 'the runtime env marker is only readable where /proc exists', 1 if !-d '/proc';
-    my $env = _read_proc_environ($loop_pid);
-    my ($runtime_marker) = $env =~ /(?:^|\0)DEVELOPER_DASHBOARD_LOOP_RUNTIME=([^\0]*)/;
-    if ( !defined $runtime_marker ) {
-        # Diagnostic, not an assertion: solo #245 showed the marker missing
-        # from the loop child's environ even though the spawn localizes it
-        # and the local spawn probe proves the mechanism. Record what the
-        # child actually carries and which CollectorRunner the parent
-        # loaded, so the next step is evidence, not another theory. Only
-        # key names are printed, never values.
-        my @entries = grep { $_ ne '' } split /\0/, $env;
-        my @dash_keys = map { ( split /=/, $_, 2 )[0] } grep { /^DEVELOPER_DASHBOARD/ } @entries;
-        my @all_keys = map { ( split /=/, $_, 2 )[0] } @entries;
-        diag( 'loop child environ DEVELOPER_DASHBOARD keys: ' . ( @dash_keys ? join( ', ', @dash_keys ) : '(none)' ) );
-        diag( 'loop child environ all keys: ' . ( @all_keys ? join( ', ', @all_keys ) : '(none)' ) );
-        diag( 'loop child environ entry count: ' . scalar(@entries) );
-        diag( 'parent test process environ entry count: ' . scalar( keys %ENV ) );
-        diag( 'CollectorRunner loaded from: ' . ( $INC{'Developer/Dashboard/CollectorRunner.pm'} || '(unknown)' ) );
-    }
-    is( $runtime_marker, $key_a, 'the running loop carries runtime A identity in its initial environ' );
-}
+# The runtime identity is NOT readable from the running loop's environ
+# on Linux, and the marker assertion that used to live here was wrong to
+# ask for it: the loop's $0 assignment overwrites its own /proc environ
+# with spaces (verified with a local fork probe, and by solo #247's diag,
+# which showed a one-entry environ of spaces). The marker is delivered
+# to the child's initial environ - the t/07 spawn test pins the
+# localized %ENV at call time - but a running loop's environ is not a
+# channel on Linux. The identity is confirmed through the loop's own
+# persisted state instead: our loop.json names this pid, and the other
+# runtime's does not. That state confirmation is also the channel the
+# finder scopes through on Linux, so this is the assertion the fix
+# actually rests on.
+ok( $runner_a->_state_confirms_managed_loop( $name, $loop_pid ), 'runtime A state confirms its own loop' );
+ok( !$runner_b->_state_confirms_managed_loop( $name, $loop_pid ), 'runtime B state does not confirm runtime A loop' );
 
 # Cleanup is this micro's own process hygiene, not orphan cleanup: the
 # loop is a child this file spawned, and leaving it alive would point
@@ -214,21 +202,6 @@ SKIP: {
 }
 
 done_testing();
-
-# _read_proc_environ($pid)
-# Reads one process's initial environ block from procfs.
-# Input: process id integer.
-# Output: raw environ bytes, or '' when unreadable.
-sub _read_proc_environ {
-    my ($pid) = @_;
-    my $file = "/proc/$pid/environ";
-    return '' if !-r $file;
-    open my $fh, '<', $file or return '';
-    local $/;
-    my $env = <$fh>;
-    close $fh;
-    return defined $env ? $env : '';
-}
 
 # _slurp_tail($file)
 # Reads the tail of a log file for diagnostics.
