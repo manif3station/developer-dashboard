@@ -479,6 +479,12 @@ sub stop_web {
         my @ajax_workers = $self->_managed_ajax_processes;
         my @ajax_worker_pids = map { $_->{pid} } @ajax_workers;
         $self->_send_signal( 'TERM', @ajax_worker_pids ) if @ajax_worker_pids;
+        # Same gap as the ajax workers above: the POSIX branch also
+        # stops legacy d2 serve processes, the Windows branch never
+        # did, so a stubborn legacy child survived stop_web (build
+        # #246 failed t/09 test 186 on Windows). Mirror it the same way.
+        my @legacy_web_pids = map { $_->{pid} } $self->_find_legacy_web_processes;
+        $self->_send_signal( 'TERM', @legacy_web_pids ) if @legacy_web_pids;
         for ( 1 .. 30 ) {
             last if !$self->_wait_for_windows_web_shutdown( $pid, $port, \@listener_pids );
             sleep 0.1;
@@ -488,6 +494,8 @@ sub stop_web {
         $self->_send_signal( 'KILL', @still_listening );
         my @lingering_ajax = grep { $self->_pid_is_running($_) } @ajax_worker_pids;
         $self->_send_signal( 'KILL', @lingering_ajax ) if @lingering_ajax;
+        my @lingering_legacy = grep { $self->_pid_is_running($_) } @legacy_web_pids;
+        $self->_send_signal( 'KILL', @lingering_legacy ) if @lingering_legacy;
         if ( $port && !$self->_wait_for_port_release($port) ) {
             my @late_listeners = grep { kill 0, $_ } $self->_listener_pids_for_port($port);
             $self->_send_signal( 'KILL', @late_listeners );
