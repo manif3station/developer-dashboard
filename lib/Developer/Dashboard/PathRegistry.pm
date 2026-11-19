@@ -2161,7 +2161,11 @@ sub _ancestor_runtime_layers {
 # the stop identity once), while the public runtime_layers contract keeps the
 # spelling the caller used for home (t/07 test 150). _prefer_reference_style
 # leaves a layer untouched when it is not below home, so project-root layers
-# outside home keep their on-disk spelling.
+# outside home keep their on-disk spelling. The display shortening runs AFTER
+# the restyle, not before: restyling a display-shortened layer back through a
+# symlink-spelled home re-expands it (t/07 test 820: a /private/var home must
+# still present its layers as /var). Restyle first, display last is the order
+# the walk itself used before the funnel existed.
 # Input: none; reads the existing operation-local candidate scope when present.
 # Output: ordered list of ancestor runtime-layer directory paths.
 sub _ancestor_runtime_layers_for_scope {
@@ -2169,7 +2173,7 @@ sub _ancestor_runtime_layers_for_scope {
     my $scope = $self->{_runtime_layer_candidate_scope};
     return @{ $scope->{ancestor_runtime_layers} }
       if ref($scope) eq 'HASH' && exists $scope->{ancestor_runtime_layers};
-    my @layers = map { $self->_prefer_reference_style( $_, $self->home ) } $self->_ancestor_runtime_layers;
+    my @layers = map { $self->_display_path( $self->_prefer_reference_style( $_, $self->home ) ) } $self->_ancestor_runtime_layers;
     $scope->{ancestor_runtime_layers} = \@layers if ref($scope) eq 'HASH';
     return @layers;
 }
