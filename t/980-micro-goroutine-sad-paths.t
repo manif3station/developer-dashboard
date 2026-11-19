@@ -92,7 +92,7 @@ diag('micro: part A2: child file size=' . (-s $child_file // 'MISSING'));
 my ($out_fh, $out_file) = tempfile(SUFFIX => '.txt', UNLINK => 1);
 close $out_fh;
 local $ENV{MICRO_CHILD_OUT} = $out_file;
-my @child_args = ($^X, '-I' . $lib_dir, map { '-I' . $_ } @blib_inc, $child_file);
+my @child_args = ($^X, '-I' . $lib_dir, (map { '-I' . $_ } @blib_inc), $child_file);
 diag('micro: part A2: spawn child: ' . join(' ', @child_args));
 open my $pipe, '-|', @child_args or die "cannot spawn child: $!";
 my $child_out = do { local $/; <$pipe> };
