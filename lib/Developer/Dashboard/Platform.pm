@@ -6,7 +6,6 @@ use warnings;
 our $VERSION = '6.31';
 
 use Exporter 'import';
-use Capture::Tiny qw(capture);
 use File::Basename qw(basename dirname);
 use File::Copy qw(copy);
 use File::Spec;
@@ -98,6 +97,27 @@ sub passwd_home_directory {
     return @entry ? $entry[7] : undef;
 }
 
+# _capture($code)
+# Runs $code with stdout and stderr captured, loading Capture::Tiny
+# lazily on first use. Capture::Tiny must NOT be loaded at compile time
+# in this file: Platform.pm loads on every d2 invocation (bin/d2 ->
+# PerlEnv -> Platform), and the lightweight hot path (d2 ps1 / d2 paths)
+# must never load it - t/30 guards this with a poison Capture/Tiny.pm.
+# Only the real Windows ACL path calls this, so the require happens
+# only where icacls actually runs.
+# Input: code reference.
+# Output: the captured (stdout, stderr, exit code) list.
+sub _capture {
+    my ($code) = @_;
+    require Capture::Tiny;
+    # capture() is prototyped (&;@), so a plain
+    # Capture::Tiny::capture($code) is a compile-time error - the &
+    # slot takes only a literal block or sub {}. Calling through a
+    # coderef ignores the prototype.
+    my $capture = \&Capture::Tiny::capture;
+    return $capture->($code);
+}
+
 # _windows_current_user()
 # Resolves the current Windows account as the DOMAIN\user identity icacls
 # prints. The environment names come first (a logon always sets them); whoami
@@ -109,7 +129,7 @@ sub _windows_current_user {
     if ( defined $ENV{USERNAME} && $ENV{USERNAME} ne '' ) {
         return defined $ENV{USERDOMAIN} && $ENV{USERDOMAIN} ne '' ? "$ENV{USERDOMAIN}\\$ENV{USERNAME}" : $ENV{USERNAME};
     }
-    my ( $out, undef, $rc ) = capture { $SYSTEM_LAUNCHER->('whoami') };
+    my ( $out, undef, $rc ) = _capture( sub { $SYSTEM_LAUNCHER->('whoami') } );
     return if $rc != 0;
     $out =~ s/\s+\z//;
     return $out ne '' ? $out : undef;
@@ -128,7 +148,7 @@ sub _windows_current_user {
 # fails (including a missing path), meaning the ACL cannot be verified.
 sub _windows_icacls_aces {
     my ($path) = @_;
-    my ( $out, $err, $rc ) = capture { $SYSTEM_LAUNCHER->( 'icacls', $path ) };
+    my ( $out, $err, $rc ) = _capture( sub { $SYSTEM_LAUNCHER->( 'icacls', $path ) } );
     return if $rc != 0;
     my @aces;
     for my $line ( split /\r?\n/, $out ) {
@@ -193,7 +213,7 @@ sub windows_acl_set_owner_only {
     my $user = _windows_current_user();
     die "Unable to determine the current Windows user for owner-only ACL on $path\n" if !defined $user;
     my $grant = -d $path ? "$user:(OI)(CI)F" : "$user:F";
-    my ( $out, $err, $rc ) = capture { $SYSTEM_LAUNCHER->( 'icacls', $path, '/inheritance:r', '/grant:r', $grant ) };
+    my ( $out, $err, $rc ) = _capture( sub { $SYSTEM_LAUNCHER->( 'icacls', $path, '/inheritance:r', '/grant:r', $grant ) } );
     die sprintf "Unable to set owner-only ACL on %s: icacls exited %d: %s%s\n", $path, $rc, $out, $err if $rc != 0;
     return $path;
 }
