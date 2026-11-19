@@ -511,6 +511,18 @@ SKIP: {
         my ( undef, $pid ) = @_;
         return $pid == $pids[3] ? 1 : 0;
     };
+    # Fix C scopes every _find_running_loop branch through
+    # _loop_runtime_matches, which fails closed on a candidate with no
+    # runtime identity - and its first guard is liveness (kill 0), so a
+    # synthetic pid can never match through any channel (micro-proven in
+    # t/986). Hold the gate at yes for the positive candidate only: for
+    # every other pid this is exactly the real gate's answer here (a fake
+    # pid fails it on liveness), so the filtering this block pins is
+    # unchanged.
+    local *Developer::Dashboard::CollectorRunner::_loop_runtime_matches = sub {
+        my ( undef, $pid ) = @_;
+        return $pid == $pids[3] ? 1 : 0;
+    };
     is( $runner->_find_running_loop('fixture'), $pids[3],
         '_find_running_loop filters empty command lines, titles and namespaces portably' );
     is( $runner->_find_running_loop(''), undef,
