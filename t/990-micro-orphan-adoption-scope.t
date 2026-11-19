@@ -179,10 +179,15 @@ SKIP: {
         # from the loop child's environ even though the spawn localizes it
         # and the local spawn probe proves the mechanism. Record what the
         # child actually carries and which CollectorRunner the parent
-        # loaded, so the next step is evidence, not another theory.
-        my @dash_keys = map { ( split /=/, $_, 2 )[0] } grep { /^DEVELOPER_DASHBOARD/ } split /\0/, $env;
+        # loaded, so the next step is evidence, not another theory. Only
+        # key names are printed, never values.
+        my @entries = grep { $_ ne '' } split /\0/, $env;
+        my @dash_keys = map { ( split /=/, $_, 2 )[0] } grep { /^DEVELOPER_DASHBOARD/ } @entries;
+        my @all_keys = map { ( split /=/, $_, 2 )[0] } @entries;
         diag( 'loop child environ DEVELOPER_DASHBOARD keys: ' . ( @dash_keys ? join( ', ', @dash_keys ) : '(none)' ) );
-        diag( 'loop child environ entry count: ' . scalar( grep { $_ ne '' } split /\0/, $env ) );
+        diag( 'loop child environ all keys: ' . ( @all_keys ? join( ', ', @all_keys ) : '(none)' ) );
+        diag( 'loop child environ entry count: ' . scalar(@entries) );
+        diag( 'parent test process environ entry count: ' . scalar( keys %ENV ) );
         diag( 'CollectorRunner loaded from: ' . ( $INC{'Developer/Dashboard/CollectorRunner.pm'} || '(unknown)' ) );
     }
     is( $runtime_marker, $key_a, 'the running loop carries runtime A identity in its initial environ' );
