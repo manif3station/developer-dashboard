@@ -1989,7 +1989,19 @@ END {
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', '', 2 ) };
-    ok( !defined $manager->_pkill_perl('^d2 web:'), '_pkill_perl returns undef for unexpected pkill failures' );
+    # The stubbed capture makes pkill fail unexpectedly (exit 2), so
+    # the POSIX branch returns undef. Windows never calls pkill - its
+    # branch scans and signals directly and always returns 1 - so the
+    # same stub leaves the Windows result at 1 (build #251 failed this
+    # test on Windows expecting undef). Assert each platform's own
+    # contract; the test count is unchanged either way.
+    my $is_windows = $^O eq 'MSWin32';
+    if ($is_windows) {
+        ok( $manager->_pkill_perl('^d2 web:'), '_pkill_perl returns true on Windows where there is no pkill call to fail' );
+    }
+    else {
+        ok( !defined $manager->_pkill_perl('^d2 web:'), '_pkill_perl returns undef for unexpected pkill failures' );
+    }
     ok( !scalar( $manager->_ps_processes ), '_ps_processes returns an empty list when ps fails' );
 }
 
