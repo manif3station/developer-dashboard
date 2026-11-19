@@ -14,6 +14,23 @@
  * Due ids are collected before any callback runs (the Perl side dispatches
  * after _ev_wait returns), so a callback that registers or cancels other
  * routines cannot corrupt the engine lists.
+ *
+ * Single translation unit only. This header defines static globals and
+ * functions, so it is safe ONLY while exactly one translation unit
+ * includes it. Today exactly one does: the build makes a single object
+ * from the single XS file HtmlEscape.xs (OBJECT = HtmlEscape$(OBJ_EXT));
+ * HtmlEscape.xs includes this header once at line 8 and pulls
+ * GoRoutine012.xs in via INCLUDE at line 217; the generated HtmlEscape.c
+ * is xsubpp output of that same file, not a second translation unit (it
+ * is not in git). If a second translation unit ever includes this header,
+ * each unit gets its own copies of the four globals (go_ev_timers,
+ * go_ev_ios, go_ev_pids, go_ev_malloc_fail_next): silently split state,
+ * and triggers that never fire. The fix shape for that day is extern
+ * declarations in this header with the definitions owned behind a
+ * GOROUTINE_EVENT_IMPL guard defined in HtmlEscape.xs before line 8 (not
+ * in GoRoutine012.xs, which never includes this header: defining the
+ * guard there would emit no definition and the link would fail on the
+ * four globals).
  */
 #ifndef GOROUTINE_EVENT_H
 #define GOROUTINE_EVENT_H
