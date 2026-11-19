@@ -1331,12 +1331,17 @@ is_deeply(
                 [ '/usr/local/bin/node', 'unix-hook.js' ],
                 'command_argv_for_path resolves executable JavaScript source files through node',
             );
+            # The lookup itself also consults the interpreter's presence on
+            # Windows (via _is_windows_runnable_candidate), so the same
+            # simulated node covers it; node is not installed on the
+            # Windows test node, and the assertion below is about the
+            # suffix-omission lookup, not about the interpreter existing.
+            is(
+                resolve_runnable_file('unix-hook'),
+                'unix-hook.js',
+                'resolve_runnable_file finds executable JavaScript sources when the logical command name omits the .js suffix',
+            );
         }
-        is(
-            resolve_runnable_file('unix-hook'),
-            'unix-hook.js',
-            'resolve_runnable_file finds executable JavaScript sources when the logical command name omits the .js suffix',
-        );
         unlink 'unix-hook.js' or die $!;
     }
     {
