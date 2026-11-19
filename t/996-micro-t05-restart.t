@@ -15,13 +15,12 @@ use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Encode qw(decode encode);
 use File::Temp qw(tempdir);
 use IO::Socket::INET;
-use IPC::Open3;
 use LWP::UserAgent;
-use Symbol;
 use Test::More;
 use Time::HiRes qw(sleep);
 
 use lib File::Spec->catdir( $FindBin::Bin, 'lib' );
+use Local::NativeCommand qw(run_shell_command);
 
 my $UNDER_COVER = exists $INC{'Devel/Cover.pm'};
 my $repo = getcwd();
@@ -43,26 +42,26 @@ sub _find_free_port {
 }
 
 # _run_split($home, @argv)
-# Runs one d2 command as a child perl process with cwd $home and captures
-# stdout and stderr SEPARATELY (unlike t/05's _run, which concatenates
-# them). The separation is the whole point: build #217's Windows leg died
-# in json_decode because the restart output began with
-# "Failed to stop Windo...", and the concatenated capture cannot say
-# whether that text was restart's stdout, its stderr, or a dying child
-# that inherited its stderr while restart itself exited 0.
+# Runs one d2 command and captures stdout and stderr SEPARATELY (unlike
+# t/05's _run, which concatenates them). The separation is the whole
+# point: build #217's Windows leg died in json_decode because the restart
+# output began with "Failed to stop Windo...", and the concatenated
+# capture cannot say whether that text was restart's stdout, its stderr,
+# or a dying child that inherited its stderr while restart itself
+# exited 0.
+# The capture MUST go through run_shell_command (Capture::Tiny temp-file
+# capture), NOT IPC::Open3: v1 used open3 pipe reads-to-EOF, and the
+# Windows leg printed nothing for 3 minutes and tripped the FAIL-SAFE
+# silence watchdog in solo #218. On Windows CreateProcess inherits every
+# handle, so a spawned grandchild holding the pipe open blocks an EOF
+# read forever; the temp-file capture returns when the direct child
+# exits. Same shape as the t/17 hang.
 # Input: home directory and d2 argv list.
 # Output: hash reference with stdout, stderr and exit_code.
 sub _run_split {
     my ( $home, @argv ) = @_;
-    my $saved_cwd = getcwd();
-    chdir $home or die "Unable to chdir to $home: $!";
-    my $stderr_fh = Symbol::gensym();
-    my $pid = IPC::Open3::open3( undef, my $stdout_fh, $stderr_fh, $perl, "-I$lib", $dashboard, @argv );
-    my $stdout = do { local $/; <$stdout_fh> };
-    my $stderr = do { local $/; <$stderr_fh> };
-    waitpid( $pid, 0 );
-    my $exit_code = $? >> 8;
-    chdir $saved_cwd or die "Unable to chdir back to $saved_cwd: $!";
+    my $cmd = "cd '$home' && $perl -I'$lib' '$dashboard' " . join( ' ', @argv );
+    my ( $stdout, $stderr, $exit_code ) = run_shell_command($cmd);
     return {
         stdout    => decode( 'UTF-8', defined $stdout ? $stdout : '' ),
         stderr    => decode( 'UTF-8', defined $stderr ? $stderr : '' ),
@@ -111,9 +110,9 @@ if ( !$UNDER_COVER ) {
         local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
         local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
         local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+        diag("micro: cycle $cycle starting init");
         my $init = _run_split( $cycle_home, 'init' );
-        diag("micro: cycle $cycle init exit=$init->{exit_code}");
-        my $serve_config_file = File::Spec->catfile( $cycle_home, '.developer-dashboard', 'config', 'config.json' );
+        diag("micro: cycle $cycle init exit=$init->{exit_code}");        my $serve_config_file = File::Spec->catfile( $cycle_home, '.developer-dashboard', 'config', 'config.json' );
         open my $serve_config_fh, '>:raw', $serve_config_file or die "Unable to write $serve_config_file: $!";
         my $serve_config_json = json_encode(
             {
@@ -147,6 +146,7 @@ if ( !$UNDER_COVER ) {
             sleep 0.25;
         }
         diag("micro: cycle $cycle collector ticked after $polls polls");
+        diag("micro: cycle $cycle starting restart");
         my $restart = _run_split( $cycle_home, 'restart', '-o', 'json', '--host', '127.0.0.1', '--port', $serve_port );
         diag("micro: cycle $cycle restart exit=$restart->{exit_code}");
         diag( 'micro: cycle ' . $cycle . ' restart stdout first 1500: ' . substr( $restart->{stdout}, 0, 1500 ) );
@@ -166,6 +166,7 @@ if ( !$UNDER_COVER ) {
         else {
             diag( 'micro: cycle ' . $cycle . ' restart web_pid=' . ( $restart_json->{web_pid} || 'undef' ) );
         }
+        diag("micro: cycle $cycle starting stop");
         my $stop = _run_split( $cycle_home, 'stop', '-o', 'json' );
         diag("micro: cycle $cycle stop exit=$stop->{exit_code}");
         _kill_survivors( $cycle_home, $web_pid );
@@ -202,7 +203,12 @@ The concatenated stdout+stderr capture in t/05's _run cannot say whether
 that text was restart's stdout, its stderr, or a dying child that
 inherited its stderr; nor which pids taskkill refused, nor whether the
 web service survived. This micro answers all of those before any fix is
-attempted.
+attempted. v1 captured through IPC::Open3 pipe reads-to-EOF and the
+Windows leg printed nothing for 3 minutes in solo #218 (FAIL-SAFE
+silence trip): on Windows CreateProcess inherits every handle, so a
+spawned grandchild holding the pipe open blocks an EOF read forever.
+v2 captures through run_shell_command (Capture::Tiny temp-file
+capture, as t/05 does), which returns when the direct child exits.
 
 =head1 WHEN TO USE
 
