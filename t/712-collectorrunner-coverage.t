@@ -254,9 +254,28 @@ SKIP: {
     skip '/proc is not listable here', 2 if !-d '/proc';
     no warnings 'redefine';
     my $calls = 0;
+    my @seen;
     local *Developer::Dashboard::CollectorRunner::_read_proc_file      = sub { return 'x' };
     local *Developer::Dashboard::CollectorRunner::_read_process_title  = sub { return 'd2 collector: s8-ns' };
-    local *Developer::Dashboard::CollectorRunner::_same_pid_namespace  = sub { return ++$calls >= 2 ? 1 : 0 };
+    local *Developer::Dashboard::CollectorRunner::_same_pid_namespace  = sub {
+        my ( undef, $pid ) = @_;
+        push @seen, $pid;
+        return ++$calls >= 2 ? 1 : 0;
+    };
+    # Fix C scopes every _find_running_loop branch through
+    # _loop_runtime_matches, which fails closed on a candidate with no
+    # runtime identity - and this fixture provides none, so the gate
+    # rejects the positive candidate the scan reaches (micro-proven in
+    # t/981). Hold the gate at yes for the positive candidate only: the
+    # pid is taken from the scan itself ($seen[1], the second
+    # candidate), and for every other pid this is exactly the real
+    # gate's answer here (the candidates carry no marker, no --runtime
+    # token and no loop state), so the filtering this block pins is
+    # unchanged.
+    local *Developer::Dashboard::CollectorRunner::_loop_runtime_matches = sub {
+        my ( undef, $pid ) = @_;
+        return $pid == $seen[1] ? 1 : 0;
+    };
     my $found = $runner->_find_running_loop('s8-ns');
     ok( $found, '_find_running_loop returns a title match from the same pid namespace' );
     is( $calls, 2, '_find_running_loop skips a title match from another pid namespace' );
