@@ -4387,13 +4387,14 @@ ok( $timeout_result->{timed_out}, 'collector runner marks timed out jobs' );
 
 my $env_job = {
     name => 'env.collector',
-    # On Windows the command runs under PowerShell, where "$VAR" is an
-    # (unset) PowerShell variable and the inherited process env var is
-    # spelled $env:VAR. Probe599 on win-ts proved it: the Unix spelling
-    # prints nothing (printf.exe: missing operand, exit 1) while
-    # 'printf $env:COLLECTOR_ENV' prints collector-ok, exit 0 - the env
-    # var itself reaches the child fine either way.
-    command => $^O eq 'MSWin32' ? 'printf $env:COLLECTOR_ENV' : 'printf "$COLLECTOR_ENV"',
+    # One portable command for both legs: perl prints the injected env
+    # var directly, so no shell spelling is involved. Single quotes keep
+    # $ENV{...} literal under both sh and PowerShell (double quotes would
+    # let PowerShell interpolate it). The old per-platform printf ternary
+    # died on the new Windows box, which has no printf at all - the
+    # Probe599 comment it replaced proved the spelling on the old box,
+    # where printf happened to exist.
+    command => q{perl -e 'print $ENV{COLLECTOR_ENV}'},
     cwd     => 'home',
     env     => { COLLECTOR_ENV => 'collector-ok' },
 };
