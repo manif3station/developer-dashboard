@@ -3225,7 +3225,10 @@ my $ext = File::Spec->catfile( $cli_root, 'foobar' );
 open my $ext_fh, '>', $ext or die "Unable to write $ext: $!";
 print {$ext_fh} <<'SH';
 #!/bin/sh
-input="$(cat)"
+# cat is an external binary in Git usr/bin, which is not on the Windows
+# job PATH, so slurp stdin with perl instead (byte-identical output:
+# command substitution strips trailing newlines either way).
+input="$(perl -e 'local $/; print <STDIN>')"
 printf 'argv:%s|stdin:%s\n' "$*" "$input"
 SH
 close $ext_fh;
@@ -3907,14 +3910,18 @@ sub _gate_lines {
 
 # AC-7: a hook that invokes dashboard itself must not recurse. The fixture
 # caps its own depth at three markers so a missing guard fails the assertion
-# instead of forking without bound on a shared host.
+# instead of forking without bound on a shared host. The depth is counted
+# with perl, not wc -l | tr: both live in Git usr/bin, which is not on the
+# Windows job PATH, so with them missing the depth came back empty, the -lt
+# test errored, and the nested invocation never ran - the guard passed
+# vacuously there.
 {
     my ( $home, $proj, $home_hooks ) = _gate_fixture();
     my $marker = File::Spec->catfile( $home, 'nested-marker' );
     _gate_file(
         File::Spec->catfile( $home_hooks, '10-nested.sh' ),
         "#!/bin/sh\necho nested >> '$marker'\n"
-          . "depth=\$(wc -l < '$marker' | tr -d ' ')\n"
+          . "depth=\$('$perl' -ne 'END { print \$.\+0 }' '$marker')\n"
           . "if [ \"\$depth\" -lt 3 ]; then HOME='$home' '$perl' -I'$lib' '$dashboard' version >/dev/null 2>&1; fi\n",
         0755
     );
