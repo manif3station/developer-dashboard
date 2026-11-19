@@ -1947,7 +1947,14 @@ END {
 }
 
 {
-    local $ENV{PATH} = '/definitely-missing';
+    # The hostile PATH simulates pkill being unavailable. On Windows
+    # there is no pkill at all - _pkill_perl always takes the scan path
+    # - but the Windows branch kills through taskkill, which the same
+    # hostile PATH would hide, so the test would die in _send_signal
+    # instead of exercising the fallback (build #249: "Failed to stop
+    # Windows process ids 5452: 'taskkill' is not recognized").
+    # Keep PATH intact on Windows: pkill is absent there regardless.
+    local $ENV{PATH} = '/definitely-missing' if $^O ne 'MSWin32';
     my $fallback_child = _spawn_perl_fixture(
         q{$0 = 'd2 web: fallback:9999'; while (1) { sleep 0.1 }},
     );
