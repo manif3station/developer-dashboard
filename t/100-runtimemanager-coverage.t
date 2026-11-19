@@ -3237,6 +3237,12 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
     open my $fh, '>', $src or die $!;
     print {$fh} "n";
     close $fh;
+    # The name says non-Windows: on a real Windows host the rename failure
+    # takes the Windows retry path and the PowerShell fallback genuinely
+    # moves the file, so the die below is never reached. Hold the platform
+    # off to reach the fall-through die; the Windows fallback itself is
+    # covered by the neighbouring test 522.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_rename_path = sub { return 0 };
     my $err = eval { $manager->_replace_state_file( $src, $tgt ); 1 } ? '' : $@;
     like( $err, qr/Unable to rename/, '_replace_state_file dies on a non-Windows rename failure' );
