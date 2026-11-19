@@ -470,6 +470,15 @@ sub stop_web {
     if (is_windows()) {
         $self->_send_signal( 'TERM', $pid ) if $pid;
         $self->_send_signal( 'TERM', @listener_pids );
+        # The POSIX branch below stops the saved ajax singleton workers
+        # with the web service; the Windows branch never did, so stop_all
+        # left them running (build #243 failed t/09 test 170 on Windows
+        # with the ajax child still alive after stop_all). Mirror it:
+        # TERM the managed ajax workers, then KILL the ones still alive
+        # after the web shutdown wait.
+        my @ajax_workers = $self->_managed_ajax_processes;
+        my @ajax_worker_pids = map { $_->{pid} } @ajax_workers;
+        $self->_send_signal( 'TERM', @ajax_worker_pids ) if @ajax_worker_pids;
         for ( 1 .. 30 ) {
             last if !$self->_wait_for_windows_web_shutdown( $pid, $port, \@listener_pids );
             sleep 0.1;
@@ -477,6 +486,8 @@ sub stop_web {
         my @still_listening = grep { kill 0, $_ } @listener_pids;
         $self->_send_signal( 'KILL', $pid ) if $pid && kill 0, $pid;
         $self->_send_signal( 'KILL', @still_listening );
+        my @lingering_ajax = grep { $self->_pid_is_running($_) } @ajax_worker_pids;
+        $self->_send_signal( 'KILL', @lingering_ajax ) if @lingering_ajax;
         if ( $port && !$self->_wait_for_port_release($port) ) {
             my @late_listeners = grep { kill 0, $_ } $self->_listener_pids_for_port($port);
             $self->_send_signal( 'KILL', @late_listeners );
