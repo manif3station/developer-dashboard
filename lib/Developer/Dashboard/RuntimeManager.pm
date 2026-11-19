@@ -2613,6 +2613,26 @@ sub _send_signal {
         if ( defined $stdout && $stdout =~ /not found/i ) {
             return scalar @targets;
         }
+        if ( $signal =~ /^(?:TERM|KILL)$/i ) {
+            # taskkill exits non-zero when ANY process in the tree fails,
+            # even when the target itself was terminated: solo #220 saw the
+            # target 9000 and one child terminated, but a just-exited worker
+            # child refused with "The operation attempted is not
+            # supported", so the restart died while the web was already
+            # down and printed plain text instead of JSON. The stop's goal
+            # is the target being gone: verify that directly, with the same
+            # bounded wait the other stop paths use, and only die when a
+            # target is still alive afterwards. Callers re-verify liveness
+            # themselves (stop_web escalates, _ensure_collector_pid_stopped
+            # dies on a survivor), so a target that is verifiably gone can
+            # never be masked by this.
+            for ( 1 .. 20 ) {
+                last if !grep { $self->_pid_is_running($_) } @targets;
+                sleep 0.1;
+            }
+            my @still_running = grep { $self->_pid_is_running($_) } @targets;
+            return scalar @targets if !@still_running;
+        }
         die "Failed to stop Windows process ids $joined: $stderr$stdout"
           if $signal =~ /^(?:TERM|KILL)$/i;
         return 0;
