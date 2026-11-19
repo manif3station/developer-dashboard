@@ -16,7 +16,7 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::PathIdentity ();
 use Developer::Dashboard::Config;
 use Developer::Dashboard::JSON qw(json_decode);
-use Developer::Dashboard::Platform ();
+use Developer::Dashboard::Platform qw(effective_mode_octal);
 
 sub _without_private_var_prefix {
     my ($path) = @_;
@@ -65,8 +65,10 @@ my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
     is( $paths->config_root, $overlay, 'config writes target the private overlay when configured' );
     is_deeply( [ $paths->config_roots ], [ $overlay, @base_roots ], 'private config overlay augments existing config lookup roots at highest priority' );
     is_deeply( [ $paths->config_layers ], [ ( map { File::Spec->catdir( $_, 'config' ) } $paths->runtime_layers ), $overlay ], 'private config overlay is the final inherited config layer' );
-    my @overlay_stat = stat $overlay;
-    is( $overlay_stat[2] & 0777, 0700, 'private config overlay is restricted to its owner' );
+    # Raw stat cannot see a Windows DACL (a directory stays 0777 whatever
+    # its ACL says), so read the effective mode, which derives 0700 from an
+    # owner-only DACL on Windows and is the stat mode unchanged on Unix.
+    is( effective_mode_octal($overlay), '0700', 'private config overlay is restricted to its owner' );
 }
 
 {

@@ -2059,6 +2059,10 @@ sub _ensure_state_dir {
     my ( $self, $dir ) = @_;
     if ( !-d $dir ) {
         make_path( $dir, { mode => 0700 } );
+        # make_path mode is a Unix truth: on Windows it sets no DACL, so
+        # harden explicitly here rather than leaving the directory open
+        # until a later access takes the existing-directory branch below.
+        $self->_apply_dir_mode($dir);
     }
     else {
         # The stat reuses the _ buffer the -d test above populated, and its
