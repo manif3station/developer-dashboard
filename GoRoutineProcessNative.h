@@ -217,7 +217,6 @@ dd_close_spawn_redirects(HANDLE child_in, HANDLE child_out, HANDLE child_err,
     if (stderr_path && child_err != INVALID_HANDLE_VALUE)
         CloseHandle(child_err);
 }
-}
 
 static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     I32 argc = 0;
