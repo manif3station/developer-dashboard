@@ -376,13 +376,20 @@ sub terminate_command_process {
         # until it is collected, and that handle is what makes kill 0
         # report a dead child alive - so poll the registry until the
         # child is collected, or the caller still sees it afterwards.
-        # The poll exits on the first success (taskkill has already
-        # terminated the process, so that is normally immediate);
-        # the bound only covers a slow termination on a loaded box.
+        # The poll exists only to collect that kept handle: a pid the
+        # registry never saw has no handle to collect, so the poll
+        # can never succeed for it and would only burn its whole
+        # bound (t/122: 5s timeout + 5s poll = 10.067s against < 10,
+        # for a command spawn_windows_command starts with system()
+        # and therefore never registers, and for every POSIX
+        # simulation where the registry stays empty by design).
+        # Only poll when the child is registry-tracked.
         require Developer::Dashboard::GoRoutine;
-        for ( 1 .. 500 ) {
-            last if Developer::Dashboard::GoRoutine::reap_child($pid);
-            sleep 0.01;
+        if ( Developer::Dashboard::GoRoutine::is_spawn_child($pid) ) {
+            for ( 1 .. 500 ) {
+                last if Developer::Dashboard::GoRoutine::reap_child($pid);
+                sleep 0.01;
+            }
         }
         waitpid( $pid, 0 );
         return 1;

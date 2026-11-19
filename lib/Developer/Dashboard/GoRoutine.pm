@@ -203,6 +203,20 @@ sub reap_child {
     return 1;
 }
 
+# is_spawn_child($pid)
+# Reports whether one pid is a child this process spawned through GoRoutine
+# and still holds a registry entry for, so callers that poll the registry
+# can skip the poll entirely for a pid it never tracked instead of burning
+# the whole bound on a reap that can never succeed (t/122: the poll exists
+# only to collect the kept handle, and an unregistered pid has none).
+# Input: process id integer.
+# Output: boolean true when the pid has a spawn-registry entry.
+sub is_spawn_child {
+    my ($pid) = @_;
+    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    return exists $_SPAWN_CHILDREN{$pid} ? 1 : 0;
+}
+
 # reap_any_exited()
 # Reaps every registry-tracked spawned child that has already exited, so a
 # long-lived supervisor can collect direct children on Windows where
@@ -1313,7 +1327,9 @@ C<reap_child($pid)> reaps one spawned child that has already exited and
 reports whether it did; C<reap_any_exited()> reaps every spawned child that
 has already exited and returns how many it collected, which is how a
 supervisor collects direct children on Windows, where waitpid(-1) has no
-equivalent.
+equivalent. C<is_spawn_child($pid)> reports whether the pid is a
+GoRoutine-spawned child the registry still tracks, so a caller can tell a
+child with a handle to collect from one it never spawned.
 C<terminate_process($pid, $signal)> sends C<TERM>, C<KILL>, C<HUP>, or C<INT>
 on POSIX. Windows supports C<TERM> and C<KILL>, mapped to native process
 termination because POSIX signal handlers are unavailable there. Unsupported
