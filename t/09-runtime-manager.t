@@ -1000,15 +1000,22 @@ my $clean_exit_manager = Developer::Dashboard::RuntimeManager->new(
     like( $startup_line, qr/^ok\|\d+\|0\.0\.0\.0\|7906\n\z/, '_run_web_child reports startup before waiting for signals' );
     ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, 'TERM' ),
         '_run_web_child child receives TERM through GoRoutine' );
-    is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), 0,
+    # GoRoutineProcess.xs maps Windows TERM to TerminateProcess(143): an
+    # uncatchable kill, so the shutdown handler never runs there and the
+    # child exits 143 with its state still 'running'. On POSIX the TERM
+    # is a real signal, the handler runs, and the child exits 0 with
+    # 'stopped' state. Micro t/992 proved both branches on all four legs.
+    my $is_windows = $^O eq 'MSWin32';
+    is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), $is_windows ? 143 : 0,
         '_run_web_child exits after TERM triggers the shutdown handler' );
     my $signal_state;
+    my $expected_status = $is_windows ? 'running' : 'stopped';
     for ( 1 .. 30 ) {
         $signal_state = $manager->web_state;
-        last if $signal_state && ( $signal_state->{status} || '' ) eq 'stopped';
+        last if $signal_state && ( $signal_state->{status} || '' ) eq $expected_status;
         sleep 0.1;
     }
-    is( state_field( $signal_state, 'status' ), 'stopped', '_run_web_child TERM shutdown records stopped status through the signal handler' );
+    is( state_field( $signal_state, 'status' ), $expected_status, '_run_web_child TERM shutdown records stopped status through the signal handler' );
     $manager->_cleanup_web_files;
 }
 
