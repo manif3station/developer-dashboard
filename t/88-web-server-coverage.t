@@ -722,7 +722,7 @@ sub Local::CompletedRoutine::kill { return 1 }
     my ( $handled, @routines ) = (0);
     local *Developer::Dashboard::Web::Server::_ssl_backend_command = sub { return [ $^X, '-e', 'exit 0' ] };
     local *Developer::Dashboard::GoRoutine::spawn = sub {
-        @spawned = @_;
+        push @spawned, [ [ @{ $_[0] } ], { %{ $_[1] } } ];
         return 991001;
     };
 
@@ -749,8 +749,14 @@ sub Local::CompletedRoutine::kill { return 1 }
         1,
         'SSL frontend retries an interrupted accept and then exits once shutdown is requested',
     );
-    is_deeply( \@spawned, [ [ $^X, '-e', 'exit 0' ], { process_group => 1 } ],
+    is( scalar @spawned, 2, 'SSL frontend starts one backend and one backend watchdog' );
+    is_deeply( $spawned[0], [ [ $^X, '-e', 'exit 0' ], { process_group => 1 } ],
         'SSL frontend starts its backend with the managed process-group option' );
+    is( $spawned[1][0][0], $^X, 'backend watchdog runs under the same perl' );
+    is( $spawned[1][0][-4], '-e', 'backend watchdog runs an inline program' );
+    is( $spawned[1][0][-2], $$, 'backend watchdog watches the frontend process' );
+    is( $spawned[1][0][-1], 991001, 'backend watchdog watches the spawned backend process' );
+    is_deeply( $spawned[1][1], {}, 'backend watchdog is spawned without process-group isolation' );
     is( $handled, 1, 'accepted client is handled by one GoRoutine worker' );
     is( $routines[0]{killed}, 1, 'SSL frontend cancels a client routine during shutdown' );
     is( $routines[0]{checks}, 0, 'SSL frontend cancels a client routine without polling is_running' );

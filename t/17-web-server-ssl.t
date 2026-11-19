@@ -995,10 +995,15 @@ SIGNAL_PERL
             1,
             'SSL frontend returns cleanly after the process API reports backend exit',
         );
-        is( scalar @spawned, 1, 'SSL frontend starts one backend process through GoRoutine' );
+        is( scalar @spawned, 2, 'SSL frontend starts one backend process and one backend watchdog through GoRoutine' );
         is_deeply( $spawned[0][0], [ $^X, '-e', 'exit 0', '127.0.0.1', 17896, 1 ],
             'backend process receives explicit executable arguments and its internal endpoint' );
         is( $spawned[0][1]{process_group}, 1, 'backend process is isolated in a managed process group' );
+        is( $spawned[1][0][0], $^X, 'backend watchdog runs under the same perl' );
+        is( $spawned[1][0][-4], '-e', 'backend watchdog runs an inline program' );
+        is( $spawned[1][0][-2], $$, 'backend watchdog watches the frontend process' );
+        is( $spawned[1][0][-1], 4243, 'backend watchdog watches the spawned backend process' );
+        is_deeply( $spawned[1][1], {}, 'backend watchdog is spawned without process-group isolation' );
         is_deeply( $terminated[0], [ 4243, 'TERM' ], 'frontend shutdown terminates the managed backend process' );
     }
 }

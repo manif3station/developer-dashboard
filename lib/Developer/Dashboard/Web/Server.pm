@@ -221,6 +221,7 @@ sub _serve_ssl_frontend {
         $backend_command,
         { process_group => 1 },
     );
+    _start_ssl_backend_watchdog($backend_pid);
 
     my $previous_term = $SIG{TERM};
     my $previous_int  = $SIG{INT};
@@ -841,6 +842,48 @@ sub _stop_ssl_backend {
     Developer::Dashboard::GoRoutine::wait_process($pid);
     $SSL_BACKEND_REAPED{$pid} = 1;
     return 1;
+}
+
+# _start_ssl_backend_watchdog($backend_pid)
+# Starts a separate watchdog process that ends the internal SSL backend
+# when the frontend process disappears. The frontend can be killed with
+# TerminateProcess (Windows) or SIGKILL, which gives it no chance to run
+# its TERM handler and stop the backend, so the orphaned backend would
+# otherwise hold the test harness pipes open forever and keep listening.
+# The watcher polls the frontend pid every 0.25s; when the frontend is
+# gone it terminates the backend (never dying on the kill: the backend
+# may already be dead) and exits. Its lifetime is bounded by the
+# frontend's own lifetime: a server runs for hours, and the watchdog
+# must outlive it however long that is. The investigation micro's 120s
+# bound was test safety so the micro could never hang forever, and the
+# old loop-branch parent watchdog was likewise unbounded (while (1)).
+# Input: backend pid integer.
+# Output: watchdog pid integer, or 0 when the backend pid is unusable.
+sub _start_ssl_backend_watchdog {
+    my ($backend_pid) = @_;
+    return 0 if !defined $backend_pid || $backend_pid !~ /^\d+$/ || $backend_pid < 1;
+    my $watcher_program = <<'WATCHER_PERL';
+use strict;
+use warnings;
+use Developer::Dashboard::GoRoutine ();
+my ( $frontend_pid, $backend_pid ) = @ARGV;
+while (1) {
+    if ( !Developer::Dashboard::GoRoutine::process_running($frontend_pid) ) {
+        eval { Developer::Dashboard::GoRoutine::terminate_process($backend_pid); };
+        for ( 1 .. 40 ) {
+            last if !Developer::Dashboard::GoRoutine::process_running($backend_pid);
+            select undef, undef, undef, 0.25;
+        }
+        exit 0;
+    }
+    select undef, undef, undef, 0.25;
+}
+WATCHER_PERL
+    my @library_args = map { ( '-I', $_ ) } grep { defined && -d $_ } @INC;
+    return Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, @library_args, '-e', $watcher_program, $$, $backend_pid ],
+        {},
+    );
 }
 
 # _wait_for_managed_child($pid, $reaped_children)
