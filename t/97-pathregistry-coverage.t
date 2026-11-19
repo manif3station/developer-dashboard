@@ -546,14 +546,18 @@ sub dies_like {
     my $written = do { local $/; <$read_fh> };
     close $read_fh;
     is( $written, "hello\n", 'the destination file holds the written content' );
-    skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
-    is( ( stat($target) )[2] & 07777, 0600, 'a default-mode write lands at 0600' );
+    SKIP: {
+        skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
+        is( ( stat($target) )[2] & 07777, 0600, 'a default-mode write lands at 0600' );
+    }
 
     my $exec_target = File::Spec->catfile( $fresh, 'atomic-exec-target' );
     my $exec_tmp    = "$exec_target.pending";
     $reg->atomic_write_secure( $exec_tmp, $exec_target, '#!/bin/true', executable => 1 );
-    skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
-    is( ( stat($exec_target) )[2] & 07777, 0700, 'an executable write lands at 0700' );
+    SKIP: {
+        skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
+        is( ( stat($exec_target) )[2] & 07777, 0700, 'an executable write lands at 0700' );
+    }
 
     # Open failure: the staging path is itself an existing directory.
     my $open_target = File::Spec->catfile( $fresh, 'open-blocked-target' );
@@ -765,8 +769,10 @@ sub dies_like {
     # every secure-count after it runs one lower there.
     my $mode_rewrite_offset = $^O eq 'MSWin32' ? -1 : 0;
     my @secure_stat = stat $metadata;
-    skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
-    is( $secure_stat[2] & 0777, 0600, 'rewritten state metadata remains owner-only' );
+    SKIP: {
+        skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
+        is( $secure_stat[2] & 0777, 0600, 'rewritten state metadata remains owner-only' );
+    }
 
     open my $empty_fh, '>:raw', $metadata or die "Unable to empty test metadata $metadata: $!";
     close $empty_fh or die "Unable to close empty test metadata $metadata: $!";
