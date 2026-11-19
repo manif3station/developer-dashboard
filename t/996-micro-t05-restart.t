@@ -123,21 +123,28 @@ sub _perl_pids {
 }
 
 # _process_snapshot()
-# Lists the command lines of running perl processes on Windows, via
-# wmic with no where-clause (so the command needs no quoting at all).
-# Used to NAME the survivor: a pid alone cannot say whether it is the
-# web server, a collector loop, a supervisor or a tick child. Returns
-# the matching lines (Node,CommandLine,ParentProcessId,ProcessId CSV);
-# empty on non-Windows legs.
+# Lists the command lines of running perl processes on Windows, via a
+# small PowerShell script written to a temp file (wmic is NOT available
+# on the Windows node — solo #221 died on it — and the script-file form
+# needs no nested quoting in the command string). Used to NAME the
+# survivor: a pid alone cannot say whether it is the web server, a
+# collector loop, a supervisor or a tick child. Returns the matching
+# TSV lines (pid, parent pid, command line); empty on non-Windows legs.
+# The call is eval-wrapped: a diagnostic must never kill the micro the
+# way the wmic call did in solo #221.
+my $_snapshot_script;
 sub _process_snapshot {
     return () if $^O ne 'MSWin32';
-    my ( $stdout, $stderr, $exit_code ) = run_shell_command('wmic process get ProcessId,ParentProcessId,CommandLine /FORMAT:CSV');
-    return ("micro: wmic failed exit=$exit_code") if $exit_code != 0;
-    my @lines;
-    for my $line ( split /\r?\n/, $stdout ) {
-        push @lines, $line if $line =~ /perl/i;
+    if ( !defined $_snapshot_script ) {
+        my ( $fh, $name ) = File::Temp::tempfile( 'micro-ps-snapshot-XXXXXX', SUFFIX => '.ps1', UNLINK => 0, TMPDIR => 1 );
+        print {$fh} 'Get-CimInstance Win32_Process -Filter "Name=\'perl.exe\'" | ForEach-Object { "$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)" }' . "\n";
+        close $fh;
+        $_snapshot_script = $name;
     }
-    return @lines;
+    my ( $stdout, $stderr, $exit_code ) = eval { run_shell_command("powershell.exe -NoProfile -ExecutionPolicy Bypass -File '$_snapshot_script'") };
+    return ("micro: snapshot failed: $@") if $@;
+    return ("micro: snapshot failed exit=$exit_code: $stderr") if $exit_code != 0;
+    return split /\r?\n/, $stdout;
 }
 
 if ( !$UNDER_COVER ) {
@@ -255,23 +262,17 @@ silence trip): on Windows CreateProcess inherits every handle, so a
 spawned grandchild holding the pipe open blocks an EOF read forever.
 v2 captures through run_shell_command (Capture::Tiny temp-file
 capture, as t/05 does), which returns when the direct child exits.
-Solo #220 (v3, one home): REPRODUCED the #217 failure on Windows in
-cycle 2. After cycle 1's stop two perl pids (4592, 6192) were still
-alive and the kill-cleanup could not kill them (they are neither the
-web pid nor the collector-status loop pid). Cycle 2's restart exited 0
-with EMPTY stdout and this stderr: "Failed to stop Windows process
-ids 9000: ERROR: The process with PID 5600 (child process of PID 9000)
-could not be terminated. Reason: The operation attempted is not
-supported. SUCCESS: The process with PID 7200 (child process of PID
-9000) has been terminated. SUCCESS: The process with PID 9000 (child
-process of PID 10960) has been terminated." So taskkill terminated the
-target (9000) and one child (7200) but died on one child (5600), and
-_send_signal dies on ANY non-zero taskkill exit that is not "not
-found" — aborting the restart before the new web/collectors start,
-while exiting 0. The web was dead after the failure and a second
-restart succeeded cleanly. v4 adds a wmic process snapshot (command
-lines) before each restart and after each stop, to name the survivor
-pids and the unkillable child.
+Solo #221 (v4): the Windows leg died inside the wmic snapshot call —
+wmic is NOT available on the Windows node ("command 'wmic' is not
+available"), the die killed the test process, and the survivors then
+held prove's pipes open (FAIL-SAFE silence trip again). Two facts
+survived: cycle 1 already had two perl pids (2420, 7856) alive BEFORE
+serve — orphans stranded by #220's fail-fast kill — and the tempdir
+cleanup again showed _dashboard-core, collectors.log, dashboard.log
+and dashboard.log.stderr all locked. v5 takes the snapshot through a
+PowerShell script file instead (powershell.exe is on the node — the job
+itself uses it), and the snapshot call is eval-wrapped so a diagnostic
+can never kill the micro again.
 
 =head1 WHEN TO USE
 
