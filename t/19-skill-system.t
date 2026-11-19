@@ -73,12 +73,14 @@ if ( $^O eq 'MSWin32' ) {
     # Windows cannot execute the extensionless sh fake above: CreateProcess
     # skips it, so the install's cpanm step would fail instead of logging.
     # A .bat twin with the same logging behaviour is what Windows actually
-    # runs (t/05 pattern, build #50).
+    # runs (t/05 pattern, build #50). The env line puts its redirect FIRST:
+    # cmd.exe expands a %VAR% directly before >> to empty (micro-probes
+    # 19g/19h on win-ts), so the trailing variable would log blank.
     _write_file(
         File::Spec->catfile( $fake_bin, 'cpanm.bat' ),
         <<"BAT",
 \@echo off
-echo PERL_MM_USE_DEFAULT=%PERL_MM_USE_DEFAULT% NONINTERACTIVE_TESTING=%NONINTERACTIVE_TESTING% PERL_CANARY_STABILITY_NOPROMPT=%PERL_CANARY_STABILITY_NOPROMPT%>>"$cpanm_log"
+>>"$cpanm_log" echo PERL_MM_USE_DEFAULT=%PERL_MM_USE_DEFAULT% NONINTERACTIVE_TESTING=%NONINTERACTIVE_TESTING% PERL_CANARY_STABILITY_NOPROMPT=%PERL_CANARY_STABILITY_NOPROMPT%
 echo %*>>"$cpanm_log"
 echo CPANM:%*>>"$dependency_log"
 exit /b 0
