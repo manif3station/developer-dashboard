@@ -3694,6 +3694,11 @@ ok( !defined $manager->_read_process_state(999_999_998), '_read_process_state re
 
 {
     no warnings 'redefine';
+    # Same Windows routing as the ps-fallback title test above:
+    # _read_process_state returns early on Windows and never reaches
+    # the ps fallback these stubs pin (build #269 failed this test on
+    # Windows with got undef). Force the POSIX branch.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "Z+\n", undef, 0 ) };
     is( $manager->_read_process_state(999_999_999), 'Z', '_read_process_state falls back to ps output when procfs state data is unavailable' );
@@ -3701,7 +3706,13 @@ ok( !defined $manager->_read_process_state(999_999_998), '_read_process_state re
 
 {
     no warnings 'redefine';
+    # Same as above, and ps itself does not exist on Windows, so the
+    # fallback's ps invocation is stubbed too: the real function still
+    # takes the ps path directly and parses its output, which is what
+    # this test pins.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "R\n", undef, 0 ) };
     like( $manager->_read_process_state($$), qr/^[A-Z]$/, '_read_process_state can execute the ps fallback path directly when procfs is disabled' );
 }
 
