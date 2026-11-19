@@ -2134,13 +2134,7 @@ sub _ancestor_runtime_layers {
     while ($dir) {
         for my $candidate ( $self->_existing_layer_dirs_for($dir) ) {
             next if $home_runtime{ $self->_path_identity($candidate) };
-            # The walk starts at the canonical cwd, so candidates are
-            # spelled through the physical path even when home (or the
-            # project root) is addressed through a symlink alias. Restyle
-            # them through the boundary directory first, so the layers
-            # keep the spelling the caller used; _prefer_reference_style
-            # leaves the path untouched when it is not below the boundary.
-            my $visible_candidate = $self->_display_path( $self->_prefer_reference_style( $candidate, $stop_dir ) );
+            my $visible_candidate = $self->_display_path($candidate);
             unshift @layers, $visible_candidate;
         }
         last if $dir eq $stop_dir;
@@ -2158,6 +2152,12 @@ sub _ancestor_runtime_layers {
 # _ancestor_runtime_layers_for_scope()
 # Returns discovered ancestor runtime layers, sharing the result only inside an
 # explicit operation scope so runtime creation/removal remains visible later.
+# Layers are presented through the configured home spelling here, not in the
+# walk: the walk itself returns on-disk spellings (t/97 pins that, and counts
+# the stop identity once), while the public runtime_layers contract keeps the
+# spelling the caller used for home (t/07 test 150). _prefer_reference_style
+# leaves a layer untouched when it is not below home, so project-root layers
+# outside home keep their on-disk spelling.
 # Input: none; reads the existing operation-local candidate scope when present.
 # Output: ordered list of ancestor runtime-layer directory paths.
 sub _ancestor_runtime_layers_for_scope {
@@ -2165,7 +2165,7 @@ sub _ancestor_runtime_layers_for_scope {
     my $scope = $self->{_runtime_layer_candidate_scope};
     return @{ $scope->{ancestor_runtime_layers} }
       if ref($scope) eq 'HASH' && exists $scope->{ancestor_runtime_layers};
-    my @layers = $self->_ancestor_runtime_layers;
+    my @layers = map { $self->_prefer_reference_style( $_, $self->home ) } $self->_ancestor_runtime_layers;
     $scope->{ancestor_runtime_layers} = \@layers if ref($scope) eq 'HASH';
     return @layers;
 }
