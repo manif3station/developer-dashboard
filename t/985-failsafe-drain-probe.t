@@ -369,7 +369,25 @@ like( $fast_text, qr/FAIL-SAFE: first test failure detected/,
 # roughly latency minus 2s: ~1s here, one sleep cycle after the failure.
 cmp_ok( $fast_latency, '<', 5, 'micro: fast consumer: trips within 5s of the failure' );
 
-# Case 2: slow consumer. The producer writes its 800 lines at
+# Case 2: the fix, validated in the micro only. The fixed copy of
+# failsafe.pl (written above, byte-identical to the fix text reported
+# to the loop owner) runs under the SAME slow consumer as case 3. If
+# it trips promptly, the fix works and the parent can apply the text
+# to the job config with the evidence in hand. Nothing here touches
+# the job config or the pipeline-written failsafe.pl. This case runs
+# BEFORE the slow case on purpose: the slow case fails on macOS by
+# design (its 16KB pipe holds the backlog), and that failure would
+# fire failFast and kill the other legs before they measured the fix.
+diag('[fixed] case 2: fixed watchdog under the slow consumer');
+my ( $fixed_exit, $fixed_latency, $fixed_text, $fixed_before ) =
+    _run_watchdog( 'fixed', 'slow', '800', '1000', $fixed_watchdog );
+diag("[fixed] exit=$fixed_exit latency=${fixed_latency}s lines-before-trip=$fixed_before");
+is( $fixed_exit, 1, 'micro: fixed watchdog: trips (exit 1)' );
+like( $fixed_text, qr/FAIL-SAFE: first test failure detected/,
+    'micro: fixed watchdog: trip message printed' );
+cmp_ok( $fixed_latency, '<', 5, 'micro: fixed watchdog: trips within 5s of the failure' );
+
+# Case 3: slow consumer. The producer writes its 800 lines at
 # 1000/sec, so the whole post-failure backlog (~19KB) lands in the log
 # inside a second - far more than the 4KB Linux pipe and the 16KB
 # macOS pipe hold - and the watchdog can only drain it as fast as the
@@ -378,7 +396,7 @@ cmp_ok( $fast_latency, '<', 5, 'micro: fast consumer: trips within 5s of the fai
 # the pipe could ever fill and the throttle never bit. v3 used 500
 # lines at 1000/sec (~12KB): enough to throttle Linux, but macOS's
 # 16KB pipe still held the whole backlog and tripped promptly.
-diag('[slow] case 2: slow consumer (watchdog stdout to a pipe drained at 20 lines/sec)');
+diag('[slow] case 3: slow consumer (watchdog stdout to a pipe drained at 20 lines/sec)');
 my ( $slow_exit, $slow_latency, $slow_text, $slow_before ) = _run_watchdog( 'slow', 'slow', '800', '1000' );
 diag("[slow] exit=$slow_exit latency=${slow_latency}s lines-before-trip=$slow_before");
 is( $slow_exit, 1, 'micro: slow consumer: watchdog trips (exit 1)' );
@@ -387,21 +405,6 @@ like( $slow_text, qr/FAIL-SAFE: first test failure detected/,
 cmp_ok( $slow_latency, '>', 12, 'micro: slow consumer: trips only after 12s (late, like build #296)' );
 cmp_ok( $slow_latency, '>', 3 * $fast_latency,
     'micro: slow consumer: trip is at least 3x the fast-consumer trip' );
-
-# Case 3: the fix, validated in the micro only. The fixed copy of
-# failsafe.pl (written above, byte-identical to the fix text reported
-# to the loop owner) runs under the SAME slow consumer as case 2. If
-# it trips promptly, the fix works and the parent can apply the text
-# to the job config with the evidence in hand. Nothing here touches
-# the job config or the pipeline-written failsafe.pl.
-diag('[fixed] case 3: fixed watchdog under the slow consumer');
-my ( $fixed_exit, $fixed_latency, $fixed_text, $fixed_before ) =
-    _run_watchdog( 'fixed', 'slow', '800', '1000', $fixed_watchdog );
-diag("[fixed] exit=$fixed_exit latency=${fixed_latency}s lines-before-trip=$fixed_before");
-is( $fixed_exit, 1, 'micro: fixed watchdog: trips (exit 1)' );
-like( $fixed_text, qr/FAIL-SAFE: first test failure detected/,
-    'micro: fixed watchdog: trip message printed' );
-cmp_ok( $fixed_latency, '<', 5, 'micro: fixed watchdog: trips within 5s of the failure' );
 
 __END__
 
@@ -491,7 +494,10 @@ Fast consumer trips in under 5s and slow consumer trips only after
 $failed inside the inner read loop instead of only after it drains
 to EOF, with the kill moved before the trailing drain. Both trip late:
 the continuous stream itself starves the check, and the same fix
-still applies - the check must not wait for EOF at all. Case 3 runs
+still applies - the check must not wait for EOF at all. Case 2 runs
 the fixed copy under the same slow consumer: it trips in under 5s,
 which is the evidence the fix works before it is applied to the job
-config.
+config. The fixed case runs before the slow case on purpose, because
+the slow case fails on macOS by design (its 16KB pipe holds the
+backlog) and that failure would fire failFast before the other legs
+measured the fix.
