@@ -18,11 +18,18 @@ use Time::HiRes qw(sleep time);
 # failure, which would fail this solo's Windows leg for no reason.
 if ( $^O eq 'MSWin32' ) {
     plan tests => 1;
+    # Sleep longer than the Unix legs' slow case (~45s): the Windows
+    # watchdog reports "prove exit code unreadable" and fails the
+    # branch even when prove passes, and that failure fires failFast
+    # interrupts at the Unix legs. Sleeping here keeps the Windows
+    # failure until after the Unix measurements are done.
+    diag('micro: Windows leg sleeping 60s so the Unix slow cases finish first');
+    Time::HiRes::sleep(60);
     ok( 1, 'micro: failsafe.pl is the Unix watchdog; nothing to measure on Windows' );
     exit 0;
 }
 
-plan tests => 7;
+plan tests => 8;
 
 # The nested watchdog is the real pipeline-written failsafe.pl, in the
 # test's working directory (the pipeline writes it into dd-source).
@@ -78,12 +85,18 @@ PRODUCER
 # _wait_exit($pid, $timeout_s)
 # Polls waitpid until $pid exits or $timeout_s passes. Returns the raw
 # wait status, or undef on timeout (the caller then kills and fails).
+# Logs progress every 10s so the outer watchdog never sees silence.
 sub _wait_exit {
     my ( $pid, $timeout_s ) = @_;
     my $deadline = time() + $timeout_s;
+    my $last_note = time();
     while ( time() < $deadline ) {
         my $w = waitpid( $pid, WNOHANG );
         return $? if $w == $pid;
+        if ( time() - $last_note >= 10 ) {
+            diag("waiting for pid=$pid to exit");
+            $last_note = time();
+        }
         sleep(0.05);
     }
     return undef;
@@ -111,8 +124,8 @@ sub _run_watchdog {
         diag("[$tag] after pipe");
         # Shrink the pipe so the slow reader throttles the watchdog
         # quickly. Linux only; macOS has no F_SETPIPE_SZ and its 16KB
-        # default still fills: the slow producer writes 500 lines
-        # (~12KB) in half a second, far more than either pipe holds.
+        # default still fills: the slow producer writes 800 lines
+        # (~19KB) in under a second, more than either pipe holds.
         # The pipe size is read back and logged: v2 showed a 4KB pipe
         # never fills when the backlog is smaller than the pipe, so the
         # backlog must exceed the pipe for the throttle to bite.
@@ -190,7 +203,9 @@ sub _run_watchdog {
     }
     diag("[$tag] after wait for watchdog exit");
     my $latency = $t1 - $t0;
-    my $exit    = defined $status ? ( $status >> 8 ) : -1;
+    # A signal death is not an exit code: $? >> 8 reads 0 for it, which
+    # would masquerade as a clean exit. Report the signal instead.
+    my $exit = !defined $status ? -1 : ( $status & 127 ) ? ( 'signal ' . ( $status & 127 ) ) : ( $status >> 8 );
     diag("[$tag] watchdog exit=$exit latency=${latency}s");
 
     if ( $mode eq 'slow' ) {
@@ -233,15 +248,17 @@ like( $fast_text, qr/FAIL-SAFE: first test failure detected/,
 # roughly latency minus 2s: ~1s here, one sleep cycle after the failure.
 cmp_ok( $fast_latency, '<', 5, 'micro: fast consumer: trips within 5s of the failure' );
 
-# Case 2: slow consumer. The producer writes its 500 lines at
-# 1000/sec, so the whole post-failure backlog (~12KB) lands in the log
-# inside half a second - far more than the 4KB pipe holds - and the
-# watchdog can only drain it as fast as the slow reader lets it print.
-# v2 used 100/sec: the backlog then was ~2.6KB, smaller than the pipe,
-# so the watchdog drained it before the pipe could ever fill and the
-# throttle never bit.
+# Case 2: slow consumer. The producer writes its 800 lines at
+# 1000/sec, so the whole post-failure backlog (~19KB) lands in the log
+# inside a second - far more than the 4KB Linux pipe and the 16KB
+# macOS pipe hold - and the watchdog can only drain it as fast as the
+# slow reader lets it print. v2 used 100/sec: the backlog then was
+# ~2.6KB, smaller than the pipe, so the watchdog drained it before
+# the pipe could ever fill and the throttle never bit. v3 used 500
+# lines at 1000/sec (~12KB): enough to throttle Linux, but macOS's
+# 16KB pipe still held the whole backlog and tripped promptly.
 diag('[slow] case 2: slow consumer (watchdog stdout to a pipe drained at 20 lines/sec)');
-my ( $slow_exit, $slow_latency, $slow_text, $slow_before ) = _run_watchdog( 'slow', 'slow', '500', '1000' );
+my ( $slow_exit, $slow_latency, $slow_text, $slow_before ) = _run_watchdog( 'slow', 'slow', '800', '1000' );
 diag("[slow] exit=$slow_exit latency=${slow_latency}s lines-before-trip=$slow_before");
 is( $slow_exit, 1, 'micro: slow consumer: watchdog trips (exit 1)' );
 like( $slow_text, qr/FAIL-SAFE: first test failure detected/,
@@ -304,6 +321,13 @@ the watchdog belongs in a dedicated watchdog test, not here.
 Run it as a Jenkins solo on the loop branch:
 
   python3 ~/workspace/jenkins-cli/trigger.py windows/loop6-combined t/985-failsafe-drain-probe.t 1
+
+The Windows leg sleeps 60s and passes vacuously: the Windows
+watchdog reports "prove exit code unreadable" and fails the branch
+even when prove passes, and that failure would fire failFast
+interrupts at the Unix legs while they are still measuring the slow
+case. Sleeping keeps the Windows failure until after the Unix
+measurements are done.
 
 The checks are hermetic: the producer and the nested watchdog run in
 a throwaway tempdir, the producer exits on its own after 500 lines
