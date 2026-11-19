@@ -103,13 +103,35 @@ sub _kill_survivors {
     return;
 }
 
+# _perl_pids()
+# Lists the pids of running perl.exe processes on Windows (tasklist
+# with no arguments needs no quoting, so the native runner cannot
+# mangle it). Used to name the survivor: the pid set before serve vs
+# after stop shows exactly which perl process stop failed to kill.
+# Returns an empty list on non-Windows legs.
+sub _perl_pids {
+    return () if $^O ne 'MSWin32';
+    my ( $stdout, $stderr, $exit_code ) = run_shell_command('tasklist /NH');
+    return () if $exit_code != 0;
+    my @pids;
+    for my $line ( split /\n/, $stdout ) {
+        if ( $line =~ /^perl\.exe\s+(\d+)\s/ ) {
+            push @pids, $1;
+        }
+    }
+    return sort { $a <=> $b } @pids;
+}
+
 if ( !$UNDER_COVER ) {
+    my $home = tempdir( CLEANUP => 1 );
+    diag("micro: shared home=$home");
     for my $cycle ( 1 .. 3 ) {
-        my $cycle_home = tempdir( CLEANUP => 1 );
+        my $cycle_home = $home;
         local $ENV{HOME} = $cycle_home;
         local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
         local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
         local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+        diag( 'micro: cycle ' . $cycle . ' perl pids before serve: ' . join( ',', _perl_pids() ) );
         diag("micro: cycle $cycle starting init");
         my $init = _run_split( $cycle_home, 'init' );
         diag("micro: cycle $cycle init exit=$init->{exit_code}");        my $serve_config_file = File::Spec->catfile( $cycle_home, '.developer-dashboard', 'config', 'config.json' );
@@ -169,7 +191,9 @@ if ( !$UNDER_COVER ) {
         diag("micro: cycle $cycle starting stop");
         my $stop = _run_split( $cycle_home, 'stop', '-o', 'json' );
         diag("micro: cycle $cycle stop exit=$stop->{exit_code}");
+        diag( 'micro: cycle ' . $cycle . ' perl pids after stop: ' . join( ',', _perl_pids() ) );
         _kill_survivors( $cycle_home, $web_pid );
+        diag( 'micro: cycle ' . $cycle . ' perl pids after kill-cleanup: ' . join( ',', _perl_pids() ) );
         like( $restart->{stdout}, qr/^\{/, "micro: cycle $cycle restart stdout starts with JSON" );
     }
 }
@@ -209,6 +233,19 @@ silence trip): on Windows CreateProcess inherits every handle, so a
 spawned grandchild holding the pipe open blocks an EOF read forever.
 v2 captures through run_shell_command (Capture::Tiny temp-file
 capture, as t/05 does), which returns when the direct child exits.
+Solo #219 (v2): all three Unix legs PASS 3/3 and the Windows leg
+passed all three restart assertions too (restart stdout was JSON in
+every cycle) — but the Windows prove process then HUNG after "1..3"
+and tripped the FAIL-SAFE silence watchdog. At tempdir cleanup the
+shared home's staged _dashboard-core and logs/collectors.log(.stderr)
+were locked (Permission denied): a collector loop/worker survives
+`d2 stop` on Windows, holds those files open, and holds prove's pipes
+open so prove never sees EOF. The #217 plain-text restart did NOT
+reproduce in v2: each cycle used a FRESH home, so restart's stop only
+ever had to stop what serve had just started. v3 uses ONE home for all
+three cycles (as t/05 does) so survivors accumulate across cycles, and
+snapshots the perl.exe pid set before serve and after stop, to name
+the survivor and reproduce the #217 failure.
 
 =head1 WHEN TO USE
 
@@ -233,11 +270,15 @@ t/05-restart applier, in the testing-v1 loop.
 
 =head1 EXAMPLES
 
-Jenkins solo #218 (t/996-micro-t05-restart.t): if a cycle's restart
+Jenkins solo #219 (t/996-micro-t05-restart.t v2): all four legs
+passed all three restart assertions (restart stdout JSON everywhere),
+but the Windows leg hung after "1..3" — a survivor held prove's pipes
+open — and tripped the FAIL-SAFE silence watchdog; the locked
+_dashboard-core and collectors.log at cleanup name the survivor as a
+collector loop/worker that `d2 stop` left alive. If a cycle's restart
 stdout starts with "Failed to stop Windows process ids 1234: ..." then
 the stop step died inside restart_target and the pids in the message
-name the refused target; if stdout is empty and stderr carries the
-text with exit 0, the die was caught and printed by a child or the
-progress board and the exit-code handling is the defect.
+name the refused target; compare the perl-pid snapshots before serve
+and after stop to see which pid survived and when it appeared.
 
 =cut
