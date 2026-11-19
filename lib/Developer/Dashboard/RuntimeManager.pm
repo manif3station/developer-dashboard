@@ -3328,6 +3328,30 @@ sub _web_runtime_ready {
         my $ready_polls = 0;
         for ( 1 .. $self->_runtime_stability_polls ) {
             my @listener_pids = $self->_listener_pids_for_port($port);
+            # The POSIX branch below adopts the real listener pid once
+            # Starman replaces the startup wrapper; the Windows branch
+            # never did, so the adopted pid was never persisted and the
+            # namespace fallback tests never saw running_web consulted
+            # (build #255 failed t/09 tests 229-231, 237 and 241-242 on
+            # Windows). Mirror the matching and adoption here, keeping
+            # the Windows listening and confirmation shape unchanged.
+            if (@listener_pids) {
+                my $running = $self->running_web;
+                my $matches_runtime = $running ? $self->_web_runtime_matches_pid( $running, $pid, $port ) : 0;
+                if ( !$matches_runtime && !$self->_same_pid_namespace($pid) ) {
+                    $matches_runtime = 0;
+                }
+                elsif ( !$matches_runtime && $running ) {
+                    $matches_runtime = 1;
+                }
+                if ($matches_runtime) {
+                    $self->_adopt_web_listener_pid(
+                        listener_pid => $listener_pids[0],
+                        state        => $running,
+                    );
+                    $running->{pid} = $listener_pids[0];
+                }
+            }
             my $listening = @listener_pids ? 1 : 0;
             $listening = 1 if !$listening && $self->_port_accepting_connections($port);
             if ($listening) {
