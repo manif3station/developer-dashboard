@@ -122,9 +122,35 @@ sub _wait_for_file {
     return -f $path ? 1 : 0;
 }
 
+# _session_id($pid)
+# Returns the session id of one pid, or undef when it cannot be read.
+# Perl's POSIX module has setsid but no getsid, so read it from the
+# kernel: /proc/<pid>/stat field 6 on Linux, `ps -o sid=` (falling back
+# to `ps -o sess=`) on macOS. A session leader's sid equals its pid,
+# which is the observable proof that the supervisor called setsid.
+sub _session_id {
+    my ($pid) = @_;
+    return if !defined $pid || $pid !~ /^\A\d+\z/;
+    if ( -r "/proc/$pid/stat" ) {
+        my $stat = _slurp_file("/proc/$pid/stat");
+        return if !defined $stat;
+        my $after_paren = $stat;
+        $after_paren =~ s/^.*\)\s*//;
+        my @fields = split /\s+/, $after_paren;
+        return $fields[3] + 0 if @fields >= 4 && defined $fields[3] && $fields[3] =~ /^\A\d+\z/;
+        return;
+    }
+    for my $keyword (qw(sid sess)) {
+        my ( $out, $exit ) = _run_quiet("ps -o $keyword= -p $pid");
+        next if $exit != 0 || !defined $out;
+        $out =~ s/^\s+|\s+$//g;
+        return $out + 0 if $out =~ /^\A\d+\z/;
+    }
+    return;
+}
+
 # _pid_is_alive($pid)
-# True when a pid exists right now. kill 0 is the same liveness probe
-# the product uses in _pid_is_running.
+# True when the pid names a live process (kill 0 probe).
 sub _pid_is_alive {
     my ($pid) = @_;
     return 0 if !defined $pid || $pid !~ /^\A\d+\z/ || $pid < 1;
@@ -225,11 +251,15 @@ sub _collect_managed_pids {
     if ( -d $collectors_root ) {
         opendir my $dh, $collectors_root or die "Unable to read $collectors_root: $!";
         while ( my $entry = readdir $dh ) {
-            next if $entry !~ /^(.*)\.pid\z/;
+            my ($loop_name) = $entry =~ /^(.*)\.pid\z/;
+            next if !defined $loop_name;
             my $raw = _slurp_file( File::Spec->catfile( $collectors_root, $entry ) );
             next if !defined $raw;
             chomp $raw;
-            $pids{"loop:$1"} = $raw + 0 if $raw =~ /^\A\d+\z/;
+            # NOTE: capture the name above first. `$1` after the
+            # `if $raw =~ ...` modifier would be the modifier match's
+            # (empty) captures, not the entry's name.
+            $pids{"loop:$loop_name"} = $raw + 0 if $raw =~ /^\A\d+\z/;
         }
         closedir $dh;
     }
@@ -256,9 +286,8 @@ if ($IS_WINDOWS) {
 
     # Windows: no fork/setpgid/getsid, and the stop path is the restart
     # applier's live investigation, so this leg only proves the start side
-    # of the lifecycle (supervisor starts, is alive, has targets) and that
-    # an exact-pid kill removes it. The Unix leg below carries the
-    # fail-fast kill reproduction.
+    # of the lifecycle (supervisor starts, is alive, has targets). The
+    # Unix leg below carries the fail-fast kill reproduction.
     my $home = tempdir( CLEANUP => 0 );
     my $serve_json = _serve_home( $home, 'micro-tick' );
     my $state_root = _state_root_for_home($home);
@@ -270,11 +299,16 @@ if ($IS_WINDOWS) {
     my $state = _read_json_file( File::Spec->catfile( $state_root, 'collector-supervisor.json' ) );
     ok( $state && ref( $state->{watched_names} ) eq 'ARRAY' && @{ $state->{watched_names} },
         'micro: supervisor state carries watched targets on Windows' );
-    diag( 'micro: Windows pids before cleanup: ' . join( ', ', map { "$_=$pids->{$_}" } sort keys %{$pids} ) );
-    my @survivors = _cleanup_pids($pids);
+    # Michael's standing rule (19 Nov ~08:45): do NOT clean up orphans -
+    # they are the evidence. Kill only the web (it holds prove's pipes);
+    # leave the supervisor and its loops alive and record them.
     _kill_pid( $serve_json->{pid} ) if $serve_json->{pid};
-    is( scalar @survivors, 0, 'micro: exact-pid cleanup removes every managed process on Windows' );
-    diag( 'micro: Windows survivors: ' . join( ', ', @survivors ) ) if @survivors;
+    my @evidence;
+    for my $label ( sort keys %{$pids} ) {
+        push @evidence, "$label:$pids->{$label}" if _pid_is_alive( $pids->{$label} );
+    }
+    ok( scalar @evidence, 'micro: orphan supervisor and loops LEFT ALIVE as evidence on Windows (not cleaned up)' );
+    diag( 'micro: EVIDENCE left running on Windows - state root ' . $state_root . ' pids ' . join( ' ', @evidence ) );
     remove_tree($home);
     done_testing();
     exit 0;
@@ -330,9 +364,16 @@ eval {
     # _run_collector_supervisor_child): its session id is itself, never
     # the stand-in's group. That is the first half of the orphan
     # mechanism: a process-group kill can never reach it.
-    my $sup_sid = POSIX::getsid($sup_pid);
-    ok( defined $sup_sid && $sup_sid == $sup_pid, 'micro: supervisor runs in its own session (setsid)' );
-    diag("micro: supervisor sid $sup_sid, stand-in pgid $pgid") if defined $sup_sid;
+    my $sup_sid = _session_id($sup_pid);
+    if ( defined $sup_sid ) {
+        ok( $sup_sid == $sup_pid, 'micro: supervisor runs in its own session (setsid)' );
+        diag("micro: supervisor sid $sup_sid, stand-in pgid $pgid");
+    }
+    else {
+        SKIP: {
+            skip 'session id unreadable on this platform', 1;
+        }
+    }
 
     # Fail-fast, exactly as failsafe.pl does it: TERM to the negative
     # pgid of the stand-in parent, then KILL if it lingers.
@@ -418,20 +459,36 @@ eval {
     1;
 } or $err = $@;
 
-# Cleanup runs even when the body above failed: kill everything this
-# micro started, by exact pid only, and verify nothing survives. The
-# orphan supervisor is the micro's own creation, so this kill is allowed.
+# Cleanup runs even when the body above failed. Michael's standing rule
+# (19 Nov ~08:45): do NOT clean up orphans - cleanup destroys the
+# evidence. The supervisor and its loops are left ALIVE exactly where
+# they are, their pids and state root diagged as evidence; they are
+# only killed once the mechanism is proven and the fix is in. The one
+# exception is the web: it holds prove's pipes, so leaving it would hang
+# the harness after the plan (the t/17 backend shape). It is killed by
+# exact pid, and the kill is diagged, not hidden.
 my $final_pids = {};
+my $final_root;
 if ( -f $results_file ) {
     my $standin = _read_json_file($results_file);
     if ( $standin && $standin->{state_root} ) {
-        $final_pids = _collect_managed_pids( $standin->{state_root} );
-        $final_pids->{web} = $standin->{web_pid} if $standin->{web_pid};
+        $final_root = $standin->{state_root};
+        $final_pids = _collect_managed_pids($final_root);
+        if ( $standin->{web_pid} ) {
+            my @web_left = _cleanup_pids( { web => $standin->{web_pid} } );
+            diag( 'micro: web killed for harness hygiene, survivors: ' . join( ', ', @web_left ) ) if @web_left;
+        }
     }
 }
-my @survivors = _cleanup_pids($final_pids);
-is( scalar @survivors, 0, 'micro: exact-pid cleanup removes every managed process the micro started' );
-diag( 'micro: survivors: ' . join( ', ', @survivors ) ) if @survivors;
+my @evidence;
+for my $label ( sort keys %{$final_pids} ) {
+    my $pid = $final_pids->{$label};
+    if ( _pid_is_alive($pid) ) {
+        push @evidence, "$label:$pid";
+    }
+}
+ok( scalar @evidence, 'micro: orphan supervisor and loops LEFT ALIVE as evidence (not cleaned up)' );
+diag( 'micro: EVIDENCE left running - state root ' . ( $final_root || '?' ) . ' pids ' . join( ' ', @evidence ) );
 unlink $results_file;
 remove_tree($home) if -d $home;
 ok( !$err, 'micro: body completed without dying' ) or diag("micro: body died: $err");
@@ -482,7 +539,15 @@ t/995-micro-orphan-repro.t 1. Read the diag lines in the console:
 supervisor pid and session, heartbeat before/after, whether the state
 root survives home deletion, whether a fresh runtime sees the orphan,
 whether the housekeeper dry run would remove the root, and the per-pid
-CPU jiffies over 10s. Remove the file in a cleanup commit when the
+CPU jiffies over 10s.
+
+EVIDENCE RULE (Michael, 19 Nov ~08:45): do NOT clean up orphans -
+cleanup destroys the evidence. The micro leaves the orphan supervisor
+and its loops running on every leg and diags their pids and state root
+as EVIDENCE; only the web is killed, because it holds prove's pipes
+and leaving it would hang the harness after the plan. Kill the
+left-behind orphans by exact pid only once the mechanism is proven and
+the fix is in. Remove the file in a cleanup commit when the
 investigation ends.
 
 =head1 WHAT USES IT
