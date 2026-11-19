@@ -385,7 +385,14 @@ diag("[fixed] exit=$fixed_exit latency=${fixed_latency}s lines-before-trip=$fixe
 is( $fixed_exit, 1, 'micro: fixed watchdog: trips (exit 1)' );
 like( $fixed_text, qr/FAIL-SAFE: first test failure detected/,
     'micro: fixed watchdog: trip message printed' );
-cmp_ok( $fixed_latency, '<', 5, 'micro: fixed watchdog: trips within 5s of the failure' );
+# The fix breaks out of the read loop on the first failure line, so
+# only the 3 lines up to it are printed before the trip message (the
+# unfixed watchdog drains ~700 lines first). The exit latency is
+# deliberately NOT asserted here: the trailing drain prints the
+# backlog after the kill, so a slow consumer delays the exit even
+# though the kill itself is prompt (macOS exits in ~3s because its
+# pipe holds the backlog; Linux takes ~29s to drain it).
+cmp_ok( $fixed_before, '<', 20, 'micro: fixed watchdog: breaks out after the first failure line' );
 
 # Case 3: slow consumer. The producer writes its 800 lines at
 # 1000/sec, so the whole post-failure backlog (~19KB) lands in the log
@@ -495,9 +502,10 @@ $failed inside the inner read loop instead of only after it drains
 to EOF, with the kill moved before the trailing drain. Both trip late:
 the continuous stream itself starves the check, and the same fix
 still applies - the check must not wait for EOF at all. Case 2 runs
-the fixed copy under the same slow consumer: it trips in under 5s,
-which is the evidence the fix works before it is applied to the job
-config. The fixed case runs before the slow case on purpose, because
-the slow case fails on macOS by design (its 16KB pipe holds the
-backlog) and that failure would fire failFast before the other legs
-measured the fix.
+the fixed copy under the same slow consumer: it breaks out after the
+first failure line (3 lines before the trip message, against ~700
+for the unfixed watchdog), which is the evidence the fix works
+before it is applied to the job config. The fixed case runs before
+the slow case on purpose, because the slow case fails on macOS by
+design (its 16KB pipe holds the backlog) and that failure would fire
+failFast before the other legs measured the fix.
