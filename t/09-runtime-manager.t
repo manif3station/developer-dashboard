@@ -998,6 +998,24 @@ my $clean_exit_manager = Developer::Dashboard::RuntimeManager->new(
         sleep 0.1;
     }
     like( $startup_line, qr/^ok\|\d+\|0\.0\.0\.0\|7906\n\z/, '_run_web_child reports startup before waiting for signals' );
+    # The startup line is written before _write_web_state, and on Windows
+    # the state write (two icacls spawns plus a rename) takes longer than
+    # the parent's 0.1s poll delay, so TERM usually lands mid-write and
+    # the state file never appears (build #236 test 93 read undef).
+    # Wait until the 'running' state is visible before TERM so the state
+    # the next assertions read exists. Micro t/991 proved the race and
+    # the cure on all four legs (solo #237). No new test: if the state
+    # never settles, test 93 fails with got undef, which says so.
+    my $state_settled = 0;
+    for ( 1 .. 100 ) {
+        my $pre_state = $manager->web_state;
+        if ( ref($pre_state) eq 'HASH' && ( $pre_state->{status} || '' ) eq 'running' ) {
+            $state_settled = 1;
+            last;
+        }
+        sleep 0.1;
+    }
+    diag 'web state never settled to running before TERM' if !$state_settled;
     ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, 'TERM' ),
         '_run_web_child child receives TERM through GoRoutine' );
     # GoRoutineProcess.xs maps Windows TERM to TerminateProcess(143): an
