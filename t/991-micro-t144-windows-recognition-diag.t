@@ -82,14 +82,15 @@ is( $runner->_loop_runtime_matches( $titled, 'fixture.titled' ), 0, 'titled fixt
 
 # Probe _is_managed_loop repeatedly. Each call is its own test whose name
 # carries the result and the title state the call saw, so the values are
-# visible in the console whether the run passes or fails. The
-# deterministic expectation is 0 on every call: the NAME marker is
-# unreadable on Windows (no /proc), the title is the full CIM command
-# line (never equal to the managed title), there is no state, and the
-# Windows fallback is vetoed because the command line is not the
-# loop-helper shape. Any 1 reveals the predicate flipping between
-# calls, which is what would let t/144 test 8 pass while test 9 fails
-# for the same fixture.
+# visible in the console on every leg. The calls are recorded, not
+# asserted: the predicate's expected value is platform-dependent (on
+# Linux the NAME marker is readable before $0 and the exact title after
+# it, so it answers 1 throughout; on Windows the marker is unreadable
+# and the title is the full CIM command line, so it should answer 0),
+# and asserting a single value would fail the fast Linux legs first and
+# let the fail-safe kill the slow Windows leg before it prints its
+# values. The Windows column is the diagnostic: any 1 there shows the
+# predicate flipping for the fixture t/144 test 8 waits on.
 for my $i ( 1 .. 20 ) {
     my $managed = $runner->_is_managed_loop( $titled, 'fixture.titled' ) ? 1 : 0;
     my $title   = $runner->_read_process_title($titled);
@@ -98,7 +99,7 @@ for my $i ( 1 .. 20 ) {
       : $title =~ /\bcollector-loop-foreground\b/ ? 'helper'
       : $title =~ /d2 collector: fixture\.titled/ ? 'len' . length($title) . '-has-title'
       : 'len' . length($title) . '-other';
-    is( $managed, 0, "call $i: is_managed_loop=$managed title=$state" );
+    ok( 1, "call $i: is_managed_loop=$managed title=$state" );
 }
 
 # Cleanup: the fixture child must not survive the micro.
@@ -148,7 +149,10 @@ it is a diagnostic, not a permanent test.
 No setup: the micro builds a temp home, spawns the titled fixture,
 writes a bare pidfile, and probes _is_managed_loop twenty times. Each
 probe is a test whose name carries the result and the title state, so
-the values are visible in the solo console whether it passes or fails.
+the values are visible in the solo console on every leg. The probes are
+recorded, not asserted: the expected value is platform-dependent, and
+asserting one value would fail the fast legs first and let the fail-safe
+kill the slow Windows leg before it prints its values.
 
 =head1 WHAT USES IT
 
