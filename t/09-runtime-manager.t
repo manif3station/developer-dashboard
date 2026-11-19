@@ -3601,6 +3601,11 @@ TCP6
 
 {
     no warnings 'redefine';
+    # _read_process_title takes the process-table branch on Windows and
+    # never reaches the ps fallback these stubs pin (build #266 failed
+    # this test on Windows with got undef). Force the POSIX branch so
+    # the ps fallback is exercised on every host.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "ps fallback title\n", undef, 0 ) };
     is( $manager->_read_process_title(999_999_999), 'ps fallback title', '_read_process_title falls back to ps output when /proc cmdline is unavailable' );
