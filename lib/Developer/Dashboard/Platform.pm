@@ -9,7 +9,7 @@ use Exporter 'import';
 use File::Basename qw(basename dirname);
 use File::Copy qw(copy);
 use File::Spec;
-use File::Temp qw(tempdir);
+use File::Temp qw(tempdir tempfile);
 
 our @EXPORT_OK = qw(
   is_windows
@@ -98,24 +98,73 @@ sub passwd_home_directory {
 }
 
 # _capture($code)
-# Runs $code with stdout and stderr captured, loading Capture::Tiny
-# lazily on first use. Capture::Tiny must NOT be loaded at compile time
-# in this file: Platform.pm loads on every d2 invocation (bin/d2 ->
-# PerlEnv -> Platform), and the lightweight hot path (d2 ps1 / d2 paths)
-# must never load it - t/30 guards this with a poison Capture/Tiny.pm.
-# Only the real Windows ACL path calls this, so the require happens
-# only where icacls actually runs.
+# Runs $code with stdout and stderr captured, WITHOUT loading
+# Capture::Tiny: the lightweight hot path (d2 ps1 / d2 paths) must never
+# load it - t/30 guards this with a poison Capture/Tiny.pm - yet on real
+# Windows the hot path genuinely invokes the ACL functions below (the
+# runtime paths are secured during config load), and those need icacls
+# output. A lazy `require Capture::Tiny` is NOT enough: the require
+# itself is what the poison trips (solo #187). So the capture is done by
+# redirecting the standard handles to temporary files and slurping them
+# back, which is all Capture::Tiny does for this use. The returned exit
+# value is the raw wait status ($?), exactly as
+# Capture::Tiny::capture returns it: 0 on success, non-zero otherwise.
 # Input: code reference.
-# Output: the captured (stdout, stderr, exit code) list.
+# Output: the captured (stdout, stderr, exit status) list.
 sub _capture {
     my ($code) = @_;
-    require Capture::Tiny;
-    # capture() is prototyped (&;@), so a plain
-    # Capture::Tiny::capture($code) is a compile-time error - the &
-    # slot takes only a literal block or sub {}. Calling through a
-    # coderef ignores the prototype.
-    my $capture = \&Capture::Tiny::capture;
-    return $capture->($code);
+    my ( $out_fh, $out_name ) = tempfile( UNLINK => 0 );
+    my ( $err_fh, $err_name ) = tempfile( UNLINK => 0 );
+    binmode $out_fh, ':raw';
+    binmode $err_fh, ':raw';
+    my ( $out, $err, $rc );
+    my ( $saved_out, $saved_err );
+    my $ok = eval {
+        # Save the real handles, then dup the temp files onto fd 1/2.
+        # This MUST be an explicit save/restore, not `local *STDOUT`
+        # plus a reopen: on a localized glob the reopen can land on
+        # a different fd, so Perl prints are captured but a spawned
+        # child still inherits the original fd 1 (proven by probe).
+        open $saved_out, '>&', \*STDOUT or die "Unable to save stdout for capture: $!";
+        open $saved_err, '>&', \*STDERR or die "Unable to save stderr for capture: $!";
+        open STDOUT, '>&', $out_fh or die "Unable to redirect stdout for capture: $!";
+        open STDERR, '>&', $err_fh or die "Unable to redirect stderr for capture: $!";
+        $code->();
+        $rc = $?;
+        1;
+    };
+    my $error = $@;
+    # Restore unconditionally, even when $code died, so the caller's
+    # handles are never left pointing at the temp files.
+    if ( defined $saved_out ) {
+        open STDOUT, '>&', $saved_out or warn "Unable to restore stdout after capture: $!";
+        close $saved_out;
+    }
+    if ( defined $saved_err ) {
+        open STDERR, '>&', $saved_err or warn "Unable to restore stderr after capture: $!";
+        close $saved_err;
+    }
+    close $out_fh;
+    close $err_fh;
+    $out = _slurp_raw_file($out_name);
+    $err = _slurp_raw_file($err_name);
+    unlink $out_name;
+    unlink $err_name;
+    die $error if !$ok;
+    return ( $out, $err, $rc );
+}
+
+# _slurp_raw_file($path)
+# Reads one file back as raw bytes (no CRLF translation), so captured
+# icacls output keeps the exact bytes the command wrote.
+# Input: file path string.
+# Output: file contents string, or '' when the file cannot be read.
+sub _slurp_raw_file {
+    my ($path) = @_;
+    open my $fh, '<:raw', $path or return '';
+    my $contents = do { local $/; <$fh> };
+    close $fh;
+    return defined $contents ? $contents : '';
 }
 
 # _windows_current_user()
