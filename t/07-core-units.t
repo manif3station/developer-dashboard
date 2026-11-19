@@ -3883,7 +3883,12 @@ my $isolated_broken = $runner->run_once(
 my $isolated_healthy = $runner->run_once(
     {
         name      => 'isolated.collector.healthy',
-        command   => q{printf 'healthy ok'},
+        # Portable command: bare printf does not exist in the PowerShell
+        # the Windows leg routes shell commands through (same class as
+        # the test-530 fix); the perl one-liner prints the same text on
+        # every leg. The remaining printf commands below that actually
+        # execute are converted the same way.
+        command   => q{perl -e "print qq(healthy ok)"},
         cwd       => 'home',
         indicator => { name => 'isolated.indicator.healthy', label => 'Healthy', icon => 'H' },
     }
@@ -3917,7 +3922,7 @@ my $collector_prompt = Developer::Dashboard::Prompt->new( paths => $paths, indic
     my $templated_result = $tt_runner->run_once(
         {
             name      => 'templated.collector',
-            command   => q{printf '{"a":123,"label":"Ready"}'},
+            command   => q{perl -e "print qq({\"a\":123,\"label\":\"Ready\"})"},
             cwd       => 'home',
             indicator => {
                 name  => 'templated.indicator',
@@ -4115,7 +4120,7 @@ my $collector_prompt = Developer::Dashboard::Prompt->new( paths => $paths, indic
     my $bad_template_result = $tt_runner->run_once(
         {
             name      => 'templated.collector.bad-json',
-            command   => q{printf 'not json'},
+            command   => q{perl -e "print qq(not json)"},
             cwd       => 'home',
             indicator => {
                 name => 'templated.indicator.bad-json',
@@ -4207,7 +4212,7 @@ close $stale_pid;
             $pid = $runner->start_loop(
                 {
                     name     => 'stale',
-                    command  => q{printf 'stale'},
+                    command  => q{perl -e "print qq(stale)"},
                     cwd      => 'home',
                     interval => 0.01,
                 }
@@ -4244,7 +4249,7 @@ close $stale_pid;
             $pid = $runner->start_loop(
                 {
                     name     => 'loop',
-                    command  => q{printf 'loop'},
+                    command  => q{perl -e "print qq(loop)"},
                     cwd      => 'home',
                     interval => 0.01,
                 }
@@ -5263,7 +5268,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 
 {
     my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_command(
-        source     => q{printf collector-command},
+        source     => q{perl -e "print qq(collector-command)"},
         cwd        => $paths->home,
         # 30s, and the number is measured rather than picked (DD-489). These three
         # assertions test what the command RETURNS - stdout, exit code, and that a
