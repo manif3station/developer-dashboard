@@ -1245,7 +1245,13 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_follow_log_file = sub {
         my ( $self, %args ) = @_;
-        is( $args{start_pos}, length("follow once\n"), 'web_log follow mode passes the original file byte length into the follow loop so appended lines are not skipped by a seek-to-end race' );
+        # start_pos is the on-disk byte offset tell() reports after the
+        # slurp, which is what the follow loop seeks to. On Windows the
+        # text-mode write translates "\n" to "\r\n", so the file holds 13
+        # bytes for a 12-character string and start_pos is 13, not 12.
+        # Expecting the string length was a Unix-only assumption (build
+        # #238 failed this test on Windows with got 13, expected 12).
+        is( $args{start_pos}, -s $files->resolve_file('dashboard_log'), 'web_log follow mode passes the original file byte length into the follow loop so appended lines are not skipped by a seek-to-end race' );
         return 1;
     };
     $files->write( 'dashboard_log', "follow once\n" );
