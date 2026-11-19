@@ -43,9 +43,9 @@ diag("micro: part A: after wait_all destroyed=$MicroDying::DESTROYED wait_died=$
 diag("micro: part A: wait_err=" . (defined $wait_err ? $wait_err : 'undef'));
 diag("micro: part A: routine status=" . $routine_a->status);
 ok($MicroDying::DESTROYED, 'micro: destructor ran during dispatch cleanup');
-ok($wait_died, 'micro: wait_all died with the destructor error');
-like($wait_err // '', qr/MICRO_DESTROY_DIED/,
-    'micro: destructor error surfaced through wait_all');
+ok(!$wait_died, 'micro: wait_all did NOT die from a destructor error (die downgraded to warning)');
+is($wait_err, '', 'micro: no error propagated from the dying destructor');
+is($routine_a->status, 'done', 'micro: routine finished done despite the dying destructor');
 
 # ----------------------------------------------------------------------
 # Part A2: child-process probe of PL_runops after the dying destructor.
@@ -64,6 +64,8 @@ if (!@blib_inc) {
 my $child_program = <<'CHILD';
 use strict;
 use warnings;
+BEGIN { open(STDERR, '>&', STDOUT) or die "cannot dup stderr: $!"; }
+print "child started\n";
 use lib 'LIBDIR';
 use Developer::Dashboard::GoRoutine;
 our $DESTROYED = 0;
@@ -75,20 +77,32 @@ our $DESTROYED = 0;
 my $r = go sub { return MicroDying->new };
 my $died = eval { wait_all(); 1 } ? 0 : 1;
 print "destroyed=$main::DESTROYED died=$died\n";
+if (my $out = $ENV{MICRO_CHILD_OUT}) {
+    open my $ofh, '>', $out or die "cannot write child out: $!";
+    print {$ofh} "destroyed=$main::DESTROYED died=$died\n";
+    close $ofh;
+}
 exit(42);
 CHILD
 $child_program =~ s/LIBDIR/$lib_dir/;
 my ($child_fh, $child_file) = tempfile(SUFFIX => '.pl', UNLINK => 1);
 print {$child_fh} $child_program;
 close $child_fh;
-diag("micro: part A2: child file=$child_file lib=$lib_dir blib=@blib_inc");
+diag('micro: part A2: child file size=' . (-s $child_file // 'MISSING'));
+my ($out_fh, $out_file) = tempfile(SUFFIX => '.txt', UNLINK => 1);
+close $out_fh;
+local $ENV{MICRO_CHILD_OUT} = $out_file;
 my @child_args = ($^X, '-I' . $lib_dir, map { '-I' . $_ } @blib_inc, $child_file);
-diag('micro: part A2: spawn child');
+diag('micro: part A2: spawn child: ' . join(' ', @child_args));
 open my $pipe, '-|', @child_args or die "cannot spawn child: $!";
 my $child_out = do { local $/; <$pipe> };
-close $pipe;
-my $child_rc = $? >> 8;
-diag("micro: part A2: child rc=$child_rc out=" . (defined $child_out ? $child_out : 'undef'));
+my $close_ok = close $pipe;
+my $child_status = $?;
+my $child_rc = $child_status >> 8;
+my $child_sig = $child_status & 127;
+diag("micro: part A2: child close_ok=" . ($close_ok ? 1 : 0) . " status=$child_status rc=$child_rc sig=$child_sig out=" . (defined $child_out ? $child_out : 'undef'));
+my $file_out = do { local $/; open my $rfh, '<', $out_file or die "cannot read child out: $!"; <$rfh> };
+diag('micro: part A2: child file out=' . (defined $file_out ? $file_out : 'undef'));
 is($child_rc, 42, 'micro: child exit(42) works after a dying destructor (runops restored)');
 like($child_out // '', qr/destroyed=1/, 'micro: child destructor ran during dispatch cleanup');
 
