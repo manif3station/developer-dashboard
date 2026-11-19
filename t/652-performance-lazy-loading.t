@@ -4,6 +4,7 @@ use warnings;
 use Capture::Tiny qw(capture);
 use Cwd qw(abs_path);
 use File::Spec;
+use File::Temp qw(tempdir);
 use Test::More;
 
 use lib 'lib';
@@ -16,6 +17,13 @@ my $internal_cli = File::Spec->catfile( $repo, 'lib', 'Developer', 'Dashboard', 
 my $version_module = File::Spec->catfile( $repo, 'lib', 'Developer', 'Dashboard', 'Version.pm' );
 my $paths_helper = File::Spec->catfile( $repo, 'share', 'private-cli', 'paths' );
 my $ps1_helper = File::Spec->catfile( $repo, 'share', 'private-cli', 'ps1' );
+
+# Probe scripts are delivered as files under this directory (see
+# _probe_file): Strawberry Perl's system LIST form wraps a -e argument in
+# double quotes without escaping embedded double quotes, so a probe
+# script is truncated at its first " on Windows and dies at compile time.
+my $probe_dir = tempdir( CLEANUP => 1 );
+my $probe_number = 0;
 
 my $entrypoint_source = _read_file($entrypoint);
 ok(
@@ -93,7 +101,7 @@ die "Platform was loaded for the lightweight passwd fallback\n"
 exit 0;
 };
 my ( $probe_stdout, $probe_stderr, $probe_exit ) = capture {
-    system $^X, '-I' . File::Spec->catdir( $repo, 'lib' ), '-e', $runtime_probe;
+    system $^X, '-I' . File::Spec->catdir( $repo, 'lib' ), _probe_file($runtime_probe);
     return $? >> 8;
 };
 is( $probe_exit, 0, 'metadata and passwd fallback lookup avoid the Platform module' );
@@ -107,7 +115,7 @@ die "Fcntl was loaded by the lightweight PathRegistry import\n"
 exit 0;
 };
 my ( $fcntl_stdout, $fcntl_stderr, $fcntl_exit ) = capture {
-    system $^X, '-I' . File::Spec->catdir( $repo, 'lib' ), '-e', $fcntl_probe;
+    system $^X, '-I' . File::Spec->catdir( $repo, 'lib' ), _probe_file($fcntl_probe);
     return $? >> 8;
 };
 is( $fcntl_exit, 0, 'PathRegistry avoids loading Fcntl for metadata file-type checks' );
@@ -154,7 +162,7 @@ my ( $paths_probe_stdout, $paths_probe_stderr, $paths_probe_exit ) = capture {
     system $^X,
       '-I' . File::Spec->catdir( $repo, 'lib' ),
       '-MCapture::Tiny',
-      '-e', $paths_probe;
+      _probe_file($paths_probe);
     return $? >> 8;
 };
 is( $paths_probe_exit, 0, 'project-root dispatch avoids unrelated configuration modules' );
@@ -176,7 +184,7 @@ exit 0;
 my ( $helper_probe_stdout, $helper_probe_stderr, $helper_probe_exit ) = capture {
     system $^X,
       '-I' . File::Spec->catdir( $repo, 'lib' ),
-      '-e', $paths_helper_probe,
+      _probe_file($paths_helper_probe),
       File::Spec->catdir( $repo, 'lib' ),
       $paths_helper;
     return $? >> 8;
@@ -197,7 +205,7 @@ exit 0;
 my ( $table_probe_stdout, $table_probe_stderr, $table_probe_exit ) = capture {
     system $^X,
       '-I' . File::Spec->catdir( $repo, 'lib' ),
-      '-e', $table_helper_probe,
+      _probe_file($table_helper_probe),
       File::Spec->catdir( $repo, 'lib' ),
       $paths_helper;
     return $? >> 8;
@@ -219,7 +227,7 @@ exit 0;
 my ( $fallback_stdout, $fallback_stderr, $fallback_exit ) = capture {
     system $^X,
       '-I' . File::Spec->catdir( $repo, 'lib' ),
-      '-e', $fallback_probe,
+      _probe_file($fallback_probe),
       $paths_helper;
     return $? >> 8;
 };
@@ -293,7 +301,7 @@ exit 0;
 my ( $ps1_fast_stdout, $ps1_fast_stderr, $ps1_fast_exit ) = capture {
     system $^X,
       '-I' . File::Spec->catdir( $repo, 'lib' ),
-      '-e', $ps1_fast_path_probe,
+      _probe_file($ps1_fast_path_probe),
       File::Spec->catdir( $repo, 'lib' ),
       $ps1_helper;
     return $? >> 8;
@@ -320,7 +328,7 @@ exit 0;
 my ( $ps1_fallback_stdout, $ps1_fallback_stderr, $ps1_fallback_exit ) = capture {
     system $^X,
       '-I' . File::Spec->catdir( $repo, 'lib' ),
-      '-e', $ps1_fallback_probe,
+      _probe_file($ps1_fallback_probe),
       $ps1_helper;
     return $? >> 8;
 };
@@ -349,7 +357,7 @@ exit 0;
 my ( $ps1_compat_stdout, $ps1_compat_stderr, $ps1_compat_exit ) = capture {
     system $^X,
       '-I' . File::Spec->catdir( $repo, 'lib' ),
-      '-e', $ps1_compat_probe,
+      _probe_file($ps1_compat_probe),
       File::Spec->catdir( $repo, 'lib' ),
       $ps1_helper;
     return $? >> 8;
@@ -402,7 +410,7 @@ exit 0;
 my ( $option_stdout, $option_stderr, $option_exit ) = capture {
     system $^X,
       '-I' . File::Spec->catdir( $repo, 'lib' ),
-      '-e', $option_probe;
+      _probe_file($option_probe);
     return $? >> 8;
 };
 is( $option_exit, 0, 'canonical output-option parsing avoids Getopt::Long' );
@@ -434,7 +442,7 @@ my ( $action_stdout, $action_stderr, $action_exit ) = capture {
     system $^X,
       '-I' . File::Spec->catdir( $repo, 'lib' ),
       '-MCapture::Tiny',
-      '-e', $paths_action_probe;
+      _probe_file($paths_action_probe);
     return $? >> 8;
 };
 is( $action_exit, 0, 'the complete canonical paths action avoids Getopt::Long' );
@@ -517,6 +525,26 @@ is( $stdout, "$version\n", 'lightweight version loading preserves version output
 is( $stderr, '', 'lazy platform loading adds no version-command warnings' );
 
 done_testing();
+
+sub _probe_file {
+# _probe_file($code)
+# Writes a probe script to a numbered file under the probe tempdir and
+# returns its path. Probes must not be delivered with perl -e: Strawberry
+# Perl's system LIST form wraps the -e argument in double quotes without
+# escaping embedded double quotes, so on Windows the child perl receives
+# the script truncated at its first " and dies with a syntax error at
+# EOF before any module loads. The file content is the probe source
+# byte-identical, so the probe code and its assertions are unchanged.
+# Input: probe source string.
+# Output: filesystem path of the written probe script.
+    my ($code) = @_;
+    my $path = File::Spec->catfile( $probe_dir, 'probe-' . ++$probe_number . '.pl' );
+    open my $fh, '>', $path or die "Unable to write probe file $path: $!";
+    binmode $fh;
+    print {$fh} $code or die "Unable to write probe file $path: $!";
+    close $fh or die "Unable to close probe file $path: $!";
+    return $path;
+}
 
 sub _read_file {
 # _read_file($path)
