@@ -3895,6 +3895,11 @@ SCRIPT
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
         return ( '', 'taskkill hard failure', 5 );
     };
+    # fb4897d5: _send_signal forgives a non-zero taskkill exit when every
+    # target is verifiably gone, so the die only fires when a target is
+    # still alive. Pin the target alive here, or the assertion depends on
+    # whether pid 4002 happens to exist on the test host.
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub { return 1 };
     my $send_ok = eval { $manager->_send_signal( 'TERM', 4002 ); 1 };
     ok( !$send_ok, '_send_signal dies on unexpected Windows taskkill failures for shutdown signals' );
     like( $@, qr/Failed to stop Windows process ids 4002: taskkill hard failure/, '_send_signal surfaces unexpected Windows taskkill failures explicitly' );
