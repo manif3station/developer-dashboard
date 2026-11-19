@@ -969,7 +969,14 @@ if ( !$UNDER_COVER ) {
             collectors => [
                 {
                     name    => 'cli.collector',
-                    command => q{printf 'cli stdout\n'; printf 'cli stderr\n' >&2},
+                    # printf does not exist on the Windows job PATH and
+                    # collector commands run through PowerShell there, so
+                    # use a portable perl -e with byte-identical output
+                    # (stdout and stderr) instead. The old printf shape
+                    # passed on Windows only vacuously: the PowerShell
+                    # error text echoed the command line, so the log
+                    # assertions below matched without any real output.
+                    command => q{perl -e "print qq(cli stdout\n); print STDERR qq(cli stderr\n)"},
                     cwd     => 'home',
                 },
                 {
@@ -979,7 +986,11 @@ if ( !$UNDER_COVER ) {
                 },
                 {
                     name    => 'templated.collector',
-                    command => q{printf '{"a":123}'},
+                    # printf does not exist on the Windows job PATH and
+                    # collector commands run through PowerShell there, so
+                    # use a portable perl -e with byte-identical output
+                    # instead (same shape as the t/07 TT JSON fixture).
+                    command => q{perl -e "print qq({\"a\":123})"},
                     cwd     => 'home',
                     indicator => {
                         name  => 'templated.indicator',
