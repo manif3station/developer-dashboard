@@ -176,18 +176,19 @@ SKIP: {
 # _windows_handle_count()
 # Current process handle count via Win32::API, or undef when the API is
 # unavailable. Windows-only; callers skip on undef instead of failing.
+# The handle is passed as a 64-bit int ('Q'): the current-process
+# pseudo-handle is -1, and a 'P' (pointer-to-buffer) param cannot carry
+# a raw pointer value, so GetProcessHandleCount fails with
+# ERROR_INVALID_HANDLE under a 'PP' prototype. Probed on win-ts.
 sub _windows_handle_count {
     return undef unless $^O eq 'MSWin32';
     my $loaded = eval { require Win32::API; 1 };
     return undef unless $loaded;
-    my $get_current = Win32::API->new( 'kernel32', 'GetCurrentProcess', '', 'P' );
     my $get_count
-        = Win32::API->new( 'kernel32', 'GetProcessHandleCount', 'PP', 'I' );
-    return undef unless $get_current && $get_count;
-    my $process = $get_current->Call();
-    return undef unless $process;
+        = Win32::API->new( 'kernel32', 'GetProcessHandleCount', 'QP', 'I' );
+    return undef unless $get_count;
     my $count = pack( 'L', 0 );
-    return undef unless $get_count->Call( $process, $count );
+    return undef unless $get_count->Call( -1, $count );
     return unpack( 'L', $count );
 }
 
