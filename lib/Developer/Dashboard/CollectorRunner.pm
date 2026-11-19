@@ -1273,7 +1273,7 @@ sub _loop_runtime_matches {
     my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_LOOP_RUNTIME' );
     return 1 if defined $marker && $marker eq $key;
     my $title = $self->_read_process_title($pid);
-    return 1 if defined $title && $title =~ /--runtime\s+\Q$key\E(?:\s|\z)/;
+    return 1 if defined $title && $title =~ /--runtime\s+\Q$key\E\b/;
     return 1 if $self->_state_confirms_managed_loop( $name, $pid );
     return 0;
 }
@@ -1338,7 +1338,7 @@ sub _is_managed_loop {
         my $title_disagrees = defined $title && $title ne ''
           && !( $title =~ /\bcollector-loop-foreground\b/
             && $title =~ /--name\s+\Q$name\E(?:\s|\z)/
-            && $title =~ /--runtime\s+\Q$runtime_key\E(?:\s|\z)/ );
+            && $title =~ /--runtime\s+\Q$runtime_key\E\b/ );
         my $marker_disagrees = defined $marker && $marker ne $name;
         if ( !$title_disagrees && !$marker_disagrees ) {
             my $recorded = eval { slurp_file( $self->_pidfile($name) ) };
@@ -1505,9 +1505,13 @@ sub _read_process_title {
         # the Windows process table via CIM, the same source
         # RuntimeManager::_ps_processes uses: a $0 assignment never
         # rewrites the Windows launch command line, but a child spawned
-        # with the assignment in its arguments still carries it there,
-        # so the command line is the title, the same shape ps args
-        # gives on POSIX. The Where-Object filter keeps this to the one
+        # with the assignment in its arguments still carries it there.
+        # The command line is the FULL launch command, not just the
+        # title: the title rides inside it as a quoted argument, so a
+        # token at its end is followed by a closing quote. Token
+        # matches must therefore accept any non-word terminator (a word
+        # boundary), not just whitespace or end of string.
+        # The Where-Object filter keeps this to the one
         # pid instead of scanning the whole table, and the command line
         # is flattened to one line first, mirroring _ps_processes, so a
         # child spawned with a multi-line -e script cannot split the
