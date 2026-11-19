@@ -3327,6 +3327,13 @@ sub _web_runtime_ready {
     if ( is_windows() && $port ) {
         my $ready_polls = 0;
         for ( 1 .. $self->_runtime_stability_polls ) {
+            # Consult running_web BEFORE the listener check, as the
+            # POSIX branch does: the listener stubs in the tests count
+            # running_web calls, so a listener that disappears after a
+            # few running_web polls must be re-checked after them
+            # (build #258 failed t/09 test 237 on Windows because the
+            # listener was checked first and never saw the disappearance).
+            my $running = $self->running_web;
             my @listener_pids = $self->_listener_pids_for_port($port);
             # The POSIX branch below adopts the real listener pid once
             # Starman replaces the startup wrapper; the Windows branch
@@ -3336,7 +3343,6 @@ sub _web_runtime_ready {
             # Windows). Mirror the matching and adoption here, keeping
             # the Windows listening and confirmation shape unchanged.
             if (@listener_pids) {
-                my $running = $self->running_web;
                 my $matches_runtime = $running ? $self->_web_runtime_matches_pid( $running, $pid, $port ) : 0;
                 if ( !$matches_runtime && !$self->_same_pid_namespace($pid) ) {
                     $matches_runtime = 0;
