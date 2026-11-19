@@ -1828,6 +1828,14 @@ sub _run_collector_supervisor_child {
     local $SIG{INT}  = $shutdown;
     local $SIG{HUP}  = $shutdown;
 
+    # The adopted serve (web) parent the supervisor follows, kept across
+    # loop iterations: pid once a live web pid has been seen, and the
+    # epoch the adopted parent was first seen dead. Empty until the
+    # first live web pid is adopted, so a supervisor started before its
+    # web (restart) or with no web at all (standalone collectors) never
+    # exits on a parent it never had.
+    my $serve_parent = {};
+
     while (1) {
         $self->_reap_any_child_processes;
         my $state = $self->_collector_supervisor_state || {};
@@ -1835,6 +1843,7 @@ sub _run_collector_supervisor_child {
         if ( !@targets ) {
             $self->_shutdown_collector_supervisor('stopped');
         }
+        $self->_check_collector_supervisor_parent( \@targets, $serve_parent );
         $self->_write_collector_supervisor_state(
             {
                 %{$state},
@@ -1862,6 +1871,43 @@ sub _run_collector_supervisor_child {
         }
         sleep $self->_collector_supervisor_poll_interval;
     }
+}
+
+# _check_collector_supervisor_parent($targets, $parent)
+# Adopts the live serve (web) pid as the supervisor's parent and exits
+# once that parent has been dead longer than the grace period, stopping
+# the watched loops on the way out. The spawner pid is deliberately NOT
+# followed: restart and collector-start flows spawn the supervisor from
+# short-lived CLI processes, so spawner-following would kill a healthy
+# supervisor seconds after every restart. Adoption requires a live pid,
+# so a dead or absent web before adoption never triggers an exit, and a
+# supervisor with no web at all (standalone collectors) keeps running
+# exactly as today. Parent liveness is _pid_is_running, which is already
+# platform-aware, so the identical code path runs on Windows; no
+# getppid() anywhere (unimplemented on Strawberry Perl).
+# Input: watched collector names array reference, and the parent-state
+# hash reference the caller keeps across loop iterations.
+# Output: never returns once the adopted parent has been dead past the
+# grace period; otherwise undef.
+sub _check_collector_supervisor_parent {
+    my ( $self, $targets, $parent ) = @_;
+    my $web = eval { $self->web_state };
+    my $web_pid;
+    if ( !$@ && $web && defined $web->{pid} && $web->{pid} =~ /\A\d+\z/ && $web->{pid} > 0 ) {
+        $web_pid = $web->{pid} + 0;
+    }
+    if ( defined $web_pid && $self->_pid_is_running($web_pid) ) {
+        $parent->{pid}        = $web_pid;
+        $parent->{dead_since} = undef;
+        return;
+    }
+    return if !defined $parent->{pid};
+    $parent->{dead_since} = time if !defined $parent->{dead_since};
+    return if time - $parent->{dead_since} < $self->_collector_supervisor_parent_grace_seconds;
+    for my $name ( @{$targets} ) {
+        eval { $self->{runner}->stop_loop($name); 1 };
+    }
+    $self->_shutdown_collector_supervisor('parent-gone');
 }
 
 # _shutdown_collector_supervisor($status)
@@ -2123,6 +2169,19 @@ sub _collector_supervisor_poll_interval {
     my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR_POLL_INTERVAL};
     return $value if defined $value && $value =~ /^(?:\d+|\d*\.\d+)$/ && $value > 0;
     return 5;
+}
+
+# _collector_supervisor_parent_grace_seconds()
+# Returns how long the adopted serve parent may be dead before the
+# supervisor exits, in seconds. Covers the restart handover, where the
+# old web is dead and the new one is not up yet.
+# Input: none.
+# Output: positive fractional second grace period.
+sub _collector_supervisor_parent_grace_seconds {
+    my ($self) = @_;
+    my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR_PARENT_GRACE_SECONDS};
+    return $value if defined $value && $value =~ /^(?:\d+|\d*\.\d+)$/ && $value > 0;
+    return 30;
 }
 
 # stop_progress_tasks()
