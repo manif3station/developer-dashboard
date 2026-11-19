@@ -1783,6 +1783,16 @@ sub is_runtime_layer_path {
 
 my $_PLATFORM_HELPERS_LOADED = 0;
 
+# The absolute path of the platform helper module sitting next to this
+# file, captured at load time: callers (notably tests) chdir after loading
+# this module, which strands any relative @INC entry, so a runtime require
+# must not search @INC again - it would fall through to the node's stale
+# blib copy, which predates the ACL helpers (round 22, t/02). rel2abs
+# resolves __FILE__ against the working directory at load time, when it
+# still points at this checkout; File::Spec already loads Cwd for rel2abs,
+# and neither loads Fcntl, so the t/652 probes stay clean.
+my $_PLATFORM_PM_PATH = File::Spec->catfile( dirname( File::Spec->rel2abs(__FILE__) ), 'Platform.pm' );
+
 # _load_platform_helpers()
 # Lazily loads the platform helper module and imports the three Windows
 # ACL helpers into this package, for the Windows-only branches of
@@ -1790,12 +1800,29 @@ my $_PLATFORM_HELPERS_LOADED = 0;
 # path here at runtime, never at compile time: the lightweight import
 # chain must stay lazy, and the passwd fallback path must stay
 # independent of the platform module (t/652 guards both literal load
-# forms in this file). Loading twice is a no-op.
+# forms in this file). The path is the one captured at load time next to
+# this file, never an @INC search. When the module is already loaded, it
+# is only re-required when the loaded copy cannot supply the helpers (a
+# stale blib copy): a fresh copy is imported as-is, so the module is
+# never executed twice. Requiring the fresh copy over a stale one
+# redefines its subs, which is expected - the stale copy is deliberately
+# replaced by the fresh one from this checkout - so only those
+# redefinition warnings are silenced, and every other warning is
+# re-emitted. The module-path %INC entry is pinned to the fresh path so
+# a later bareword require is a no-op instead of loading it a third time.
 # Input: none.
 # Output: none.
 sub _load_platform_helpers {
     return if $_PLATFORM_HELPERS_LOADED;
-    require 'Developer/Dashboard/Platform.pm';
+    if ( !Developer::Dashboard::Platform->can('is_real_windows') ) {
+        local $SIG{__WARN__} = sub {
+            my ($warning) = @_;
+            return if $warning =~ /Subroutine \S+ redefined at \Q$_PLATFORM_PM_PATH\E line \d+/;
+            warn $warning;
+        };
+        require $_PLATFORM_PM_PATH;
+        $INC{'Developer/Dashboard/Platform.pm'} = $_PLATFORM_PM_PATH;
+    }
     Developer::Dashboard::Platform->import(qw(is_real_windows windows_acl_is_owner_only windows_acl_set_owner_only));
     $_PLATFORM_HELPERS_LOADED = 1;
     return;
