@@ -4560,11 +4560,15 @@ SCRIPT
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     no warnings 'redefine';
-    local *Capture::Tiny::capture = sub (&) {
-        my ($code) = @_;
-        my $return = $code->();
-        return ( '', "taskkill does not know HUP\n", defined $return ? $return : 1 );
-    };
+    # The stub must target RuntimeManager::capture, the imported copy
+    # _send_signal actually calls - stubbing Capture::Tiny::capture
+    # never engages (RuntimeManager imports capture at line 8), so the
+    # real taskkill ran instead and reported the nonexistent pid 9012
+    # as "not found", which _send_signal returns 1 for. The canned
+    # values simulate a taskkill failure for an unsupported signal
+    # without invoking the real executable, as the other capture
+    # stubs in this file do.
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', "taskkill does not know HUP\n", 1 ) };
     is( $manager->_send_signal( 'HUP', 9012 ), 0, '_send_signal returns zero for unsupported Windows signals after surfacing taskkill failures for TERM and KILL only' );
 }
 
