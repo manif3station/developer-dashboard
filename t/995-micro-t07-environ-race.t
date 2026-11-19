@@ -23,10 +23,10 @@ use POSIX qw(_exit);
 use Test::More;
 use Time::HiRes qw(sleep);
 
-# The marker key under test, and the parent sentinel that proves a
-# pre-exec /proc environ is the parent's environ, not empty or garbage.
+plan tests => 25;
+
+# The marker key under test.
 my $MARKER_KEY = 'DEVELOPER_DASHBOARD_LOOP_RUNTIME';
-my $SENTINEL   = "micro-parent-$$";
 
 # _child_perl_inc_args()
 # Returns explicit include switches for isolated Perl process fixtures.
@@ -66,15 +66,6 @@ sub _marker_in_environ {
     return 0;
 }
 
-# _environ_has_sentinel($raw)
-# Checks one raw environ blob for this process's parent sentinel.
-# Input: raw environ string.
-# Output: boolean true when the sentinel pair is present.
-sub _environ_has_sentinel {
-    my ($raw) = @_;
-    return _marker_in_environ( $raw, 'MICRO_PARENT_SENTINEL', $SENTINEL );
-}
-
 # _matches_eventually($runner, $pid, $name, $budget)
 # THE FIX CANDIDATE: polls _loop_runtime_matches until it accepts the pid
 # or the budget runs out. A just-spawned child has not execed yet, so the
@@ -95,7 +86,6 @@ my $home            = tempdir( CLEANUP => 1 );
 local $ENV{HOME}   = $home;
 my $state_root_base = tempdir( CLEANUP => 1 );
 local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = $state_root_base;
-local $ENV{MICRO_PARENT_SENTINEL}         = $SENTINEL;
 my $original_cwd = getcwd();
 chdir $home or die $!;
 
@@ -113,7 +103,7 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
     paths      => $paths,
 );
 my $key = $runner->_runtime_state_key;
-diag "runtime key is $key; parent sentinel is $SENTINEL";
+diag "runtime key is $key";
 
 my $spawn_fixture = sub {
     my ($runtime_marker) = @_;
@@ -134,11 +124,15 @@ my $reap_fixture = sub {
 };
 
 SKIP: {
-    skip 'the runtime env marker is only readable where /proc exists', 10 if !-d '/proc';
+    skip 'the runtime env marker is only readable where /proc exists', 25 if !-d '/proc';
 
     # Part A - deterministic pre-exec proof. The child stops itself before
     # exec, so the parent's read cannot race the exec: the environ it sees
-    # is definitionally the pre-exec one.
+    # is definitionally the pre-exec one. /proc/PID/environ shows the
+    # INITIAL environ (the block installed at exec), so a var added to %ENV
+    # after startup never appears there - the proof therefore compares the
+    # child's pre-exec environ against the parent's own /proc environ,
+    # which fork copies byte for byte.
     my $stopped = fork();
     die "fork failed: $!" if !defined $stopped;
     if ( $stopped == 0 ) {
@@ -148,10 +142,12 @@ SKIP: {
           or _exit(127);
     }
     diag "part A: stopped child pid is $stopped (pre-exec, self-STOPped)";
-    my $pre = _read_environ_raw($stopped);
-    diag "part A: pre-exec environ length is " . ( defined $pre ? length $pre : 'undef' );
+    my $pre         = _read_environ_raw($stopped);
+    my $parent_raw  = _read_environ_raw($$);
+    diag "part A: pre-exec environ length is " . ( defined $pre ? length $pre : 'undef' )
+      . ", parent /proc environ length is " . ( defined $parent_raw ? length $parent_raw : 'undef' );
     ok( !_marker_in_environ( $pre, $MARKER_KEY, $key ), 'pre-exec environ carries no runtime marker' );
-    ok( _environ_has_sentinel($pre), 'pre-exec environ is the parent environ (sentinel present)' );
+    ok( defined $pre && defined $parent_raw && $pre eq $parent_raw, 'pre-exec environ is the parent initial environ (byte-identical)' );
     kill 'CONT', $stopped;
     my $post;
     my $found = 0;
@@ -167,12 +163,12 @@ SKIP: {
     kill 'KILL', $stopped;
     waitpid( $stopped, 0 );
 
-    # Part B - the real fixture path, five trials. The immediate read is
+    # Part B - the real fixture path, twenty trials. The immediate read is
     # logged only (timing-dependent); the polled fix-candidate call is
     # asserted. If any trial's immediate read misses while the poll finds
     # it, the race bit live on this leg.
     my $immediate_misses = 0;
-    for my $trial ( 1 .. 5 ) {
+    for my $trial ( 1 .. 20 ) {
         my $child = $spawn_fixture->($key);
         diag "part B trial $trial: spawned child pid is $child";
         my $immediate_raw   = _read_environ_raw($child);
@@ -185,7 +181,7 @@ SKIP: {
         ok( $eventual, "trial $trial: polled _loop_runtime_matches accepts the spawned child" );
         $reap_fixture->($child);
     }
-    diag "part B: immediate reads missed $immediate_misses of 5 trials on this leg";
+    diag "part B: immediate reads missed $immediate_misses of 20 trials on this leg";
     ok( $immediate_misses >= 0, 'immediate-miss count logged (diagnostic only)' );
 }
 
@@ -242,8 +238,9 @@ micro for the testing-v1 loop.
 =head1 EXAMPLES
 
 A solo run proves the mechanism when part A shows the stopped,
-pre-exec child has no marker but carries the parent sentinel, and the
-same pid gains the marker after CONT and exec; part B then shows the
-polled match accepting all five spawned children on every leg.
+pre-exec child has no marker and its environ is byte-identical to the
+parent's own /proc environ, and the same pid gains the marker after
+CONT and exec; part B then shows the polled match accepting all twenty
+spawned children on every leg.
 
 =cut
