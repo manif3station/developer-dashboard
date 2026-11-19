@@ -529,7 +529,7 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     local $ssl_server->{ssl_backend_command_builder};
     is_deeply(
         $ssl_server->_ssl_backend_command($ssl_daemon),
-        [ $^X, '/private/cli/_dashboard-core', 'web-ssl-backend-foreground', '--host', '127.0.0.1',
+        [ $^X, File::Spec->catfile( '/private/cli', '_dashboard-core' ), 'web-ssl-backend-foreground', '--host', '127.0.0.1',
           '--port', 17903, '--workers', 1 ],
         'SSL backend command resolves the core dispatcher beside the running command wrapper',
     );
