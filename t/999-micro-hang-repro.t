@@ -27,9 +27,12 @@ use File::Temp qw(tempdir);
 diag '[' . time() . '] micro-hang-repro: start';
 my $have_xs = eval {
     require Developer::Dashboard::GoRoutine;
-    Developer::Dashboard::GoRoutine->import();
     1;
 };
+# Require-only, on purpose: a runtime no-args import() after File::Temp is
+# loaded dies with "Out of memory in perl:util:safesysrealloc" (proven 10/10
+# on macOS, and it segfaults non-deterministically on ARM64). t/17 loads
+# GoRoutine the same require-only way and is clean.
 plan skip_all => 'GoRoutine XS unavailable' if !$have_xs;
 diag '[' . time() . '] micro-hang-repro: GoRoutine loaded';
 
@@ -128,3 +131,77 @@ print {$lfh} "test exiting " . time() . " backend_alive=$backend_alive\n";
 close $lfh or die "test cannot close log: $!";
 diag '[' . time() . "] micro-hang-repro: test exiting; log=$log";
 done_testing();
+
+__END__
+
+=head1 NAME
+
+t/999-micro-hang-repro.t - Micro reproduction of the t/17 Windows post-plan hang
+
+=head1 PURPOSE
+
+Reproduce the Windows post-plan hang seen in the t/17 solo (build 150) in
+miniature, nothing more: a frontend process is terminated while its backend
+child keeps running and holding the test harness pipes open, so prove never
+sees end of file. The micro measures whether the backend survives the
+frontend being killed, on each platform, so the suspected mechanism can be
+proved with process state instead of guessed from code reading.
+
+=head1 WHY IT EXISTS
+
+The t/17 solo printed all 152 tests on Windows and then hung after the plan.
+Code reading suggested a chain (frontend spawned with no stdio redirection,
+killed with TerminateProcess so its TERM handler never runs, backend never
+stopped, backend holds prove's pipes open), but that chain was never proved
+by reproduction. This micro extracts exactly that shape -- frontend spawn,
+backend spawn, TerminateProcess, backend survival check -- so the mechanism
+can be confirmed or refuted with measured timings and process state.
+
+=head1 WHEN TO USE
+
+Use this file only while investigating the GoRoutine shutdown hang on the
+redesign branch. Run it as a Jenkins solo against the redesign branch, never
+by hand and never as part of a release check. It is a throwaway diagnostic:
+remove it from the branch in a cleanup commit as soon as the investigation
+reports back, and never ship it.
+
+=head1 HOW TO USE
+
+Trigger it as a Jenkins solo on branch goroutine-c-async with the test file
+set to t/999-micro-hang-repro.t, then read the per-leg verdicts from the
+saved console. The test prints a start diag, the frontend pid, the backend
+pid, and a backend-alive reading after the frontend is killed, and it writes
+a hang log whose path is printed in a diag; compare the test-exit and
+backend-exit epochs in that log to measure the delay. On POSIX the TERM
+handler runs, the backend dies at once, and prove finishes in about a
+second. On Windows the backend is expected to survive about 60 seconds (its
+bounded sleep) before prove finishes. The backend sleep is bounded at 60
+seconds and the frontend block at 300 seconds, so the micro itself can never
+hang forever. Do not run it on a machine where stray perl processes would
+matter: a crashed run can orphan a frontend and backend, so check the node
+is clean afterwards.
+
+=head1 WHAT USES IT
+
+Nothing in the product uses this file. It is run only by the Jenkins solo
+trigger during the shutdown-hang investigation, and its verdicts are read by
+the investigating agent from the saved build console. The full test suite
+does not depend on it, and no other test file loads it.
+
+=head1 EXAMPLES
+
+Run it as a Jenkins solo on the redesign branch:
+
+  TEST_FILE=t/999-micro-hang-repro.t, branch goroutine-c-async
+
+Read the measured delay from the hang log after a run:
+
+  frontend started backend=1234 1795047000
+  backend started 1795047000
+  test exiting 1795047001 backend_alive=0
+
+On a POSIX leg the backend is dead when the test exits (backend_alive=0);
+on a Windows leg it is alive (backend_alive=1) and prove finishes only when
+the backend sleep ends about 60 seconds later.
+
+=cut
