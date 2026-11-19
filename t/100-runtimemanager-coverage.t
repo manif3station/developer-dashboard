@@ -982,6 +982,11 @@ is( $manager->_send_signal( 'TERM', undef, 0, 'nope' ), 0, '_send_signal ignores
     local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
+    # fb4897d5: _send_signal forgives a non-zero taskkill exit when every
+    # target is verifiably gone, so the die only fires when a target is
+    # still alive. Pin the target alive here, or the assertion depends on
+    # whether pid 111 happens to exist on the test host.
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub { return 1 };
     @cap = ( '', '', 0 );
     is( $manager->_send_signal( 'TERM', 111 ), 1, '_send_signal Windows returns the target count on success' );
     @cap = ( '', 'process not found', 1 );
