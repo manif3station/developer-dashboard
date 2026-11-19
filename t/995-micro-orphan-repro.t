@@ -18,7 +18,7 @@ use Encode qw(decode encode);
 use File::Path qw(make_path remove_tree);
 use File::Temp qw(tempdir);
 use IO::Socket::INET;
-use POSIX qw(setpgid);
+use POSIX qw(setsid);
 use Test::More;
 use Time::HiRes qw(sleep time);
 
@@ -122,13 +122,17 @@ sub _wait_for_file {
     return -f $path ? 1 : 0;
 }
 
-# _session_id($pid)
-# Returns the session id of one pid, or undef when it cannot be read.
-# Perl's POSIX module has setsid but no getsid, so read it from the
-# kernel: /proc/<pid>/stat field 6 on Linux, `ps -o sid=` (falling back
-# to `ps -o sess=`) on macOS. A session leader's sid equals its pid,
-# which is the observable proof that the supervisor called setsid.
-sub _session_id {
+# _proc_ids($pid)
+# Returns { ppid, pgrp, session } for one pid, or undef when it cannot be
+# read. The process-group and session are the whole question in this
+# investigation: a group kill can only reach a process in the target
+# group, so the topology (who shares prove's group, who left it) is
+# measured, not assumed. Perl's POSIX module has setsid but no getpgid
+# or getsid, so read them from the kernel: /proc/<pid>/stat fields 4, 5
+# and 6 on Linux (ppid, pgrp, session after the comm), `ps -o
+# ppid=,pgid=,sid=` on macOS. A session leader's pgid and sid both equal
+# its pid, which is how the replica is validated.
+sub _proc_ids {
     my ($pid) = @_;
     return if !defined $pid || $pid !~ /^\A\d+\z/;
     if ( -r "/proc/$pid/stat" ) {
@@ -137,16 +141,31 @@ sub _session_id {
         my $after_paren = $stat;
         $after_paren =~ s/^.*\)\s*//;
         my @fields = split /\s+/, $after_paren;
-        return $fields[3] + 0 if @fields >= 4 && defined $fields[3] && $fields[3] =~ /^\A\d+\z/;
-        return;
+        return if @fields < 4;
+        return if grep { !defined $_ || $_ !~ /^\A-?\d+\z/ } @fields[ 1, 2, 3 ];
+        return { ppid => $fields[1] + 0, pgrp => $fields[2] + 0, session => $fields[3] + 0 };
     }
-    for my $keyword (qw(sid sess)) {
-        my ( $out, $exit ) = _run_quiet("ps -o $keyword= -p $pid");
-        next if $exit != 0 || !defined $out;
-        $out =~ s/^\s+|\s+$//g;
-        return $out + 0 if $out =~ /^\A\d+\z/;
+    my ( $out, $exit ) = _run_quiet("ps -o ppid=,pgid=,sid= -p $pid");
+    return if $exit != 0 || !defined $out;
+    my ( $ppid, $pgrp, $session ) = $out =~ /(\d+)\s+(\d+)\s+(\d+)/ or return;
+    return { ppid => $ppid + 0, pgrp => $pgrp + 0, session => $session + 0 };
+}
+
+# _diag_topology($label, $pid)
+# Prints one process's parent, group and session as a diag line, or notes
+# that it could not be read. The topology is the evidence; it is diagged
+# rather than asserted, because which processes share the group is the
+# question being answered, not a premise.
+sub _diag_topology {
+    my ( $label, $pid ) = @_;
+    my $ids = _proc_ids($pid);
+    if ($ids) {
+        diag("micro: topology $label pid $pid ppid $ids->{ppid} pgid $ids->{pgrp} sid $ids->{session}");
     }
-    return;
+    else {
+        diag("micro: topology $label pid $pid unreadable");
+    }
+    return $ids;
 }
 
 # _pid_is_alive($pid)
@@ -322,10 +341,16 @@ my $parent_pid = fork();
 die "Unable to fork the stand-in parent: $!" if !defined $parent_pid;
 if ( $parent_pid == 0 ) {
 
-    # Child: the stand-in for prove. Its own process group, so the
-    # parent micro can kill the group exactly the way failsafe.pl kills
+    # Child: the stand-in for prove. It calls setsid exactly the way
+    # failsafe.pl does before execing prove, so it is a session leader
+    # and a process-group leader (pgid == sid == its own pid), and the
+    # parent micro can kill its group exactly the way failsafe.pl kills
     # prove (TERM to the negative pgid) without touching prove itself.
-    setpgid( 0, 0 ) or die "Unable to set the stand-in process group: $!";
+    # v2 used setpgid here instead: a group without a session, which is
+    # NOT prove's shape, and it made the supervisor look like it had
+    # failed to detach when the measurement was really of the wrong
+    # replica. v3 measures the topology instead of assuming it.
+    setsid() or die "Unable to set the stand-in session: $!";
     local $ENV{HOME} = $home;
     my $serve_json = _serve_home( $home, 'micro-tick', 1 );
     my $state_root = _state_root_for_home($home);
@@ -344,6 +369,7 @@ if ( $parent_pid == 0 ) {
     POSIX::_exit(0);
 }
 
+my $orphan_survived = 0;
 my $err;
 eval {
     my $standin = _read_json_file($results_file);
@@ -360,20 +386,40 @@ eval {
     my $pgid       = $standin->{pgid};
     diag("micro: supervisor pid $sup_pid, state root $state_root, stand-in pgid $pgid");
 
-    # The supervisor detaches into its own session (setsid in
-    # _run_collector_supervisor_child): its session id is itself, never
-    # the stand-in's group. That is the first half of the orphan
-    # mechanism: a process-group kill can never reach it.
-    my $sup_sid = _session_id($sup_pid);
-    if ( defined $sup_sid ) {
-        ok( $sup_sid == $sup_pid, 'micro: supervisor runs in its own session (setsid)' );
-        diag("micro: supervisor sid $sup_sid, stand-in pgid $pgid");
+    # Topology first, measured not assumed. The stand-in must be a
+    # session leader like prove (pgid == sid == its own pid); that
+    # validates the replica. The supervisor, the web and the loops are
+    # diagged with parent, group and session: whether the supervisor
+    # shares the stand-in's group (so a group kill reaches it) or left
+    # it (so the kill cannot) is the question being answered, not a
+    # premise. v2 asserted the supervisor had setsid'd into its own
+    # session and failed on amd64 (sid 3082304, not its pid) - but the
+    # code plainly calls setsid in _run_collector_supervisor_child, so
+    # either the detach is broken somewhere or the measurement was of
+    # the wrong replica. v3 records the whole topology and lets the
+    # kill result speak.
+    my $standin_ids = _diag_topology( 'stand-in', $parent_pid );
+    ok( $standin_ids && $standin_ids->{pgrp} == $parent_pid && $standin_ids->{session} == $parent_pid,
+        'micro: stand-in is a session leader like prove (pgid == sid == pid)' );
+    _diag_topology( 'web', $standin->{web_pid} ) if $standin->{web_pid};
+    my $sup_ids = _diag_topology( 'supervisor', $sup_pid );
+    my $all_pids = _collect_managed_pids($state_root);
+    for my $label ( sort keys %{$all_pids} ) {
+        next if $label eq 'supervisor';
+        _diag_topology( $label, $all_pids->{$label} );
     }
-    else {
-        SKIP: {
-            skip 'session id unreadable on this platform', 1;
-        }
-    }
+
+    # The heartbeat must advance BEFORE the kill: that proves the pid in
+    # the pidfile is the live supervisor, not a stale record, so the
+    # kill result below is about a living process.
+    my $state1 = _read_json_file( File::Spec->catfile( $state_root, 'collector-supervisor.json' ) );
+    sleep 6;
+    my $state2 = _read_json_file( File::Spec->catfile( $state_root, 'collector-supervisor.json' ) );
+    ok(
+        $state1 && $state2 && $state1->{heartbeat_at} && $state2->{heartbeat_at} && $state1->{heartbeat_at} ne $state2->{heartbeat_at},
+        'micro: supervisor heartbeat advances before the kill (it is the live supervisor)'
+    );
+    diag( 'micro: heartbeat ' . ( $state1->{heartbeat_at} || '?' ) . ' -> ' . ( $state2->{heartbeat_at} || '?' ) );
 
     # Fail-fast, exactly as failsafe.pl does it: TERM to the negative
     # pgid of the stand-in parent, then KILL if it lingers.
@@ -390,18 +436,27 @@ eval {
     }
     ok( !kill( 0, $parent_pid ), 'micro: stand-in parent is dead after the fail-fast-style group kill' );
 
-    # The supervisor survives its owner's death, and its heartbeat keeps
-    # advancing: it is alive and working, not a leftover zombie.
-    ok( _pid_is_alive($sup_pid), 'micro: supervisor survives the fail-fast kill of its owner' );
-    my $state1 = _read_json_file( File::Spec->catfile( $state_root, 'collector-supervisor.json' ) );
-    sleep 6;
-    my $state2 = _read_json_file( File::Spec->catfile( $state_root, 'collector-supervisor.json' ) );
-    ok(
-        $state1 && $state2 && $state1->{heartbeat_at} && $state2->{heartbeat_at} && $state1->{heartbeat_at} ne $state2->{heartbeat_at},
-        'micro: orphan supervisor heartbeat advances after its owner dies'
-    );
-    diag( 'micro: heartbeat ' . ( $state1->{heartbeat_at} || '?' ) . ' -> ' . ( $state2->{heartbeat_at} || '?' ) );
+    # THE question: does the supervisor survive its owner's death? If
+    # it does, the group kill cannot reach it and the orphan mechanism
+    # is the group/session topology. If it does not, the kill works and
+    # the orphans must come from elsewhere (the stop/teardown path),
+    # which is a different micro.
+    my $sup_survived = _pid_is_alive($sup_pid);
+    $orphan_survived = $sup_survived ? 1 : 0;
+    ok( $sup_survived, 'micro: supervisor survives the fail-fast kill of its owner' );
+    _diag_topology( 'supervisor-after-kill', $sup_pid );
 
+    # The sections below need a live orphan: home deletion, the fresh
+    # runtime, the housekeeper dry run, the CPU measurement, and the
+    # fresh runtime's cleanup are 10 tests. If the supervisor died with
+    # its owner there is no orphan to examine, so they are skipped and
+    # the kill result above is the finding.
+    if ( !$sup_survived ) {
+        SKIP: {
+            skip 'supervisor died with its owner; orphan sections need a live orphan', 10;
+        }
+    }
+    else {
     # The test home is deleted (File::Temp cleanup), exactly as after a
     # fail-fast-killed run. The orphan's state root is a different tree
     # (tmpdir/<user>/developer-dashboard/state/<md5-of-home>), so it
@@ -455,6 +510,7 @@ eval {
     my @left2 = _cleanup_pids($pids2);
     is( scalar @left2, 0, 'micro: fresh runtime processes cleaned up' );
     remove_tree($home2);
+    }
 
     1;
 } or $err = $@;
@@ -487,8 +543,14 @@ for my $label ( sort keys %{$final_pids} ) {
         push @evidence, "$label:$pid";
     }
 }
-ok( scalar @evidence, 'micro: orphan supervisor and loops LEFT ALIVE as evidence (not cleaned up)' );
-diag( 'micro: EVIDENCE left running - state root ' . ( $final_root || '?' ) . ' pids ' . join( ' ', @evidence ) );
+if ($orphan_survived) {
+    ok( scalar @evidence, 'micro: orphan supervisor and loops LEFT ALIVE as evidence (not cleaned up)' );
+    diag( 'micro: EVIDENCE left running - state root ' . ( $final_root || '?' ) . ' pids ' . join( ' ', @evidence ) );
+}
+else {
+    ok( 1, 'micro: no orphans left - the group kill took the supervisor down with its owner' );
+    diag('micro: EVIDENCE: none left running; the kill worked, so the orphan path is elsewhere (stop/teardown)');
+}
 unlink $results_file;
 remove_tree($home) if -d $home;
 ok( !$err, 'micro: body completed without dying' ) or diag("micro: body died: $err");
@@ -504,14 +566,21 @@ t/995-micro-orphan-repro.t - reproduce the orphaned collector supervisor that st
 =head1 PURPOSE
 
 Prove, by measurement, why a collector supervisor survives a fail-fast
-kill and keeps running forever: it detaches into its own session, its
-state lives in a per-runtime hashed root that outlives the test home,
-its only self-exit is an empty target set that nothing ever writes, and
-the housekeeper refuses to remove its state root while its loops are
-alive. The micro kills a stand-in parent exactly the way failsafe.pl
-kills prove (TERM to the process group) and then checks the supervisor
-is alive, heartbeating, invisible to a fresh runtime, and protected
-from housekeeper cleanup.
+kill and keeps running forever. The code reading says it detaches into
+its own session, its state lives in a per-runtime hashed root that
+outlives the test home, its only self-exit is an empty target set that
+nothing ever writes, and the housekeeper refuses to remove its state
+root while its loops are alive. Solo #226 (v2) CONTRADICTED the first
+of those on amd64: the supervisor's session was prove's session, not
+its own, and the group kill took it down - but v2's stand-in used
+setpgid (a group without a session), which is NOT prove's shape, so
+the measurement may have been of the wrong replica. v3 replicates
+failsafe.pl exactly (the stand-in calls setsid, like prove), records
+the whole process topology (parent, group, session for every process
+in the chain), and lets the kill result speak. If the supervisor
+survives in the true replica, the topology is the mechanism. If it
+dies, the kill works and the orphans must come from elsewhere (the
+stop/teardown path), which is a different micro.
 
 =head1 WHY IT EXISTS
 
