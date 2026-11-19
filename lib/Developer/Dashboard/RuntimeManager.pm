@@ -28,6 +28,7 @@ use Developer::Dashboard::ProcessSupervision qw(
     _pid_namespace_id
     _powershell_command
     _powershell_single_quote
+    _taskkill_command
     _process_exists
     _read_process_env_marker
     _reap_child_process
@@ -2684,7 +2685,7 @@ sub _send_signal {
     return 0 if !@targets;
     if (is_windows()) {
         my $joined = join ',', @targets;
-        my @taskkill = ('taskkill');
+        my @taskkill = (_taskkill_command);
         for my $target (@targets) {
             push @taskkill, '/PID', $target;
         }

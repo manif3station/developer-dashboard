@@ -50,6 +50,7 @@ our @EXPORT_OK = qw(
     _pid_namespace_id
     _powershell_command
     _powershell_single_quote
+    _taskkill_command
     _process_exists
     _read_process_env_marker
     _reap_child_process
@@ -363,6 +364,31 @@ sub _powershell_command {
     my $fallback = File::Spec->catfile( $system_root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe' );
     return $fallback if -f $fallback;
     return '';
+}
+
+# _taskkill_command()
+# Resolves the taskkill executable _send_signal shells out to on
+# Windows. A bare 'taskkill' handed to system() is resolved by
+# CreateProcess, which only appends .exe, so a .bat on PATH is
+# invisible to it - the t/09 fake taskkill.bat never ran and build
+# #269 died reading the args file it never wrote (the real taskkill
+# ran instead and exited 128 for the nonexistent pids; micro t/988
+# proved it). Resolving here through command_in_path, which expands
+# PATHEXT, finds the .bat, and the absolute path runs it through cmd.
+# Falls back to System32 taskkill.exe when PATH cannot find it, and
+# to the bare name when even that is absent, so callers that stub
+# capture keep their existing behaviour. Called as a plain function,
+# not a method - it needs no object state.
+# Input: none.
+# Output: taskkill path string (resolved, System32 fallback, or bare name).
+sub _taskkill_command {
+    return 'taskkill' if !is_windows();
+    my $resolved = command_in_path('taskkill');
+    return $resolved if defined $resolved && $resolved ne '';
+    my $system_root = $ENV{SystemRoot} || 'C:\\Windows';
+    my $fallback = File::Spec->catfile( $system_root, 'System32', 'taskkill.exe' );
+    return $fallback if -f $fallback;
+    return 'taskkill';
 }
 
 # _powershell_single_quote($value)

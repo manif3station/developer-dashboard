@@ -3918,26 +3918,42 @@ SKIP: {
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     my $fakebin = tempdir( CLEANUP => 1 );
-    my $taskkill = File::Spec->catfile( $fakebin, 'taskkill' );
+    # The fake taskkill must be executable on the host that runs it: a
+    # shell script on POSIX, a batch file on Windows. A bare 'taskkill'
+    # with no extension is not runnable on Windows and the ':' PATH
+    # join is wrong there too, so on a real Windows host the fake
+    # never ran, its args file was never written, and the read below
+    # died (build #269 exited 2 just after test 395). The Unix legs
+    # only passed because the shell script runs there.
+    my $is_windows_host = $^O eq 'MSWin32';
+    my $taskkill = File::Spec->catfile( $fakebin, $is_windows_host ? 'taskkill.bat' : 'taskkill' );
+    my $args_file = File::Spec->catfile( $fakebin, 'taskkill.args' );
     open my $taskkill_fh, '>', $taskkill or die "Unable to write $taskkill: $!";
-    print {$taskkill_fh} <<"SCRIPT";
+    if ($is_windows_host) {
+        print {$taskkill_fh} "\@echo off\r\n";
+        print {$taskkill_fh} 'echo %* > "' . $args_file . "\"\r\n";
+        print {$taskkill_fh} "exit /b 0\r\n";
+    }
+    else {
+        print {$taskkill_fh} <<"SCRIPT";
 #!/bin/sh
-printf '%s\n' "\$*" > "$fakebin/taskkill.args"
+printf '%s\n' "\$*" > "$args_file"
 exit 0
 SCRIPT
+    }
     close $taskkill_fh or die "Unable to close $taskkill: $!";
     chmod 0755, $taskkill or die "Unable to chmod $taskkill: $!";
-    local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+    local $ENV{PATH} = join( $is_windows_host ? ';' : ':', $fakebin, ( $ENV{PATH} || '' ) );
     is(
         $manager->_send_signal( 'TERM', 2372, 5868 ),
         2,
         '_send_signal returns the number of requested Windows process ids when taskkill succeeds',
     );
-    open my $taskkill_args_fh, '<', File::Spec->catfile( $fakebin, 'taskkill.args' )
-      or die "Unable to read $fakebin/taskkill.args: $!";
+    open my $taskkill_args_fh, '<', $args_file
+      or die "Unable to read $args_file: $!";
     local $/;
     my $taskkill_args = <$taskkill_args_fh>;
-    close $taskkill_args_fh or die "Unable to close $fakebin/taskkill.args: $!";
+    close $taskkill_args_fh or die "Unable to close $args_file: $!";
     like( $taskkill_args, qr{/PID 2372 /PID 5868 /T /F}, '_send_signal shells out to Windows taskkill with every requested pid plus tree and force flags' );
 }
 
@@ -4020,19 +4036,37 @@ SCRIPT
     );
 
     my $fakebin = tempdir( CLEANUP => 1 );
-    my $powershell = File::Spec->catfile( $fakebin, 'powershell' );
+    # The fake powershell must be executable on the host that runs it:
+    # a shell script on POSIX, a batch file on Windows. The product
+    # resolves powershell through _powershell_command (PATHEXT-aware),
+    # so the .bat is found and runs through cmd; a bare 'powershell'
+    # with no extension is not runnable on Windows and the ':' PATH
+    # join is wrong there too (same shape as the taskkill fake, build
+    # #269). The Unix legs only passed because the shell script runs
+    # there.
+    my $is_windows_host = $^O eq 'MSWin32';
+    my $powershell = File::Spec->catfile( $fakebin, $is_windows_host ? 'powershell.bat' : 'powershell' );
+    my $powershell_args = File::Spec->catfile( $fakebin, 'powershell.args' );
     my $stdout_log = $files->dashboard_log;
     my $stderr_log = $stdout_log . '.stderr';
     open my $ps_fh, '>', $powershell or die "Unable to write $powershell: $!";
-    print {$ps_fh} <<"SCRIPT";
+    if ($is_windows_host) {
+        print {$ps_fh} "\@echo off\r\n";
+        print {$ps_fh} 'echo %* > "' . $powershell_args . "\"\r\n";
+        print {$ps_fh} "echo 42424\r\n";
+        print {$ps_fh} "exit /b 0\r\n";
+    }
+    else {
+        print {$ps_fh} <<"SCRIPT";
 #!/bin/sh
-printf '%s\n' "\$*" > "$fakebin/powershell.args"
-printf '%s\n' 42424
+printf '%s\\n' "\$*" > "$powershell_args"
+printf '%s\\n' 42424
 exit 0
 SCRIPT
+    }
     close $ps_fh or die "Unable to close $powershell: $!";
     chmod 0755, $powershell or die "Unable to chmod $powershell: $!";
-    local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+    local $ENV{PATH} = join( $is_windows_host ? ';' : ':', $fakebin, ( $ENV{PATH} || '' ) );
     my $spawned_pid = $manager->_spawn_windows_background_command(
         q{C:\Program Files\Perl\perl.exe},
         'script with space.ps1',
@@ -4052,43 +4086,63 @@ SCRIPT
     like( $args, qr/\Q$stderr_log\E/, '_spawn_windows_background_command redirects stderr to the dashboard error log' );
 
     open my $ps_fail_fh, '>', $powershell or die "Unable to rewrite $powershell: $!";
-    print {$ps_fail_fh} <<"SCRIPT";
+    if ($is_windows_host) {
+        print {$ps_fail_fh} "\@echo off\r\n";
+        print {$ps_fail_fh} "echo launch failed 1>&2\r\n";
+        print {$ps_fail_fh} "exit /b 1\r\n";
+    }
+    else {
+        print {$ps_fail_fh} <<"SCRIPT";
 #!/bin/sh
-printf '%s\n' "launch failed" >&2
+printf '%s\\n' "launch failed" >&2
 exit 1
 SCRIPT
+    }
     close $ps_fail_fh or die "Unable to close $powershell after rewrite: $!";
     chmod 0755, $powershell or die "Unable to chmod $powershell after rewrite: $!";
     my $spawn_ok = eval { $manager->_spawn_windows_background_command('broken.exe'); 1 };
     ok( !$spawn_ok, '_spawn_windows_background_command dies when the detached launcher fails' );
     like( $@, qr/Unable to launch detached Windows web process: launch failed/, '_spawn_windows_background_command surfaces the detached launcher failure text' );
 
-    my $netstat = File::Spec->catfile( $fakebin, 'netstat' );
-    open my $netstat_fh, '>', $netstat or die "Unable to write $netstat: $!";
-    print {$netstat_fh} <<"SCRIPT";
-#!/bin/sh
-cat <<'EOF'
+    # The netstat output is stubbed through capture, not a fake
+    # executable: _listener_pids_for_port_via_netstat shells out to a
+    # bare 'netstat', and on a real Windows host CreateProcess resolves
+    # that to System32 before PATH, so a fake netstat on PATH can never
+    # win there (same family as the taskkill fake, build #269). The
+    # parsing is what this test pins, and the stub feeds it the same
+    # output the fake used to.
+    my $netstat_output = <<'NETSTAT';
   TCP    0.0.0.0:7890           0.0.0.0:0              LISTENING       5100
   TCP    127.0.0.1:7890         0.0.0.0:0              LISTENING       5100
   TCP    127.0.0.1:7890         0.0.0.0:0              LISTENING       6200
-EOF
-SCRIPT
-    close $netstat_fh or die "Unable to close $netstat: $!";
-    chmod 0755, $netstat or die "Unable to chmod $netstat: $!";
-    is_deeply(
-        [ $manager->_listener_pids_for_port_via_netstat(7890) ],
-        [ 5100, 6200 ],
-        '_listener_pids_for_port_via_netstat returns unique listener pids from Windows netstat output',
-    );
+NETSTAT
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( $netstat_output, '', 0 ) };
+        is_deeply(
+            [ $manager->_listener_pids_for_port_via_netstat(7890) ],
+            [ 5100, 6200 ],
+            '_listener_pids_for_port_via_netstat returns unique listener pids from Windows netstat output',
+        );
+    }
 
     open my $ps_listener_fh, '>', $powershell or die "Unable to rewrite $powershell for listener probe: $!";
-    print {$ps_listener_fh} <<"SCRIPT";
+    if ($is_windows_host) {
+        print {$ps_listener_fh} "\@echo off\r\n";
+        print {$ps_listener_fh} "echo 7301\r\n";
+        print {$ps_listener_fh} "echo 7301\r\n";
+        print {$ps_listener_fh} "echo 8402\r\n";
+        print {$ps_listener_fh} "exit /b 0\r\n";
+    }
+    else {
+        print {$ps_listener_fh} <<"SCRIPT";
 #!/bin/sh
-printf '%s\n' 7301
-printf '%s\n' 7301
-printf '%s\n' 8402
+printf '%s\\n' 7301
+printf '%s\\n' 7301
+printf '%s\\n' 8402
 exit 0
 SCRIPT
+    }
     close $ps_listener_fh or die "Unable to close $powershell after listener rewrite: $!";
     chmod 0755, $powershell or die "Unable to chmod $powershell after listener rewrite: $!";
     is_deeply(
@@ -4119,23 +4173,35 @@ SCRIPT
 
     {
         my $fakebin = tempdir( CLEANUP => 1 );
-        my $powershell = File::Spec->catfile( $fakebin, 'powershell' );
+        # Batch file on Windows, shell script on POSIX (same shape as
+        # the taskkill fake, build #269): the product resolves
+        # powershell through _powershell_command, so the .bat is found
+        # and runs through cmd.
+        my $is_windows_host = $^O eq 'MSWin32';
+        my $powershell = File::Spec->catfile( $fakebin, $is_windows_host ? 'powershell.bat' : 'powershell' );
         my $source = $files->web_state . '.pending-ps-move';
         open my $source_fh, '>:raw', $source or die "Unable to write $source: $!";
         print {$source_fh} qq({"pid":5151,"status":"running"});
         close $source_fh or die "Unable to close $source: $!";
         open my $ps_fh, '>', $powershell or die "Unable to write $powershell: $!";
-        print {$ps_fh} <<"SCRIPT";
+        if ($is_windows_host) {
+            print {$ps_fh} "\@echo off\r\n";
+            print {$ps_fh} 'move /Y "' . $source . '" "' . $files->web_state . "\"\r\n";
+            print {$ps_fh} "exit /b 0\r\n";
+        }
+        else {
+            print {$ps_fh} <<"SCRIPT";
 #!/bin/sh
 mv "$source" "@{[$files->web_state]}"
 exit 0
 SCRIPT
+        }
         close $ps_fh or die "Unable to close $powershell: $!";
         chmod 0755, $powershell or die "Unable to chmod $powershell: $!";
 
         no warnings 'redefine';
         local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-        local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+        local $ENV{PATH} = join( $is_windows_host ? ';' : ':', $fakebin, ( $ENV{PATH} || '' ) );
         my ( $ok, $error ) = $manager->_replace_path_via_powershell( $source, $files->web_state );
         ok( $ok, '_replace_path_via_powershell returns success when the Windows Move-Item web fallback succeeds' )
           or diag $error;
@@ -4144,23 +4210,33 @@ SCRIPT
 
     {
         my $fakebin = tempdir( CLEANUP => 1 );
-        my $powershell = File::Spec->catfile( $fakebin, 'powershell' );
+        # Batch file on Windows, shell script on POSIX (same shape as
+        # the taskkill fake, build #269).
+        my $is_windows_host = $^O eq 'MSWin32';
+        my $powershell = File::Spec->catfile( $fakebin, $is_windows_host ? 'powershell.bat' : 'powershell' );
         my $source = $files->web_state . '.pending-ps-fail';
         open my $source_fh, '>:raw', $source or die "Unable to write $source: $!";
         print {$source_fh} qq({"pid":5252,"status":"retry"});
         close $source_fh or die "Unable to close $source: $!";
         open my $ps_fh, '>', $powershell or die "Unable to write $powershell: $!";
-        print {$ps_fh} <<"SCRIPT";
+        if ($is_windows_host) {
+            print {$ps_fh} "\@echo off\r\n";
+            print {$ps_fh} "echo web move failed 1>&2\r\n";
+            print {$ps_fh} "exit /b 7\r\n";
+        }
+        else {
+            print {$ps_fh} <<"SCRIPT";
 #!/bin/sh
-printf '%s\n' 'web move failed' >&2
+printf '%s\\n' 'web move failed' >&2
 exit 7
 SCRIPT
+        }
         close $ps_fh or die "Unable to close $powershell: $!";
         chmod 0755, $powershell or die "Unable to chmod $powershell: $!";
 
         no warnings 'redefine';
         local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-        local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+        local $ENV{PATH} = join( $is_windows_host ? ';' : ':', $fakebin, ( $ENV{PATH} || '' ) );
         my ( $ok, $error ) = $manager->_replace_path_via_powershell( $source, $files->web_state );
         ok( !$ok, '_replace_path_via_powershell returns failure when the Windows web Move-Item fallback exits non-zero' );
         like( $error, qr/web move failed/, '_replace_path_via_powershell returns the native PowerShell failure text for web state replacement' );
@@ -4215,35 +4291,32 @@ SCRIPT
 }
 
 {
-    my $tmp = tempdir( CLEANUP => 1 );
-    my $fakebin = File::Spec->catdir( $tmp, 'bin' );
-    make_path($fakebin);
-    my $ss = File::Spec->catfile( $fakebin, 'ss' );
-    open my $ss_fh, '>', $ss or die "Unable to write $ss: $!";
-    print {$ss_fh} <<"SCRIPT";
-#!/bin/sh
-echo "Can't exec ss: No such file or directory" >&2
-exit 255
-SCRIPT
-    close $ss_fh or die "Unable to close $ss: $!";
-    chmod 0755, $ss or die "Unable to chmod $ss: $!";
-
-    my $lsof = File::Spec->catfile( $fakebin, 'lsof' );
-    open my $lsof_fh, '>', $lsof or die "Unable to write $lsof: $!";
-    print {$lsof_fh} <<"SCRIPT";
-#!/bin/sh
-cat <<'EOF'
-p61530
-f5
-p61616
-f5
-p61617
-EOF
-SCRIPT
-    close $lsof_fh or die "Unable to close $lsof: $!";
-    chmod 0755, $lsof or die "Unable to chmod $lsof: $!";
-
-    local $ENV{PATH} = join( ':', $fakebin, $ENV{PATH} || '' );
+    # The ss exit-255 and lsof outputs are stubbed through capture,
+    # not fake executables: on a real Windows host a bare 'ss' or
+    # 'lsof' in system() can never run a fake (CreateProcess only
+    # appends .exe, and neither tool exists on Windows at all), so the
+    # fake scripts the test used to carry could never be invoked there
+    # (same family as the taskkill fake, build #269). The fallback
+    # chain and the -Fp parsing are what this test pins, and the stub
+    # feeds them the same outputs the fakes used to. is_windows is
+    # forced to 0 so the POSIX ss/lsof branch runs even on a Windows
+    # host; command_in_path('ss') is forced to 1 so the ss call
+    # happens and reports 255 instead of the code skipping straight
+    # to lsof.
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
+        my ($name) = @_;
+        return 1 if $name eq 'ss';
+        return;
+    };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
+    my $capture_calls = 0;
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
+        $capture_calls++;
+        return ( '', "Can't exec ss: No such file or directory\n", 255 ) if $capture_calls == 1;
+        return ( "p61530\nf5\np61616\nf5\np61617\n", '', 0 );
+    };
     is_deeply(
         [ $manager->_listener_pids_for_port(7890) ],
         [ 61530, 61616, 61617 ],
@@ -4253,6 +4326,11 @@ SCRIPT
 
 {
     no warnings 'redefine';
+    # is_windows is forced to 0 so the POSIX ss/lsof branch runs even
+    # on a Windows host: _listener_pids_for_port takes the netstat /
+    # PowerShell branch there and never consults the ss/lsof stubs
+    # below (same shape as tests 219-221, build #253).
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
         my ( $name ) = @_;
         return 0 if $name eq 'ss';
@@ -4270,6 +4348,10 @@ SCRIPT
 
 {
     no warnings 'redefine';
+    # is_windows is forced to 0 for the same reason as the block
+    # above (build #253 shape): the POSIX ss/lsof/proc branch must
+    # run even on a Windows host.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
         my ( $name ) = @_;
         return 0 if $name eq 'ss';
@@ -4399,18 +4481,31 @@ SCRIPT
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     my $fakebin = tempdir( CLEANUP => 1 );
-    my $powershell = File::Spec->catfile( $fakebin, 'powershell' );
+    # Batch file on Windows, shell script on POSIX (same shape as
+    # the taskkill fake, build #269): the product resolves powershell
+    # through _powershell_command, so the .bat is found and runs
+    # through cmd.
+    my $is_windows_host = $^O eq 'MSWin32';
+    my $powershell = File::Spec->catfile( $fakebin, $is_windows_host ? 'powershell.bat' : 'powershell' );
     open my $ps_bad_fh, '>', $powershell or die "Unable to write $powershell for ps scan: $!";
-    print {$ps_bad_fh} <<"SCRIPT";
+    if ($is_windows_host) {
+        print {$ps_bad_fh} "\@echo off\r\n";
+        print {$ps_bad_fh} "echo invalid line\r\n";
+        print {$ps_bad_fh} "echo 9012\tvalid powershell process\r\n";
+        print {$ps_bad_fh} "exit /b 0\r\n";
+    }
+    else {
+        print {$ps_bad_fh} <<"SCRIPT";
 #!/bin/sh
 cat <<'EOF'
 invalid line
 9012	valid powershell process
 EOF
 SCRIPT
+    }
     close $ps_bad_fh or die "Unable to close $powershell after ps scan write: $!";
     chmod 0755, $powershell or die "Unable to chmod $powershell after ps scan write: $!";
-    local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+    local $ENV{PATH} = join( $is_windows_host ? ';' : ':', $fakebin, ( $ENV{PATH} || '' ) );
     is_deeply(
         [ $manager->_ps_processes ],
         [
