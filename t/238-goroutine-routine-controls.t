@@ -2,10 +2,13 @@ use strict;
 use warnings;
 use Test::More;
 use Time::HiRes qw(time sleep);
+use Cwd qw(abs_path);
 use File::Spec;
+use File::Temp qw(tempfile);
 use FindBin;
 use IO::Socket::INET;
 
+use lib 'lib';
 use Developer::Dashboard::GoRoutine;
 
 # The engine is a single-threaded C event loop: no threads, no fork, and
@@ -156,6 +159,49 @@ isa_ok($normal, 'Developer::Dashboard::GoRoutine::Routine',
     is($exited->status, 'exited', 'exit ends only the routine');
     ok(!$exited->is_killed, 'routine-local exit is not reported as a kill');
     pass('main interpreter continues after routine-local exit');
+
+    # The same exit in a child perl, followed by exit() at top level:
+    # exit() goes through PL_runops, so a leaked custom runops would
+    # croak __GOROUTINE_EXIT__ and the child would die with 255 instead
+    # of exiting 7. The croak inside go_ev_runops longjmps to the G_EVAL
+    # set up by call_sv in _ev_invoke_callback, which returns normally,
+    # so the restore on the next line always runs. (Q review 5979186129
+    # on PR #82 claimed the restore is bypassed; this probe proves it
+    # is not.) The child-spawn shape mirrors t/254: the map is
+    # parenthesised on purpose, so the script file is passed as the
+    # program instead of being mapped into an -I entry.
+    {
+        my $lib_dir = abs_path("$FindBin::Bin/../lib");
+        my @blib_inc = grep { /blib/ } @INC;
+        if (!@blib_inc) {
+            my $blib_lib  = abs_path("$FindBin::Bin/../blib/lib");
+            my $blib_arch = abs_path("$FindBin::Bin/../blib/arch");
+            @blib_inc = grep { -d $_ } ($blib_lib, $blib_arch);
+        }
+        my $child_program = <<'CHILD';
+use strict;
+use warnings;
+BEGIN { open(STDERR, '>&', STDOUT) or die "cannot dup stderr: $!"; }
+use lib 'LIBDIR';
+use Developer::Dashboard::GoRoutine;
+my $r = go sub { exit 42 };
+wait_all();
+print "routine status=" . $r->status . "\n";
+exit(7);
+CHILD
+        $child_program =~ s/LIBDIR/$lib_dir/;
+        my ($child_fh, $child_file) = tempfile(SUFFIX => '.pl', UNLINK => 1);
+        print {$child_fh} $child_program;
+        close $child_fh;
+        my @child_args = ($^X, '-I' . $lib_dir, (map { '-I' . $_ } @blib_inc), $child_file);
+        open my $pipe, '-|', @child_args or die "cannot spawn child: $!";
+        my $child_out = do { local $/; <$pipe> };
+        close $pipe;
+        my $child_rc = $? >> 8;
+        is($child_rc, 7, 'child exit works after a routine-local exit (runops restored)');
+        like($child_out // '', qr/routine status=exited/,
+            'child routine exit was scoped to the routine');
+    }
 
     # A die that merely mentions the exit token is a failure, not an
     # exit: the token counts as an exit only when the C runops loop
