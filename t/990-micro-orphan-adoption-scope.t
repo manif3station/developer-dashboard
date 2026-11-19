@@ -174,6 +174,17 @@ SKIP: {
     skip 'the runtime env marker is only readable where /proc exists', 1 if !-d '/proc';
     my $env = _read_proc_environ($loop_pid);
     my ($runtime_marker) = $env =~ /(?:^|\0)DEVELOPER_DASHBOARD_LOOP_RUNTIME=([^\0]*)/;
+    if ( !defined $runtime_marker ) {
+        # Diagnostic, not an assertion: solo #245 showed the marker missing
+        # from the loop child's environ even though the spawn localizes it
+        # and the local spawn probe proves the mechanism. Record what the
+        # child actually carries and which CollectorRunner the parent
+        # loaded, so the next step is evidence, not another theory.
+        my @dash_keys = map { ( split /=/, $_, 2 )[0] } grep { /^DEVELOPER_DASHBOARD/ } split /\0/, $env;
+        diag( 'loop child environ DEVELOPER_DASHBOARD keys: ' . ( @dash_keys ? join( ', ', @dash_keys ) : '(none)' ) );
+        diag( 'loop child environ entry count: ' . scalar( grep { $_ ne '' } split /\0/, $env ) );
+        diag( 'CollectorRunner loaded from: ' . ( $INC{'Developer/Dashboard/CollectorRunner.pm'} || '(unknown)' ) );
+    }
     is( $runtime_marker, $key_a, 'the running loop carries runtime A identity in its initial environ' );
 }
 
