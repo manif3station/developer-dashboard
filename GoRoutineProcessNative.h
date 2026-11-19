@@ -58,6 +58,16 @@ static char **dd_argv_from_av(pTHX_ AV *array, I32 *argc_out) {
 }
 
 #ifndef _WIN32
+/* Frees a child environment built by dd_child_environment, including a
+ * partially built one: the array is calloc-zeroed, so it is always
+ * NULL-terminated at the first unfilled slot. It sits above the builder
+ * because the builder frees its partial result before every croak. */
+static void dd_child_environment_free(char **environment) {
+    if (environment == NULL || environment == environ) return;
+    for (size_t i = 0; environment[i] != NULL; ++i) free(environment[i]);
+    free(environment);
+}
+
 static char **dd_child_environment(pTHX_ HV *options) {
     SV **slot = hv_fetch(options, "env", 3, 0);
     char **result;
@@ -75,7 +85,10 @@ static char **dd_child_environment(pTHX_ HV *options) {
 
     for (size_t i = 0; i < count; ++i) {
         result[i] = strdup(environ[i]);
-        if (result[i] == NULL) croak("out of memory copying child environment");
+        if (result[i] == NULL) {
+            dd_child_environment_free(result);
+            croak("out of memory copying child environment");
+        }
     }
 
     HV *overrides = (HV *)SvRV(*slot);
@@ -87,16 +100,25 @@ static char **dd_child_environment(pTHX_ HV *options) {
         STRLEN key_len = 0, value_len = 0;
         const char *key = SvPVbyte(key_sv, key_len);
         const char *value;
-        if (key_len == 0 || memchr(key, '=', key_len) || memchr(key, '\0', key_len))
+        if (key_len == 0 || memchr(key, '=', key_len) || memchr(key, '\0', key_len)) {
+            dd_child_environment_free(result);
             croak("GoRoutine child environment keys must be non-empty and contain no '=' or NUL");
-        if (!SvOK(value_sv) || SvROK(value_sv))
+        }
+        if (!SvOK(value_sv) || SvROK(value_sv)) {
+            dd_child_environment_free(result);
             croak("GoRoutine child environment values must be defined scalars");
+        }
         value = SvPVbyte(value_sv, value_len);
-        if (memchr(value, '\0', value_len))
+        if (memchr(value, '\0', value_len)) {
+            dd_child_environment_free(result);
             croak("GoRoutine child environment values must not contain NUL");
+        }
 
         char *assignment = (char *)malloc((size_t)key_len + (size_t)value_len + 2);
-        if (assignment == NULL) croak("out of memory preparing child environment override");
+        if (assignment == NULL) {
+            dd_child_environment_free(result);
+            croak("out of memory preparing child environment override");
+        }
         memcpy(assignment, key, key_len);
         assignment[key_len] = '=';
         memcpy(assignment + key_len + 1, value, value_len);
@@ -114,12 +136,6 @@ static char **dd_child_environment(pTHX_ HV *options) {
     }
     result[count] = NULL;
     return result;
-}
-
-static void dd_child_environment_free(char **environment) {
-    if (environment == NULL || environment == environ) return;
-    for (size_t i = 0; environment[i] != NULL; ++i) free(environment[i]);
-    free(environment);
 }
 #endif
 
@@ -169,8 +185,37 @@ static char *dd_windows_command_line(pTHX_ char **argv, I32 argc) {
 
 static HANDLE dd_windows_redirect(const char *path, DWORD access) {
     if (path == NULL) return INVALID_HANDLE_VALUE;
+    /* The redirect handle is handed to the child through STARTUPINFO, so
+       it must be inheritable: CreateProcess with bInheritHandles only
+       duplicates inheritable handles into the child. A NULL security
+       attributes (the old code) creates a non-inheritable handle, so the
+       child starts with no usable stdout/stderr and everything it prints
+       vanishes, while the redirect files themselves are created empty. */
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(sa);
+    sa.lpSecurityDescriptor = NULL;
+    sa.bInheritHandle = TRUE;
     return CreateFileA(path, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                       NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                       &sa, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+}
+
+/* Close only the redirect handles this spawn actually opened. The
+   stdin handle is the process standard handle when no stdin path was
+   given and must not be closed, and a redirect handle is
+   INVALID_HANDLE_VALUE when its path was not given or its open failed.
+   The CreateProcessA failure block already closed all three; the
+   earlier croak paths below must do the same, or the already-opened
+   handles leak. (Q review 5979186129 on PR #82.) */
+static void
+dd_close_spawn_redirects(HANDLE child_in, HANDLE child_out, HANDLE child_err,
+                         const char *stdin_path, const char *stdout_path, const char *stderr_path)
+{
+    if (stdin_path && child_in != INVALID_HANDLE_VALUE)
+        CloseHandle(child_in);
+    if (stdout_path && child_out != INVALID_HANDLE_VALUE)
+        CloseHandle(child_out);
+    if (stderr_path && child_err != INVALID_HANDLE_VALUE)
+        CloseHandle(child_err);
 }
 
 static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
@@ -183,27 +228,50 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     const char *stdin_path = dd_option_text(aTHX_ options, "stdin");
     STARTUPINFOA startup;
     PROCESS_INFORMATION process;
+    /* As with the stdout/stderr redirects below, the stdin file handle
+       must be inheritable or the child cannot read it. */
+    SECURITY_ATTRIBUTES inherit_sa;
+    inherit_sa.nLength = sizeof(inherit_sa);
+    inherit_sa.lpSecurityDescriptor = NULL;
+    inherit_sa.bInheritHandle = TRUE;
     HANDLE child_in = stdin_path ? CreateFileA(stdin_path, GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)
+        FILE_SHARE_READ | FILE_SHARE_WRITE, &inherit_sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)
         : GetStdHandle(STD_INPUT_HANDLE);
     HANDLE child_out = dd_windows_redirect(stdout_path, GENERIC_WRITE);
     HANDLE child_err = dd_windows_redirect(stderr_path, GENERIC_WRITE);
     if (stdin_path && child_in == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError();
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
+        free(line); free(argv);
         croak("unable to open GoRoutine child stdin (Windows error %lu)", (unsigned long)error);
     }
     if (stdout_path && child_out == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError();
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
+        free(line); free(argv);
         croak("unable to open GoRoutine child stdout (Windows error %lu)", (unsigned long)error);
     }
     if (stderr_path && child_err == INVALID_HANDLE_VALUE) {
-        DWORD error = GetLastError(); free(line); free(argv);
+        DWORD error = GetLastError();
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
+        free(line); free(argv);
         croak("unable to open GoRoutine child stderr (Windows error %lu)", (unsigned long)error);
     }
     if (stdout_path && SetFilePointer(child_out, 0, NULL, FILE_END) == INVALID_SET_FILE_POINTER
-        && GetLastError() != NO_ERROR) croak("unable to seek GoRoutine child stdout");
+        && GetLastError() != NO_ERROR) {
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
+        croak("unable to seek GoRoutine child stdout");
+    }
     if (stderr_path && SetFilePointer(child_err, 0, NULL, FILE_END) == INVALID_SET_FILE_POINTER
-        && GetLastError() != NO_ERROR) croak("unable to seek GoRoutine child stderr");
+        && GetLastError() != NO_ERROR) {
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
+        croak("unable to seek GoRoutine child stderr");
+    }
     ZeroMemory(&startup, sizeof(startup));
     ZeroMemory(&process, sizeof(process));
     startup.cb = sizeof(startup);
@@ -214,9 +282,8 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     if (!CreateProcessA(NULL, line, NULL, NULL, TRUE, CREATE_NO_WINDOW,
                         NULL, cwd, &startup, &process)) {
         DWORD error = GetLastError();
-        if (stdin_path) CloseHandle(child_in);
-        if (stdout_path) CloseHandle(child_out);
-        if (stderr_path) CloseHandle(child_err);
+        dd_close_spawn_redirects(child_in, child_out, child_err,
+            stdin_path, stdout_path, stderr_path);
         free(line); free(argv);
         croak("unable to create GoRoutine child process (Windows error %lu)", (unsigned long)error);
     }
@@ -229,7 +296,6 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     return (UV)process.dwProcessId;
 }
 #else
-extern char **environ;
 
 static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
     I32 argc = 0;
@@ -274,14 +340,14 @@ static UV dd_spawn_process(pTHX_ AV *argv_array, HV *options) {
 #if defined(__GLIBC__) || defined(__APPLE__)
         rc = posix_spawn_file_actions_addchdir_np(&actions, cwd);
         if (rc != 0) {
-            posix_spawn_file_actions_destroy(&actions); free(argv);
+            posix_spawn_file_actions_destroy(&actions); dd_child_environment_free(child_env); free(argv);
             croak("unable to set GoRoutine child working directory: %s", strerror(rc));
         }
 #else
         static char chdir_script[] = "cd \"$1\" || exit; shift; exec \"$@\"";
         wrapped_argv = (char **)calloc((size_t)argc + 5, sizeof(char *));
         if (wrapped_argv == NULL) {
-            posix_spawn_file_actions_destroy(&actions); free(argv);
+            posix_spawn_file_actions_destroy(&actions); dd_child_environment_free(child_env); free(argv);
             croak("out of memory preparing GoRoutine child working directory");
         }
         wrapped_argv[0] = (char *)"/bin/sh";

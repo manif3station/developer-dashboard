@@ -50,8 +50,8 @@ WriteMakefile(
     XS           => { 'HtmlEscape.xs' => 'HtmlEscape.c' },
     OBJECT       => 'HtmlEscape$(OBJ_EXT)',
     depend       => {
-        'HtmlEscape.c' => 'GoRoutine012.xs GoRoutineProcess.xs GoRoutine012Native.h GoRoutineProcessNative.h Native.xs SystemMenu.xs SystemMenuNative.h',
-        'HtmlEscape$(OBJ_EXT)' => 'GoRoutineNative.h GoRoutineShared.h SystemMenuNative.h',
+        'HtmlEscape.c' => 'GoRoutine012.xs GoRoutineProcess.xs GoRoutineEvent.h GoRoutineProcessNative.h Native.xs SystemMenu.xs SystemMenuNative.h',
+        'HtmlEscape$(OBJ_EXT)' => 'GoRoutineEvent.h SystemMenuNative.h',
     },
     LIBS         => [ $^O eq 'linux' ? '-ldl' : q{} ],
     CCFLAGS      => $Config{ccflags} . ( $^O eq 'MSWin32' ? q{} : ' -pthread' ),

@@ -3,10 +3,10 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '6.30';
+our $VERSION = '6.31';
 
 use Capture::Tiny qw(capture);
-use Errno qw(EINTR);
+use Errno qw(EAGAIN EINTR EWOULDBLOCK);
 use File::Basename qw(dirname);
 use File::Spec;
 use File::Temp qw(tempfile);
@@ -14,7 +14,7 @@ use IO::Select;
 use IO::Socket::INET;
 use IO::Socket::SSL ();
 use Plack::Runner;
-use Socket qw(MSG_PEEK);
+use Socket qw(MSG_PEEK SO_TYPE SOL_SOCKET);
 use Time::HiRes qw(sleep time);
 
 use Developer::Dashboard::GoRoutine;
@@ -190,8 +190,19 @@ sub _build_runner {
     if ( $self->{ssl} ) {
         my ( $cert, $key ) = get_ssl_cert_paths();
         push @options, '--ssl',      1;
-        push @options, '--ssl-key',  $key;
-        push @options, '--ssl-cert', $cert;
+        if ( is_windows() ) {
+            # Standalone (HTTP::Server::PSGI) reads ssl_key_file/ssl_cert_file.
+            # The Starman-style --ssl-key/--ssl-cert names are silently dropped,
+            # leaving the backend with no certificate, so every TLS handshake
+            # fails with a fatal handshake_failure alert and the readiness
+            # probe times out. (t/17 Test 15, Windows only.)
+            push @options, '--ssl-key-file',  $key;
+            push @options, '--ssl-cert-file', $cert;
+        }
+        else {
+            push @options, '--ssl-key',  $key;
+            push @options, '--ssl-cert', $cert;
+        }
     }
 
     $runner->parse_options(@options);
@@ -210,6 +221,7 @@ sub _serve_ssl_frontend {
         $backend_command,
         { process_group => 1 },
     );
+    _start_ssl_backend_watchdog($backend_pid);
 
     my $previous_term = $SIG{TERM};
     my $previous_int  = $SIG{INT};
@@ -233,43 +245,59 @@ sub _serve_ssl_frontend {
         reaped_children => \%reaped_children,
     );
 
-    my @client_routines;
+    # Plain values now: one interpreter, no cross-interpreter sharing.
+    # Each accepted client is owned by one repeating-timer routine that
+    # steps its state machine; the routine closes the socket when done.
+    # The parent never closes a client handle: there is only one handle
+    # now, and closing it here would close the routine's socket too.
+    my @client_states;
+    my @client_errors;
     my $frontend_close_error;
-    share my @client_errors;
-    share my $shutdown_workers = 0;
     my $worker_server = bless {
         host                  => $self->{host},
         ssl_subject_alt_names => [ @{ $self->{ssl_subject_alt_names} || [] } ],
     }, ref($self);
-    share $worker_server;
-    my $shared_daemon = $daemon;
-    share $shared_daemon;
+    my $listener_select = IO::Select->new($listener);
 
-    while (1) {
-        last if $SSL_SHUTDOWN_REQUESTED;
-        my $client = $listener->accept;
-        if ( !defined $client ) {
-            next if $! == EINTR && !$SSL_SHUTDOWN_REQUESTED;
-            last;
+    # select() only works on sockets on Windows: on a plain filehandle
+    # can_read() never reports readable, so the accept below would never
+    # run and the loop would spin forever in pump(). Probe with
+    # getsockopt first; a non-socket skips the readiness wait and goes
+    # straight to accept, which fails and exits the loop (t/17
+    # devnull-listener case, same class as the t/88 client hang fixed
+    # in 1c1034de). A real socket waits exactly as before.
+    my $listener_is_socket = defined getsockopt( $listener, SOL_SOCKET, SO_TYPE );
+
+    # Pump the engine (drives the client routines) and accept any pending
+    # client without blocking. The accept never blocks on a real socket:
+    # can_read(0) proves a connection is waiting before accept is called.
+    # A non-socket listener has no readiness to prove, so accept is called
+    # directly and its failure exits the loop.
+    FRONTEND: while ( !$SSL_SHUTDOWN_REQUESTED ) {
+        Developer::Dashboard::GoRoutine::pump(0.05);
+        while ( !$listener_is_socket || $listener_select->can_read(0) ) {
+            my $client = $listener->accept;
+            if ( !defined $client ) {
+                next if $! == EINTR && !$SSL_SHUTDOWN_REQUESTED;
+                last FRONTEND;
+            }
+            push @client_states, _start_ssl_frontend_client(
+                $worker_server, $daemon, $client, \@client_errors,
+            );
         }
-        my $shared_client = $client;
-        share $shared_client;
-        push @client_routines, Developer::Dashboard::GoRoutine::go(sub {
-            my $ok = eval {
-                $worker_server->_handle_ssl_frontend_client(
-                    client => $shared_client,
-                    daemon => $shared_daemon,
-                );
-                1;
-            };
-            push @client_errors, "$@" if !$ok && !$shutdown_workers;
-            $worker_server->_close_ssl_frontend_handle($shared_client)
-              or push @client_errors, "Unable to close SSL frontend client: $!";
-        });
-        if ( !$self->_close_ssl_frontend_handle($client) ) {
-            $frontend_close_error = "Unable to release SSL frontend client in listener: $!";
-            last;
-        }
+    }
+
+    # Cancel every client routine that is still waiting and finish the
+    # client the same way its own last step would: cancel the routine,
+    # close its sockets, mark it done. No routine is running here: pump
+    # only returns after the routines it dispatched have returned, so the
+    # pending ones are idle and safe to cancel. There is nothing to poll
+    # for: a killed routine never fires again, so no is_running wait is
+    # needed. Clients are finished before the listener is closed, so a
+    # client close failure is reported before any listener close failure,
+    # as the old handler did.
+    for my $state (@client_states) {
+        _ssl_frontend_client_finish($state);
     }
 
     if ( !$self->_close_ssl_frontend_handle($listener) ) {
@@ -277,17 +305,10 @@ sub _serve_ssl_frontend {
             $frontend_close_error = "Unable to close SSL frontend listener: $!";
         }
     }
-    $shutdown_workers = 1;
-    for my $routine (@client_routines) {
-        $routine->kill if $routine->is_running;
-    }
-    while ( grep { $_->is_running } @client_routines ) {
-        sleep 0.01;
-    }
     my @routine_errors = @client_errors;
     _stop_ssl_backend( $backend_pid, \%reaped_children );
-    die $frontend_close_error if defined $frontend_close_error;
     die "SSL frontend client handler failed: $routine_errors[0]" if @routine_errors;
+    die $frontend_close_error if defined $frontend_close_error;
     return 1;
 }
 
@@ -403,40 +424,293 @@ sub _open_ssl_frontend_listener_or_die {
 
 # _handle_ssl_frontend_client(%args)
 # Routes one accepted frontend socket either to the internal TLS backend or to
-# a direct HTTP->HTTPS redirect response.
+# a direct HTTP->HTTPS redirect response. Synchronous wrapper around the
+# non-blocking step machine below: it steps the client until done, so direct
+# callers (and tests) keep the old blocking call while the production
+# frontend drives the same steps from a pump-driven routine.
 # Input: accepted client socket and daemon descriptor.
 # Output: true value after the client socket is handled.
 sub _handle_ssl_frontend_client {
     my ( $self, %args ) = @_;
     my $client = $args{client} || die 'Missing frontend client socket';
     my $daemon = $args{daemon} || die 'Missing daemon descriptor';
-    my $client_select = IO::Select->new($client);
-    while ( !$client_select->can_read(0.25) ) {
-        # Timed readiness waits let a GoRoutine worker observe cancellation.
+    my @errors;
+    my $state = _start_ssl_frontend_client_state( $self, $daemon, $client, \@errors );
+    # Direct callers own the client socket (as the old handler left it open
+    # for the caller to close); only the backend is closed by the handler.
+    $state->{owns_sockets} = 0;
+    while ( !_ssl_frontend_client_step($state) ) {
+        select undef, undef, undef, 0.01;
+    }
+    die $errors[0] if @errors;
+    return 1;
+}
+
+# _start_ssl_frontend_client($worker_server, $daemon, $client, $errors)
+# Starts one accepted frontend client on the event loop: the client socket
+# is set non-blocking and a repeating 0.05s timer routine steps its state
+# machine. Returns the client state hash reference.
+# Input: worker server object, daemon descriptor, accepted client socket,
+#        and an array reference collecting handler errors.
+# Output: client state hash reference (holds the routine for shutdown).
+sub _start_ssl_frontend_client {
+    my ( $worker_server, $daemon, $client, $errors ) = @_;
+    my $state = _start_ssl_frontend_client_state( $worker_server, $daemon, $client, $errors );
+    $state->{routine} = Developer::Dashboard::GoRoutine::go(
+        sub { _ssl_frontend_client_step($state) },
+        { every => 0.05 },
+    );
+    return $state;
+}
+
+# _start_ssl_frontend_client_state($worker_server, $daemon, $client, $errors)
+# Builds one accepted client's state machine state. The client socket is set
+# non-blocking so no step can stall the pump.
+# Input: worker server object, daemon descriptor, accepted client socket,
+#        and an array reference collecting handler errors.
+# Output: client state hash reference.
+sub _start_ssl_frontend_client_state {
+    my ( $worker_server, $daemon, $client, $errors ) = @_;
+    $client->blocking(0) if $client->can('blocking');
+    return {
+        worker_server => $worker_server,
+        daemon        => $daemon,
+        client        => $client,
+        errors        => $errors,
+        routine       => undef,
+        done          => 0,
+        owns_sockets  => 1,
+        phase         => 'WAIT_FIRST',
+        backend       => undef,
+        head          => '',
+        write_buf     => '',
+        write_off     => 0,
+        buf_c2b       => '',
+        off_c2b       => 0,
+        buf_b2c       => '',
+        off_b2c       => 0,
+    };
+}
+
+# _ssl_frontend_client_step($state)
+# Runs one non-blocking step of one accepted frontend client and advances its
+# phase (WAIT_FIRST -> PROXY / READ_HEAD -> WRITE_REDIRECT -> DONE).
+# Input: client state hash reference.
+# Output: true once the client is done (sockets closed), false while it
+#         still needs work; never dies (a step failure is recorded in the
+#         state's error list and the client is finished).
+sub _ssl_frontend_client_step {
+    my ($state) = @_;
+    return 1 if $state->{done};
+    my $ok = eval {
+        if ( $state->{phase} eq 'WAIT_FIRST' ) {
+            _ssl_frontend_client_wait_first($state);
+        }
+        elsif ( $state->{phase} eq 'PROXY' ) {
+            _ssl_frontend_client_proxy($state);
+        }
+        elsif ( $state->{phase} eq 'READ_HEAD' ) {
+            _ssl_frontend_client_read_head($state);
+        }
+        elsif ( $state->{phase} eq 'WRITE_REDIRECT' ) {
+            _ssl_frontend_client_write_redirect($state);
+        }
+        1;
+    };
+    if ( !$ok ) {
+        my $error = $@;
+        $error = 'unknown client error' if !defined $error || $error eq '';
+        push @{ $state->{errors} }, $error;
+        _ssl_frontend_client_finish($state);
+        return 1;
+    }
+    return $state->{done} ? 1 : 0;
+}
+
+# _ssl_frontend_client_wait_first($state)
+# Waits for the first byte of one accepted client, then routes it: a TLS
+# first byte opens the internal backend (PROXY), anything else starts the
+# plain-HTTP redirect read (READ_HEAD). A non-socket handle never becomes
+# readable under select, so it is probed first and the peek runs at once
+# instead of spinning (t/88 devnull case).
+# Input: client state hash reference.
+# Output: nothing; advances the state phase or finishes the client.
+sub _ssl_frontend_client_wait_first {
+    my ($state) = @_;
+    my $client = $state->{client};
+    my $is_socket = defined getsockopt( $client, SOL_SOCKET, SO_TYPE );
+    if ($is_socket) {
+        my $select = IO::Select->new($client);
+        return if !$select->can_read(0);
     }
     my $first = '';
     my $peeked = recv( $client, $first, 1, MSG_PEEK );
-    return 1 if !defined $peeked || $first eq '';
-
+    if ( !defined $peeked || $first eq '' ) {
+        _ssl_frontend_client_finish($state);
+        return;
+    }
     if ( _socket_looks_like_tls($first) ) {
         my $backend = IO::Socket::INET->new(
-            PeerAddr => $daemon->internal_sockhost,
-            PeerPort => $daemon->internal_sockport,
+            PeerAddr => $state->{daemon}->internal_sockhost,
+            PeerPort => $state->{daemon}->internal_sockport,
             Proto    => 'tcp',
+            Timeout  => 5,
         );
         die "Unable to connect to internal SSL backend: $!" if !$backend;
-        _proxy_streams( $client, $backend );
-        close $backend;
-        return 1;
+        $backend->blocking(0) if $backend->can('blocking');
+        $state->{backend} = $backend;
+        $state->{phase} = 'PROXY';
+        return;
     }
+    $state->{head} = '';
+    $state->{phase} = 'READ_HEAD';
+    return;
+}
 
-    my $request = _read_http_request_head($client);
-    my $response = _http_redirect_response(
-        host   => $self->_request_host_from_head( $request, $daemon ),
-        target => _request_target_from_head($request),
+# _ssl_frontend_client_proxy($state)
+# Pumps bytes bidirectionally between the public client socket and the
+# internal TLS backend socket for one step. A closed source ends the client.
+# Input: client state hash reference.
+# Output: nothing; advances buffers or finishes the client.
+sub _ssl_frontend_client_proxy {
+    my ($state) = @_;
+    return if $state->{done};
+    _ssl_frontend_client_proxy_dir(
+        $state, $state->{client}, $state->{backend}, 'buf_c2b', 'off_c2b' );
+    return if $state->{done};
+    _ssl_frontend_client_proxy_dir(
+        $state, $state->{backend}, $state->{client}, 'buf_b2c', 'off_b2c' );
+    return;
+}
+
+# _ssl_frontend_client_proxy_dir($state, $from, $to, $buf_key, $off_key)
+# Moves bytes in one proxy direction for one step: flushes bytes left over
+# from a partial write, then reads one fresh chunk and writes it out.
+# A partial write is buffered and retried on the next tick.
+# Input: client state, source and target sockets, and the state keys holding
+#        the direction's pending bytes and written offset.
+# Output: nothing; advances the direction's buffer or finishes the client.
+sub _ssl_frontend_client_proxy_dir {
+    my ( $state, $from, $to, $buf_key, $off_key ) = @_;
+    if ( length $state->{$buf_key} ) {
+        my $select = IO::Select->new($to);
+        return if !$select->can_write(0);
+        my $written = syswrite( $to, $state->{$buf_key},
+            length( $state->{$buf_key} ) - $state->{$off_key}, $state->{$off_key} );
+        if ( !defined $written ) {
+            return if $! == EAGAIN || $! == EWOULDBLOCK;
+            die "Unable to proxy SSL frontend bytes: $!";
+        }
+        $state->{$off_key} += $written;
+        if ( $state->{$off_key} >= length $state->{$buf_key} ) {
+            $state->{$buf_key} = '';
+            $state->{$off_key} = 0;
+            # Buffer fully flushed: fall through and read in the same
+            # step instead of waiting for the next 50ms tick. A partial
+            # write still returns here, so a new chunk can never
+            # overwrite data that has not been flushed yet.
+        }
+        else {
+            return;
+        }
+    }
+    my $select = IO::Select->new($from);
+    return if !$select->can_read(0);
+    my $chunk = '';
+    my $read = sysread( $from, $chunk, 8192 );
+    if ( !defined $read ) {
+        return if $! == EAGAIN || $! == EWOULDBLOCK;
+        _ssl_frontend_client_finish($state);
+        return;
+    }
+    if ( $read <= 0 ) {
+        _ssl_frontend_client_finish($state);
+        return;
+    }
+    $state->{$buf_key} = $chunk;
+    $state->{$off_key} = 0;
+    return;
+}
+
+# _ssl_frontend_client_read_head($state)
+# Reads one plain-HTTP request head chunk for one step. When the head is
+# complete (or at the 16KB cap) the redirect response is built and the
+# client moves to WRITE_REDIRECT.
+# Input: client state hash reference.
+# Output: nothing; advances the accumulated head or finishes the client.
+sub _ssl_frontend_client_read_head {
+    my ($state) = @_;
+    my $client = $state->{client};
+    my $select = IO::Select->new($client);
+    return if !$select->can_read(0);
+    my $chunk = '';
+    my $read = sysread( $client, $chunk, 1024 );
+    if ( !defined $read ) {
+        return if $! == EAGAIN || $! == EWOULDBLOCK;
+        _ssl_frontend_client_finish($state);
+        return;
+    }
+    if ( $read <= 0 ) {
+        _ssl_frontend_client_finish($state);
+        return;
+    }
+    $state->{head} .= $chunk;
+    return
+      if length( $state->{head} ) < 16384 && $state->{head} !~ /\r?\n\r?\n/;
+    $state->{write_buf} = _http_redirect_response(
+        host => $state->{worker_server}
+          ->_request_host_from_head( $state->{head}, $state->{daemon} ),
+        target => _request_target_from_head( $state->{head} ),
     );
-    syswrite( $client, $response );
-    return 1;
+    $state->{write_off} = 0;
+    $state->{phase} = 'WRITE_REDIRECT';
+    return;
+}
+
+# _ssl_frontend_client_write_redirect($state)
+# Writes the redirect response for one step. A partial write resumes on the
+# next tick; a failed write is ignored, as the old code never checked it.
+# Input: client state hash reference.
+# Output: nothing; advances the written offset or finishes the client.
+sub _ssl_frontend_client_write_redirect {
+    my ($state) = @_;
+    my $client = $state->{client};
+    my $select = IO::Select->new($client);
+    return if !$select->can_write(0);
+    my $written = syswrite( $client, $state->{write_buf},
+        length( $state->{write_buf} ) - $state->{write_off}, $state->{write_off} );
+    if ( !defined $written ) {
+        return if $! == EAGAIN || $! == EWOULDBLOCK;
+        _ssl_frontend_client_finish($state);
+        return;
+    }
+    $state->{write_off} += $written;
+    if ( $state->{write_off} >= length $state->{write_buf} ) {
+        _ssl_frontend_client_finish($state);
+    }
+    return;
+}
+
+# _ssl_frontend_client_finish($state)
+# Finishes one accepted frontend client: cancels its routine, closes the
+# backend, and marks it done. The client socket is closed too, unless the
+# state is a direct-call wrapper (owns_sockets false), where the caller
+# owns the client and closes it. A failed client close is recorded in the
+# state's error list, as the old handler did.
+# Input: client state hash reference.
+# Output: nothing.
+sub _ssl_frontend_client_finish {
+    my ($state) = @_;
+    return if $state->{done};
+    $state->{done} = 1;
+    $state->{routine}->kill if $state->{routine};
+    if ( $state->{client} && $state->{owns_sockets} ) {
+        $state->{worker_server}->_close_ssl_frontend_handle( $state->{client} )
+          or push @{ $state->{errors} },
+          "Unable to close SSL frontend client: $!";
+    }
+    close $state->{backend} if $state->{backend};
+    return;
 }
 
 # _socket_looks_like_tls($byte)
@@ -562,11 +836,73 @@ sub _stop_ssl_backend {
     my ( $pid, $reaped_children ) = @_;
     return 1 if !$pid;
     return 1 if $SSL_BACKEND_REAPED{$pid};
+    return 1 if ref($reaped_children) eq 'HASH' && $reaped_children->{$pid};
     Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' )
       if Developer::Dashboard::GoRoutine::process_running($pid);
     Developer::Dashboard::GoRoutine::wait_process($pid);
     $SSL_BACKEND_REAPED{$pid} = 1;
     return 1;
+}
+
+# _start_ssl_backend_watchdog($backend_pid)
+# Starts a separate watchdog process that ends the internal SSL backend
+# when the frontend process disappears. The frontend can be killed with
+# TerminateProcess (Windows) or SIGKILL, which gives it no chance to run
+# its TERM handler and stop the backend, so the orphaned backend would
+# otherwise hold the test harness pipes open forever and keep listening.
+# The watcher polls the frontend pid every 0.25s; when the frontend is
+# gone it terminates the backend (never dying on the kill: the backend
+# may already be dead) and exits. Its lifetime is bounded by the
+# frontend's own lifetime: a server runs for hours, and the watchdog
+# must outlive it however long that is. The investigation micro's 120s
+# bound was test safety so the micro could never hang forever, and the
+# old loop-branch parent watchdog was likewise unbounded (while (1)).
+# When DEVELOPER_DASHBOARD_SSL_WATCHDOG_LOG names a file, the watcher
+# appends its decisions there (started, frontend gone, exiting); the
+# variable is unset in normal use, so the watcher stays silent.
+# Input: backend pid integer.
+# Output: watchdog pid integer, or 0 when the backend pid is unusable.
+sub _start_ssl_backend_watchdog {
+    my ($backend_pid) = @_;
+    return 0 if !defined $backend_pid || $backend_pid !~ /^\d+$/ || $backend_pid < 1;
+    my $watcher_program = <<'WATCHER_PERL';
+use strict;
+use warnings;
+use Developer::Dashboard::GoRoutine ();
+my ( $frontend_pid, $backend_pid ) = @ARGV;
+my $log = $ENV{DEVELOPER_DASHBOARD_SSL_WATCHDOG_LOG} // '';
+my $_watchdog_log = sub {
+    my ($line) = @_;
+    return if $log eq '';
+    if ( open my $fh, '>>', $log ) {
+        print {$fh} $line . "\n";
+        close $fh;
+    }
+};
+$_watchdog_log->( "watcher started frontend=$frontend_pid backend=$backend_pid " . time() );
+while (1) {
+    if ( !Developer::Dashboard::GoRoutine::process_running($frontend_pid) ) {
+        $_watchdog_log->("watcher: frontend gone, killing backend=$backend_pid " . time());
+        eval { Developer::Dashboard::GoRoutine::terminate_process($backend_pid); };
+        for ( 1 .. 40 ) {
+            last if !Developer::Dashboard::GoRoutine::process_running($backend_pid);
+            select undef, undef, undef, 0.25;
+        }
+        $_watchdog_log->(
+            "watcher exiting backend_alive="
+              . ( Developer::Dashboard::GoRoutine::process_running($backend_pid) ? 1 : 0 )
+              . " " . time()
+        );
+        exit 0;
+    }
+    select undef, undef, undef, 0.25;
+}
+WATCHER_PERL
+    my @library_args = map { ( '-I', $_ ) } grep { defined && -d $_ } @INC;
+    return Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, @library_args, '-e', $watcher_program, $$, $backend_pid ],
+        {},
+    );
 }
 
 # _wait_for_managed_child($pid, $reaped_children)

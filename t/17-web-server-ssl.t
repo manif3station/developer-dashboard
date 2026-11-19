@@ -213,9 +213,12 @@ OPENSSL_CONFIG
     ok(-f $key_file, 'server.key file exists');
     ok(-s $cert_file > 0, 'server.crt has content');
     ok(-s $key_file > 0, 'server.key has content');
-    is(_mode_octal($cert_dir), '0700', 'cert directory is owner-only');
-    is(_mode_octal($cert_file), '0600', 'certificate file is owner-only');
-    is(_mode_octal($key_file), '0600', 'private key file is owner-only');
+    SKIP: {
+        skip 'Unix permission modes are not a Windows security control', 3 if $^O eq 'MSWin32';
+        is(_mode_octal($cert_dir), '0700', 'cert directory is owner-only');
+        is(_mode_octal($cert_file), '0600', 'certificate file is owner-only');
+        is(_mode_octal($key_file), '0600', 'private key file is owner-only');
+    }
     
     # Verify cert is self-signed and valid
     my $cert_text = do {
@@ -453,8 +456,16 @@ OPENSSL_CONFIG
     ok($runner, 'Plack runner created with SSL configuration');
     my %runner_options = @{ $runner->{options} || [] };
     is( $runner_options{ssl}, 1, 'Plack runner enables SSL mode explicitly' );
-    ok( $runner_options{ssl_key}, 'Plack runner includes SSL key path' );
-    ok( $runner_options{ssl_cert}, 'Plack runner includes SSL certificate path' );
+    if ( $^O eq 'MSWin32' ) {
+        # Standalone (HTTP::Server::PSGI) reads ssl_key_file/ssl_cert_file,
+        # not the Starman-style ssl_key/ssl_cert names.
+        ok( $runner_options{ssl_key_file}, 'Plack runner includes SSL key path for Standalone' );
+        ok( $runner_options{ssl_cert_file}, 'Plack runner includes SSL certificate path for Standalone' );
+    }
+    else {
+        ok( $runner_options{ssl_key}, 'Plack runner includes SSL key path' );
+        ok( $runner_options{ssl_cert}, 'Plack runner includes SSL certificate path' );
+    }
 
     my $ssl_proxy_daemon = Developer::Dashboard::Web::Server::Daemon->new(
         host          => '127.0.0.1',
@@ -984,10 +995,15 @@ SIGNAL_PERL
             1,
             'SSL frontend returns cleanly after the process API reports backend exit',
         );
-        is( scalar @spawned, 1, 'SSL frontend starts one backend process through GoRoutine' );
+        is( scalar @spawned, 2, 'SSL frontend starts one backend process and one backend watchdog through GoRoutine' );
         is_deeply( $spawned[0][0], [ $^X, '-e', 'exit 0', '127.0.0.1', 17896, 1 ],
             'backend process receives explicit executable arguments and its internal endpoint' );
         is( $spawned[0][1]{process_group}, 1, 'backend process is isolated in a managed process group' );
+        is( $spawned[1][0][0], $^X, 'backend watchdog runs under the same perl' );
+        is( $spawned[1][0][-4], '-e', 'backend watchdog runs an inline program' );
+        is( $spawned[1][0][-2], $$, 'backend watchdog watches the frontend process' );
+        is( $spawned[1][0][-1], 4243, 'backend watchdog watches the spawned backend process' );
+        is_deeply( $spawned[1][1], {}, 'backend watchdog is spawned without process-group isolation' );
         is_deeply( $terminated[0], [ 4243, 'TERM' ], 'frontend shutdown terminates the managed backend process' );
     }
 }
@@ -1003,7 +1019,7 @@ SIGNAL_PERL
     );
     is_deeply(
         $server->_ssl_backend_command($daemon),
-        [ $^X, '/tmp/_dashboard-core', 'web-ssl-backend-foreground',
+        [ $^X, File::Spec->catfile( '/tmp', '_dashboard-core' ), 'web-ssl-backend-foreground',
           '--host', '127.0.0.1', '--port', 17898, '--workers', 1 ],
         'default SSL backend command resolves the staged core dispatcher beside its command wrapper',
     );
@@ -1171,7 +1187,13 @@ FRONTEND_PERL
             <$https_socket>;
         };
         close $https_socket;
-        like( $https_raw, qr/^HTTP\/1\.1 200 OK\r\n/, 'live SSL frontend still serves HTTPS on the public port' );
+        # The Windows backend is Plack Standalone (HTTP::Server::PSGI),
+        # which always answers HTTP/1.0 (its status line is a literal
+        # "HTTP/1.0" and its POD says to use Starman for HTTP/1.1),
+        # while Starman on Linux/macOS answers HTTP/1.1. Either version
+        # is a valid 200 response to this HTTP/1.1 request; the test is
+        # about serving HTTPS on the public port, not the version token.
+        like( $https_raw, qr/^HTTP\/1\.[01] 200 OK\r\n/, 'live SSL frontend still serves HTTPS on the public port' );
         like( $https_raw, qr/\r\n\r\nOK\z/s, 'live SSL frontend preserves the HTTPS app response body' );
     }
     else {

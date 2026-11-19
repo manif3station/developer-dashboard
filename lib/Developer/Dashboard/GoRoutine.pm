@@ -3,10 +3,10 @@ package Developer::Dashboard::GoRoutine;
 use strict;
 use warnings;
 use Exporter 'import';
-use Scalar::Util qw(blessed reftype);
+use Scalar::Util qw(reftype);
 use Filter::Simple;
 
-our $VERSION = '6.30';
+our $VERSION = '6.31';
 
 our @EXPORT = qw(
     go
@@ -25,10 +25,171 @@ die "Developer::Dashboard XS bundle is not loaded; GoRoutine requires its native
     if !$Developer::Dashboard::HtmlEscape::XS_LOADED;
 
 # -------------------------------------------------------------------------
+# Windows spawn wrappers
+# -------------------------------------------------------------------------
+#
+# On Windows a child process object is destroyed as soon as the last handle
+# to it closes, and the native spawn layer closes its own handle immediately
+# after CreateProcess, so a child that exits and is only inspected afterwards
+# has no exit code left to report: wait_process answers the 255 "unknown"
+# sentinel and process_running reports 0 for a completed child that has not
+# been reaped yet. POSIX keeps the child as a zombie until it is reaped, so
+# the same code reports the real exit status there. To give Windows the same
+# shape, spawn keeps one handle open per child until wait_process collects
+# it. That handle is what makes a completed child still "exist" until it is
+# reaped, matching the documented contract that process_running is process
+# existence and process_exited is completion state. A child whose handle
+# could not be opened (it already exited, or Win32::Process is unavailable)
+# simply falls back to the previous behaviour.
+#
+# The redesign runs no cloned interpreters, so nothing can close a registry
+# handle behind the owner's back: the handle is released only when
+# wait_process collects the child, or when the registry itself is destroyed
+# at process exit.
+
+my %_SPAWN_CHILDREN;    # pid => Win32::Process object, or 1 when no handle is held
+
+# The platform this process really runs on, captured at load time.
+# Runtime $^O is mockable, so it must never decide whether the spawn
+# registry exists. On POSIX the registry is always empty by design, and
+# "not in registry" only means "already reaped" on real Windows.
+my $_REAL_OS_IS_WINDOWS = $^O eq 'MSWin32';
+
+my $_XS_SPAWN           = \&spawn;
+my $_XS_PROCESS_RUNNING = \&process_running;
+my $_XS_PROCESS_EXITED  = \&process_exited;
+my $_XS_WAIT_PROCESS    = \&wait_process;
+
+# _keep_spawn_handle($pid)
+# Records one spawned child and, on Windows, opens a process handle for it
+# so its process object (and exit code) survives until wait_process collects
+# it. Input: child process id integer. Output: nothing.
+sub _keep_spawn_handle {
+    my ($pid) = @_;
+    return if !defined $pid || $pid < 1;
+    # The registry only exists to keep a Windows process object alive until
+    # wait_process collects it (the POSIX branch has zombies for that), so
+    # a child spawned anywhere else is never recorded.
+    return unless $_REAL_OS_IS_WINDOWS;
+    my $handle = 1;
+    my $opened = eval {
+        require Win32::Process;
+        my $object;
+        Win32::Process::Open( $object, $pid, 0 )
+          or die "unable to open GoRoutine child process $pid\n";
+        $object;
+    };
+    $handle = $opened if $opened && !$@;
+    $_SPAWN_CHILDREN{$pid} = $handle;
+    return;
+}
+
+# _spawn_wrapper($argv, $options)
+# Wraps the native spawn: on Windows the native layer ignores the env
+# option (it has no environment-block builder), so the overrides are merged
+# into the parent environment for the duration of the spawn, because a
+# CreateProcess child inherits a copy of its parent environment at creation
+# time. Input: argument array reference and options hash reference.
+# Output: child process id integer.
+sub _spawn_wrapper ($$) {
+    my ( $argv, $options ) = @_;
+    my $pid;
+    if (   $^O eq 'MSWin32'
+        && ref($options) eq 'HASH'
+        && ref( $options->{env} ) eq 'HASH'
+        && %{ $options->{env} } )
+    {
+        my $overrides = $options->{env};
+        for my $key ( keys %{$overrides} ) {
+            die "GoRoutine child environment keys must be non-empty and contain no '=' or NUL\n"
+              if $key eq '' || $key =~ /=/ || $key =~ /\0/;
+            die "GoRoutine child environment values must be defined scalars\n"
+              if !defined $overrides->{$key} || ref $overrides->{$key};
+            die "GoRoutine child environment values must not contain NUL\n"
+              if $overrides->{$key} =~ /\0/;
+        }
+        my @keys   = keys %{$overrides};
+        my @values = @{ $overrides }{@keys};
+        {
+            local @ENV{@keys} = @values;
+            $pid = $_XS_SPAWN->( $argv, $options );
+        }
+    }
+    else {
+        $pid = $_XS_SPAWN->( $argv, $options );
+    }
+    _keep_spawn_handle($pid);
+    return $pid;
+}
+
+# _process_running_wrapper($pid)
+# Wraps the native liveness check: on Windows a spawned child whose process
+# object is held open by the registry still exists until wait_process
+# collects it, even after it has exited, so it reports as running. That is
+# the POSIX zombie shape, and the contract callers such as
+# ActionRunner::_reap_child_process rely on: without it an exited child can
+# never be reaped on Windows. Input: child process id integer.
+# Output: boolean true when the process still exists.
+sub _process_running_wrapper ($) {
+    my ($pid) = @_;
+    if ( $_REAL_OS_IS_WINDOWS ) {
+        return 1 if defined $pid && exists $_SPAWN_CHILDREN{$pid};
+    }
+    return $_XS_PROCESS_RUNNING->($pid);
+}
+
+# _wait_process_wrapper($pid)
+# Wraps the native wait: collects the exit status, then releases the
+# registry handle so the process object can finally go away and a second
+# wait reports the 255 unknown status, as documented. Input: child process
+# id integer. Output: shell-style exit status integer.
+sub _wait_process_wrapper ($) {
+    my ($pid) = @_;
+    # Already waited or reaped (Windows only): the registry handle is
+    # gone, so the native wait would croak opening a process object that
+    # no longer exists (Windows error 87). This happens when a supervisor
+    # reap collects the child first and a later wait asks for it again.
+    # Report the documented 255 unknown status instead. On POSIX the
+    # registry is always empty (_keep_spawn_handle is a Windows-only
+    # no-op there), so this must not fire off Windows, and the check keys
+    # off the load-time platform, not runtime $^O, because tests localize
+    # $^O to MSWin32 on Linux.
+    if ( $_REAL_OS_IS_WINDOWS && defined $pid && !exists $_SPAWN_CHILDREN{$pid} ) {
+        # Only a plausible child pid can be an already-reaped child: the
+        # native wait croaks "invalid GoRoutine child process identifier"
+        # for pid 0 and for pids above the Windows DWORD range (2**32 - 1),
+        # and those can never be a valid child, so let them reach the XS
+        # instead of masking the error as the 255 unknown status. A
+        # positive pid inside the DWORD range keeps the 255 answer, so a
+        # second wait on an already-reaped child still reports unknown
+        # instead of the native wait croaking (Windows error 87). The
+        # bounds match the native wait_process contract exactly.
+        return 255 if $pid =~ /^\d+$/ && $pid >= 1 && $pid <= 4294967295;
+    }
+    my $code = $_XS_WAIT_PROCESS->($pid);
+    delete $_SPAWN_CHILDREN{$pid} if defined $pid;
+    return $code;
+}
+
+# The wrappers replace the native entries in this package so every caller,
+# whether it imports the names or calls them fully qualified, sees the same
+# behaviour. This runs at load time, before any importer reads the stash.
+# The native subs carry prototypes (spawn takes two arguments, the other
+# two take one), so the wrappers declare the same prototypes to keep the
+# call contract identical; the redefinition warning is silenced because
+# replacing the native entries is the whole point of this block.
+{
+    no warnings 'redefine';
+    *spawn           = \&_spawn_wrapper;
+    *process_running = \&_process_running_wrapper;
+    *wait_process    = \&_wait_process_wrapper;
+}
+
+# -------------------------------------------------------------------------
 # User syntax
 # -------------------------------------------------------------------------
 #
-# The XS function go(&) remains the primitive used for:
+# The Perl function go(&;$) is the primitive used for:
 #
 #     go sub { ... };
 #
@@ -317,16 +478,7 @@ sub _rewrite_user_syntax {
 sub share (\$) : lvalue {
     my ($slot) = @_;
 
-    if (tied($$slot)) {
-        my $tied = tied($$slot);
-        die "share() called on an already tied scalar"
-            unless _is_shared_proxy($tied, __PACKAGE__ . '::SharedScalar');
-    }
-    else {
-        my $initial = $$slot;
-        tie $$slot, __PACKAGE__ . '::SharedScalar';
-        $$slot = $initial;
-    }
+    die "share() called on an already tied scalar" if tied($$slot);
 
     $$slot;
 }
@@ -341,32 +493,12 @@ sub _share_many {
         }
 
         if ($type eq 'ARRAY') {
-            my $tied = tied @$ref;
-            if ($tied) {
-                die "share() called on an already tied array"
-                    unless _is_shared_proxy($tied, __PACKAGE__ . '::SharedArray');
-                next;
-            }
-
-            my @initial = @$ref;
-            my $ptr = _shared_node_new();
-            _shared_node_set($ptr, \@initial);
-            tie @$ref, __PACKAGE__ . '::SharedArray', $ptr;
+            die "share() called on an already tied array" if tied @$ref;
             next;
         }
 
         if ($type eq 'HASH') {
-            my $tied = tied %$ref;
-            if ($tied) {
-                die "share() called on an already tied hash"
-                    unless _is_shared_proxy($tied, __PACKAGE__ . '::SharedHash');
-                next;
-            }
-
-            my %initial = %$ref;
-            my $ptr = _shared_node_new();
-            _shared_node_set($ptr, \%initial);
-            tie %$ref, __PACKAGE__ . '::SharedHash', $ptr;
+            die "share() called on an already tied hash" if tied %$ref;
             next;
         }
 
@@ -382,7 +514,7 @@ sub _go_call {
 
     # Arguments are evaluated in the caller before this function is entered,
     # matching normal function-call and Go-style launch semantics.  The
-    # closure and its captured argument list are then cloned by the XS go().
+    # closure and its captured argument list are then registered with the engine by the Perl go().
     return go(sub { $code->(@args) });
 }
 
@@ -390,739 +522,379 @@ FILTER_ONLY code => sub {
     $_ = Developer::Dashboard::GoRoutine::_rewrite_user_syntax($_);
 };
 
-# Purpose: return the native pointer for an existing shared proxy, when present.
-# Input:   any Perl value; only recognized shared proxy references yield a pointer.
-# Output:  the native pointer integer, or undef when the value is not a shared proxy.
-sub _proxy_ptr {
-    my ($value) = @_;
+# -------------------------------------------------------------------------
+# Engine: single-threaded event loop (Perl side)
+# -------------------------------------------------------------------------
+#
+# The C engine (GoRoutineEvent.h) only waits: timers, IO readiness, and
+# process exits. This side owns the routine registry, dispatches callbacks
+# on the main thread, and owns the channel queues. There is one interpreter,
+# so a routine record is a plain Perl hashref and a shared value is a plain
+# Perl value. Nothing here uses fork, threads.pm, or perl_clone.
 
-    if (_is_shared_proxy($value, __PACKAGE__ . '::SharedValue')) {
-        return $value->{ptr};
-    }
+my %ROUTINES;
+my $NEXT_ROUTINE_ID = 0;
 
-    return unless ref $value;
+# Nesting depth of pump(): a callback that sends on a channel pumps to
+# let the receiver run, and that pump can dispatch another callback
+# that sends again. Without a bound that recursion grows until the
+# stack overflows; the guard in pump() turns it into a catchable error.
+our $_PUMP_DEPTH = 0;
+my $_LOAD_PID = $$; # forked children must not drain the parent's queue
 
-    my $type = reftype($value);
-    my $tied;
-
-    if ($type eq 'HASH') {
-        $tied = tied %{$value};
-    }
-    elsif ($type eq 'ARRAY') {
-        $tied = tied @{$value};
-    }
-    elsif ($type eq 'SCALAR' || $type eq 'REF') {
-        $tied = tied ${$value};
-    }
-
-    return unless _is_shared_proxy($tied, __PACKAGE__ . '::SharedProxyBase');
-
-    return $tied->{ptr};
+sub _routine_record {
+    my ($id) = @_;
+    return $ROUTINES{$id};
 }
 
-# Purpose: determine whether a value is a blessed instance of a requested proxy
-#          class without relying on short-circuit behavior at every call site.
-# Input:   a candidate value and the fully qualified class name to check.
-# Output:  true for a blessed instance of that class, false otherwise.
-sub _is_shared_proxy {
-    my ( $candidate, $class ) = @_;
-
-    return 0 unless blessed($candidate);
-    return $candidate->isa($class) ? 1 : 0;
+sub _is_finished_state {
+    my ($state) = @_;
+    return $state eq 'done' || $state eq 'killed' || $state eq 'timed_out'
+        || $state eq 'exited' || $state eq 'failed';
 }
 
-sub _value_for_ptr {
-    my ($ptr) = @_;
-    return undef unless $ptr;
-
-    my $kind  = _shared_node_kind($ptr);
-    my $class = _shared_node_class($ptr);
-
-    if ($kind eq 'scalar') {
-        return (__PACKAGE__ . '::SharedValue')->_new($ptr);
+# _finish_routine($id, $state, $error)
+# Marks a routine finished. A repeating routine that completed normally
+# goes back to pending instead (its triggers stay registered in the C
+# engine); a repeating routine that failed or exited stops repeating.
+# Removes the routine's triggers unless it repeats. Drops the record once
+# nobody can observe it any more (its handle was destroyed).
+sub _finish_routine {
+    my ($id, $state, $error) = @_;
+    my $rec = $ROUTINES{$id};
+    return unless $rec;
+    if ($rec->{repeating} && $state eq 'done') {
+        $rec->{state} = 'pending';
+        return;
     }
-    if ($kind eq 'hash') {
-        return (__PACKAGE__ . '::SharedHash')->_new_ref($ptr, $class);
-    }
-    if ($kind eq 'array') {
-        return (__PACKAGE__ . '::SharedArray')->_new_ref($ptr, $class);
-    }
-    if ($kind eq 'scalarref') {
-        return (__PACKAGE__ . '::SharedScalarRef')->_new_ref($ptr, $class);
-    }
-    if ($kind eq 'object') {
-        return _shared_object_proxy($ptr);
-    }
-    if ($kind eq 'code') {
-        return sub { _shared_code_call($ptr, @_) };
-    }
-    if ($kind eq 'glob') {
-        return _glob_for_ptr($ptr, $class);
-    }
-    if ($kind eq 'io') {
-        return _io_for_ptr($ptr, $class);
-    }
-    if ($kind eq 'regexp') {
-        return _regexp_for_ptr($ptr, $class);
-    }
-    if ($kind eq 'format') {
-        return _format_for_ptr($ptr);
-    }
-
-    die "unknown shared value kind '$kind'";
+    $rec->{state} = $state;
+    $rec->{finished_at} = _ev_now();
+    $rec->{error} = $error if defined $error;
+    _ev_cancel($id);
+    delete $ROUTINES{$id} unless $rec->{handle_alive};
+    return;
 }
 
+# _cancel_routine($id, $kind) -- $kind is 'killed' or 'timed_out'.
+# Pending: cancels at once. Running: sets the cooperative flag, which the
+# dispatch honours when the callback returns. Finished: a no-op.
+# Returns true when the routine was pending or running.
+sub _cancel_routine {
+    my ($id, $kind) = @_;
+    my $rec = $ROUTINES{$id};
+    return 0 unless $rec;
+    return 0 if _is_finished_state($rec->{state});
+    if ($rec->{state} eq 'running') {
+        $rec->{cancel_requested} = 1;
+        $rec->{cancel_kind} = $kind;
+        return 1;
+    }
+    _finish_routine($id, $kind);
+    return 1;
+}
 
-
-# Materialize a real Perl filehandle/typeglob in the current interpreter.
-# The C node owns a process-wide master descriptor.  Perl's three-argument
-# >&/<& open duplicates that descriptor, so closing the fetched handle does
-# not invalidate the shared node or handles fetched by other interpreters.
-sub _open_shared_handle {
-    my ($ptr) = @_;
-    require Symbol;
-
-    my $g = Symbol::gensym();
-    my $fd = _shared_handle_fd($ptr);
-
-    if ($fd >= 0) {
-        my $mode = _shared_handle_mode($ptr);
-        open($g, $mode, $fd)
-            or die "cannot duplicate shared filehandle fd $fd: $!";
+# _set_routine_timeout($id, $seconds)
+# Timeouts are checked in Perl, in pump(), not by an engine timer: the
+# engine has no per-kind cancel, so replacing a timeout would mean
+# cancelling every trigger for the routine and re-registering the ones
+# that have not fired yet. A Perl-side deadline is simpler and fires just
+# as promptly, because pump() bounds its wait by the nearest timeout.
+# $seconds 0 clears the timeout.
+sub _set_routine_timeout {
+    my ($id, $seconds) = @_;
+    my $rec = $ROUTINES{$id};
+    return unless $rec;
+    return if _is_finished_state($rec->{state});
+    if ($seconds == 0) {
+        $rec->{timeout_at} = undef;
     }
     else {
-        tie *{$g}, __PACKAGE__ . '::SharedHandle', $ptr;
+        $rec->{timeout_at} = _ev_now() + $seconds;
     }
-
-    return $g;
+    return;
 }
 
-sub _glob_for_ptr {
-    my ($ptr, $class) = @_;
-    my $g = _open_shared_handle($ptr);
+# _routine_handle_destroyed($id)
+# The handle is gone but the routine continues (its callback is held by
+# the record, not by the handle). Drop the record once the routine is
+# finished and nobody can observe it any more.
+sub _routine_handle_destroyed {
+    my ($id) = @_;
+    my $rec = $ROUTINES{$id};
+    return unless $rec;
+    $rec->{handle_alive} = 0;
+    delete $ROUTINES{$id} if _is_finished_state($rec->{state});
+    return;
+}
 
-    if (my $p = _shared_glob_slot_ptr($ptr, 'scalar')) {
-        *{$g} = _field_ref_for_ptr($p);
+# go($code, \%opts)
+# Schedules a callback on the main thread and returns a routine handle.
+# The callback runs when the engine pumps and one of its triggers fires.
+# With no trigger it runs at the next pump tick. Options:
+#   after => $seconds    one-shot timer
+#   every => $seconds    repeating timer (the routine repeats)
+#   readable => $fh|$fd  IO readiness (fd on Unix, socket on Windows)
+#   writable => $fh|$fd  IO readiness
+#   repeat => 1          keep an IO trigger registered after it fires
+#   pid => $pid          process exit
+# A callback MUST be short and non-blocking: it runs on the main thread,
+# so a blocking callback stalls the whole process.
+sub go (&;$) {
+    my ($code, $opts) = @_;
+    die "go() expects a code reference" unless ref($code) eq 'CODE';
+    $opts = {} unless defined $opts;
+    die "go() options must be a hash reference" unless ref($opts) eq 'HASH';
+
+    my $id = ++$NEXT_ROUTINE_ID;
+    my $now = _ev_now();
+    my $rec = {
+        id               => $id,
+        cb               => $code,
+        state            => 'pending',
+        started_at       => $now,
+        finished_at      => undef,
+        timeout_at       => undef,
+        cancel_requested => 0,
+        cancel_kind      => undef,
+        repeating        => 0,
+        handle_alive     => 1,
+        error            => undef,
+    };
+    $ROUTINES{$id} = $rec;
+
+    my $triggered = 0;
+    if (defined $opts->{after}) {
+        _ev_add_timer($id, $now + $opts->{after}, 0, 0);
+        $triggered = 1;
     }
-    if (my $p = _shared_glob_slot_ptr($ptr, 'array')) {
-        my $v = _value_for_ptr($p);
-        *{$g} = $v;
+    if (defined $opts->{every}) {
+        _ev_add_timer($id, $now + $opts->{every}, $opts->{every}, 0);
+        $rec->{repeating} = 1;
+        $triggered = 1;
     }
-    if (my $p = _shared_glob_slot_ptr($ptr, 'hash')) {
-        my $v = _value_for_ptr($p);
-        *{$g} = $v;
+    for my $dir (qw(readable writable)) {
+        next unless defined $opts->{$dir};
+        my $given = $opts->{$dir};
+        my $fd = ref($given) ? fileno($given) : $given;
+        die "go() $dir trigger needs a filehandle or a file descriptor"
+            unless defined($fd) && $fd =~ /\A\d+\z/;
+        _ev_add_io($id, $fd, $dir eq 'readable' ? 1 : 0,
+            $dir eq 'writable' ? 1 : 0, $opts->{repeat} ? 1 : 0);
+        $rec->{repeating} = 1 if $opts->{repeat};
+        $triggered = 1;
     }
-    if (my $p = _shared_glob_slot_ptr($ptr, 'code')) {
-        my $v = _value_for_ptr($p);
-        *{$g} = $v;
+    if (defined $opts->{pid}) {
+        _ev_add_pid($id, $opts->{pid});
+        $triggered = 1;
     }
+    _ev_add_timer($id, $now, 0, 0) unless $triggered;
 
-    bless $g, $class if defined($class) && length($class);
-    return $g;
+    return bless { id => $id }, 'Developer::Dashboard::GoRoutine::Routine';
 }
 
-sub _io_for_ptr {
-    my ($ptr, $class) = @_;
-    my $g = _open_shared_handle($ptr);
-    my $io = *{$g}{IO};
-    die "shared IO value has no materializable filehandle" unless $io;
-    bless $io, $class if defined($class) && length($class);
-    return $io;
-}
-
-sub _regexp_for_ptr {
-    my ($ptr, $class) = @_;
-    my $serialized = _shared_node_text($ptr);
-    my $re = qr/$serialized/;
-    bless $re, $class
-        if defined($class) && length($class) && $class ne 'Regexp';
-    return $re;
-}
-
-sub _format_for_ptr {
-    my ($ptr) = @_;
-    my $name = _shared_node_text($ptr);
-    return undef unless defined($name) && length($name);
-    no strict 'refs';
-    return *{$name}{FORMAT};
-}
-
-
-# Runs inside the private handle interpreter for non-fd PerlIO handles.
-sub _handle_remote_dispatch {
-    my ($h, $op, @args) = @_;
-
-    return print {$h} @args if $op eq 'PRINT';
-    if ($op eq 'PRINTF') {
-        my $format = shift @args;
-        return printf {$h} $format, @args;
-    }
-    return scalar <$h> if $op eq 'READLINE_SCALAR';
-    return <$h>        if $op eq 'READLINE_LIST';
-    return getc($h)    if $op eq 'GETC';
-    if ($op eq 'READ') {
-        my ($length) = @args;
-        my $buf = '';
-        my $n = read($h, $buf, $length);
-        return wantarray ? ($n, $buf) : $n;
-    }
-    if ($op eq 'WRITE') {
-        my ($buf, $length, $offset) = @args;
-        $offset //= 0;
-        my $chunk = substr($buf, $offset, $length);
-        my $ok = print {$h} $chunk;
-        return $ok ? length($chunk) : undef;
-    }
-    return CORE::seek($h, $args[0], $args[1]) if $op eq 'SEEK';
-    return tell($h)           if $op eq 'TELL';
-    return eof($h)            if $op eq 'EOF';
-    return fileno($h)         if $op eq 'FILENO';
-    return @args ? CORE::binmode($h, $args[0]) : CORE::binmode($h) if $op eq 'BINMODE';
-    return close($h)          if $op eq 'CLOSE';
-
-    die "unsupported shared filehandle operation '$op'";
-}
-
-sub _scalar_snapshot {
-    my ($value) = @_;
-    if (_is_shared_proxy($value, __PACKAGE__ . '::SharedValue')) {
-        return _shared_scalar_get($value->{ptr});
-    }
-    return $value;
-}
-
-# Internal XS helper: create one tied field scalar for a shared class field.
-sub _field_ref_for_ptr {
-    my ($ptr) = @_;
-    tie my $field, __PACKAGE__ . '::SharedScalar', $ptr;
-    return \$field;
-}
-
-package Developer::Dashboard::GoRoutine::SharedHandle;
-
-use strict;
-use warnings;
-
-sub TIEHANDLE {
-    my ($class, $ptr) = @_;
-    return bless { ptr => $ptr }, $class;
-}
-
-sub PRINT {
-    my $self = shift;
-    return Developer::Dashboard::GoRoutine::_shared_handle_remote(
-        $self->{ptr}, 'PRINT', @_
-    );
-}
-
-sub PRINTF {
-    my $self = shift;
-    return Developer::Dashboard::GoRoutine::_shared_handle_remote(
-        $self->{ptr}, 'PRINTF', @_
-    );
-}
-
-sub READLINE {
-    my ($self) = @_;
-    return wantarray
-        ? Developer::Dashboard::GoRoutine::_shared_handle_remote(
-            $self->{ptr}, 'READLINE_LIST'
-          )
-        : Developer::Dashboard::GoRoutine::_shared_handle_remote(
-            $self->{ptr}, 'READLINE_SCALAR'
-          );
-}
-
-sub GETC {
-    my ($self) = @_;
-    return Developer::Dashboard::GoRoutine::_shared_handle_remote(
-        $self->{ptr}, 'GETC'
-    );
-}
-
-sub READ {
-    my ($self, undef, $length, $offset) = @_;
-    $offset //= 0;
-    my ($n, $chunk) = Developer::Dashboard::GoRoutine::_shared_handle_remote(
-        $self->{ptr}, 'READ', $length
-    );
-    return undef unless defined $n;
-    my $buf = defined($_[1]) ? $_[1] : '';
-    substr($buf, $offset, length($chunk), $chunk);
-    $_[1] = $buf;
-    return $n;
-}
-
-sub WRITE {
-    my ($self, $buf, $length, $offset) = @_;
-    $offset //= 0;
-    return Developer::Dashboard::GoRoutine::_shared_handle_remote(
-        $self->{ptr}, 'WRITE', $buf, $length, $offset
-    );
-}
-
-sub SEEK {
-    my ($self, @args) = @_;
-    return Developer::Dashboard::GoRoutine::_shared_handle_remote(
-        $self->{ptr}, 'SEEK', @args
-    );
-}
-
-sub TELL {
-    my ($self) = @_;
-    return Developer::Dashboard::GoRoutine::_shared_handle_remote(
-        $self->{ptr}, 'TELL'
-    );
-}
-
-sub EOF {
-    my ($self) = @_;
-    return Developer::Dashboard::GoRoutine::_shared_handle_remote(
-        $self->{ptr}, 'EOF'
-    );
-}
-
-sub FILENO {
-    my ($self) = @_;
-    return Developer::Dashboard::GoRoutine::_shared_handle_remote(
-        $self->{ptr}, 'FILENO'
-    );
-}
-
-sub BINMODE {
-    my ($self, @args) = @_;
-    return Developer::Dashboard::GoRoutine::_shared_handle_remote(
-        $self->{ptr}, 'BINMODE', @args
-    );
-}
-
-sub CLOSE {
-    my ($self) = @_;
-    return Developer::Dashboard::GoRoutine::_shared_handle_remote(
-        $self->{ptr}, 'CLOSE'
-    );
-}
-
-package Developer::Dashboard::GoRoutine::SharedProxyBase;
-
-use strict;
-use warnings;
-
-sub _ptr { $_[0]{ptr} }
-
-package Developer::Dashboard::GoRoutine::SharedScalar;
-
-use strict;
-use warnings;
-use parent -norequire, 'Developer::Dashboard::GoRoutine::SharedProxyBase';
-
-sub TIESCALAR {
-    my ($class, $ptr) = @_;
-    if (!$ptr) {
-        $ptr = Developer::Dashboard::GoRoutine::_shared_node_new();
-    }
-    return bless { ptr => $ptr }, $class;
-}
-
-sub FETCH {
-    return Developer::Dashboard::GoRoutine::_value_for_ptr($_[0]{ptr});
-}
-
-sub STORE {
-    my ($self, $value) = @_;
-    my $ptr = $self->{ptr};
-
-    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
-            $value, 'Developer::Dashboard::GoRoutine::SharedOp' )) {
-        Developer::Dashboard::GoRoutine::_shared_scalar_apply(
-            $value->{ptr},
-            $value->{op},
-            $value->{arg},
-            $value->{reverse} ? 1 : 0,
-        );
-        return;
-    }
-
-    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
-            $value, 'Developer::Dashboard::GoRoutine::SharedValue' )) {
-        return if $value->{already_applied} && $value->{ptr} == $ptr;
-        return if $value->{ptr} == $ptr;
-        die "assigning one shared reference directly to another top-level shared scalar is not supported; assign it inside a shared hash/array instead";
-    }
-
-    my $proxy_ptr = Developer::Dashboard::GoRoutine::_proxy_ptr($value);
-    if ($proxy_ptr) {
-        die "assigning one shared reference directly to another top-level shared scalar is not supported; assign it inside a shared hash/array instead";
-    }
-
-    Developer::Dashboard::GoRoutine::_shared_node_set(
-        $ptr, $value, utf8::is_utf8($value) ? 1 : 0
-    );
-}
-
-package Developer::Dashboard::GoRoutine::SharedScalarRef;
-
-use strict;
-use warnings;
-
-sub _new_ref {
-    my ($class, $ptr, $bless_class) = @_;
-    my $child = Developer::Dashboard::GoRoutine::_shared_scalarref_ptr($ptr);
-    tie(my $slot, 'Developer::Dashboard::GoRoutine::SharedScalar', $child);
-    my $ref = \$slot;
-    bless $ref, $bless_class if defined($bless_class) && length($bless_class);
-    return $ref;
-}
-
-package Developer::Dashboard::GoRoutine::SharedHash;
-
-use strict;
-use warnings;
-use parent -norequire, 'Developer::Dashboard::GoRoutine::SharedProxyBase';
-
-sub TIEHASH {
-    my ($class, $ptr) = @_;
-    return bless { ptr => $ptr, iter => [], iter_pos => 0 }, $class;
-}
-
-sub _new_ref {
-    my ($class, $ptr, $bless_class) = @_;
-    tie(my %hash, $class, $ptr);
-    my $ref = \%hash;
-    bless $ref, $bless_class if defined($bless_class) && length($bless_class);
-    return $ref;
-}
-
-sub FETCH {
-    my ($self, $key) = @_;
-    my $ptr = Developer::Dashboard::GoRoutine::_shared_hash_fetch_ptr(
-        $self->{ptr}, $key
-    );
-    return Developer::Dashboard::GoRoutine::_value_for_ptr($ptr);
-}
-
-sub STORE {
-    my ($self, $key, $value) = @_;
-    my $parent = $self->{ptr};
-
-    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
-            $value, 'Developer::Dashboard::GoRoutine::SharedOp' )) {
-        Developer::Dashboard::GoRoutine::_shared_scalar_apply(
-            $value->{ptr}, $value->{op}, $value->{arg},
-            $value->{reverse} ? 1 : 0,
-        );
-        return;
-    }
-
-    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
-            $value, 'Developer::Dashboard::GoRoutine::SharedValue' )) {
-        return if $value->{already_applied};
-        Developer::Dashboard::GoRoutine::_shared_hash_store_ptr(
-            $parent, $key, $value->{ptr}
-        );
-        return;
-    }
-
-    my $proxy_ptr = Developer::Dashboard::GoRoutine::_proxy_ptr($value);
-    if ($proxy_ptr) {
-        Developer::Dashboard::GoRoutine::_shared_hash_store_ptr(
-            $parent, $key, $proxy_ptr
-        );
-        return;
-    }
-
-    Developer::Dashboard::GoRoutine::_shared_hash_store(
-        $parent, $key, $value
-    );
-}
-
-sub EXISTS {
-    return Developer::Dashboard::GoRoutine::_shared_hash_exists(
-        $_[0]{ptr}, $_[1]
-    );
-}
-
-sub DELETE {
-    my ($self, $key) = @_;
-    my $ptr = Developer::Dashboard::GoRoutine::_shared_hash_delete_ptr(
-        $self->{ptr}, $key
-    );
-    return Developer::Dashboard::GoRoutine::_value_for_ptr($ptr);
-}
-
-sub CLEAR {
-    Developer::Dashboard::GoRoutine::_shared_hash_clear($_[0]{ptr});
-}
-
-sub SCALAR {
-    return 0 + Developer::Dashboard::GoRoutine::_shared_hash_count($_[0]{ptr});
-}
-
-sub FIRSTKEY {
-    my ($self) = @_;
-    $self->{iter} = [
-        Developer::Dashboard::GoRoutine::_shared_hash_keys($self->{ptr})
-    ];
-    $self->{iter_pos} = 0;
-    return $self->{iter}[ $self->{iter_pos}++ ];
-}
-
-sub NEXTKEY {
-    my ($self) = @_;
-    return undef if $self->{iter_pos} >= @{ $self->{iter} };
-    return $self->{iter}[ $self->{iter_pos}++ ];
-}
-
-package Developer::Dashboard::GoRoutine::SharedArray;
-
-use strict;
-use warnings;
-use parent -norequire, 'Developer::Dashboard::GoRoutine::SharedProxyBase';
-
-sub TIEARRAY {
-    my ($class, $ptr) = @_;
-    return bless { ptr => $ptr }, $class;
-}
-
-sub _new_ref {
-    my ($class, $ptr, $bless_class) = @_;
-    tie(my @array, $class, $ptr);
-    my $ref = \@array;
-    bless $ref, $bless_class if defined($bless_class) && length($bless_class);
-    return $ref;
-}
-
-sub FETCHSIZE {
-    return 0 + Developer::Dashboard::GoRoutine::_shared_array_size($_[0]{ptr});
-}
-
-sub STORESIZE {
-    Developer::Dashboard::GoRoutine::_shared_array_resize($_[0]{ptr}, $_[1]);
-}
-
-sub EXTEND { return }
-
-sub FETCH {
-    my ($self, $index) = @_;
-    $index += $self->FETCHSIZE if $index < 0;
-    my $ptr = Developer::Dashboard::GoRoutine::_shared_array_fetch_ptr(
-        $self->{ptr}, $index
-    );
-    return Developer::Dashboard::GoRoutine::_value_for_ptr($ptr);
-}
-
-sub STORE {
-    my ($self, $index, $value) = @_;
-    my $size = $self->FETCHSIZE;
-    $index += $size if $index < 0;
-
-    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
-            $value, 'Developer::Dashboard::GoRoutine::SharedOp' )) {
-        Developer::Dashboard::GoRoutine::_shared_scalar_apply(
-            $value->{ptr}, $value->{op}, $value->{arg},
-            $value->{reverse} ? 1 : 0,
-        );
-        return;
-    }
-
-    if (Developer::Dashboard::GoRoutine::_is_shared_proxy(
-            $value, 'Developer::Dashboard::GoRoutine::SharedValue' )) {
-        return if $value->{already_applied};
-        Developer::Dashboard::GoRoutine::_shared_array_store_ptr(
-            $self->{ptr}, $index, $value->{ptr}
-        );
-        return;
-    }
-
-    my $proxy_ptr = Developer::Dashboard::GoRoutine::_proxy_ptr($value);
-    if ($proxy_ptr) {
-        Developer::Dashboard::GoRoutine::_shared_array_store_ptr(
-            $self->{ptr}, $index, $proxy_ptr
-        );
-        return;
-    }
-
-    Developer::Dashboard::GoRoutine::_shared_array_store(
-        $self->{ptr}, $index, $value
-    );
-}
-
-sub EXISTS {
-    my ($self, $index) = @_;
-    $index += $self->FETCHSIZE if $index < 0;
-    return Developer::Dashboard::GoRoutine::_shared_array_exists(
-        $self->{ptr}, $index
-    );
-}
-
-sub DELETE {
-    my ($self, $index) = @_;
-    $index += $self->FETCHSIZE if $index < 0;
-    my $ptr = Developer::Dashboard::GoRoutine::_shared_array_delete_ptr(
-        $self->{ptr}, $index
-    );
-    return Developer::Dashboard::GoRoutine::_value_for_ptr($ptr);
-}
-
-sub CLEAR {
-    Developer::Dashboard::GoRoutine::_shared_array_clear($_[0]{ptr});
-}
-
-sub PUSH {
-    my ($self, @values) = @_;
-    for my $value (@values) {
-        my $ptr = Developer::Dashboard::GoRoutine::_proxy_ptr($value);
-        if ($ptr) {
-            Developer::Dashboard::GoRoutine::_shared_array_push_ptr(
-                $self->{ptr}, $ptr
-            );
+# _dispatch_routine($id)
+# Runs one pending routine's callback on the main thread. Returns true
+# when a callback ran. A due id for a routine that is no longer pending
+# (cancelled, timed out, or already finished) is ignored. The callback is
+# invoked through _ev_invoke_callback, which scopes exit() to the routine.
+sub _dispatch_routine {
+    my ($id) = @_;
+    my $rec = $ROUTINES{$id};
+    return 0 unless $rec && $rec->{state} eq 'pending';
+    $rec->{state} = 'running';
+    my $err = _ev_invoke_callback($rec->{cb});
+    $rec = $ROUTINES{$id};
+    if (!defined $err) {
+        if ($rec && $rec->{cancel_requested}) {
+            _finish_routine($id, $rec->{cancel_kind} || 'killed');
         }
-        else {
-            Developer::Dashboard::GoRoutine::_shared_array_push(
-                $self->{ptr}, $value
-            );
+        elsif ($rec) {
+            _finish_routine($id, 'done');
         }
     }
-    return $self->FETCHSIZE;
+    # The exit token is raised only by the C runops loop's croak, which
+    # puts it first in the error. Anchor the match: a user callback that
+    # merely mentions the token in its own die message is a failure.
+    elsif ($err =~ /\A__GOROUTINE_EXIT__/) {
+        _finish_routine($id, 'exited') if $rec;
+    }
+    else {
+        _finish_routine($id, 'failed', $err) if $rec;
+    }
+    return 1;
 }
 
-sub UNSHIFT {
-    my ($self, @values) = @_;
-    for my $value (reverse @values) {
-        my $ptr = Developer::Dashboard::GoRoutine::_proxy_ptr($value);
-        if ($ptr) {
-            Developer::Dashboard::GoRoutine::_shared_array_unshift_ptr(
-                $self->{ptr}, $ptr
-            );
+# pump($timeout_seconds)
+# Runs one engine iteration: waits for the next trigger (or at most
+# $timeout_seconds; undef waits until the next trigger), then dispatches
+# every due routine. Timeouts are checked here, in Perl. Returns how many
+# due ids and timeouts were processed; 0 means the engine had nothing
+# registered at all.
+sub pump {
+    my ($timeout) = @_;
+    # Bound the nesting: a callback that pumps re-entrantly without
+    # returning (a channel send waiting for a receiver that never runs
+    # while new senders keep arriving) would otherwise recurse until
+    # the stack overflows. local restores the depth on every exit,
+    # including a die, so the count is exact at each level.
+    local $_PUMP_DEPTH = $_PUMP_DEPTH + 1;
+    die "GoRoutine pump recursion too deep: more than 100 nested pump() calls, a callback is pumping without returning"
+        if $_PUMP_DEPTH > 100;
+    my $wait_ms;
+    if (!defined $timeout) {
+        $wait_ms = -1;
+    }
+    else {
+        $wait_ms = int($timeout * 1000);
+        $wait_ms = 0 if $wait_ms < 0;
+    }
+
+    # Bound the wait by the nearest routine timeout, so a timeout fires
+    # promptly even when the next engine trigger is far away.
+    my $now = _ev_now();
+    for my $rec (values %ROUTINES) {
+        next if _is_finished_state($rec->{state});
+        next unless defined $rec->{timeout_at};
+        # Round UP: truncating to whole milliseconds would wait up to 1ms
+        # short of the deadline and the check below would miss the timeout.
+        my $until = int(($rec->{timeout_at} - $now) * 1000);
+        $until = $until < 0 ? 0 : $until + 1;
+        $wait_ms = $until if $wait_ms < 0 || $until < $wait_ms;
+    }
+
+    my $progress = 0;
+    # Dispatch one due routine at a time: _ev_wait consumes a trigger
+    # when it returns its id, so taking a batch up front would leave
+    # siblings undispatched while a callback that blocks (a channel
+    # send waiting for its receiver) waits inside a nested pump and
+    # finds nothing. Re-waiting with a zero bound after each dispatch
+    # picks up anything already due without blocking again.
+    while (1) {
+        my @due = _ev_wait($wait_ms);
+        last unless @due;
+        for my $signed (@due) {
+            $progress++;
+            if ($signed < 0) {
+                # Engine timeout trigger. The Perl side implements timeouts
+                # itself (see _set_routine_timeout), but a timeout trigger
+                # arriving here is honoured the same way.
+                my $id = -$signed;
+                my $rec = $ROUTINES{$id};
+                next unless $rec;
+                if ($rec->{state} eq 'pending') {
+                    $rec->{cancel_kind} = 'timed_out';
+                    _finish_routine($id, 'timed_out');
+                }
+                elsif ($rec->{state} eq 'running') {
+                    $rec->{cancel_requested} = 1;
+                    $rec->{cancel_kind} = 'timed_out';
+                }
+            }
+            else {
+                _dispatch_routine($signed);
+            }
         }
-        else {
-            Developer::Dashboard::GoRoutine::_shared_array_unshift(
-                $self->{ptr}, $value
-            );
+        $wait_ms = 0;
+    }
+
+    # Perl-side timeout check.
+    $now = _ev_now();
+    for my $rec (values %ROUTINES) {
+        next if _is_finished_state($rec->{state});
+        next unless defined $rec->{timeout_at};
+        next unless $rec->{timeout_at} <= $now;
+        $progress++;
+        if ($rec->{state} eq 'pending') {
+            $rec->{cancel_kind} = 'timed_out';
+            _finish_routine($rec->{id}, 'timed_out');
+        }
+        elsif ($rec->{state} eq 'running') {
+            $rec->{cancel_requested} = 1;
+            $rec->{cancel_kind} = 'timed_out';
         }
     }
-    return $self->FETCHSIZE;
+
+    return $progress;
 }
 
-sub POP {
-    my ($self) = @_;
-    return Developer::Dashboard::GoRoutine::_value_for_ptr(
-        Developer::Dashboard::GoRoutine::_shared_array_pop_ptr($self->{ptr})
-    );
+# wait_all()
+# Pumps until no finite routine is pending. Repeating routines are
+# services, not tasks: they are not waited for, or this would wait
+# forever. A routine that is running (this was called from inside a
+# callback) is not waited for either, or it would wait for itself.
+sub wait_all {
+    while (1) {
+        my @pending = grep { $_->{state} eq 'pending' && !$_->{repeating} }
+            values %ROUTINES;
+        last unless @pending;
+        my $progress = pump(undef);
+        next if $progress > 0;
+        # No work was ready: a routine can still be pending on an IO
+        # trigger or a process exit that has not fired yet, so keep
+        # waiting instead of abandoning it. A short bounded pump
+        # avoids spinning if nothing is registered at all.
+        pump(0.05);
+    }
+    return;
 }
 
-sub SHIFT {
-    my ($self) = @_;
-    return Developer::Dashboard::GoRoutine::_value_for_ptr(
-        Developer::Dashboard::GoRoutine::_shared_array_shift_ptr($self->{ptr})
-    );
-}
-
-sub SPLICE {
-    my $self = shift;
-    my $size = $self->FETCHSIZE;
-    my $offset = @_ ? shift : 0;
-    $offset += $size if $offset < 0;
-    $offset = 0 if $offset < 0;
-    $offset = $size if $offset > $size;
-    my $length = @_ ? shift : $size - $offset;
-    $length = $size - $offset + $length if $length < 0;
-    $length = 0 if $length < 0;
-    $length = $size - $offset if $length > $size - $offset;
-    my @insert = @_;
-
-    my @all = map { $self->FETCH($_) } 0 .. $size - 1;
-    my @removed = splice @all, $offset, $length, @insert;
-    $self->CLEAR;
-    $self->PUSH(@all);
-
-    return wantarray ? @removed : $removed[-1];
-}
-
-package Developer::Dashboard::GoRoutine::SharedValue;
-
-use strict;
-use warnings;
-
-use overload
-    '""'     => sub { "" . $_[0]->_value },
-    '0+'     => sub { 0  + $_[0]->_value },
-    'bool'   => sub { !! $_[0]->_value },
-
-    '+'      => sub { $_[0]->_op('add',    $_[1], $_[2]) },
-    '-'      => sub { $_[0]->_op('sub',    $_[1], $_[2]) },
-    '*'      => sub { $_[0]->_op('mul',    $_[1], $_[2]) },
-    '/'      => sub { $_[0]->_op('div',    $_[1], $_[2]) },
-    '%'      => sub { $_[0]->_op('mod',    $_[1], $_[2]) },
-    '.'      => sub { $_[0]->_op('concat', $_[1], $_[2]) },
-
-    '++'     => sub {
-        Developer::Dashboard::GoRoutine::_shared_scalar_apply(
-            $_[0]{ptr}, 'inc', undef, 0
-        );
-        $_[0]{already_applied} = 1;
-        $_[0];
-    },
-    '--'     => sub {
-        Developer::Dashboard::GoRoutine::_shared_scalar_apply(
-            $_[0]{ptr}, 'dec', undef, 0
-        );
-        $_[0]{already_applied} = 1;
-        $_[0];
-    },
-
-    fallback => 1;
-
-sub _new {
-    my ($class, $ptr) = @_;
-    return bless { ptr => $ptr }, $class;
-}
-
-sub _value {
-    return Developer::Dashboard::GoRoutine::_shared_scalar_get($_[0]{ptr});
-}
-
-sub _op {
-    my ($self, $op, $arg, $reverse) = @_;
-    $arg = Developer::Dashboard::GoRoutine::_scalar_snapshot($arg);
+# channel($capacity)
+# Creates a channel object. With no argument it is unbuffered, matching
+# an unbuffered Go channel. channel(N) creates a buffered channel of
+# capacity N.
+sub channel {
+    my ($capacity) = @_;
+    $capacity = 0 unless defined $capacity;
+    die "channel() capacity must be a non-negative integer"
+        unless $capacity =~ /\A\d+\z/;
     return bless {
-        ptr     => $self->{ptr},
-        op      => $op,
-        arg     => $arg,
-        reverse => $reverse ? 1 : 0,
-    }, 'Developer::Dashboard::GoRoutine::SharedOp';
+        queue            => [],
+        closed           => 0,
+        capacity         => 0 + $capacity,
+        sender_queue     => [],
+        receiver_waiting => 0,
+    }, 'Developer::Dashboard::GoRoutine::Channel';
 }
 
-package Developer::Dashboard::GoRoutine::SharedOp;
-
-use strict;
-use warnings;
-
-use overload
-    '""'   => sub { "" . $_[0]->_evaluate },
-    '0+'   => sub { 0  + $_[0]->_evaluate },
-    'bool' => sub { !! $_[0]->_evaluate },
-    fallback => 1;
-
-sub _evaluate {
-    my ($self) = @_;
-    my $left  = Developer::Dashboard::GoRoutine::_shared_scalar_get($self->{ptr});
-    my $right = $self->{arg};
-
-    return $self->{reverse} ? $right + $left : $left + $right
-        if $self->{op} eq 'add';
-    return $self->{reverse} ? $right - $left : $left - $right
-        if $self->{op} eq 'sub';
-    return $self->{reverse} ? $right * $left : $left * $right
-        if $self->{op} eq 'mul';
-    return $self->{reverse} ? $right / $left : $left / $right
-        if $self->{op} eq 'div';
-    return $self->{reverse} ? $right % $left : $left % $right
-        if $self->{op} eq 'mod';
-    return $self->{reverse} ? $right . $left : $left . $right
-        if $self->{op} eq 'concat';
-
-    die "unknown shared operation '$self->{op}'";
+# Shutdown drain. The C atexit drain ran after global destruction, when
+# calling Perl code is unsafe; an END block runs while the interpreter can
+# still execute code, on the main thread. Repeating (service) routines are
+# cancelled first, because they never finish on their own. Finite routines
+# are then drained with a 30 second bound, so a stuck routine cannot hang
+# process exit; after the bound the process exits as it used to, leaving
+# still-running routines behind. Forked children do not drain the
+# parent's queue. POSIX::_exit still skips END blocks, as before.
+END {
+    return if $$ != $_LOAD_PID;
+    for my $id (keys %ROUTINES) {
+        my $rec = $ROUTINES{$id};
+        next unless $rec && $rec->{repeating};
+        next if _is_finished_state($rec->{state});
+        _cancel_routine($id, 'killed');
+    }
+    # The drain reads the clock (_ev_now) and pumps, and the clock can
+    # croak if clock_gettime fails. At shutdown that must end the drain,
+    # not abort it, so the clock-touching drain runs inside an eval.
+    eval {
+        my $deadline = _ev_now() + 30;
+        while (1) {
+            my @pending = grep { $_->{state} eq 'pending' } values %ROUTINES;
+            last unless @pending;
+            # A callback dispatched during the drain can register a new
+            # repeating routine; cancel it too, or the drain would pump
+            # for its timer until the deadline instead of finishing.
+            for my $rec (@pending) {
+                next unless $rec->{repeating};
+                _cancel_routine($rec->{id}, 'killed');
+            }
+            @pending = grep { $_->{state} eq 'pending' } values %ROUTINES;
+            last unless @pending;
+            my $remaining = $deadline - _ev_now();
+            last if $remaining <= 0;
+            pump($remaining);
+        }
+        1;
+    };
 }
 
 package Developer::Dashboard::GoRoutine::Channel;
@@ -1130,45 +902,112 @@ package Developer::Dashboard::GoRoutine::Channel;
 use strict;
 use warnings;
 
-sub _ptr {
+sub _check {
     my ($self) = @_;
-    die "invalid channel handle"
-        unless ref($self) && exists $self->{ptr};
-    return $self->{ptr};
-}
-
-sub send {
-    my ($self, $value) = @_;
-    Developer::Dashboard::GoRoutine::_channel_send($self->_ptr, $value);
+    die "invalid channel handle" unless ref($self) && exists $self->{queue};
     return $self;
 }
 
+# send($value)
+# Sends a value. Buffered: blocks (by pumping) only while the buffer is
+# full. Unbuffered: blocks (by pumping) until a receiver takes the value.
+# Sending on a closed channel throws an exception.
+sub send {
+    my ($self, $value) = @_;
+    $self->_check;
+    die "send on closed channel" if $self->{closed};
+    if ($self->{capacity} > 0) {
+        while (@{ $self->{queue} } >= $self->{capacity}) {
+            die "send on closed channel" if $self->{closed};
+            Developer::Dashboard::GoRoutine::pump(0.05);
+            die "send on closed channel" if $self->{closed};
+        }
+        push @{ $self->{queue} }, $value;
+        return $self;
+    }
+    if ($self->{receiver_waiting}) {
+        push @{ $self->{queue} }, $value;
+        return $self;
+    }
+    # No receiver is waiting: join the queue of pending senders. Each
+    # sender waits for its own entry to be taken, so a second concurrent
+    # send cannot overwrite the first sender's value.
+    my $entry = [$value];
+    push @{ $self->{sender_queue} }, $entry;
+    while (grep { $_ == $entry } @{ $self->{sender_queue} }) {
+        die "send on closed channel" if $self->{closed};
+        Developer::Dashboard::GoRoutine::pump(0.05);
+        die "send on closed channel" if $self->{closed};
+    }
+    return $self;
+}
+
+# receive()
+# Receives a value, blocking (by pumping) until one arrives or the channel
+# closes. A queued value is returned first; a sender already offering a
+# value is taken next. Receiving from a closed, drained channel returns
+# undef in scalar context or (undef, 0) in list context; a successful
+# list-context receive returns ($value, 1).
 sub receive {
     my ($self) = @_;
-    return wantarray
-        ? Developer::Dashboard::GoRoutine::_channel_receive($self->_ptr)
-        : scalar Developer::Dashboard::GoRoutine::_channel_receive($self->_ptr);
+    $self->_check;
+    if (@{ $self->{queue} }) {
+        my $value = shift @{ $self->{queue} };
+        return wantarray ? ($value, 1) : $value;
+    }
+    if (@{ $self->{sender_queue} }) {
+        my $entry = shift @{ $self->{sender_queue} };
+        my $value = $entry->[0];
+        return wantarray ? ($value, 1) : $value;
+    }
+    return wantarray ? (undef, 0) : undef if $self->{closed};
+    $self->{receiver_waiting} = 1;
+    while (1) {
+        last if @{ $self->{queue} } || @{ $self->{sender_queue} } || $self->{closed};
+        Developer::Dashboard::GoRoutine::pump(0.05);
+    }
+    $self->{receiver_waiting} = 0;
+    if (@{ $self->{queue} }) {
+        my $value = shift @{ $self->{queue} };
+        return wantarray ? ($value, 1) : $value;
+    }
+    if (@{ $self->{sender_queue} }) {
+        my $entry = shift @{ $self->{sender_queue} };
+        my $value = $entry->[0];
+        return wantarray ? ($value, 1) : $value;
+    }
+    return wantarray ? (undef, 0) : undef;
 }
 
 sub close {
     my ($self) = @_;
-    Developer::Dashboard::GoRoutine::_channel_close($self->_ptr);
+    $self->_check;
+    $self->{closed} = 1;
     return $self;
 }
 
 sub is_closed {
     my ($self) = @_;
-    return Developer::Dashboard::GoRoutine::_channel_is_closed($self->_ptr) ? 1 : 0;
+    $self->_check;
+    return $self->{closed} ? 1 : 0;
 }
 
+# size()
+# Number of values a receive() would return at once: the buffered queue
+# plus values already offered by blocked senders. An unbuffered send
+# with no receiver waiting parks its value in sender_queue, and
+# receive() takes it from there, so counting only queue would report 0
+# while a value is available. (Q review 5979186129 on PR #82.)
 sub size {
     my ($self) = @_;
-    return 0 + Developer::Dashboard::GoRoutine::_channel_size($self->_ptr);
+    $self->_check;
+    return 0 + @{ $self->{queue} } + @{ $self->{sender_queue} };
 }
 
 sub capacity {
     my ($self) = @_;
-    return 0 + Developer::Dashboard::GoRoutine::_channel_capacity($self->_ptr);
+    $self->_check;
+    return 0 + $self->{capacity};
 }
 
 package Developer::Dashboard::GoRoutine::Routine;
@@ -1176,26 +1015,30 @@ package Developer::Dashboard::GoRoutine::Routine;
 use strict;
 use warnings;
 
-sub _ptr {
+sub _rec {
     my ($self) = @_;
-    die "invalid go routine handle"
-        unless ref($self) && exists $self->{ptr};
-    return $self->{ptr};
+    die "invalid go routine handle" unless ref($self) && exists $self->{id};
+    my $rec = Developer::Dashboard::GoRoutine::_routine_record($self->{id});
+    die "invalid go routine handle" unless $rec;
+    return $rec;
 }
 
 sub is_running {
     my ($self) = @_;
-    return Developer::Dashboard::GoRoutine::_routine_is_running($self->_ptr) ? 1 : 0;
+    return $self->_rec->{state} eq 'running' ? 1 : 0;
 }
 
 sub age {
     my ($self) = @_;
-    return 0 + Developer::Dashboard::GoRoutine::_routine_age($self->_ptr);
+    my $rec = $self->_rec;
+    my $end = $rec->{finished_at} // Developer::Dashboard::GoRoutine::_ev_now();
+    return 0 + ($end - $rec->{started_at});
 }
 
 sub kill {
     my ($self) = @_;
-    return Developer::Dashboard::GoRoutine::_routine_kill($self->_ptr) ? 1 : 0;
+    my $rec = $self->_rec;
+    return Developer::Dashboard::GoRoutine::_cancel_routine($rec->{id}, 'killed') ? 1 : 0;
 }
 
 sub timeout {
@@ -1206,19 +1049,48 @@ sub timeout {
             && 0 + $seconds == 0 + $seconds
             && abs(0 + $seconds) < 1e308;
 
-    Developer::Dashboard::GoRoutine::_routine_timeout($self->_ptr, 0 + $seconds);
+    my $rec = $self->_rec;
+    Developer::Dashboard::GoRoutine::_set_routine_timeout($rec->{id}, 0 + $seconds);
     return $self;
 }
 
 sub status {
     my ($self) = @_;
-    return Developer::Dashboard::GoRoutine::_routine_status($self->_ptr);
+    return $self->_rec->{state};
+}
+
+# error()
+# The error a failed routine died with, or undef when it did not fail.
+# A routine that dies with a false value ("" or 0) still records it:
+# the error is defined, even though it is false.
+sub error {
+    my ($self) = @_;
+    return $self->_rec->{error};
 }
 
 sub is_killed {
     my ($self) = @_;
     my $status = $self->status;
     return ($status eq 'killed' || $status eq 'timed_out') ? 1 : 0;
+}
+
+# cancel_requested()
+# True when kill or a timeout has asked this routine to stop while it was
+# running. A callback that yields (pumps, or returns) should check this
+# and wind down; the engine cannot interrupt code that never yields.
+sub cancel_requested {
+    my ($self) = @_;
+    return $self->_rec->{cancel_requested} ? 1 : 0;
+}
+
+# Releasing the handle does not stop the routine: the record (and its
+# callback) is held by the registry, not by the handle, so the routine
+# keeps running until it finishes or is cancelled.
+sub DESTROY {
+    my ($self) = @_;
+    return unless ref($self) && exists $self->{id};
+    Developer::Dashboard::GoRoutine::_routine_handle_destroyed($self->{id});
+    return;
 }
 
 package Developer::Dashboard::GoRoutine;
@@ -1229,15 +1101,15 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard::GoRoutine - go-style native threads with transparent shared Perl data
+Developer::Dashboard::GoRoutine - go-style routines on a C event loop with shared Perl data
 
 =head1 PURPOSE
 
-This module provides the Developer Dashboard concurrency API: cloned Perl
-goroutines, synchronized shared Perl values, channels, and native operating
-system process management. It keeps those facilities under the existing
-C<Developer::Dashboard::*> namespace while loading their implementation from
-the distribution's XS bundle.
+This module provides the Developer Dashboard concurrency API: Perl
+goroutines on a single-threaded C event loop, shared Perl values, channels,
+and native operating system process management. It keeps those facilities
+under the existing C<Developer::Dashboard::*> namespace while loading their
+implementation from the distribution's XS bundle.
 
 =head1 WHY IT EXISTS
 
@@ -1249,12 +1121,12 @@ independent child processes, with errors surfaced to the caller.
 
 =head1 WHEN TO USE
 
-Use C<go> for a Perl callback that should run concurrently, C<share> or
+Use C<go> for a Perl callback that should run asynchronously, C<share> or
 C<channel> when workers need to exchange supported values, and C<spawn> when
 an independent operating-system process is required. Use C<wait_all> before
 program exit whenever outstanding routines must finish. Choose C<spawn>
-instead of C<go> when the work must run as a separate process rather than in a
-cloned interpreter.
+instead of C<go> when the work must run as a separate process rather than on
+the main thread.
 
 =head1 HOW TO USE
 
@@ -1305,53 +1177,71 @@ lifecycle control.
 
 =head1 DESCRIPTION
 
-C<go> executes a cloned Perl interpreter on a detached POSIX pthread and returns
-a routine handle.  It does not call C<fork()> and does not require the caller
-to use Perl's C<threads> module.  The handle provides C<age>, C<is_running>,
-C<kill>, C<timeout>, and C<status>.
+C<go> schedules a Perl callback on the main thread and returns a routine
+handle.  It does not call C<fork()>, does not use Perl's C<threads> module,
+and does not clone the interpreter: a single-threaded C event loop (timers,
+IO readiness, process exits) invokes the callback on the main thread when
+one of its triggers fires.  C<go(sub { ... }, \%opts)> adds a trigger:
+C<after> for a one-shot timer, C<every> for a repeating timer, C<readable> /
+C<writable> for IO readiness, C<pid> for process exit.  The handle provides
+C<age>, C<is_running>, C<kill>, C<timeout>, C<status>, C<is_killed>, and
+C<cancel_requested>.  A fresh routine reports status C<pending> until the
+engine dispatches it.
 
-Cancellation is cooperative and checked at Perl execution boundaries.  The
-module also sends an internal wake signal to interrupt ordinary blocking waits
-such as C<sleep> so a killed or timed-out routine can unwind promptly.  An
-opaque XS/C call that never returns cannot be forcibly torn down safely.
+A callback MUST be short and non-blocking: it runs on the main thread, so a
+callback that blocks (sleep, a blocking read, an infinite loop) stalls the
+whole process.  Callers that need to wait use a trigger instead of blocking.
+
+Cancellation is cooperative.  C<kill> cancels a pending routine at once; for
+a running routine it sets a flag the callback can observe with
+C<cancel_requested> and wind down.  An opaque XS/C call that never returns
+cannot be forcibly torn down safely.
 
 Inside a go routine, Perl C<exit> is scoped to that routine: it unwinds the
-worker instead of terminating the whole process.  C<exit> in the main
+routine instead of terminating the whole process.  C<exit> in the main
 interpreter keeps normal Perl semantics.
 
-C<share my $x = VALUE> creates one process-wide C-backed value that is visible
-to the main interpreter and every cloned interpreter.  Scalars, hashes, arrays, nested combinations, scalar/reference chains, CODE,
-GLOB/filehandles, IO references, regular expressions, formats, lvalue/version
-scalar references, Perl 5.40 field objects, and ordinary blessed data-backed
-objects are supported. Normal Perl dereferencing and filehandle syntax is retained.
+C<share my $x = VALUE> creates one process-wide value that is visible to the
+main interpreter and every routine.  There is only one interpreter, so the
+value IS the plain Perl value: scalars, hashes, arrays, nested combinations,
+scalar/reference chains, CODE, GLOB/filehandles, IO references, regular
+expressions, formats, lvalue/version scalar references, Perl 5.40 field
+objects, and ordinary blessed data-backed objects are all supported, with
+normal Perl dereferencing and filehandle syntax retained.  C<share> returns
+the value unchanged; it exists so code written for the old threaded engine
+keeps working, and so a variable can be marked as shared for readers.
 
 Scalar read/modify/write operations such as C<++>, C<-->, C<+=>, C<-=>,
-C<*=>, C</=>, C<%=> and C<.=> are applied while the native shared lock is held.
-Hash and array structural operations are also synchronized by the module.
+C<*=>, C</=>, C<%=> and C<.=> are atomic with respect to other routines,
+because callbacks never run at the same time: a routine only runs when the
+engine dispatches it on the main thread.  Hash and array structural
+operations are likewise safe without a lock.
 
 Objects backed by normal Perl containers retain their blessing so normal methods
-continue to work. CODE references use a private callback interpreter. GLOB/IO
-values backed by an OS descriptor are materialized as real handles in each Perl
-interpreter while referring to the same underlying open-file description. Opaque
-XS objects whose semantics live entirely in module-private native pointers cannot
-be made generically shared by Perl itself; those remain subject to the XS module's
-own thread/cloning rules.
+continue to work.  GLOB/IO values are the same underlying open-file
+description in every routine.  Opaque XS objects are the same object in
+every routine too, because there is only one interpreter.
 
 C<channel()> creates a process-wide channel object; it does not need C<share>.
 With no argument it is unbuffered, matching an unbuffered Go channel: C<send> blocks
 until a receiver accepts the value, and C<receive> blocks until a sender supplies
 one. C<channel(N)> creates a buffered channel of capacity N: sends block only while
-the buffer is full and receives block only while it is empty. Values use the same
-shared-value marshalling layer as C<share>, so nested Perl data and supported objects
-can cross interpreter boundaries. C<close> wakes blocked waiters; receiving from a
+the buffer is full and receives block only while it is empty. Blocking is done by
+pumping the engine, never by sleeping, so other routines keep running while a
+sender or receiver waits. Values are plain Perl values passed by reference, so
+nested Perl data and supported objects cross without copying. C<close> wakes blocked waiters; receiving from a
 closed, drained channel returns undef in scalar context or C<(undef, 0)> in list
 context, while a successful list-context receive returns C<($value, 1)>. Sending on
 a closed channel throws an exception.
 
-Go routines are not waited for automatically at Perl shutdown.  C<wait_all()> is
-the explicit barrier: call it whenever outstanding routines must finish before the
-program continues or exits.  Without C<wait_all()>, normal process termination may
-end still-running routines.
+C<wait_all()> is the explicit barrier: call it whenever outstanding routines
+must finish before the program continues or exits.  It pumps until no finite
+routine is pending.  Repeating routines (a repeating timer, the accept loop)
+are services, not tasks, and are not waited for.  At normal process exit an
+END block drains outstanding finite routines first (repeating routines are
+cancelled), with a 30 second bound, so a routine that was scheduled but never
+waited for still runs before the process ends.  C<POSIX::_exit> skips the
+drain, as before.
 
 =head1 NATIVE PROCESSES
 
@@ -1360,7 +1250,7 @@ through the Dashboard XS bundle. It accepts literal argument strings and
 supports C<cwd>, C<env>, C<stdin>, C<stdout>, C<stderr>, and C<process_group>
 options. The returned positive process id identifies the child independently
 of the Perl interpreter. This API is separate from C<go>: a go routine runs a
-Perl callback in a cloned interpreter, while C<spawn> starts a process that can
+Perl callback on the main thread, while C<spawn> starts a process that can
 outlive its caller.
 
 C<process_running($pid)> reports whether the process appears live.
@@ -1368,7 +1258,12 @@ C<process_exited($pid)> checks completion without reaping a POSIX child, which
 allows a supervisor to poll safely before collecting its exit result.
 C<wait_process($pid)> waits for and returns the shell-style exit status.
 On Windows, waiting for a child that has already exited and been reaped
-returns 255 because no exit code survives to report.
+returns 255 because no exit code survives to report. The Windows spawn
+wrapper keeps one handle open per child until C<wait_process> collects it,
+so a completed child still reports as running and its real exit code
+survives; it also merges the C<env> overrides into the parent environment
+for the duration of the spawn, because the native layer has no
+environment-block builder and the child inherits its parent environment.
 C<terminate_process($pid, $signal)> sends C<TERM>, C<KILL>, C<HUP>, or C<INT>
 on POSIX. Windows supports C<TERM> and C<KILL>, mapped to native process
 termination because POSIX signal handlers are unavailable there. Unsupported
@@ -1386,8 +1281,8 @@ exceptions; callers must not treat an inspection failure as a stopped process.
 
 =head1 EXAMPLES
 
-Share a counter between a worker and the main interpreter, then wait for the
-worker to finish:
+Share a counter between a routine and the main program, then wait for the
+routine to finish:
 
   use Developer::Dashboard::GoRoutine qw(go share wait_all);
   share my $count = 0;

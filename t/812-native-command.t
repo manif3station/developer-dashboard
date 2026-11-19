@@ -189,6 +189,10 @@ SKIP: {
         close $dead;
         return ( $dead, $name );
     };
+    # The stubbed handle is closed by design, so the binmode/print on it
+    # warn as expected; silence those warnings here, they are the point
+    # of the stub, not a failure.
+    local $SIG{__WARN__} = sub { };
     my $died = eval { run_shell_command( qq{printf 'x\\n' | '$perl' -e 'print <STDIN>'}, { force_windows => 1 } ); 1 } ? 0 : 1;
     ok( $died, 'dies when the stdin temp file cannot be written' );
     ok( !-e $leak_path, 'a failed stdin temp-file write leaves no orphan file' );

@@ -5,7 +5,7 @@
 #include "Native.h"
 #include "GoRoutineProcessNative.h"
 #include "SystemMenuNative.h"
-#include "GoRoutine012Native.h"
+#include "GoRoutineEvent.h"
 
 /* Native.xs is included at the end to keep every XSUB in one boot module. */
 

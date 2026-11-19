@@ -173,6 +173,67 @@ SKIP: {
     }
 }
 
+# _windows_handle_count()
+# Current process handle count via Win32::API, or undef when the API is
+# unavailable. Windows-only; callers skip on undef instead of failing.
+# The handle is passed as a 64-bit int ('Q'): the current-process
+# pseudo-handle is -1, and a 'P' (pointer-to-buffer) param cannot carry
+# a raw pointer value, so GetProcessHandleCount fails with
+# ERROR_INVALID_HANDLE under a 'PP' prototype. Probed on win-ts.
+sub _windows_handle_count {
+    return undef unless $^O eq 'MSWin32';
+    my $loaded = eval { require Win32::API; 1 };
+    return undef unless $loaded;
+    my $get_count
+        = Win32::API->new( 'kernel32', 'GetProcessHandleCount', 'QP', 'I' );
+    return undef unless $get_count;
+    my $count = pack( 'L', 0 );
+    return undef unless $get_count->Call( -1, $count );
+    return unpack( 'L', $count );
+}
+
+# A failed redirect open must not leak the handles opened just before
+# it: when the stdout path cannot be opened, the stdin and stderr
+# handles are already open, and the error path must close them before
+# raising the error, exactly as the CreateProcessA failure block does.
+# (Q review 5979186129 on PR #82.) The count assertion is Windows-only
+# and needs Win32::API; without it the error assertion still pins the
+# path. The loop repeats the failure ten times so a leak of two handles
+# per call (+20) stands out against any stray handle.
+{
+    my $bad_stdout = File::Spec->catfile( $dir, 'no-such-dir', 'stdout.txt' );
+    my $spawn_args = [ $^X, '-e', 'print "x\n";' ];
+    my $spawn_opts = {
+        cwd    => $dir,
+        stdin  => $stdin_path,
+        stdout => $bad_stdout,
+        stderr => $stderr,
+    };
+    my $first_err
+        = eval { Developer::Dashboard::GoRoutine::spawn( $spawn_args, $spawn_opts ); 1 } ? '' : $@;
+    if ( $^O eq 'MSWin32' ) {
+        like( $first_err, qr/unable to open GoRoutine child stdout/,
+            'stdout open failure is explicit on Windows' );
+    }
+    else {
+        like( $first_err, qr/unable to spawn GoRoutine child process/,
+            'stdout open failure is explicit on POSIX' );
+    }
+    SKIP: {
+        skip 'redirect handle-count check needs Windows', 1 if $^O ne 'MSWin32';
+        my $before = _windows_handle_count();
+        skip 'Win32::API handle count unavailable', 1 unless defined $before;
+        for ( 1 .. 10 ) {
+            eval { Developer::Dashboard::GoRoutine::spawn( $spawn_args, $spawn_opts ); 1 };
+        }
+        my $after = _windows_handle_count();
+        skip 'Win32::API handle count unavailable after the spawn', 1
+            unless defined $after;
+        cmp_ok( $after - $before, '<', 5,
+            'repeated failed stdout opens leak no handles' );
+    }
+}
+
 done_testing;
 
 __END__
