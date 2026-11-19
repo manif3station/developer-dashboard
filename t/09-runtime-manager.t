@@ -2269,6 +2269,12 @@ END {
 {
     no warnings 'redefine';
 
+    # _listener_pids_for_port takes the netstat/PowerShell branch on
+    # Windows and never reaches the ss code these tests pin (build
+    # #253 failed all three on Windows with an empty list). Force the
+    # POSIX branch here so the ss/proc parsing is exercised on every
+    # host; the Windows listener paths have their own tests below.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     # DD-1021: _listener_pids_for_port checks command_in_path('ss') BEFORE
     # ever reaching the mocked capture() below - on a host/container with no
     # real ss binary, that check alone routes it to the lsof/proc fallback
@@ -2294,6 +2300,9 @@ END {
 
 {
     no warnings 'redefine';
+    # Same Windows routing as the ss test above: force the POSIX
+    # branch so the /proc fallback is exercised on every host.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', 'ss: not found', 127 ) };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_proc = sub {
         my ( undef, $port ) = @_;
@@ -2308,6 +2317,9 @@ END {
 
 {
     no warnings 'redefine';
+    # Same Windows routing as the ss test above: force the POSIX
+    # branch so the /proc fallback is exercised on every host.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', 'ss command not found', 1 ) };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_proc = sub {
         my ( undef, $port ) = @_;
