@@ -275,11 +275,16 @@ if ( !$UNDER_COVER ) {
             }
         }
     }
+    my $micro_loop_pid;
+    my @micro_worker_pids;
     if ( defined $loop_state_raw && $loop_state_raw ne '' ) {
         diag("micro: loop.json raw: $loop_state_raw");
-        my ($loop_pid) = $loop_state_raw =~ /"pid"\s*:\s*(\d+)/;
-        if ($loop_pid) {
-            diag( sprintf 'micro: loop pid %s alive=%d', $loop_pid, kill( 0, $loop_pid ) ? 1 : 0 );
+        ($micro_loop_pid) = $loop_state_raw =~ /"pid"\s*:\s*(\d+)/;
+        if ( $loop_state_raw =~ /"active_worker_pids"\s*:\s*\[([^\]]*)\]/ ) {
+            @micro_worker_pids = $1 =~ /(\d+)/g;
+        }
+        if ($micro_loop_pid) {
+            diag( sprintf 'micro: loop pid %s alive=%d', $micro_loop_pid, kill( 0, $micro_loop_pid ) ? 1 : 0 );
         }
         else {
             diag('micro: no loop pid parsed from loop.json');
@@ -293,6 +298,25 @@ if ( !$UNDER_COVER ) {
     # below reads the already-captured $first_stdout, so stopping first
     # cannot change its outcome.
     _run_quiet_in_home( $serve_home, "$perl -I'$lib' '$dashboard' stop -o json" );
+
+    # The stop above should have taken the loop and its workers down, but
+    # build #214 showed a Windows leg hang after the like: the loop files
+    # were locked at tempdir cleanup, so the loop or a worker survived the
+    # stop and held prove's pipes open (the CreateProcess bInheritHandles
+    # shape from the t/17 hang), and the FAIL-SAFE watchdog killed the leg
+    # after 3 silent minutes. Kill anything still alive, so the leg can
+    # finish and prove sees EOF. This is test cleanup only; whether `d2
+    # stop` reliably kills the loop on Windows is a separate product
+    # question, recorded in the report, not fixed here.
+    for my $pid ( $micro_loop_pid, @micro_worker_pids ) {
+        next if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+        next if !kill( 0, $pid );
+        diag("micro: killing surviving pid $pid after stop");
+        kill 15, $pid;
+        sleep 0.5;
+        kill 9, $pid if kill( 0, $pid );
+        diag( sprintf 'micro: pid %s alive after kill=%d', $pid, kill( 0, $pid ) ? 1 : 0 );
+    }
 
     like( $first_stdout, qr/^\d+\.\d+\n$/, 'micro: serve-started interval collector output appears' );
 }
@@ -351,7 +375,12 @@ walked the temp home and found no loop.json there, which is EXPECTED:
 the collector state lives in the shared temp area under a hashed
 directory, not under the home. v3 measures the hashed state root
 directly: if the loop wrote to a different md5 key than the CLI reads,
-the other key shows up populated with fresh tick timestamps.
+the other key shows up populated with fresh tick timestamps. v4 adds a
+kill-cleanup after `d2 stop`: build #214's Windows leg hung after the
+like because the loop or a worker survived the stop and held prove's
+pipes open, so the FAIL-SAFE watchdog killed the leg after 3 silent
+minutes; the micro now kills any surviving loop/worker pid itself, so
+the leg can finish.
 
 =head1 WHAT USES IT
 
@@ -368,5 +397,9 @@ collector status {} at every check, no log entries, and the post-mortem
 shows whether the CLI's hashed state dir is empty while another hashed
 dir holds the loop's fresh ticks (state-root divergence), or whether no
 state dir anywhere holds a loop.json (the loop child never wrote state).
+Build #214 ran v3: ARM64 PASSED in 4 polls, so the failure is
+non-deterministic across runs (it failed in #211, #212 and #213 and
+passed in #214); v4 re-runs the same measurement to capture a failing
+ARM64 run with the full state-root diagnostics.
 
 =cut
