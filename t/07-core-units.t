@@ -3833,7 +3833,11 @@ is(
     $runner->run_once(
         {
             name    => 'stdout.only',
-            command => q{printf 'quiet'},
+            # Portable no-stderr command: bare printf does not exist in the
+            # PowerShell the Windows leg routes shell commands through, so
+            # the old command failed there with a CommandNotFoundException
+            # on stderr; the sibling jobs above already use perl -e.
+            command => q{perl -e "print qq(quiet\n)"},
             cwd     => File::Spec->catdir( $home, 'named-path' ),
         }
     )->{stderr},
