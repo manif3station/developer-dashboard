@@ -12,9 +12,14 @@ use Time::HiRes qw(sleep time);
 # failsafe.pl is the Unix watchdog; Windows runs failsafe.ps1 instead,
 # and the nested watchdog's process-group kill has no Windows meaning.
 # The anomaly under investigation happened on a Unix leg (amd64), and
-# the code under test only runs on Unix legs.
+# the code under test only runs on Unix legs. The Windows leg passes
+# vacuously rather than skip_all: a skip-only run exits NOTESTS, and
+# the Windows watchdog treats an unreadable prove exit code as a
+# failure, which would fail this solo's Windows leg for no reason.
 if ( $^O eq 'MSWin32' ) {
-    plan skip_all => 'failsafe.pl is the Unix watchdog; Windows uses failsafe.ps1';
+    plan tests => 1;
+    ok( 1, 'micro: failsafe.pl is the Unix watchdog; nothing to measure on Windows' );
+    exit 0;
 }
 
 plan tests => 7;
@@ -203,7 +208,9 @@ diag("[fast] exit=$fast_exit latency=${fast_latency}s lines-before-trip=$fast_be
 is( $fast_exit, 1, 'micro: fast consumer: watchdog trips (exit 1)' );
 like( $fast_text, qr/FAIL-SAFE: first test failure detected/,
     'micro: fast consumer: trip message printed' );
-cmp_ok( $fast_latency, '<', 3, 'micro: fast consumer: trips within 3s of the failure' );
+# Exit latency includes the trip path's 2s TERM grace, so detection is
+# roughly latency minus 2s: ~1s here, one sleep cycle after the failure.
+cmp_ok( $fast_latency, '<', 5, 'micro: fast consumer: trips within 5s of the failure' );
 
 # Case 2: slow consumer. The watchdog's print blocks on the slow pipe,
 # its drain rate falls below the producer's output rate, it never
@@ -216,7 +223,7 @@ diag("[slow] exit=$slow_exit latency=${slow_latency}s lines-before-trip=$slow_be
 is( $slow_exit, 1, 'micro: slow consumer: watchdog trips (exit 1)' );
 like( $slow_text, qr/FAIL-SAFE: first test failure detected/,
     'micro: slow consumer: trip message printed' );
-cmp_ok( $slow_latency, '>', 10, 'micro: slow consumer: trips only after 10s (late, like build #296)' );
+cmp_ok( $slow_latency, '>', 12, 'micro: slow consumer: trips only after 12s (late, like build #296)' );
 cmp_ok( $slow_latency, '>', 3 * $fast_latency,
     'micro: slow consumer: trip is at least 3x the fast-consumer trip' );
 
@@ -280,9 +287,10 @@ a throwaway tempdir, the producer exits on its own after 500 lines
 so no process can be left behind, and the nested watchdog is always
 reaped with a 120s timeout. The nested watchdog is the real
 pipeline-written failsafe.pl from the working directory, not a copy,
-so the measurement is of the live code. Unix legs only: Windows
-skips, because failsafe.pl is the Unix watchdog and Windows runs
-failsafe.ps1 instead.
+so the measurement is of the live code. Unix legs only for the two cases:
+Windows passes vacuously, because failsafe.pl is the Unix watchdog
+and Windows runs failsafe.ps1 instead (and a skip-only run would fail
+the Windows leg in the Windows watchdog).
 
 =head1 WHAT USES IT
 
@@ -295,8 +303,8 @@ Run the solo and read the measured latencies from the diagnostics:
 
   python3 ~/workspace/jenkins-cli/trigger.py windows/loop6-combined t/985-failsafe-drain-probe.t 1
 
-Fast consumer trips in under 3s and slow consumer trips only after
-10s: the consumer speed governs the check, and the fix is to check
+Fast consumer trips in under 5s and slow consumer trips only after
+12s: the consumer speed governs the check, and the fix is to check
 $failed inside the inner read loop instead of only after it drains
 to EOF. Both trip late: the continuous stream itself starves the
 check, and the same fix still applies - the check must not wait for
