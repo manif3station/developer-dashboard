@@ -13,7 +13,6 @@ use File::Spec;
 use Scalar::Util qw(blessed);
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::PathIdentity ();
-use Developer::Dashboard::Platform qw(is_real_windows windows_acl_is_owner_only windows_acl_set_owner_only);
 
 # _resolved_home_from_env()
 # Resolves the current user home directory from the available process
@@ -1782,6 +1781,26 @@ sub is_runtime_layer_path {
     return $self->runtime_layer_root_for($path) ne '' ? 1 : 0;
 }
 
+my $_PLATFORM_HELPERS_LOADED = 0;
+
+# _load_platform_helpers()
+# Lazily loads the platform helper module and imports the three Windows
+# ACL helpers into this package, for the Windows-only branches of
+# _apply_dir_mode and _apply_file_mode. The module is required by file
+# path here at runtime, never at compile time: the lightweight import
+# chain must stay lazy, and the passwd fallback path must stay
+# independent of the platform module (t/652 guards both literal load
+# forms in this file). Loading twice is a no-op.
+# Input: none.
+# Output: none.
+sub _load_platform_helpers {
+    return if $_PLATFORM_HELPERS_LOADED;
+    require 'Developer/Dashboard/Platform.pm';
+    Developer::Dashboard::Platform->import(qw(is_real_windows windows_acl_is_owner_only windows_acl_set_owner_only));
+    $_PLATFORM_HELPERS_LOADED = 1;
+    return;
+}
+
 # _apply_dir_mode($path)
 # Tightens one existing directory to owner-only, by the mechanism that
 # means something on this platform. On Unix that is chmod 0700, skipped
@@ -1797,6 +1816,7 @@ sub is_runtime_layer_path {
 # Output: directory path string.
 sub _apply_dir_mode {
     my ( $self, $path ) = @_;
+    _load_platform_helpers();
     if ( is_real_windows() ) {
         return $path if windows_acl_is_owner_only($path);
         windows_acl_set_owner_only($path);
@@ -1822,6 +1842,7 @@ sub _apply_dir_mode {
 # Output: file path string.
 sub _apply_file_mode {
     my ( $self, $path, $mode ) = @_;
+    _load_platform_helpers();
     if ( is_real_windows() ) {
         return $path if windows_acl_is_owner_only($path);
         windows_acl_set_owner_only($path);
