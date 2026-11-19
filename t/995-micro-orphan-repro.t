@@ -60,6 +60,17 @@ sub _run_quiet {
 sub _run_in_home {
     my ( $home, $cmd, $quiet ) = @_;
     die "home directory is required\n" if !defined $home || $home eq '';
+    # Scope $HOME to the temp home, the suite's own pattern (t/05
+    # localizes $ENV{HOME} to a tempdir): the child d2 must operate IN
+    # the temp home, not in the caller's real home. v5 did only `cd`,
+    # so home2's `d2 init` wrote the config into the Jenkins user's
+    # real home and the micro's open of the temp-home config.json died
+    # with ENOENT (solo #231, line 250, Windows first then macOS test
+    # 13). The stand-in never hit this: it localizes HOME itself
+    # before serving. No leg had ever reached a parent-side _serve_home
+    # before #231 (earlier solos were cascade-killed or died earlier),
+    # so the gap was latent since v1.
+    local $ENV{HOME} = $home;
     return _run("cd '$home' && $cmd", $quiet);
 }
 
@@ -67,6 +78,7 @@ sub _run_quiet_in_home {
     my ( $home, $cmd ) = @_;
     die "home directory is required\n" if !defined $home || $home eq '';
     die "command is required\n" if !defined $cmd || $cmd eq '';
+    local $ENV{HOME} = $home;
     my ( $out, $exit ) = _run_quiet("cd '$home' && $cmd");
     return $out;
 }
@@ -181,6 +193,24 @@ sub _proc_start {
     return $out ne '' ? $out : undef;
 }
 
+# _diag_raw_ps($pid)
+# Diags the raw `ps -o ppid=,pgid=,sess=` line for one pid, on
+# platforms without /proc only. Solo #231 showed the macOS session
+# token as "0" on every process even after v5 stopped parsing it as a
+# number; the raw line says whether ps really prints 0 or whether the
+# reader is mis-parsing its output. Diag-only, never an assertion.
+sub _diag_raw_ps {
+    my ($pid) = @_;
+    return if -d '/proc';
+    return if !defined $pid || $pid !~ /^\A\d+\z/;
+    my ( $out, $exit ) = _run_quiet("ps -o ppid=,pgid=,sess= -p $pid");
+    my $flat = defined $out ? $out : 'undef';
+    $flat =~ s/\s+/ /g;
+    $flat =~ s/^\s+|\s+$//g;
+    diag( 'micro: raw ps for pid ' . $pid . ' exit ' . $exit . ': ' . $flat );
+    return;
+}
+
 # _diag_topology($label, $pid)
 # Prints one process's parent, group and session as a diag line, or notes
 # that it could not be read. The topology is the evidence; it is diagged
@@ -247,6 +277,10 @@ sub _serve_home {
     my ( $home, $collector_name, $quiet ) = @_;
     _run_in_home( $home, "$perl -I'$lib' '$dashboard' init", $quiet );
     my $config_file = File::Spec->catfile( $home, '.developer-dashboard', 'config', 'config.json' );
+    # Belt and braces (t/05 line 190 does the same): init is expected
+    # to create this directory, but the open must not die with ENOENT
+    # if a platform's init does not.
+    make_path( File::Spec->catdir( $home, '.developer-dashboard', 'config' ) );
     open my $fh, '>:raw', $config_file or die "Unable to write $config_file: $!";
     my $config_json = json_encode(
         {
@@ -468,6 +502,7 @@ eval {
     # hiding it. The loop start times say whether the loops in this
     # state root belong to this run or predate it.
     _diag_topology( 'supervisor-steady', $sup_pid );
+    _diag_raw_ps($sup_pid);
     my $steady_sup_ids = _proc_ids($sup_pid);
     if ( $standin_ids && $steady_sup_ids ) {
         diag( 'micro: supervisor session token ' . $steady_sup_ids->{session} . ' vs stand-in ' . $standin_ids->{session}
@@ -672,7 +707,18 @@ session POINTER (Darwin ps man page), printed in hex, and the numeric
 regex read the "0" of "0x..." on every process. v5 treats the session
 as an opaque token (equality only, never compared to a pid) and adds
 the pidfile mtime to the loop diag, which is the adoption proof
-(fresh pidfile naming an old process).
+(fresh pidfile naming an old process). Solo #231 (v5) proved survival
+on macOS for the first time (test 5, supervisor pgid its own pid) and
+confirmed adoption on Linux a third time (micro-tick started 08:43:36,
+pidfile mtime 09:28:01), but FAILED on a latent micro bug: _run_in_home
+only did `cd`, never scoped $HOME, so the parent-side `d2 init` wrote
+the config into the Jenkins user's real home and the micro's open of
+the temp-home config.json died with ENOENT at line 250 (Windows
+first, macOS test 13). No leg had reached a parent-side _serve_home
+before, so the gap was latent since v1. v6 localizes $ENV{HOME} in
+_run_in_home/_run_quiet_in_home (the t/05 pattern) and make_paths the
+config dir before the open, and adds a raw-ps diag so the next run
+shows what macOS ps really prints for sess (v5 still read "0").
 
 =head1 WHY IT EXISTS
 
