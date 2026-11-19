@@ -857,6 +857,9 @@ sub _stop_ssl_backend {
 # must outlive it however long that is. The investigation micro's 120s
 # bound was test safety so the micro could never hang forever, and the
 # old loop-branch parent watchdog was likewise unbounded (while (1)).
+# When DEVELOPER_DASHBOARD_SSL_WATCHDOG_LOG names a file, the watcher
+# appends its decisions there (started, frontend gone, exiting); the
+# variable is unset in normal use, so the watcher stays silent.
 # Input: backend pid integer.
 # Output: watchdog pid integer, or 0 when the backend pid is unusable.
 sub _start_ssl_backend_watchdog {
@@ -867,13 +870,29 @@ use strict;
 use warnings;
 use Developer::Dashboard::GoRoutine ();
 my ( $frontend_pid, $backend_pid ) = @ARGV;
+my $log = $ENV{DEVELOPER_DASHBOARD_SSL_WATCHDOG_LOG} // '';
+my $_watchdog_log = sub {
+    my ($line) = @_;
+    return if $log eq '';
+    if ( open my $fh, '>>', $log ) {
+        print {$fh} $line . "\n";
+        close $fh;
+    }
+};
+$_watchdog_log->( "watcher started frontend=$frontend_pid backend=$backend_pid " . time() );
 while (1) {
     if ( !Developer::Dashboard::GoRoutine::process_running($frontend_pid) ) {
+        $_watchdog_log->("watcher: frontend gone, killing backend=$backend_pid " . time());
         eval { Developer::Dashboard::GoRoutine::terminate_process($backend_pid); };
         for ( 1 .. 40 ) {
             last if !Developer::Dashboard::GoRoutine::process_running($backend_pid);
             select undef, undef, undef, 0.25;
         }
+        $_watchdog_log->(
+            "watcher exiting backend_alive="
+              . ( Developer::Dashboard::GoRoutine::process_running($backend_pid) ? 1 : 0 )
+              . " " . time()
+        );
         exit 0;
     }
     select undef, undef, undef, 0.25;
