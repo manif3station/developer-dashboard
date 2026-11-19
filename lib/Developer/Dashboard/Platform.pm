@@ -113,6 +113,13 @@ sub passwd_home_directory {
 # Output: the captured (stdout, stderr, exit status) list.
 sub _capture {
     my ($code) = @_;
+
+    # DD-597: the $code->() call below (typically a system/icacls launch)
+    # sets the global $? as a side effect; without this guard that stays
+    # set in the caller's process after this sub returns. The $rc = $?
+    # read below reads the localized value, so the returned wait status
+    # is unchanged.
+    local $?;
     my ( $out_fh, $out_name ) = tempfile( UNLINK => 0 );
     my ( $err_fh, $err_name ) = tempfile( UNLINK => 0 );
     binmode $out_fh, ':raw';
