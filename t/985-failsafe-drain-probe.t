@@ -1,0 +1,303 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use File::Spec;
+use File::Temp qw(tempdir);
+use POSIX qw(WNOHANG);
+use Test::More;
+use Time::HiRes qw(sleep time);
+
+# failsafe.pl is the Unix watchdog; Windows runs failsafe.ps1 instead,
+# and the nested watchdog's process-group kill has no Windows meaning.
+# The anomaly under investigation happened on a Unix leg (amd64), and
+# the code under test only runs on Unix legs.
+if ( $^O eq 'MSWin32' ) {
+    plan skip_all => 'failsafe.pl is the Unix watchdog; Windows uses failsafe.ps1';
+}
+
+plan tests => 7;
+
+# The nested watchdog is the real pipeline-written failsafe.pl, in the
+# test's working directory (the pipeline writes it into dd-source).
+my $WATCHDOG = File::Spec->catfile( File::Spec->curdir(), 'failsafe.pl' );
+ok( -f $WATCHDOG, 'micro: the pipeline-written failsafe.pl is present' )
+    or BAIL_OUT('no failsafe.pl in the working directory');
+
+my $tmp = tempdir( CLEANUP => 1 );
+
+# _write_producer($path)
+# A prove-shaped producer: it writes the round-30 t/712 failure block
+# verbatim first (the exact lines the amd64 watchdog read in build
+# #296), then $COUNT "ok" lines at $RATE lines per second, then exits 0.
+# 100 lines/sec is prove's verbose rate through t/72+t/73 in #296; 500
+# lines is 5 seconds of post-failure output, more than the two files
+# that ran on after the failure there.
+my $producer = File::Spec->catfile( $tmp, 'producer.pl' );
+{
+    open my $fh, '>', $producer or die "cannot write $producer: $!\n";
+    print {$fh} <<'PRODUCER' or die "cannot write $producer: $!\n";
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Time::HiRes qw(sleep);
+$| = 1;
+my ( $count, $rate ) = @ARGV;
+$count //= 500;
+$rate  //= 100;
+print "not ok 24 - _find_running_loop returns a title match from the same pid namespace\n";
+print "\n";
+print "#   Failed test '_find_running_loop returns a title match from the same pid namespace'\n";
+print "#   at t/712-collectorrunner-coverage.t line 261.\n";
+print "not ok 25 - _find_running_loop skips a title match from another pid namespace\n";
+print "\n";
+print "#   Failed test '_find_running_loop skips a title match from another pid namespace'\n";
+print "#   at t/712-collectorrunner-coverage.t line 262.\n";
+print "#          got: '22'\n";
+print "#     expected: '2'\n";
+print "1..25\n";
+print "# Looks like you failed 2 tests of 25.\n";
+print "Dubious, test returned 2 (wstat 512, 0x200)\n";
+print "Failed 2/25 subtests \n";
+print "t/72-pagedocument-coverage.t ........................... \n";
+for my $i ( 1 .. $count ) {
+    print "ok $i - probe line $i\n";
+    sleep( 1 / $rate );
+}
+exit 0;
+PRODUCER
+    close $fh or die "cannot close $producer: $!\n";
+}
+
+# _wait_exit($pid, $timeout_s)
+# Polls waitpid until $pid exits or $timeout_s passes. Returns the raw
+# wait status, or undef on timeout (the caller then kills and fails).
+sub _wait_exit {
+    my ( $pid, $timeout_s ) = @_;
+    my $deadline = time() + $timeout_s;
+    while ( time() < $deadline ) {
+        my $w = waitpid( $pid, WNOHANG );
+        return $? if $w == $pid;
+        sleep(0.05);
+    }
+    return undef;
+}
+
+# _run_watchdog($tag, $mode)
+# Spawns the real failsafe.pl against the producer and measures how long
+# after the failure block it takes to trip. $mode is 'fast' (watchdog
+# stdout to a file: a consumer that never blocks) or 'slow' (watchdog
+# stdout to a pipe drained at 20 lines/sec: a slow consumer, the Jenkins
+# console's shape). Returns ($exit_code, $latency_s, $output_text).
+# Logs before and after every step, per the micro-repro method.
+sub _run_watchdog {
+    my ( $tag, $mode ) = @_;
+    diag("[$tag] start: mode=$mode");
+    my $log    = File::Spec->catfile( $tmp, "$tag.log" );
+    my $out    = File::Spec->catfile( $tmp, "$tag.out" );
+    my $reader_pid;
+    my ( $rd, $wr );
+
+    if ( $mode eq 'slow' ) {
+        diag("[$tag] before pipe");
+        pipe( $rd, $wr ) or die "pipe failed: $!\n";
+        diag("[$tag] after pipe");
+        # Shrink the pipe so the slow reader throttles the watchdog
+        # quickly. Linux only; macOS has no F_SETPIPE_SZ and its 16KB
+        # default still fills: the producer writes 500 lines (~30KB).
+        if ( $^O eq 'linux' ) {
+            diag("[$tag] before F_SETPIPE_SZ");
+            my $set = eval {
+                require Fcntl;
+                my $cmd = Fcntl::F_SETPIPE_SZ();
+                fcntl( $wr, $cmd, 4096 ) or die "fcntl failed: $!\n";
+                1;
+            };
+            diag( "[$tag] after F_SETPIPE_SZ: " . ( $set ? '4096 bytes' : "left default ($@)" ) );
+        }
+        diag("[$tag] before fork reader");
+        $reader_pid = fork();
+        die "fork reader failed: $!\n" unless defined $reader_pid;
+        if ( $reader_pid == 0 ) {
+            close $wr or POSIX::_exit(1);
+            open my $out_fh, '>', $out or POSIX::_exit(1);
+            while ( defined( my $line = <$rd> ) ) {
+                print {$out_fh} $line or POSIX::_exit(1);
+                sleep(0.05);    # 20 lines/sec: the slow consumer
+            }
+            close $out_fh or POSIX::_exit(1);
+            POSIX::_exit(0);
+        }
+        diag("[$tag] after fork reader pid=$reader_pid");
+        close $rd or die "cannot close pipe read end: $!\n";
+    }
+
+    diag("[$tag] before fork watchdog");
+    my $t0   = time();
+    my $wpid = fork();
+    die "fork watchdog failed: $!\n" unless defined $wpid;
+    if ( $wpid == 0 ) {
+        if ( $mode eq 'fast' ) {
+            open STDOUT, '>', $out or POSIX::_exit(1);
+        }
+        else {
+            open STDOUT, '>&', $wr or POSIX::_exit(1);
+            close $wr or POSIX::_exit(1);
+        }
+        open STDERR, '>&STDOUT' or POSIX::_exit(1);
+        exec( $^X, $WATCHDOG, $log, $^X, $producer, '500', '100' )
+            or POSIX::_exit(1);
+    }
+    diag("[$tag] after fork watchdog pid=$wpid");
+    close $wr or die "cannot close pipe write end: $!\n" if $mode eq 'slow';
+
+    diag("[$tag] before wait for watchdog exit");
+    my $status = _wait_exit( $wpid, 120 );
+    my $t1     = time();
+    if ( !defined $status ) {
+        diag("[$tag] WATCHDOG DID NOT EXIT in 120s; killing pid=$wpid");
+        kill 'TERM', $wpid;
+        sleep 2;
+        kill 'KILL', $wpid;
+        _wait_exit( $wpid, 10 );
+    }
+    diag("[$tag] after wait for watchdog exit");
+    my $latency = $t1 - $t0;
+    my $exit    = defined $status ? ( $status >> 8 ) : -1;
+    diag("[$tag] watchdog exit=$exit latency=${latency}s");
+
+    if ( $mode eq 'slow' ) {
+        diag("[$tag] before wait for reader drain");
+        my $rstatus = _wait_exit( $reader_pid, 60 );
+        if ( !defined $rstatus ) {
+            diag("[$tag] reader did not drain in 60s; killing pid=$reader_pid");
+            kill 'TERM', $reader_pid;
+            sleep 1;
+            kill 'KILL', $reader_pid;
+            _wait_exit( $reader_pid, 10 );
+        }
+        diag("[$tag] after wait for reader drain");
+    }
+
+    diag("[$tag] before slurp output");
+    open my $out_fh, '<', $out or die "cannot read $out: $!\n";
+    local $/;
+    my $text = <$out_fh>;
+    close $out_fh or die "cannot close $out: $!\n";
+    $text //= '';
+    my @lines = split /\n/, $text, -1;
+    my ($trip_at) = grep { $lines[$_] =~ /FAIL-SAFE: first test failure detected/ } 0 .. $#lines;
+    my $before_trip = defined $trip_at ? $trip_at : scalar(@lines);
+    diag("[$tag] after slurp output: lines=" . scalar(@lines) . " lines-before-trip=$before_trip");
+    return ( $exit, $latency, $text, $before_trip );
+}
+
+# Case 1: fast consumer. The read loop drains to EOF in the first gap
+# after the failure block, so the watchdog must trip promptly. If this
+# trips late, the continuous-stream starvation theory is the mechanism
+# and the consumer speed is irrelevant.
+diag('[fast] case 1: fast consumer (watchdog stdout to a file)');
+my ( $fast_exit, $fast_latency, $fast_text, $fast_before ) = _run_watchdog( 'fast', 'fast' );
+diag("[fast] exit=$fast_exit latency=${fast_latency}s lines-before-trip=$fast_before");
+is( $fast_exit, 1, 'micro: fast consumer: watchdog trips (exit 1)' );
+like( $fast_text, qr/FAIL-SAFE: first test failure detected/,
+    'micro: fast consumer: trip message printed' );
+cmp_ok( $fast_latency, '<', 3, 'micro: fast consumer: trips within 3s of the failure' );
+
+# Case 2: slow consumer. The watchdog's print blocks on the slow pipe,
+# its drain rate falls below the producer's output rate, it never
+# reaches EOF while the producer runs, and the $failed check never
+# runs until the producer stops. If this trips late while case 1 trips
+# promptly, the consumer speed - not the stream - starves the check.
+diag('[slow] case 2: slow consumer (watchdog stdout to a pipe drained at 20 lines/sec)');
+my ( $slow_exit, $slow_latency, $slow_text, $slow_before ) = _run_watchdog( 'slow', 'slow' );
+diag("[slow] exit=$slow_exit latency=${slow_latency}s lines-before-trip=$slow_before");
+is( $slow_exit, 1, 'micro: slow consumer: watchdog trips (exit 1)' );
+like( $slow_text, qr/FAIL-SAFE: first test failure detected/,
+    'micro: slow consumer: trip message printed' );
+cmp_ok( $slow_latency, '>', 10, 'micro: slow consumer: trips only after 10s (late, like build #296)' );
+cmp_ok( $slow_latency, '>', 3 * $fast_latency,
+    'micro: slow consumer: trip is at least 3x the fast-consumer trip' );
+
+__END__
+
+=head1 NAME
+
+t/985-failsafe-drain-probe.t - micro-repro for the failsafe.pl non-trip in round 30 (build #296)
+
+=head1 DESCRIPTION
+
+A diagnostic micro that runs the real pipeline-written failsafe.pl
+against a prove-shaped producer and measures how long after a failure
+block the watchdog takes to trip, under a fast consumer and under a
+slow consumer.
+
+=head1 PURPOSE
+
+This micro proves, on Jenkins, why the Unix watchdog did not trip on
+the t/712 failure in round 30: whether the $failed check is starved by
+a continuously-producing prove stream (the suspected mechanism) or by
+the watchdog's own print to a slow consumer (the Jenkins console).
+It runs the same producer twice - once with the watchdog's stdout to
+a file that never blocks, once with it to a pipe drained at 20
+lines/sec - and measures the trip latency in each case. A prompt trip
+with the fast consumer and a late trip with the slow one proves the
+consumer speed governs the check; a late trip in both proves the
+stream itself starves it.
+
+=head1 WHY IT EXISTS
+
+Round 30, build #296, failed on exactly one genuine failure: amd64
+t/712-collectorrunner-coverage.t tests 24-25. The amd64 leg ran on
+through t/72 and t/73 after the first failure before the watchdog
+tripped at console line 29063 - the fail-fast did not happen, although
+the build still ended FAILURE. The '# Failed test' lines do match the
+watchdog regex, and the watchdog printed them (console lines
+28821/28825), so it read them and set $failed - but the 'last if
+$failed' check only runs after the inner read loop drains to EOF.
+Whether that drain is starved by prove's output or by the watchdog's
+own print to Jenkins cannot be decided by reading the code alone:
+the micro measures the trip latency under both consumers so the fix
+lands in the right place.
+
+=head1 WHEN TO USE
+
+Use this file only while investigating the round-30 failsafe.pl
+non-trip. It is a throwaway micro: remove it from the branch in a
+cleanup commit once the mechanism is proven and the fix is reported.
+Do not extend it into a permanent test; the permanent coverage of
+the watchdog belongs in a dedicated watchdog test, not here.
+
+=head1 HOW TO USE
+
+Run it as a Jenkins solo on the loop branch:
+
+  python3 ~/workspace/jenkins-cli/trigger.py windows/loop6-combined t/985-failsafe-drain-probe.t 1
+
+The checks are hermetic: the producer and the nested watchdog run in
+a throwaway tempdir, the producer exits on its own after 500 lines
+so no process can be left behind, and the nested watchdog is always
+reaped with a 120s timeout. The nested watchdog is the real
+pipeline-written failsafe.pl from the working directory, not a copy,
+so the measurement is of the live code. Unix legs only: Windows
+skips, because failsafe.pl is the Unix watchdog and Windows runs
+failsafe.ps1 instead.
+
+=head1 WHAT USES IT
+
+Nothing uses this file. It is a diagnostic micro for the failsafe
+anomaly #2 probe, read by the probe agent and the loop owner only.
+
+=head1 EXAMPLES
+
+Run the solo and read the measured latencies from the diagnostics:
+
+  python3 ~/workspace/jenkins-cli/trigger.py windows/loop6-combined t/985-failsafe-drain-probe.t 1
+
+Fast consumer trips in under 3s and slow consumer trips only after
+10s: the consumer speed governs the check, and the fix is to check
+$failed inside the inner read loop instead of only after it drains
+to EOF. Both trip late: the continuous stream itself starves the
+check, and the same fix still applies - the check must not wait for
+EOF at all.
