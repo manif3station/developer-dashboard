@@ -94,18 +94,19 @@ sub _force_kill {
 }
 
 # Scenario A: waitpid observation, first so it prints even if a later
-# assertion trips the fail-fast watchdog.
+# assertion trips the fail-fast watchdog. Corrected after solo #288:
+# waitpid DOES track a GoRoutine-spawned pid on Windows too (it
+# returns 0 for a live child there, exactly as on POSIX), so the
+# helper's blocking waitpid is not a no-op - the child is reaped by
+# it, and what keeps kill 0 reporting the dead child alive must be
+# the kept spawn-registry handle.
 {
     my $tracked = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'sleep 30;' ], {} );
     die "GoRoutine spawn failed: $!" if !defined $tracked;
+    diag("micro: spawned child pid $tracked (test process $$)");
     my $wp = waitpid( $tracked, 1 );
     diag("micro: waitpid WNOHANG on GoRoutine child returned $wp");
-    if ( $^O eq 'MSWin32' ) {
-        is( $wp, -1, 'micro: waitpid does not track GoRoutine-spawned pids on Windows' );
-    }
-    else {
-        is( $wp, 0, 'micro: waitpid sees a live GoRoutine-spawned child on POSIX' );
-    }
+    is( $wp, 0, 'micro: waitpid sees a live GoRoutine-spawned child' );
     $runner->_terminate_command_process($tracked);
     _gone_within( $tracked, 5 );
     _force_kill($tracked);
@@ -120,6 +121,7 @@ SKIP: {
     skip 'direct taskkill is Windows-only', 4 unless $^O eq 'MSWin32';
     my $direct = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'sleep 30;' ], {} );
     die "GoRoutine spawn failed: $!" if !defined $direct;
+    diag("micro: spawned child pid $direct (test process $$)");
     my ( $out, $err ) = capture { system 'taskkill', '/PID', $direct, '/T', '/F' };
     diag("micro: taskkill stdout: $out") if defined $out && $out ne '';
     diag("micro: taskkill stderr: $err") if defined $err && $err ne '';
@@ -139,8 +141,14 @@ SKIP: {
 {
     my $obedient = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'sleep 30;' ], {} );
     die "GoRoutine spawn failed: $!" if !defined $obedient;
+    diag("micro: spawned child pid $obedient (test process $$)");
     ok( $runner->_terminate_command_process($obedient),
         'micro: terminate_command_process returns true' );
+    # After the helper, did its blocking waitpid reap the child? -1 says
+    # yes (already reaped), 0 says no (still tracked). Either way the
+    # reap below is the fix prototype; this line only names which.
+    my $wp_after = waitpid( $obedient, 1 );
+    diag("micro: waitpid WNOHANG after helper returned $wp_after");
     SKIP: {
         skip 'reap_child is Windows-only', 1 unless $^O eq 'MSWin32';
         my $reaped_after = _reaped_within( $obedient, 5 );
@@ -167,9 +175,13 @@ reports alive per kill 0 after 10 seconds. The candidate mechanism is
 the GoRoutine spawn registry: GoRoutine.pm keeps one Win32::Process
 handle open per spawned child until wait_process or reap_child
 collects it, and that handle is what makes a completed child still
-"exist" until it is reaped. The helper's Windows branch never reaps
-it - it runs taskkill and then a waitpid that cannot see a
-CreateProcess pid - so kill 0 keeps reporting the dead child alive.
+"exist" until it is reaped. Solo #288 corrected one premise on the
+way: waitpid DOES track a GoRoutine-spawned pid on Windows (WNOHANG
+returns 0 for a live child), so the helper's blocking waitpid is not
+a no-op - the child is reaped by it, and only the kept handle keeps
+kill 0 reporting the dead child alive. The helper's Windows branch
+never reaps that handle, so kill 0 keeps reporting the dead child
+alive.
 
 =head1 WHY IT EXISTS
 
