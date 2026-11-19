@@ -29,7 +29,7 @@ if ( $^O eq 'MSWin32' ) {
     exit 0;
 }
 
-plan tests => 8;
+plan tests => 11;
 
 # The nested watchdog is the real pipeline-written failsafe.pl, in the
 # test's working directory (the pipeline writes it into dd-source).
@@ -82,6 +82,124 @@ PRODUCER
     close $fh or die "cannot close $producer: $!\n";
 }
 
+# _write_fixed_watchdog($path)
+# Writes the proposed fix for failsafe.pl: the $failed check moves
+# INSIDE the inner read loop (break out the moment a failure line is
+# seen, instead of waiting for the loop to drain to EOF), and the kill
+# moves BEFORE the trailing drain (the drain used to run first, and it
+# waits for EOF the same way, so on its own the in-loop check would
+# only move the starvation from the main loop into the drain). This
+# text is byte-identical to the fix reported to the loop owner; it is
+# validated here in the micro only and is NOT applied to the job
+# config by this file.
+my $fixed_watchdog = File::Spec->catfile( $tmp, 'failsafe-fixed.pl' );
+{
+    open my $fh, '>', $fixed_watchdog or die "cannot write $fixed_watchdog: $!\n";
+    print {$fh} <<'FIXED' or die "cannot write $fixed_watchdog: $!\n";
+#!/usr/bin/env perl
+# failsafe.pl - prove under a watchdog. Usage: perl failsafe.pl <logfile> <command...>
+# Exit 1 on the first failure (fail-safe trip) or if the command fails; 0 only
+# when the command passes cleanly.
+use strict;
+use warnings;
+use POSIX qw(:sys_wait_h);
+
+my $log = shift @ARGV or die "usage: failsafe.pl <logfile> <command...>\n";
+die "no command given\n" unless @ARGV;
+
+open my $touch, '>', $log or die "cannot create $log: $!\n";
+close $touch;
+
+my $pid = fork();
+die "fork failed: $!\n" unless defined $pid;
+
+if ($pid == 0) {
+    POSIX::setsid() or die "setsid failed: $!\n";
+    open STDOUT, '>>', $log or die "cannot write $log: $!\n";
+    open STDERR, '>&STDOUT' or die "cannot dup stderr: $!\n";
+    $| = 1;
+    exec @ARGV or die "exec failed: $!\n";
+}
+
+$| = 1;
+open my $fh, '<', $log or die "cannot read $log: $!\n";
+my $failed = 0;
+my $status;
+# Per-test timeout (Michael, 17 Nov 2026): prove runs verbose, so every
+# completed subtest prints a line. A test that produces no output for this
+# long is stuck: kill it and treat it as a failure, not a wait.
+# INITIAL_GRACE: the 3 minutes is the gap BETWEEN lines. Before the first
+# line, allow 5 minutes (tightened from 10 after build #66 measured the
+# first line at ~17s on all four legs).
+my $SILENCE_TIMEOUT = 180;
+my $INITIAL_GRACE = 300;
+my $last_output = time();
+my $seen_output = 0;
+for (;;) {
+    while (defined(my $line = <$fh>)) {
+        print $line;
+        $last_output = time();
+        $seen_output = 1;
+        if ($line =~ /Failed test|Dubious, test returned|Looks like your test exited/) {
+            $failed = 1;
+            # Fail fast: break out of the read loop the moment a failure
+            # line is seen. The check used to run only after this loop
+            # drained to EOF, so when the consumer (the Jenkins console)
+            # was slower than prove's output the watchdog fell behind
+            # the log's growing end and never reached EOF - round 30
+            # ran two more test files after the failure before tripping.
+            last;
+        }
+    }
+    last if $failed;
+    my $w = waitpid($pid, WNOHANG);
+    if ($w == $pid) {
+        $status = $?;
+        last;
+    }
+    my $limit = $seen_output ? $SILENCE_TIMEOUT : $INITIAL_GRACE;
+    if (time() - $last_output > $limit) {
+        kill 'TERM', -$pid;
+        sleep 2;
+        kill 'KILL', -$pid;
+        waitpid($pid, 0);
+        if ($seen_output) {
+            print "FAIL-SAFE: no test output for 3 minutes - treating the current test as stuck\n";
+        } else {
+            print "FAIL-SAFE: no test output for 5 minutes - treating the startup as stuck\n";
+        }
+        exit 1;
+    }
+    sleep 1;
+    seek($fh, 0, 1);
+}
+if ($failed) {
+    # Kill the run BEFORE draining the rest of the log for the record.
+    # The drain used to run first, and it waits for EOF the same way,
+    # so without this the in-loop check above would only move the
+    # starvation from the main loop into the drain.
+    kill 'TERM', -$pid;
+    sleep 2;
+    kill 'KILL', -$pid;
+    waitpid($pid, 0);
+    print "FAIL-SAFE: first test failure detected, terminating the run\n";
+}
+while (defined(my $line = <$fh>)) {
+    print $line;
+    if ($line =~ /Failed test|Dubious, test returned|Looks like your test exited/) {
+        $failed = 1;
+    }
+}
+close $fh;
+
+if ($failed) {
+    exit 1;
+}
+exit($status >> 8);
+FIXED
+    close $fh or die "cannot close $fixed_watchdog: $!\n";
+}
+
 # _wait_exit($pid, $timeout_s)
 # Polls waitpid until $pid exits or $timeout_s passes. Returns the raw
 # wait status, or undef on timeout (the caller then kills and fails).
@@ -102,16 +220,19 @@ sub _wait_exit {
     return undef;
 }
 
-# _run_watchdog($tag, $mode, $pcount, $prate)
-# Spawns the real failsafe.pl against the producer and measures how long
-# after the failure block it takes to trip. $mode is 'fast' (watchdog
-# stdout to a file: a consumer that never blocks) or 'slow' (watchdog
-# stdout to a pipe drained at 20 lines/sec: a slow consumer, the Jenkins
-# console's shape). $pcount/$prate are the producer's line count and
-# lines-per-second. Returns ($exit_code, $latency_s, $output_text).
-# Logs before and after every step, per the micro-repro method.
+# _run_watchdog($tag, $mode, $pcount, $prate, $watchdog)
+# Spawns a failsafe.pl ($watchdog: the real pipeline-written one, or a
+# fixed copy for the validation case) against the producer and measures
+# how long after the failure block it takes to trip. $mode is 'fast'
+# (watchdog stdout to a file: a consumer that never blocks) or 'slow'
+# (watchdog stdout to a pipe drained at 20 lines/sec: a slow consumer,
+# the Jenkins console's shape). $pcount/$prate are the producer's line
+# count and lines-per-second. Returns ($exit_code, $latency_s,
+# $output_text). Logs before and after every step, per the micro-repro
+# method.
 sub _run_watchdog {
-    my ( $tag, $mode, $pcount, $prate ) = @_;
+    my ( $tag, $mode, $pcount, $prate, $watchdog ) = @_;
+    $watchdog //= $WATCHDOG;
     diag("[$tag] start: mode=$mode");
     my $log    = File::Spec->catfile( $tmp, "$tag.log" );
     my $out    = File::Spec->catfile( $tmp, "$tag.out" );
@@ -185,7 +306,7 @@ sub _run_watchdog {
             close $wr or POSIX::_exit(1);
         }
         open STDERR, '>&STDOUT' or POSIX::_exit(1);
-        exec( $^X, $WATCHDOG, $log, $^X, $producer, $pcount, $prate )
+        exec( $^X, $watchdog, $log, $^X, $producer, $pcount, $prate )
             or POSIX::_exit(1);
     }
     diag("[$tag] after fork watchdog pid=$wpid");
@@ -266,6 +387,21 @@ like( $slow_text, qr/FAIL-SAFE: first test failure detected/,
 cmp_ok( $slow_latency, '>', 12, 'micro: slow consumer: trips only after 12s (late, like build #296)' );
 cmp_ok( $slow_latency, '>', 3 * $fast_latency,
     'micro: slow consumer: trip is at least 3x the fast-consumer trip' );
+
+# Case 3: the fix, validated in the micro only. The fixed copy of
+# failsafe.pl (written above, byte-identical to the fix text reported
+# to the loop owner) runs under the SAME slow consumer as case 2. If
+# it trips promptly, the fix works and the parent can apply the text
+# to the job config with the evidence in hand. Nothing here touches
+# the job config or the pipeline-written failsafe.pl.
+diag('[fixed] case 3: fixed watchdog under the slow consumer');
+my ( $fixed_exit, $fixed_latency, $fixed_text, $fixed_before ) =
+    _run_watchdog( 'fixed', 'slow', '800', '1000', $fixed_watchdog );
+diag("[fixed] exit=$fixed_exit latency=${fixed_latency}s lines-before-trip=$fixed_before");
+is( $fixed_exit, 1, 'micro: fixed watchdog: trips (exit 1)' );
+like( $fixed_text, qr/FAIL-SAFE: first test failure detected/,
+    'micro: fixed watchdog: trip message printed' );
+cmp_ok( $fixed_latency, '<', 5, 'micro: fixed watchdog: trips within 5s of the failure' );
 
 __END__
 
@@ -353,6 +489,9 @@ Run the solo and read the measured latencies from the diagnostics:
 Fast consumer trips in under 5s and slow consumer trips only after
 12s: the consumer speed governs the check, and the fix is to check
 $failed inside the inner read loop instead of only after it drains
-to EOF. Both trip late: the continuous stream itself starves the
-check, and the same fix still applies - the check must not wait for
-EOF at all.
+to EOF, with the kill moved before the trailing drain. Both trip late:
+the continuous stream itself starves the check, and the same fix
+still applies - the check must not wait for EOF at all. Case 3 runs
+the fixed copy under the same slow consumer: it trips in under 5s,
+which is the evidence the fix works before it is applied to the job
+config.
