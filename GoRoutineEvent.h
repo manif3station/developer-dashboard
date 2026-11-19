@@ -153,6 +153,19 @@ static go_ev_timer *go_ev_timers = NULL;
 static go_ev_io    *go_ev_ios    = NULL;
 static go_ev_pid   *go_ev_pids   = NULL;
 
+/* Test-only fault injection: when set, the next go_ev_wait call treats
+   its pollfd malloc as failed and takes the sleep branch instead of
+   busy-looping. The flag is consumed on use. Production never sets it,
+   so behaviour is unchanged when it is 0. On Windows the select path
+   allocates nothing, so the flag has no effect there. */
+static int go_ev_malloc_fail_next = 0;
+
+static void
+go_ev_fail_malloc_once(void)
+{
+    go_ev_malloc_fail_next = 1;
+}
+
 /* ------------------------------------------------------------------ */
 /* Registration                                                        */
 /* ------------------------------------------------------------------ */
@@ -497,7 +510,16 @@ go_ev_wait(long timeout_ms, int *due, int max_due)
         struct pollfd *fds;
         for (io = go_ev_ios; io != NULL; io = io->next)
             n++;
-        fds = (struct pollfd *)malloc(sizeof(*fds) * (size_t)(n > 0 ? n : 1));
+        /* Test-only fault injection (see go_ev_malloc_fail_next): force
+           the malloc-failure branch below, which sleeps for the wait
+           period instead of busy-looping. The flag is consumed on use,
+           so one call affects exactly one wait. */
+        if (go_ev_malloc_fail_next) {
+            go_ev_malloc_fail_next = 0;
+            fds = NULL;
+        } else {
+            fds = (struct pollfd *)malloc(sizeof(*fds) * (size_t)(n > 0 ? n : 1));
+        }
         if (fds != NULL) {
             int i = 0;
             int rc;

@@ -143,3 +143,14 @@ _ev_wait(timeout_ms)
         if (n > 0)
             XPUSHs(sv_2mortal(newSViv(due[0])));
     }
+
+# _ev_fail_malloc_once()
+# Test-only fault injection: makes the next go_ev_wait call treat its
+# pollfd malloc as failed, so the engine takes the sleep branch instead
+# of busy-looping. On Windows the select path allocates nothing, so this
+# is a no-op there. Production never calls it; the flag is consumed on
+# use, so a single call affects exactly one wait.
+void
+_ev_fail_malloc_once()
+  CODE:
+    go_ev_fail_malloc_once();
