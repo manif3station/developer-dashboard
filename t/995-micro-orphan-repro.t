@@ -145,10 +145,35 @@ sub _proc_ids {
         return if grep { !defined $_ || $_ !~ /^\A-?\d+\z/ } @fields[ 1, 2, 3 ];
         return { ppid => $fields[1] + 0, pgrp => $fields[2] + 0, session => $fields[3] + 0 };
     }
-    my ( $out, $exit ) = _run_quiet("ps -o ppid=,pgid=,sid= -p $pid");
+    # No /proc (macOS): ask ps. The session keyword differs by
+    # platform - `sid` on Linux, `sess` on macOS - so try both; v3 used
+    # `sid` only, which macOS ps rejects, and every topology read on
+    # macOS came back unreadable (solo #228, test 2). `ppid` and `pgid`
+    # are valid keywords on both.
+    for my $keyword (qw(sid sess)) {
+        my ( $out, $exit ) = _run_quiet("ps -o ppid=,pgid=,$keyword= -p $pid");
+        next if $exit != 0 || !defined $out;
+        my ( $ppid, $pgrp, $session ) = $out =~ /(\d+)\s+(\d+)\s+(\d+)/ or next;
+        return { ppid => $ppid + 0, pgrp => $pgrp + 0, session => $session + 0 };
+    }
+    return;
+}
+
+# _proc_start($pid)
+# Returns the process start time as a string (`ps -o lstart=`, valid on
+# both Linux and macOS), or undef when it cannot be read. Diag-only:
+# solo #228 showed loop pids in the state root OLDER than the
+# supervisor that supposedly started them, which is impossible for
+# children of one run - the start times say whether those loops predate
+# this run (leftovers in a shared root, or interleaved lines from the
+# other Linux leg) or belong to it.
+sub _proc_start {
+    my ($pid) = @_;
+    return if !defined $pid || $pid !~ /^\A\d+\z/;
+    my ( $out, $exit ) = _run_quiet("ps -o lstart= -p $pid");
     return if $exit != 0 || !defined $out;
-    my ( $ppid, $pgrp, $session ) = $out =~ /(\d+)\s+(\d+)\s+(\d+)/ or return;
-    return { ppid => $ppid + 0, pgrp => $pgrp + 0, session => $session + 0 };
+    $out =~ s/^\s+|\s+$//g;
+    return $out ne '' ? $out : undef;
 }
 
 # _diag_topology($label, $pid)
@@ -421,6 +446,21 @@ eval {
     );
     diag( 'micro: heartbeat ' . ( $state1->{heartbeat_at} || '?' ) . ' -> ' . ( $state2->{heartbeat_at} || '?' ) );
 
+    # Steady state, after the 6s heartbeat sleep: the supervisor has had
+    # time to finish starting. Solo #228 showed the immediate reading
+    # can catch the child before its setsid (the parent writes the
+    # pidfile at spawn, the child setsid's only after exec + module
+    # load), so the before/after pair documents the race instead of
+    # hiding it. The loop start times say whether the loops in this
+    # state root belong to this run or predate it.
+    _diag_topology( 'supervisor-steady', $sup_pid );
+    my $steady_pids = _collect_managed_pids($state_root);
+    for my $label ( sort keys %{$steady_pids} ) {
+        next if $label eq 'supervisor';
+        my $started = _proc_start( $steady_pids->{$label} );
+        diag( 'micro: loop ' . $label . ' pid ' . $steady_pids->{$label} . ' started ' . ( $started || 'unknown' ) );
+    }
+
     # Fail-fast, exactly as failsafe.pl does it: TERM to the negative
     # pgid of the stand-in parent, then KILL if it lingers.
     kill 'TERM', -$pgid;
@@ -580,7 +620,17 @@ the whole process topology (parent, group, session for every process
 in the chain), and lets the kill result speak. If the supervisor
 survives in the true replica, the topology is the mechanism. If it
 dies, the kill works and the orphans must come from elsewhere (the
-stop/teardown path), which is a different micro.
+stop/teardown path), which is a different micro. Solo #228 (v3)
+ANSWERED it on one Linux leg: the supervisor survived the group kill
+(ok 5, 10/10 tests before fail-fast cascade), its session changing
+from the stand-in's (3143844) to its own pid (3143982) - and the
+startup race is now understood: the parent writes the pidfile at
+spawn, the child setsid's only after exec + module load, so a kill
+landing in that window takes the supervisor down (which is what v2's
+solo #226 measured). v4 fixes the macOS topology reader (ps needs
+`sess`, not `sid`) and adds a steady-state re-read plus loop start
+times; solo #228's macOS leg failed test 2 on the unreadable topology
+and tripped fail-fast before the other legs finished.
 
 =head1 WHY IT EXISTS
 
