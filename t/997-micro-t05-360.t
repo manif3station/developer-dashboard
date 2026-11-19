@@ -12,6 +12,7 @@ use lib File::Spec->catdir( $FindBin::Bin, '..', 'lib' );
 
 use Cwd qw(getcwd);
 use Developer::Dashboard::JSON qw(json_decode json_encode);
+use Developer::Dashboard::PathRegistry;
 use Encode qw(decode encode);
 use File::Find ();
 use File::Path qw(make_path);
@@ -178,37 +179,101 @@ if ( !$UNDER_COVER ) {
 
     # Post-mortem diagnostics, before the assertion that may fail.
     # v1 asked the collector STATUS store and got {} on ARM64, which says
-    # no worker ever completed a run but says nothing about the loop child
-    # itself. v2 walks the temp home on disk instead: the loop state file
-    # (loop.json), the pidfile, the collector log and its .stderr sibling,
-    # and the stdout snapshot. Those files show whether the loop child
-    # ever wrote its first state, whether it is alive, and whether it died
-    # at startup (a startup death lands in the .stderr file, which the
-    # `collector log` command never shows).
-    my @found_files;
-    File::Find::find(
-        sub {
-            return if !-f $_;
-            push @found_files, $File::Find::name;
-        },
-        $serve_home
-    );
-    diag( sprintf 'micro: %d files under serve home:', scalar @found_files );
-    for my $path ( sort @found_files ) {
-        diag( sprintf 'micro: file %s size=%s', $path, -s $path );
+    # no worker ever completed a run but says nothing about the loop child.
+    # v2 walked the temp home and found no loop.json there, which is
+    # EXPECTED, not evidence: the collector state lives in the shared
+    # temp area, not under the home. v3 measures the state-root identity
+    # directly. The state root is tmpdir/<user>/developer-dashboard/state/
+    # md5(realpath of the runtime root)/collectors/tick.collector, so a
+    # writer and a reader that spell the runtime root differently land in
+    # different hashed roots and the reader silently sees nothing (the
+    # t/05 header records the same shape for the housekeeper at line 1111).
+    # The listing of the state base runs BEFORE state_root is computed,
+    # because computing it creates the CLI's hashed dir; a loop that wrote
+    # to a different key shows up as an older, populated md5 directory.
+    # chdir first: the runtime layers walk up from the cwd, and the
+    # micro process still sits in the repo root, which would make the
+    # in-process registry measure the repo's layer, not the serve home's.
+    chdir $serve_home or diag("micro: cannot chdir to serve home: $!");
+    my $paths = Developer::Dashboard::PathRegistry->new();
+    diag( sprintf 'micro: in-process home=%s', $paths->home );
+    diag( sprintf 'micro: in-process runtime_root=%s', $paths->runtime_root );
+    my $state_base = $paths->state_base_root;
+    diag( sprintf 'micro: state_base_root=%s', $state_base );
+    if ( -d $state_base ) {
+        opendir my $dh, $state_base or diag("micro: cannot open state base: $!");
+        my @keys = sort grep { $_ ne '.' && $_ ne '..' && -d File::Spec->catdir( $state_base, $_ ) } readdir $dh;
+        closedir $dh;
+        diag( sprintf 'micro: %d hashed state dirs under base:', scalar @keys );
+        for my $key (@keys) {
+            my $dir  = File::Spec->catdir( $state_base, $key );
+            my $coll = File::Spec->catdir( $dir, 'collectors', 'tick.collector' );
+            my $has  = -d $coll ? 'has-tick.collector' : 'no-tick.collector';
+            diag( sprintf 'micro: state key %s mtime=%d %s', $key, ( stat $dir )[9], $has );
+        }
     }
+    else {
+        diag('micro: state base root does not exist');
+    }
+    my $state_root = $paths->state_root;
+    diag( sprintf 'micro: in-process state_root=%s', $state_root );
+    diag( sprintf 'micro: in-process collectors_root=%s', $paths->collectors_root );
+    my $coll_dir = $paths->collector_dir('tick.collector');
+    diag( sprintf 'micro: in-process collector_dir=%s exists=%d', $coll_dir, -d $coll_dir ? 1 : 0 );
+    my $loop_state_file = File::Spec->catfile( $coll_dir, 'loop.json' );
+    diag( sprintf 'micro: loop.json path=%s exists=%d size=%s', $loop_state_file, -f $loop_state_file ? 1 : 0, -f $loop_state_file ? -s $loop_state_file : 'n/a' );
+    my $pid_file = File::Spec->catfile( $paths->collectors_root, 'tick.collector.pid' );
+    diag( sprintf 'micro: pidfile path=%s exists=%d size=%s', $pid_file, -f $pid_file ? 1 : 0, -f $pid_file ? -s $pid_file : 'n/a' );
+
+    # Slurp the loop state, stdout snapshot and status from the CLI's own
+    # collector dir, then from every OTHER populated hashed dir (newest
+    # first, at most three): if the loop wrote to a different key, its
+    # output is there, with fresh tick timestamps.
     my $loop_state_raw;
-    for my $path ( sort @found_files ) {
-        next if $path !~ /(?:loop\.json|\.pid|collector\.log|\.stderr|stdout|last_run|status\.json)\z/;
+    for my $path ( $loop_state_file, File::Spec->catfile( $coll_dir, 'stdout' ), File::Spec->catfile( $coll_dir, 'status.json' ), $pid_file ) {
+        next if !-f $path;
         open my $fh, '<:raw', $path or next;
         local $/;
         my $content = <$fh>;
         close $fh;
         $content = '' if !defined $content;
-        $loop_state_raw = $content if $path =~ /loop\.json\z/;
+        $loop_state_raw = $content if $path eq $loop_state_file;
         $content = substr( $content, 0, 3000 ) if length($content) > 3000;
         $content =~ s/\n/\\n/g;
         diag("micro: content $path:\n$content");
+    }
+    if ( -d $state_base ) {
+        opendir my $dh, $state_base or diag("micro: cannot reopen state base: $!");
+        my @keys = sort { ( stat File::Spec->catdir( $state_base, $b ) )[9] <=> ( stat File::Spec->catdir( $state_base, $a ) )[9] }
+            grep { $_ ne '.' && $_ ne '..' && -d File::Spec->catdir( $state_base, $_ ) } readdir $dh;
+        closedir $dh;
+        my $shown = 0;
+        for my $key (@keys) {
+            last if $shown >= 3;
+            my $dir = File::Spec->catdir( $state_base, $key );
+            next if $dir eq $state_root;
+            my $coll = File::Spec->catdir( $dir, 'collectors', 'tick.collector' );
+            next if !-d $coll;
+            $shown++;
+            diag( sprintf 'micro: OTHER populated state key %s mtime=%d', $key, ( stat $dir )[9] );
+            opendir my $cdh, $coll or next;
+            my @files = sort grep { -f File::Spec->catfile( $coll, $_ ) } readdir $cdh;
+            closedir $cdh;
+            for my $name (@files) {
+                my $path = File::Spec->catfile( $coll, $name );
+                diag( sprintf 'micro: other file %s size=%s mtime=%d', $path, -s $path, ( stat $path )[9] );
+                next if $name !~ /\A(?:loop\.json|stdout|status\.json)\z/;
+                open my $fh, '<:raw', $path or next;
+                local $/;
+                my $content = <$fh>;
+                close $fh;
+                $content = '' if !defined $content;
+                $loop_state_raw = $content if !defined $loop_state_raw && $name eq 'loop.json';
+                $content = substr( $content, 0, 3000 ) if length($content) > 3000;
+                $content =~ s/\n/\\n/g;
+                diag("micro: other content $path:\n$content");
+            }
+        }
     }
     if ( defined $loop_state_raw && $loop_state_raw ne '' ) {
         diag("micro: loop.json raw: $loop_state_raw");
@@ -221,7 +286,7 @@ if ( !$UNDER_COVER ) {
         }
     }
     else {
-        diag('micro: no loop.json found under serve home (loop child never wrote state)');
+        diag('micro: no loop.json found in any state dir (loop child never wrote state)');
     }
 
     # Stop everything so no orphan loop or web server lingers. The like
@@ -271,18 +336,22 @@ Trigger with the durable helper:
 python3 ~/workspace/jenkins-cli/trigger.py windows/loop6-combined t/997-micro-t05-360.t 1
 Read the console: each poll logs its index, elapsed time, poll duration
 and stdout value; every tenth poll logs the collector status; after the
-loop the micro walks the temp home on disk and prints every file with its
-size, then the contents of the loop state file (loop.json), the pidfile,
-the collector log and its .stderr sibling, and the stdout snapshot, plus
-whether the loop pid from loop.json is still alive, then asserts the
-output appeared.
+loop the micro prints the in-process runtime root and state root (after
+chdir to the serve home, so the layers match the CLI children's), lists
+every hashed state directory under the shared temp-area base with its
+mtime and whether it holds tick.collector, then the contents of the
+loop state file, stdout snapshot and status from the CLI's own
+collector dir and from any other populated hashed dir, plus whether
+the loop pid from loop.json is still alive, then asserts the output
+appeared.
 
 v1 asked the collector status store and got {} on ARM64, which proved no
 worker ever completed a run but said nothing about the loop child. v2
-reads the loop child's own files instead: loop.json shows whether the
-child ever wrote its first state and whether it is alive; the .stderr
-file shows a startup death, which the `collector log` command never
-shows.
+walked the temp home and found no loop.json there, which is EXPECTED:
+the collector state lives in the shared temp area under a hashed
+directory, not under the home. v3 measures the hashed state root
+directly: if the loop wrote to a different md5 key than the CLI reads,
+the other key shows up populated with fresh tick timestamps.
 
 =head1 WHAT USES IT
 
@@ -296,7 +365,8 @@ python3 ~/workspace/jenkins-cli/trigger.py windows/loop6-combined t/997-micro-t0
 Healthy run: the output appears within about 3 polls and the final like
 passes. Sick run (the round-25 signature): 40 polls, every stdout empty,
 collector status {} at every check, no log entries, and the post-mortem
-shows whether loop.json exists, what it says, whether the loop pid is
-alive, and what the .stderr file holds.
+shows whether the CLI's hashed state dir is empty while another hashed
+dir holds the loop's fresh ticks (state-root divergence), or whether no
+state dir anywhere holds a loop.json (the loop child never wrote state).
 
 =cut
