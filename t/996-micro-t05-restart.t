@@ -122,6 +122,24 @@ sub _perl_pids {
     return sort { $a <=> $b } @pids;
 }
 
+# _process_snapshot()
+# Lists the command lines of running perl processes on Windows, via
+# wmic with no where-clause (so the command needs no quoting at all).
+# Used to NAME the survivor: a pid alone cannot say whether it is the
+# web server, a collector loop, a supervisor or a tick child. Returns
+# the matching lines (Node,CommandLine,ParentProcessId,ProcessId CSV);
+# empty on non-Windows legs.
+sub _process_snapshot {
+    return () if $^O ne 'MSWin32';
+    my ( $stdout, $stderr, $exit_code ) = run_shell_command('wmic process get ProcessId,ParentProcessId,CommandLine /FORMAT:CSV');
+    return ("micro: wmic failed exit=$exit_code") if $exit_code != 0;
+    my @lines;
+    for my $line ( split /\r?\n/, $stdout ) {
+        push @lines, $line if $line =~ /perl/i;
+    }
+    return @lines;
+}
+
 if ( !$UNDER_COVER ) {
     my $home = tempdir( CLEANUP => 1 );
     diag("micro: shared home=$home");
@@ -168,6 +186,8 @@ if ( !$UNDER_COVER ) {
             sleep 0.25;
         }
         diag("micro: cycle $cycle collector ticked after $polls polls");
+        diag("micro: cycle $cycle process snapshot before restart:");
+        diag($_) for _process_snapshot();
         diag("micro: cycle $cycle starting restart");
         my $restart = _run_split( $cycle_home, 'restart', '-o', 'json', '--host', '127.0.0.1', '--port', $serve_port );
         diag("micro: cycle $cycle restart exit=$restart->{exit_code}");
@@ -192,6 +212,8 @@ if ( !$UNDER_COVER ) {
         my $stop = _run_split( $cycle_home, 'stop', '-o', 'json' );
         diag("micro: cycle $cycle stop exit=$stop->{exit_code}");
         diag( 'micro: cycle ' . $cycle . ' perl pids after stop: ' . join( ',', _perl_pids() ) );
+        diag("micro: cycle $cycle process snapshot after stop:");
+        diag($_) for _process_snapshot();
         _kill_survivors( $cycle_home, $web_pid );
         diag( 'micro: cycle ' . $cycle . ' perl pids after kill-cleanup: ' . join( ',', _perl_pids() ) );
         like( $restart->{stdout}, qr/^\{/, "micro: cycle $cycle restart stdout starts with JSON" );
@@ -233,19 +255,23 @@ silence trip): on Windows CreateProcess inherits every handle, so a
 spawned grandchild holding the pipe open blocks an EOF read forever.
 v2 captures through run_shell_command (Capture::Tiny temp-file
 capture, as t/05 does), which returns when the direct child exits.
-Solo #219 (v2): all three Unix legs PASS 3/3 and the Windows leg
-passed all three restart assertions too (restart stdout was JSON in
-every cycle) — but the Windows prove process then HUNG after "1..3"
-and tripped the FAIL-SAFE silence watchdog. At tempdir cleanup the
-shared home's staged _dashboard-core and logs/collectors.log(.stderr)
-were locked (Permission denied): a collector loop/worker survives
-`d2 stop` on Windows, holds those files open, and holds prove's pipes
-open so prove never sees EOF. The #217 plain-text restart did NOT
-reproduce in v2: each cycle used a FRESH home, so restart's stop only
-ever had to stop what serve had just started. v3 uses ONE home for all
-three cycles (as t/05 does) so survivors accumulate across cycles, and
-snapshots the perl.exe pid set before serve and after stop, to name
-the survivor and reproduce the #217 failure.
+Solo #220 (v3, one home): REPRODUCED the #217 failure on Windows in
+cycle 2. After cycle 1's stop two perl pids (4592, 6192) were still
+alive and the kill-cleanup could not kill them (they are neither the
+web pid nor the collector-status loop pid). Cycle 2's restart exited 0
+with EMPTY stdout and this stderr: "Failed to stop Windows process
+ids 9000: ERROR: The process with PID 5600 (child process of PID 9000)
+could not be terminated. Reason: The operation attempted is not
+supported. SUCCESS: The process with PID 7200 (child process of PID
+9000) has been terminated. SUCCESS: The process with PID 9000 (child
+process of PID 10960) has been terminated." So taskkill terminated the
+target (9000) and one child (7200) but died on one child (5600), and
+_send_signal dies on ANY non-zero taskkill exit that is not "not
+found" — aborting the restart before the new web/collectors start,
+while exiting 0. The web was dead after the failure and a second
+restart succeeded cleanly. v4 adds a wmic process snapshot (command
+lines) before each restart and after each stop, to name the survivor
+pids and the unkillable child.
 
 =head1 WHEN TO USE
 
