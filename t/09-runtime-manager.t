@@ -1289,13 +1289,22 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
         local $/;
         $follow_output = <$fh>;
         close $fh;
-        last if $follow_output =~ /gamma\n/;
+        # _follow_log_file reads with sysread, which bypasses the :crlf
+        # translation, so on Windows the appended "gamma\r\n" reaches the
+        # output with its \r intact (build #241 failed this test with
+        # got 'beta\ngamma\n\n' not matching gamma\n). Match an optional
+        # \r so the test asserts the line arrived, not the line ending.
+        last if $follow_output =~ /gamma\r?\n/;
         sleep 0.1;
     }
-    like( $follow_output, qr/gamma\n/, 'web_log follow mode streams appended log lines' );
+    like( $follow_output, qr/gamma\r?\n/, 'web_log follow mode streams appended log lines' );
     ok( Developer::Dashboard::GoRoutine::terminate_process( $follow_pid, 'TERM' ),
         'web_log follow process receives TERM through GoRoutine' );
-    is( Developer::Dashboard::GoRoutine::wait_process($follow_pid), 0,
+    # Same TerminateProcess shape as test 92: Windows TERM is an
+    # uncatchable kill, so the follow child exits 143 there and 0 on
+    # POSIX where the installed TERM handler runs.
+    my $is_windows = $^O eq 'MSWin32';
+    is( Developer::Dashboard::GoRoutine::wait_process($follow_pid), $is_windows ? 143 : 0,
         'web_log follow mode exits cleanly on TERM' );
 }
 {
@@ -1321,10 +1330,17 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
     # (1) kill's return value was discarded. A kill that signals no process is
     #     precisely the failure that would make a delivery problem invisible, so
     #     it is checked and reported rather than assumed.
-    ok( Developer::Dashboard::GoRoutine::terminate_process( $missing_pid, 'HUP' ),
+    # Windows supports only TERM and KILL in GoRoutineProcess.xs; HUP
+    # croaks there ("unsupported GoRoutine termination signal 'HUP'",
+    # build #241), so the Windows leg sends TERM and expects the
+    # TerminateProcess code 143. POSIX sends HUP and the installed
+    # handler exits 0.
+    my $is_windows = $^O eq 'MSWin32';
+    my $missing_signal = $is_windows ? 'TERM' : 'HUP';
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $missing_pid, $missing_signal ),
         '_follow_log_file child was actually signalled through GoRoutine' );
     my $missing_exit = Developer::Dashboard::GoRoutine::wait_process($missing_pid);
-    is( $missing_exit, 0, '_follow_log_file exits cleanly on HUP without a signal-derived status' );
+    is( $missing_exit, $is_windows ? 143 : 0, '_follow_log_file exits cleanly on HUP without a signal-derived status' );
 }
 {
     my $race_follow = "$home/signal-handler-install-race.log";
@@ -1369,7 +1385,13 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
         sleep 0.01;
     }
     is( $ready, "permissions-started\n", '_follow_log_file reaches file permission setup before signal handler installation race check' );
-    ok( Developer::Dashboard::GoRoutine::terminate_process( $race_pid, 'HUP' ),
+    # Same Windows rule as the HUP block above: HUP croaks in
+    # GoRoutineProcess.xs, so the Windows leg sends TERM and expects
+    # the TerminateProcess code 143; POSIX sends HUP and the handler
+    # installed before file setup exits 0.
+    my $is_windows = $^O eq 'MSWin32';
+    my $race_signal = $is_windows ? 'TERM' : 'HUP';
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $race_pid, $race_signal ),
         '_follow_log_file child receives HUP through GoRoutine during file setup' );
     open my $release, '>', $release_path or die "Unable to release race fixture $release_path: $!";
     close $release or die "Unable to close race release marker $release_path: $!";
@@ -1381,7 +1403,7 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
     }
     ok( $exited, '_follow_log_file child exits after handling HUP during file setup' );
     my $race_status = Developer::Dashboard::GoRoutine::wait_process($race_pid);
-    is( $race_status, 0, '_follow_log_file installs its HUP handler before file setup begins' );
+    is( $race_status, $is_windows ? 143 : 0, '_follow_log_file installs its HUP handler before file setup begins' );
     ok( !Developer::Dashboard::GoRoutine::process_running($race_pid),
         'GoRoutine reports the signal-race fixture reaped' );
 }
@@ -1441,9 +1463,15 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
         sleep 0.01;
     }
     ok( $follow_ready, '_follow_log_file has installed its signal handlers before INT is sent' );
-    ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, 'INT' ),
+    # Same Windows rule: INT croaks in GoRoutineProcess.xs (only TERM
+    # and KILL are supported there), so the Windows leg sends TERM and
+    # expects the TerminateProcess code 143; POSIX sends INT and the
+    # installed handler exits 0.
+    my $is_windows = $^O eq 'MSWin32';
+    my $follow_signal = $is_windows ? 'TERM' : 'INT';
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, $follow_signal ),
         '_follow_log_file child receives INT through GoRoutine' );
-    is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), 0,
+    is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), $is_windows ? 143 : 0,
         '_follow_log_file exits cleanly on INT' );
 }
 
