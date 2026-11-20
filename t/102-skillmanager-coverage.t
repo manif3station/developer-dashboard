@@ -489,7 +489,7 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     }
 
     # Empty cwd string takes the no-chdir path; empty banner is skipped.
-    my $empty_cwd = $manager->_run_streaming_command( command => ['true'], cwd => '', banner => '' );
+    my $empty_cwd = $manager->_run_streaming_command( command => [ $^X, '-e', 'exit 0' ], cwd => '', banner => '' );
     is( $empty_cwd->{exit}, 0, 'streaming command treats an empty cwd as no cwd' );
 
     # Real cwd plus a banner, streamed through an active progress task.
