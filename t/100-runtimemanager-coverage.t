@@ -1708,6 +1708,26 @@ is( $manager->_is_managed_web(999999), 0, '_is_managed_web rejects a dead pid' )
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'something else' };
     is( $manager->_is_managed_web($$), 0, '_is_managed_web rejects an unrelated process title' );
 }
+{
+    # Solo #351: the title read costs a full process-table enumeration on
+    # Windows, and the readiness waits call _is_managed_web on every poll.
+    # When persisted running state already names the pid and the live
+    # socket table confirms it owns that exact saved listener port, that
+    # is the same proof the old order used for the Starman master, so the
+    # title read is skipped. The answer is unchanged when state does not
+    # name the pid: the title read still runs, as the block above proves.
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return undef };
+    local *Developer::Dashboard::RuntimeManager::_read_settled_web_state = sub {
+        return ( { status => 'running', pid => $$, port => 7890 } );
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($$) };
+    my $title_calls = 0;
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { $title_calls++; return undef };
+    ok( $manager->_is_managed_web($$), '_is_managed_web trusts persisted running state plus the live socket table without a title read' );
+    is( $title_calls, 0, '_is_managed_web does not read the process title when state plus the socket table already prove the pid' );
+}
 
 # --- _detach_web_process_session --------------------------------------------
 {

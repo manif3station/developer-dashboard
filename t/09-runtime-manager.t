@@ -2357,6 +2357,43 @@ END {
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     no warnings 'redefine';
+    # Solo #351: every pre-bind readiness poll paid the ~5-9s PowerShell
+    # fallback because netstat found no listener yet, so a working Windows
+    # restart took 112-151s. A readiness wait passes the flag, so the
+    # fallback runs only once the port accepts: before the child has bound
+    # there is no listener for it to find. The ungated call above still
+    # finds a netstat-invisible listener, so the build #98 protection is
+    # intact.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
+    my $powershell_calls = 0;
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
+        $powershell_calls++;
+        return (
+            "2372\n5868\n2372\n",
+            '',
+            0,
+        );
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_netstat = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 0 };
+    is_deeply(
+        [ $manager->_listener_pids_for_port( 7890, 1 ) ],
+        [],
+        '_listener_pids_for_port with the readiness flag returns no pids while the port accepts nothing',
+    );
+    is( $powershell_calls, 0, '_listener_pids_for_port with the readiness flag does not run the PowerShell fallback while the port accepts nothing' );
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 1 };
+    is_deeply(
+        [ $manager->_listener_pids_for_port( 7890, 1 ) ],
+        [2372, 5868],
+        '_listener_pids_for_port with the readiness flag runs the PowerShell fallback once the port accepts',
+    );
+    is( $powershell_calls, 1, '_listener_pids_for_port with the readiness flag runs the PowerShell fallback exactly once when the port accepts' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
     # DD-753: RuntimeManager resolves the PowerShell executable now instead of
     # hardcoding it. Forcing OS_NAME makes is_windows true, but command_in_path
     # still finds nothing on this host and C:\Windows does not exist, so the

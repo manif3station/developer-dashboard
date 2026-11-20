@@ -254,7 +254,18 @@ sub _start_web_windows_background {
 
     my $running;
     for ( 1 .. $self->_runtime_stability_polls ) {
-        my @listener_pids = $self->_listener_pids_for_port($port);
+        # The pid query runs on every poll, as the tests pin: a listener
+        # is adopted as soon as the query reports it, even before the
+        # port accepts connections. But the query's PowerShell fallback
+        # costs ~5-9s per call on Windows (solo #351), and before the
+        # child has bound there is no listener for it to find - every
+        # pre-bind poll paid it. So the query is asked to run its
+        # fallback only once the port accepts: the listener is then up,
+        # netstat finds it directly in the normal case, and the fallback
+        # runs at most once, for a live listener netstat cannot see
+        # (build #98). The flag changes nothing when the port already
+        # accepts, and nothing when netstat sees the listener.
+        my @listener_pids = $self->_listener_pids_for_port( $port, 1 );
         if (@listener_pids) {
             my $listener_pid = $listener_pids[0];
             # See _start_web_background: prefer the spawned master pid over
@@ -476,15 +487,19 @@ sub stop_web {
         # left them running (build #243 failed t/09 test 170 on Windows
         # with the ajax child still alive after stop_all). Mirror it:
         # TERM the managed ajax workers, then KILL the ones still alive
-        # after the web shutdown wait.
-        my @ajax_workers = $self->_managed_ajax_processes;
+        # after the web shutdown wait. The ajax and legacy sweeps run
+        # back to back over the same process table, so share one scan:
+        # each full enumeration costs a PowerShell Get-CimInstance
+        # Win32_Process (seconds on Windows, solo #351).
+        my @stop_scan = $self->_ps_processes;
+        my @ajax_workers = $self->_managed_ajax_processes( \@stop_scan );
         my @ajax_worker_pids = map { $_->{pid} } @ajax_workers;
         $self->_send_signal( 'TERM', @ajax_worker_pids ) if @ajax_worker_pids;
         # Same gap as the ajax workers above: the POSIX branch also
         # stops legacy d2 serve processes, the Windows branch never
         # did, so a stubborn legacy child survived stop_web (build
         # #246 failed t/09 test 186 on Windows). Mirror it the same way.
-        my @legacy_web_pids = map { $_->{pid} } $self->_find_legacy_web_processes;
+        my @legacy_web_pids = map { $_->{pid} } $self->_find_legacy_web_processes( \@stop_scan );
         $self->_send_signal( 'TERM', @legacy_web_pids ) if @legacy_web_pids;
         for ( 1 .. 30 ) {
             last if !$self->_wait_for_windows_web_shutdown( $pid, $port, \@listener_pids );
@@ -595,11 +610,13 @@ sub _wait_for_unix_web_shutdown {
     return 0;
 }
 
-# _managed_ajax_processes()
+# _managed_ajax_processes($rows)
 # Returns dashboard Ajax singleton workers that belong to the current runtime so
 # web stop and restart actions do not interfere with unrelated dashboard Ajax
 # processes owned by the same user.
-# Input: none.
+# Input: optional process-table rows (array reference as returned by
+# _ps_processes) to search instead of scanning the table again; callers
+# that already hold a scan pass its rows in.
 # Output: list of ajax process hash references for the active runtime root.
 #
 # A real Ajax worker is found two ways. By its adopted title, `d2 ajax:
@@ -617,11 +634,11 @@ sub _wait_for_unix_web_shutdown {
 # a worker - that descendant belongs to the worker's subtree, and stopping
 # it with the web runtime is the intended outcome, not a false positive.
 sub _managed_ajax_processes {
-    my ($self) = @_;
+    my ( $self, $rows ) = @_;
     my $runtime_root = $self->{paths} ? $self->{paths}->state_root : '';
     my @matches;
     my %seen_pid;
-    for my $proc ( $self->_find_processes_by_prefix('d2 ajax:') ) {
+    for my $proc ( $self->_find_processes_by_prefix( 'd2 ajax:', $rows ) ) {
         my $marker = $self->_read_process_env_marker( $proc->{pid}, 'DEVELOPER_DASHBOARD_RUNTIME_ROOT' );
         next if defined $marker && $marker ne '' && $marker ne $runtime_root;
         next if defined $marker && $marker eq '' && $runtime_root ne '';
@@ -630,7 +647,8 @@ sub _managed_ajax_processes {
         $seen_pid{ $proc->{pid} } = 1;
     }
     if ( $self->_procfs_available ) {
-        for my $proc ( $self->_ps_processes ) {
+        my @table = ref($rows) eq 'ARRAY' ? @{$rows} : $self->_ps_processes;
+        for my $proc ( @table ) {
             next if $seen_pid{ $proc->{pid} };
             next if !$self->_proc_owned_by_current_user($proc);
             my $singleton = $self->_read_process_env_marker( $proc->{pid}, 'DEVELOPER_DASHBOARD_AJAX_SINGLETON' );
@@ -2739,23 +2757,40 @@ sub _is_managed_web {
     return 0 if !$self->_same_pid_namespace($pid);
     my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_WEB_SERVICE' );
     return 1 if defined $marker && $marker eq '1';
+
+    # The persisted-state proof goes before the title read. The title
+    # read costs a full process-table enumeration on Windows (one
+    # PowerShell Get-CimInstance Win32_Process per call, solo #351), and
+    # the readiness waits call this on every poll - while on Windows the
+    # title read almost never proves anything anyway, because $0 never
+    # rewrites the Windows launch command line. When persisted running
+    # state already names this pid and the live socket table confirms it
+    # owns that exact saved listener port, that is the same proof the old
+    # order used for the otherwise-opaque Starman master, so there is
+    # nothing left for the title read to add. When state does not name
+    # this pid, or the socket table does not list it as the owner, fall
+    # through to the title read unchanged: the order changes, the answer
+    # does not. The state check
+    # never returns 0 on its own - a socket that has not appeared yet is
+    # not proof the process is foreign, and the title is the proof the
+    # original order consulted first.
+    my ( $state ) = $self->_read_settled_web_state;
+    if ( ref($state) eq 'HASH'
+        && ( $state->{status} || '' ) eq 'running'
+        && $state->{pid}
+        && $state->{pid} =~ /^\d+$/
+        && $state->{pid} == $pid
+        && defined $state->{port}
+        && $state->{port} =~ /^\d+$/
+        && $state->{port} >= 1 )
+    {
+        return 1
+          if scalar( grep { $_ == $pid } $self->_listener_pids_for_port( $state->{port} ) );
+    }
+
     my $title = $self->_read_process_title($pid);
     return 1 if defined $title && $title =~ /^d2 web:/;
-
-    # Starman replaces the helper's process title with "starman master" and
-    # may re-exec its listener without the helper's runtime marker. Trust that
-    # otherwise opaque process only when persisted running state names this pid
-    # and the live socket table confirms it owns that exact saved listener port.
-    my ( $state ) = $self->_read_settled_web_state;
-    return 0 if ref($state) ne 'HASH'
-      || ( $state->{status} || '' ) ne 'running'
-      || !$state->{pid}
-      || $state->{pid} !~ /^\d+$/
-      || $state->{pid} != $pid
-      || !defined $state->{port}
-      || $state->{port} !~ /^\d+$/
-      || $state->{port} < 1;
-    return scalar( grep { $_ == $pid } $self->_listener_pids_for_port( $state->{port} ) ) ? 1 : 0;
+    return 0;
 }
 
 # _background_web_command(%args)
@@ -2885,9 +2920,11 @@ sub _pkill_perl {
     return;
 }
 
-# _find_processes_by_prefix($prefix)
+# _find_processes_by_prefix($prefix, $rows)
 # Returns running processes whose command lines start with a prefix.
-# Input: prefix string.
+# Input: prefix string and optional process-table rows (array reference
+# as returned by _ps_processes) to search instead of scanning the table
+# again; callers that already hold a scan pass its rows in.
 # Output: list of process hash references.
 #
 # A process also matches when its command line shows it ADOPTING the prefix
@@ -2903,9 +2940,9 @@ sub _pkill_perl {
 # command line, for example, contains the pattern text but never a $0
 # assignment.
 sub _find_processes_by_prefix {
-    my ( $self, $prefix ) = @_;
+    my ( $self, $prefix, $rows ) = @_;
     my @matches;
-    my @procs = $self->_ps_processes;
+    my @procs = ref($rows) eq 'ARRAY' ? @{$rows} : $self->_ps_processes;
     for my $proc ( @procs ) {
         next if !$self->_proc_owned_by_current_user($proc);
         if ( defined $proc->{args} && $proc->{args} =~ /^\Q$prefix\E/ ) {
@@ -2932,15 +2969,17 @@ sub _find_processes_by_prefix {
     return @matches;
 }
 
-# _find_web_processes()
+# _find_web_processes($rows)
 # Returns managed or older-compatible dashboard web processes.
-# Input: none.
+# Input: optional process-table rows (array reference as returned by
+# _ps_processes) to search instead of scanning the table again; callers
+# that already hold a scan pass its rows in.
 # Output: list of process hash references.
 sub _find_web_processes {
-    my ($self) = @_;
+    my ( $self, $rows ) = @_;
     my @seen;
     my %seen_pid;
-    for my $proc ( $self->_ps_processes ) {
+    for my $proc ( ref($rows) eq 'ARRAY' ? @{$rows} : $self->_ps_processes ) {
         next if $proc->{pid} == $$;
         next if $seen_pid{ $proc->{pid} }++;
         next if !$self->_proc_owned_by_current_user($proc);
@@ -2979,13 +3018,15 @@ sub _proc_owned_by_current_user {
     return ( $proc->{uid} + 0 ) == ( $< + 0 ) ? 1 : 0;
 }
 
-# _find_legacy_web_processes()
+# _find_legacy_web_processes($rows)
 # Returns older-style d2 serve processes.
-# Input: none.
+# Input: optional process-table rows (array reference as returned by
+# _ps_processes) to search instead of scanning the table again; callers
+# that already hold a scan pass its rows in.
 # Output: list of process hash references.
 sub _find_legacy_web_processes {
-    my ($self) = @_;
-    return grep { $_->{args} !~ /^d2 web:/ } $self->_find_web_processes;
+    my ( $self, $rows ) = @_;
+    return grep { $_->{args} !~ /^d2 web:/ } $self->_find_web_processes($rows);
 }
 
 # _looks_like_web_process($proc)
@@ -3076,12 +3117,15 @@ sub _managed_listener_pids_for_port {
     return grep { $self->_is_managed_web($_) } $self->_listener_pids_for_port($port);
 }
 
-# _listener_pids_for_port($port)
+# _listener_pids_for_port($port, $fallback_when_accepting)
 # Returns TCP listener process ids bound to one port.
-# Input: TCP port integer.
+# Input: TCP port integer and optional flag: when true, the Windows
+# PowerShell fallback runs only while the port accepts connections (a
+# readiness wait passes this, so the fallback is not paid on every
+# pre-bind poll for a listener that cannot exist yet).
 # Output: list of process ids.
 sub _listener_pids_for_port {
-    my ( $self, $port ) = @_;
+    my ( $self, $port, $fallback_when_accepting ) = @_;
 
     # DD-597: system() below mutates the caller's global $? as a side effect;
     # without this guard that stays set in the caller's process after this
@@ -3101,6 +3145,17 @@ sub _listener_pids_for_port {
         # netstat finds no listener.
         my @netstat_pids = $self->_listener_pids_for_port_via_netstat($port);
         return @netstat_pids if @netstat_pids;
+        # A readiness wait asks for the fallback only once the port
+        # accepts: before the child has bound there is no listener for
+        # the fallback to find, and each pre-bind poll paid ~5-9s for it
+        # (solo #351: Windows restarts took 112-151s). The fallback still
+        # runs when the port accepts, so a live listener netstat cannot
+        # see (build #98) is still found. Callers that must be sure the
+        # port is free - the shutdown and port-release waits - do not pass
+        # the flag, so their fallback is ungated as before.
+        if ( $fallback_when_accepting && !$self->_port_accepting_connections($port) ) {
+            return ();
+        }
         my $powershell = _powershell_command;
         return () if !length $powershell;
         my ( $stdout, undef, $exit_code ) = capture {
