@@ -437,12 +437,99 @@ sub _pid_namespace_id {
     return readlink $path;
 }
 
+# Cached Win32 process-query imports, attempted once; a failed import is
+# never retried, so a missing Win32 primitive degrades to kill(0) exactly
+# once (the Watch.pm _windows_peek_named_pipe shape).
+my $_WINDOWS_PROCESS_API;
+my $_WINDOWS_PROCESS_API_FAILED;
+
+# STILL_ACTIVE is the exit code GetExitCodeProcess reports for a process
+# that has not exited; PROCESS_QUERY_LIMITED_INFORMATION is the access
+# right OpenProcess needs to query it (micro t/997, solo #385).
+my $_WINDOWS_STILL_ACTIVE              = 259;
+my $_WINDOWS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+# _windows_process_api()
+# Imports the four kernel32 functions the Windows liveness check needs,
+# once, and caches them. Win32::API is loaded lazily so Unix legs never
+# pay for it and a leg without it keeps working.
+# Input: none.
+# Output: hash reference of imported function objects, or undef when the
+# import fails (callers fall back to kill(0)).
+sub _windows_process_api {
+    return $_WINDOWS_PROCESS_API if defined $_WINDOWS_PROCESS_API;
+    return undef if $_WINDOWS_PROCESS_API_FAILED;
+    my $api = eval {
+        require Win32::API;
+        my $open_process = Win32::API->new( 'kernel32', 'OpenProcess', 'NIN', 'Q' );
+        die "OpenProcess import failed\n" if !defined $open_process;
+        my $get_exit_code = Win32::API->new( 'kernel32', 'GetExitCodeProcess', 'QP', 'I' );
+        die "GetExitCodeProcess import failed\n" if !defined $get_exit_code;
+        my $get_process_id = Win32::API->new( 'kernel32', 'GetProcessId', 'Q', 'N' );
+        die "GetProcessId import failed\n" if !defined $get_process_id;
+        my $close_handle = Win32::API->new( 'kernel32', 'CloseHandle', 'Q', 'I' );
+        die "CloseHandle import failed\n" if !defined $close_handle;
+        {
+            open_process   => $open_process,
+            get_exit_code  => $get_exit_code,
+            get_process_id => $get_process_id,
+            close_handle   => $close_handle,
+        };
+    };
+    if ( !$api ) {
+        $_WINDOWS_PROCESS_API_FAILED = 1;
+        return undef;
+    }
+    $_WINDOWS_PROCESS_API = $api;
+    return $api;
+}
+
+# _process_exists_windows($pid)
+# Windows-only liveness check. A bare kill(0) cannot be trusted here:
+# Perl's kill(0) on Windows is OpenProcess-based, and OpenProcess rounds
+# the requested pid DOWN to a multiple of 4 (Windows pids are multiples
+# of 4), so kill(0, 3101) tests live pid 3100 and answers true - and a
+# process object can linger after exit while some handle to it is still
+# open, so the exit code must be checked too (round 42, t/09 test 209
+# with fake loop pids 3101/3102; micro t/997 proved both traps in solo
+# #385). All three must hold: the handle opened, GetProcessId on the
+# handle is exactly the pid asked for, and the exit code is STILL_ACTIVE.
+# The handle is closed on every path once opened: the values are read
+# into Perl scalars first and CloseHandle runs before any of the verdict
+# returns below, so there is no early return that can leak it. Called as
+# a plain function, not a method - it needs no object state. When the
+# Win32 imports are unavailable the check falls back to kill(0), so
+# behaviour degrades to today's rather than dying.
+# Input: process id integer.
+# Output: boolean true when the process is really running.
+sub _process_exists_windows {
+    my ($pid) = @_;
+    my $api = _windows_process_api();
+    return kill( 0, $pid ) ? 1 : 0 if !$api;
+    my $handle = $api->{open_process}->Call( $_WINDOWS_QUERY_LIMITED_INFORMATION, 0, $pid );
+    return 0 if !$handle;
+    my $real_pid = $api->{get_process_id}->Call($handle);
+    my $code_buf = pack 'L', 0;
+    my $ok = $api->{get_exit_code}->Call( $handle, $code_buf );
+    my $code = $ok ? unpack( 'L', $code_buf ) : undef;
+    $api->{close_handle}->Call($handle);
+    return 0 if !defined $real_pid || $real_pid != $pid;
+    return 0 if !defined $code;
+    return $code == $_WINDOWS_STILL_ACTIVE ? 1 : 0;
+}
+
 # _process_exists($pid)
 # Checks whether one process id still exists from the current runtime view.
+# On Windows a bare kill(0) is not that check: OpenProcess rounds the pid
+# down to a multiple of 4 and a lingering process object still opens, so
+# _process_exists_windows verifies the handle, the real pid and the exit
+# code instead (round 42, micro t/997). Unix keeps the bare kill(0),
+# which is exact there.
 # Input: process id integer.
-# Output: boolean true when signal 0 succeeds.
+# Output: boolean true when the process is really running.
 sub _process_exists {
     my ( $self, $pid ) = @_;
+    return _process_exists_windows($pid) if is_windows();
     return kill( 0, $pid ) ? 1 : 0;
 }
 
