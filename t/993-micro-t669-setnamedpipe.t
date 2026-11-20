@@ -341,7 +341,10 @@ my $child_slurp = do {
     local $/;
     <$slurp_fh>;
 };
-ok( -f $child_file && $child_slurp =~ /OUTCOME: nonblocking-eagain/ && $child_slurp =~ /SetNamedPipeHandleState/,
+ok( -f $child_file
+      && $child_slurp =~ /OUTCOME: \$outcome/
+      && $child_slurp =~ /nonblocking-eagain/
+      && $child_slurp =~ /SetNamedPipeHandleState/,
     'child probe program written with the variant dispatch' );
 
 # run_child($tag, $variant)
