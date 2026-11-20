@@ -604,6 +604,11 @@ SH
     no warnings 'redefine';
     local $ENV{PATH} = $fake_bin . Developer::Dashboard::PerlEnv::path_separator() . $ENV{PATH};
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ip = sub { return (); };
+    # _ip_interface_pairs tries ipconfig before ifconfig on Windows, so
+    # the ifconfig path is only reached when ipconfig yields nothing:
+    # stub it out the way the ipconfig test stubs ifconfig, or the real
+    # ipconfig on the box answers first and the fallback never runs.
+    local *Developer::Dashboard::Web::App::_ip_pairs_from_ipconfig = sub { return (); };
     is_deeply(
         [ $app->_ip_interface_pairs ],
         [ { iface => 'eth0', ip => '10.0.0.4' } ],

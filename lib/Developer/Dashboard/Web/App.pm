@@ -4156,14 +4156,24 @@ sub _ip_pairs_from_ip {
     # after this sub returns - a query function must not decide its
     # caller's exit status.
     local $?;
-    return () if !command_in_path('ip');
+    # Resolve first, then execute the resolved absolute path: a bare name
+    # handed to system() is resolved by CreateProcess on Windows, which
+    # only appends .exe, so a .cmd on PATH is invisible to it - the t/08
+    # fake ipconfig.cmd never ran and the real System32 ipconfig.exe
+    # answered instead (micro t/997 proved it). Resolving through
+    # command_in_path, which expands PATHEXT, finds the .cmd, and the
+    # absolute path runs it through cmd (the t/09 _taskkill_command
+    # pattern). No fallback: when the command is absent the helper
+    # returns no addresses, as the t/101/t/105 absence tests pin.
+    my $command = command_in_path('ip');
+    return () if !defined $command || $command eq '';
     # IP discovery is best effort: a capture failure (for example a bad
     # file descriptor being duplicated while the caller renders a page)
     # must not kill the render, so fall back to no addresses and let the
     # caller use the host or loopback address instead.
     my ( $stdout, undef, $exit_code ) = eval {
         capture {
-            system 'ip', '-o', '-4', 'addr', 'show', 'up', 'scope', 'global';
+            system $command, '-o', '-4', 'addr', 'show', 'up', 'scope', 'global';
             return $? >> 8;
         };
     };
@@ -4189,13 +4199,17 @@ sub _ip_pairs_from_ipconfig {
     # after this sub returns - a query function must not decide its
     # caller's exit status.
     local $?;
-    return () if !command_in_path('ipconfig');
+    # Resolve first, then execute the resolved absolute path - same
+    # CreateProcess/PATHEXT split as _ip_pairs_from_ip (t/08, micro
+    # t/997); no fallback when the command is absent.
+    my $command = command_in_path('ipconfig');
+    return () if !defined $command || $command eq '';
     # Same best-effort guard as _ip_pairs_from_ip: a capture failure
     # must not kill the caller (this is the call that killed t/105
     # after 387 passing subtests when the descriptor was unusable).
     my ( $stdout, undef, $exit_code ) = eval {
         capture {
-            system 'ipconfig';
+            system $command;
             return $? >> 8;
         };
     };
@@ -4229,12 +4243,16 @@ sub _ip_pairs_from_ifconfig {
     # after this sub returns - a query function must not decide its
     # caller's exit status.
     local $?;
-    return () if !command_in_path('ifconfig');
+    # Resolve first, then execute the resolved absolute path - same
+    # CreateProcess/PATHEXT split as _ip_pairs_from_ip (t/08, micro
+    # t/997); no fallback when the command is absent.
+    my $command = command_in_path('ifconfig');
+    return () if !defined $command || $command eq '';
     # Same best-effort guard as _ip_pairs_from_ip: a capture failure
     # must not kill the caller.
     my ( $stdout, undef, $exit_code ) = eval {
         capture {
-            system 'ifconfig';
+            system $command;
             return $? >> 8;
         };
     };
