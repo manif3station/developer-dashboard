@@ -216,12 +216,19 @@ my ( $huge_alive, $huge_errno, $huge_str, $huge_winerr ) = _kill0(999_999_999);
 diag("HEARTBEAT: phase A kill(0, 999999999) alive=$huge_alive errno=$huge_errno/$huge_str winerr=$huge_winerr");
 ok( !$huge_alive, 'kill(0) reports a never-existent pid dead' );
 
-my ( $one_alive ) = _kill0(1);
+my $control_pid = $IS_WINDOWS ? 1 : getppid();
+my ( $control_alive, $control_errno, $control_str, $control_winerr ) = _kill0($control_pid);
+diag("HEARTBEAT: phase A kill(0, $control_pid) alive=$control_alive errno=$control_errno/$control_str winerr=$control_winerr");
 if ($IS_WINDOWS) {
-    ok( !$one_alive, 'kill(0, 1) reports pid 1 dead on Windows (no such process exists there)' );
+    ok( !$control_alive, 'kill(0, 1) reports pid 1 dead on Windows (no such process exists there)' );
 }
 else {
-    ok( $one_alive, 'kill(0, 1) reports pid 1 alive on Unix (init)' );
+    # Pid 1 is root-owned on the Jenkins nodes, so kill(0, 1) answers
+    # false with EPERM there even though init exists: signal 0 conflates
+    # "no such process" with "no permission to signal it". The parent
+    # prove process is the same user and alive, so it is the correct
+    # known-alive low control on Unix.
+    ok( $control_alive, 'kill(0, parent) reports the parent process alive on Unix' );
 }
 
 diag('HEARTBEAT: phase A sanity controls done');
