@@ -3560,7 +3560,18 @@ sub _web_runtime_ready {
             # (build #258 failed t/09 test 237 on Windows because the
             # listener was checked first and never saw the disappearance).
             my $running = $self->running_web;
-            my @listener_pids = $self->_listener_pids_for_port($port);
+            # Gate the PowerShell fallback on the port accepting, as
+            # _start_web_windows_background already does: without the flag
+            # every poll while the listener is absent pays the ~5s
+            # Get-NetTCPConnection fallback (solo #351), so this 300-poll
+            # budget burns ~25 minutes of silence and trips the 3-minute
+            # fail-safe (round 51 stalled here inside d2 restart, after
+            # test 202, with zero test failures). With it, an absent
+            # listener costs one fast netstat probe per poll and the budget
+            # is the ~45s it was designed to be; a live listener netstat
+            # cannot see is still found once the port accepts, and the
+            # _port_accepting_connections check below covers the rest.
+            my @listener_pids = $self->_listener_pids_for_port( $port, 1 );
             # The POSIX branch below adopts the real listener pid once
             # Starman replaces the startup wrapper; the Windows branch
             # never did, so the adopted pid was never persisted and the
