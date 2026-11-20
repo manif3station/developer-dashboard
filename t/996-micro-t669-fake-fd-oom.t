@@ -80,14 +80,15 @@ if ( $mode eq 'direct' ) {
     exit 0;
 }
 
-if ( $mode eq 'guard-fcntl' ) {
-    print "CHILD: before fcntl guard\n";
-    require Fcntl;
-    my $flags = fcntl( $fd, Fcntl::F_GETFD(), 0 );
-    if ( !defined $flags ) {
-        print "OUTCOME: guard-tripped fcntl-EBADF\n";
+if ( $mode eq 'guard-dup' ) {
+    print "CHILD: before dup guard\n";
+    require POSIX;
+    my $dup = POSIX::dup($fd);
+    if ( !defined $dup || $dup < 0 ) {
+        print "OUTCOME: guard-tripped dup-EBADF\n";
         exit 0;
     }
+    POSIX::close($dup);
     print "CHILD: guard passed, wrapping\n";
     my $ok = eval { open my $handle, '<&=', $fd or die "wrap failed: $!"; 1 };
     if ($ok) {
@@ -284,15 +285,15 @@ is( classify($direct_run), classify( $phase_a[0] ),
     'phase E: direct open matches the product-wrap shape (perlio, not product logic)' );
 
 diag 'HEARTBEAT: phase D starting - guard shapes that never reach the wrap';
-my $fcntl_run = run_child( 'guard-fcntl', 999_999_999 );
-log_run( 'PHASE D fcntl guard', $fcntl_run );
-ok( $fcntl_run->{exit} == 0 && $fcntl_run->{stdout} =~ /OUTCOME: guard-tripped fcntl-EBADF/,
-    'phase D: fcntl guard trips before any wrap' );
+my $dup_run = run_child( 'guard-dup', 999_999_999 );
+log_run( 'PHASE D dup guard', $dup_run );
+ok( $dup_run->{exit} == 0 && $dup_run->{stdout} =~ /OUTCOME: guard-tripped dup-EBADF/,
+    'phase D: dup guard trips before any wrap' );
 my $range_run = run_child( 'guard-range', 999_999_999 );
 log_run( 'PHASE D range guard', $range_run );
 ok( $range_run->{exit} == 0 && $range_run->{stdout} =~ /OUTCOME: guard-tripped range/,
     'phase D: range guard trips before any wrap' );
-ok( $fcntl_run->{stderr} !~ /Out of memory/
+ok( $dup_run->{stderr} !~ /Out of memory/
       && $range_run->{stderr} !~ /Out of memory/,
     'phase D: neither guard child touched the perlio refcount table' );
 
@@ -333,7 +334,11 @@ whose mechanism was never proven: the test passes on amd64 and macOS and
 dies on the Pi after 201 passing tests. A micro that runs the exact wrap
 in an isolated child on all four legs, sweeps the descriptor size, and
 tries both guard shapes settles whether the fix belongs in the product
-wrap path and what shape it should take.
+wrap path and what shape it should take. An earlier fcntl F_GETFD guard
+shape was tried in solo #366 and rejected on the evidence: Strawberry
+Perl does not define the F_GETFD macro, and on Unix fcntl on a bare
+descriptor number warns and returns undef for ANY descriptor, valid or
+not, so it cannot test validity at all. The dup guard replaces it.
 
 =head1 WHEN TO USE
 
