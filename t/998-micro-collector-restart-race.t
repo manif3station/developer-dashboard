@@ -82,8 +82,8 @@ sub _quiet_run {
 
 sub _slurp {
     my ($path) = @_;
-    return if !defined $path || !-f $path;
-    open my $fh, '<', $path or return;
+    return undef if !defined $path || !-f $path;
+    open my $fh, '<', $path or return undef;
     local $/;
     my $content = scalar <$fh>;
     close $fh;
@@ -92,40 +92,23 @@ sub _slurp {
 
 sub _proc_cmdline {
     my ($pid) = @_;
-    return if $^O eq 'MSWin32';
-    return if !defined $pid || $pid !~ /^\d+$/;
+    return undef if $^O eq 'MSWin32';
+    return undef if !defined $pid || $pid !~ /^\d+$/;
     my $raw = _slurp("/proc/$pid/cmdline");
-    return if !defined $raw;
+    return undef if !defined $raw;
     $raw =~ s/\0/ /g;
     $raw =~ s/\s+$//;
     return $raw;
 }
 
-# _supervisor_pids() - pids whose command line mentions the collector
-# supervisor, by a /proc scan. Unix only; the supervisor title is
-# 'd2 collector supervisor', and before its $0 assignment the spawn argv
-# still carries the word supervisor.
-sub _supervisor_pids {
-    return () if $^O eq 'MSWin32';
-    return () if !-d '/proc';
-    opendir my $dh, '/proc' or return ();
-    my @found;
-    while ( my $entry = readdir $dh ) {
-        next if $entry !~ /^\d+$/;
-        my $cmdline = _proc_cmdline($entry);
-        next if !defined $cmdline || $cmdline eq '';
-        push @found, $entry + 0 if $cmdline =~ /supervisor/i;
-    }
-    closedir $dh;
-    return sort { $a <=> $b } @found;
-}
-
-# _loop_snapshot($home, $pid) - the observable registration state for one
+# _loop_snapshot($paths, $pid) - the observable registration state for one
 # collector loop: pidfile, loop.json, liveness, title, supervisor state.
-# No CLI call is made here, so sampling cannot disturb the window.
+# No CLI call is made here, so sampling cannot disturb the window. The
+# supervisor is reported only through this home's own supervisor state
+# (pid + liveness + title), never through a node-wide process scan: the
+# Jenkins nodes run other tests' supervisors too, and those are noise.
 sub _loop_snapshot {
-    my ( $home, $pid ) = @_;
-    my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
+    my ( $paths, $pid ) = @_;
     my $pidfile = File::Spec->catfile( $paths->collectors_root, 'cli.collector.pid' );
     my $statefile = File::Spec->catfile( $paths->collector_dir('cli.collector'), 'loop.json' );
     my $pidfile_content = _slurp($pidfile);
@@ -134,14 +117,16 @@ sub _loop_snapshot {
     my $state      = defined $state_raw && $state_raw ne '' ? eval { json_decode($state_raw) } : undef;
     my $sup_state_raw = _slurp( File::Spec->catfile( $paths->state_root, 'collector-supervisor.json' ) );
     my $sup_state = defined $sup_state_raw && $sup_state_raw ne '' ? eval { json_decode($sup_state_raw) } : undef;
+    my $sup_pid = ( ref($sup_state) eq 'HASH' ? $sup_state->{pid} : undef );
     return {
         pidfile       => defined $pidfile_content ? $pidfile_content : undef,
         state         => ( ref($state) eq 'HASH' ? $state : undef ),
         state_raw     => $state_raw,
         alive         => ( defined $pid && $pid =~ /^\d+$/ ) ? ( kill( 0, $pid ) ? 1 : 0 ) : undef,
         cmdline       => _proc_cmdline($pid),
-        supervisors   => [ _supervisor_pids() ],
-        sup_state_pid => ( ref($sup_state) eq 'HASH' ? $sup_state->{pid} : undef ),
+        sup_pid       => $sup_pid,
+        sup_alive     => ( defined $sup_pid && $sup_pid =~ /^\d+$/ ) ? ( kill( 0, $sup_pid ) ? 1 : 0 ) : undef,
+        sup_cmdline   => _proc_cmdline($sup_pid),
         sup_watched   => ( ref($sup_state) eq 'HASH' ? $sup_state->{watched_names} : undef ),
         sup_status    => ( ref($sup_state) eq 'HASH' ? $sup_state->{status} : undef ),
     };
@@ -152,18 +137,16 @@ sub _snapshot_line {
     my $state = $snap->{state};
     my $state_desc = !defined $state ? 'no-state'
       : sprintf 'state pid=%s status=%s', ( $state->{pid} // '?' ), ( $state->{status} // '?' );
-    my $sup = @{ $snap->{supervisors} }
-      ? 'supervisors=[' . join( ',', @{ $snap->{supervisors} } ) . ']'
-      : 'supervisors=[]';
-    my $sup_state = defined $snap->{sup_state_pid}
-      ? sprintf 'sup-state pid=%s status=%s watched=[%s]', $snap->{sup_state_pid}, ( $snap->{sup_status} // '?' ),
-      join( ',', @{ $snap->{sup_watched} || [] } )
-      : 'sup-state=none';
+    my $sup = defined $snap->{sup_pid}
+      ? sprintf 'sup pid=%s alive=%s cmdline=[%s] status=%s watched=[%s]',
+      $snap->{sup_pid}, ( $snap->{sup_alive} // '?' ), ( $snap->{sup_cmdline} // '?' ),
+      ( $snap->{sup_status} // '?' ), join( ',', @{ $snap->{sup_watched} || [] } )
+      : 'sup=none';
     my $title = defined $snap->{cmdline} ? sprintf 'cmdline=[%s]', $snap->{cmdline} : 'cmdline=?';
     diag(
-        sprintf '%s: pidfile=%s %s alive=%s %s %s %s',
+        sprintf '%s: pidfile=%s %s alive=%s %s %s',
         $label, ( defined $snap->{pidfile} ? $snap->{pidfile} : 'absent' ),
-        $state_desc, ( $snap->{alive} // '?' ), $title, $sup, $sup_state
+        $state_desc, ( $snap->{alive} // '?' ), $title, $sup
     );
     return;
 }
@@ -203,33 +186,19 @@ sub _fresh_home {
     return $home;
 }
 
-my @homes;
-
-# PHASE A: registration timeline. Start one loop, then poll ONLY files, the
-# pid and /proc every 0.1s for up to 10s - no CLI call inside the window, so
-# nothing disturbs the state the stop path will read.
-{
-    diag('PHASE A: registration timeline (files + pid + /proc only, no CLI call in the window)');
-    my $home = _fresh_home();
-    push @homes, $home;
-    local $ENV{HOME} = $home;
-    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
-    local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
-    local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
-
-    my $start_out = _run_in_home( $home, "$perl -I'$lib' '$dashboard' collector start cli.collector" );
-    like( $start_out, qr/\A\d+\n\z/, 'PHASE A: collector start prints the loop pid' );
-    my ($pid) = $start_out =~ /(\d+)/;
-    diag("PHASE A: start returned pid $pid");
-
-    my $t0            = time();
-    my $visible_ms    = undef;
-    my $visible_snap  = undef;
-    my $last_snap     = undef;
-    my $iterations    = 0;
+# _poll_visible($paths, $pid) - polls files, pid and /proc every 0.1s for
+# up to 10s and returns the milliseconds until the loop is first visible
+# to the stop path (pidfile + loop.json naming this pid with a live
+# starting/running/error status), plus the snapshot at that moment.
+# No CLI call is made inside the window. Prints a heartbeat every second.
+sub _poll_visible {
+    my ( $paths, $pid, $label ) = @_;
+    my $t0           = time();
+    my $visible_ms   = undef;
+    my $visible_snap = undef;
+    my $last_snap    = undef;
     for my $i ( 0 .. 99 ) {
-        $iterations = $i + 1;
-        my $snap = _loop_snapshot( $home, $pid );
+        my $snap = _loop_snapshot( $paths, $pid );
         $last_snap = $snap;
         my $state = $snap->{state};
         if ( defined $snap->{pidfile} && $snap->{pidfile} eq "$pid"
@@ -239,17 +208,41 @@ my @homes;
         {
             $visible_ms   = int( ( time() - $t0 ) * 1000 );
             $visible_snap = $snap;
-            _snapshot_line( "PHASE A: first visible at ${visible_ms}ms", $snap, $pid );
+            _snapshot_line( "$label: first visible at ${visible_ms}ms", $snap, $pid );
             last;
         }
         if ( $i % 10 == 9 ) {
-            _snapshot_line( sprintf( 'PHASE A: poll heartbeat %.1fs', time() - $t0 ), $snap, $pid );
+            _snapshot_line( sprintf( "$label: poll heartbeat %.1fs", time() - $t0 ), $snap, $pid );
         }
         sleep 0.1;
     }
     if ( !defined $visible_ms ) {
-        _snapshot_line( 'PHASE A: NEVER visible after 10s', $last_snap, $pid );
+        _snapshot_line( "$label: NEVER visible after 10s", $last_snap, $pid );
     }
+    return ( $visible_ms, $visible_snap, $last_snap );
+}
+
+my @homes;
+
+# PHASE A: registration timeline. Start one loop, then poll ONLY files, the
+# pid and /proc - no CLI call inside the window, so nothing disturbs the
+# state the stop path will read.
+{
+    diag('PHASE A: registration timeline (files + pid + /proc only, no CLI call in the window)');
+    my $home = _fresh_home();
+    push @homes, $home;
+    local $ENV{HOME} = $home;
+    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+    local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+    local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+    my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
+
+    my $start_out = _run_in_home( $home, "$perl -I'$lib' '$dashboard' collector start cli.collector" );
+    like( $start_out, qr/\A\d+\n\z/, 'PHASE A: collector start prints the loop pid' );
+    my ($pid) = $start_out =~ /(\d+)/;
+    diag("PHASE A: start returned pid $pid");
+
+    my ( $visible_ms, $visible_snap ) = _poll_visible( $paths, $pid, 'PHASE A' );
     ok( defined $visible_ms,
         defined $visible_ms
         ? "PHASE A: loop became visible ${visible_ms}ms after start"
@@ -264,7 +257,62 @@ my @homes;
     my $stop_table = _run_in_home( $home, "$perl -I'$lib' '$dashboard' stop collector cli.collector" );
     my $row = _table_row($stop_table);
     ok( 1, "PHASE A: stop table row after visible: [$row]" );
-    _snapshot_line( 'PHASE A: snapshot after stop', _loop_snapshot( $home, $pid ), $pid );
+    _snapshot_line( 'PHASE A: snapshot after stop', _loop_snapshot( $paths, $pid ), $pid );
+}
+
+# PHASE A2: status flip. The status command reads status.json, which only
+# the loop child writes on its first tick - not the launcher-written
+# loop.json the stop path reads. Poll status every 0.5s after the loop is
+# file-visible and record when its running flag flips to 1, and what the
+# loop state and title show at that moment.
+{
+    diag('PHASE A2: status flip (poll collector status every 0.5s after file-visible)');
+    my $home = _fresh_home();
+    push @homes, $home;
+    local $ENV{HOME} = $home;
+    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+    local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+    local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+    my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
+
+    my $start_out = _run_in_home( $home, "$perl -I'$lib' '$dashboard' collector start cli.collector" );
+    like( $start_out, qr/\A\d+\n\z/, 'PHASE A2: collector start prints the loop pid' );
+    my ($pid) = $start_out =~ /(\d+)/;
+    diag("PHASE A2: start returned pid $pid");
+
+    my ( $visible_ms, $visible_snap ) = _poll_visible( $paths, $pid, 'PHASE A2' );
+    ok( defined $visible_ms,
+        defined $visible_ms
+        ? "PHASE A2: loop became visible ${visible_ms}ms after start"
+        : 'PHASE A2: loop NEVER became visible within 10s of start' );
+
+    my $flip_ms = undef;
+    my $t0      = time();
+    for my $i ( 0 .. 9 ) {
+        my $status = json_decode( _run_in_home( $home, "$perl -I'$lib' '$dashboard' collector status cli.collector" ) );
+        my $snap = _loop_snapshot( $paths, $pid );
+        my $state = $snap->{state};
+        diag(
+            sprintf 'PHASE A2: status poll +%.1fs running=[%s] loop-state=[%s] title=[%s]',
+            time() - $t0, ( $status->{running} ? '1' : '0' ),
+            ( ref($state) eq 'HASH' ? ( $state->{status} // '?' ) : 'no-state' ),
+            ( $snap->{cmdline} // '?' )
+        );
+        if ( $status->{running} ) {
+            $flip_ms = int( ( time() - $t0 ) * 1000 );
+            last;
+        }
+        sleep 0.5;
+    }
+    ok( 1,
+        defined $flip_ms
+        ? "PHASE A2: collector status flipped to running ${flip_ms}ms after file-visible"
+        : 'PHASE A2: collector status NEVER flipped to running within 5s of file-visible' );
+
+    my $stop_table = _run_in_home( $home, "$perl -I'$lib' '$dashboard' stop collector cli.collector" );
+    my $row = _table_row($stop_table);
+    ok( 1, "PHASE A2: stop table row after status poll: [$row]" );
+    _snapshot_line( 'PHASE A2: snapshot after stop', _loop_snapshot( $paths, $pid ), $pid );
 }
 
 # PHASE B: delay sweep. Re-start, wait a fixed delay, stop, record the row.
@@ -278,6 +326,7 @@ my @homes;
     local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
     local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
     local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+    my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
 
     for my $delay ( 0.5, 2, 5 ) {
         my $start_out = _run_in_home( $home, "$perl -I'$lib' '$dashboard' collector start cli.collector" );
@@ -287,7 +336,7 @@ my @homes;
         my $stop_table = _run_in_home( $home, "$perl -I'$lib' '$dashboard' stop collector cli.collector" );
         my $row = _table_row($stop_table);
         ok( 1, "PHASE B: stop at +${delay}s row: [$row]" );
-        _snapshot_line( "PHASE B: snapshot after +${delay}s stop", _loop_snapshot( $home, $pid ), $pid );
+        _snapshot_line( "PHASE B: snapshot after +${delay}s stop", _loop_snapshot( $paths, $pid ), $pid );
     }
 }
 
@@ -303,6 +352,7 @@ my @homes;
     local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
     local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
     local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+    my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
 
     my $collector_start_pid = _run_in_home( $home, "$perl -I'$lib' '$dashboard' collector start cli.collector" );
     like( $collector_start_pid, qr/\A\d+\n\z/, 'PHASE C: d2 collector start still starts one named collector loop directly' );
@@ -316,11 +366,11 @@ my @homes;
     like( $restart_out, qr/\A\d+\n\z/, 'PHASE C: re-start prints the loop pid' );
     my ($pid) = $restart_out =~ /(\d+)/;
     diag("PHASE C: re-start returned pid " . ( defined $pid ? $pid : '?' ));
-    _snapshot_line( 'PHASE C: snapshot immediately after re-start, before stop', _loop_snapshot( $home, $pid ), $pid );
+    _snapshot_line( 'PHASE C: snapshot immediately after re-start, before stop', _loop_snapshot( $paths, $pid ), $pid );
 
     my $top_level_stop_named_collector = _run_in_home( $home, "$perl -I'$lib' '$dashboard' stop collector cli.collector" );
     like( $top_level_stop_named_collector, qr/Component\s+Target\s+Status/, 'PHASE C: d2 stop collector <name> prints a table summary by default' );
-    _snapshot_line( 'PHASE C: snapshot immediately after stop', _loop_snapshot( $home, $pid ), $pid );
+    _snapshot_line( 'PHASE C: snapshot immediately after stop', _loop_snapshot( $paths, $pid ), $pid );
     like( $top_level_stop_named_collector, qr/collector\s+cli\.collector\s+stopped/, 'PHASE C: d2 stop collector <name> reports the named collector row' );
 }
 
