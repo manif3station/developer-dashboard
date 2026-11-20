@@ -4888,6 +4888,12 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         ok( !$runner->_is_managed_loop( $$, $name ), '_is_managed_loop Windows fallback vetoes a helper argv without this runtime token' );
         $mock_title = "perl _dashboard-core collector-loop-foreground --name $name --runtime 00000000000000000000000000000000";
         ok( !$runner->_is_managed_loop( $$, $name ), '_is_managed_loop Windows fallback vetoes a helper argv carrying another runtime token' );
+        $mock_title = "perl -e \"\$0 = 'd2 collector: $name'; sleep 30\"";
+        is(
+            $runner->_is_managed_loop( $$, $name ) ? 1 : 0,
+            $^O eq 'MSWin32' ? 1 : 0,
+            '_is_managed_loop Windows fallback confirms a pidfile pid whose launch command line carries the loop title',
+        );
     }
     unlink $pidfile;
 }

@@ -1325,11 +1325,14 @@ sub _is_managed_loop {
     # else is not our loop, even when a pidfile names its pid - without
     # the veto, stop_loop('foreign') signalled the test process itself.
     # Only an unavailable title/marker (undef or empty - the process
-    # table has no entry for the pid) or a title showing our own
+    # table has no entry for the pid), a title showing our own
     # loop-helper argv (collector-loop-foreground --name <name> --runtime
     # <key>, the shape a real Windows loop child's CIM command line
-    # always has, since $0 never rewrites it) leaves the fallback in place
-    # for the slow / torn loop.json replace it was added for. The shape
+    # always has, since $0 never rewrites it), or a title carrying our
+    # own loop title as a token (a manual child spawned with $0 set to
+    # 'd2 collector: <name>', t/07 635, whose -e code carries the title
+    # inside the launch command line) leaves the fallback in place for
+    # the slow / torn loop.json replace it was added for. The shape
     # alone is not enough: a loop from another runtime has the same
     # helper shape with a different --runtime token, and confirming it
     # here would let stop_loop signal another runtime's loop.
@@ -1338,7 +1341,8 @@ sub _is_managed_loop {
         my $title_disagrees = defined $title && $title ne ''
           && !( $title =~ /\bcollector-loop-foreground\b/
             && $title =~ /--name\s+\Q$name\E(?:\s|\z)/
-            && $title =~ /--runtime\s+\Q$runtime_key\E\b/ );
+            && $title =~ /--runtime\s+\Q$runtime_key\E\b/ )
+          && !( $title =~ /\b\Q$self->_process_title($name)\E\b/ );
         my $marker_disagrees = defined $marker && $marker ne $name;
         if ( !$title_disagrees && !$marker_disagrees ) {
             my $recorded = eval { slurp_file( $self->_pidfile($name) ) };
