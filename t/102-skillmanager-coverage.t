@@ -2514,19 +2514,33 @@ sub _path_without_git {
 # The new Windows box has a real winget.exe (the App Installer execution
 # alias in the user's WindowsApps directory) in PATH; a direct spawn finds
 # it before the winget.cmd stub, so the test would run the real installer
-# instead of the stub. Strip every directory holding a winget.exe or
-# winget.com from PATH so the stub is what the spawn reaches.
+# instead of the stub. The alias is a 0-byte reparse point that Perl's
+# -f, -e and -l all miss (stat fails on it), so the directory is detected
+# by listing it instead: readdir sees winget.exe where stat cannot.
 sub _path_without_winget {
     my ($fake_bin) = @_;
     return "$fake_bin$path_sep$ENV{PATH}" if $^O ne 'MSWin32';
     my @kept;
     for my $dir ( split /\Q$path_sep\E/, ( $ENV{PATH} || '' ) ) {
         next if $dir eq '';
-        push @kept, $dir
-          if !-f File::Spec->catfile( $dir, 'winget.exe' )
-          && !-f File::Spec->catfile( $dir, 'winget.com' );
+        push @kept, $dir if !_dir_has_winget($dir);
     }
     return join( $path_sep, $fake_bin, @kept );
+}
+
+# _dir_has_winget($dir): true when the directory lists winget.exe or
+# winget.com. Listing, not stat: an App Installer execution alias is a
+# reparse point that -f/-e/-l cannot see, but readdir reports it.
+sub _dir_has_winget {
+    my ($dir) = @_;
+    opendir my $dh, $dir or return 0;
+    my @entries = readdir $dh;
+    closedir $dh;
+    for my $entry (@entries) {
+        my $lower = lc $entry;
+        return 1 if $lower eq 'winget.exe' || $lower eq 'winget.com';
+    }
+    return 0;
 }
 
 # _spew($path, $content): writes a file, creating parent directories.
