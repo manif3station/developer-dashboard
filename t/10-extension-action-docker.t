@@ -237,7 +237,13 @@ my $saved_page = Developer::Dashboard::PageDocument->new(
     state       => { alpha => 'one' },
     actions     => [
         { id => 'state', label => 'State', kind => 'builtin', builtin => 'page.state', safe => 1 },
-        { id => 'run', label => 'Run', kind => 'command', command => "printf shell-output\n", cwd => $repo },
+        # printf does not exist on the Windows job PATH and command
+        # actions run through PowerShell there, so use a portable perl
+        # -e instead. Single quotes keep the program literal under both
+        # sh and PowerShell (the env block below and t/11 use the same
+        # shape through this runner); qq() avoids quotes inside the
+        # program, which plain -Command would strip.
+        { id => 'run', label => 'Run', kind => 'command', command => "$^X -e 'print qq(shell-output\\n)'", cwd => $repo },
     ],
     permissions => {},
 );
@@ -344,7 +350,9 @@ like( $@, qr/Unsupported builtin action/, 'unsupported builtin actions are rejec
 my $transient_allowed = Developer::Dashboard::PageDocument->new(
     title       => 'Transient Allowed',
     actions     => [
-        { id => 'run', label => 'Run', kind => 'command', command => 'printf allowed' },
+        # Same portable perl -e shape as the saved-page command above:
+        # printf does not exist on the Windows job PATH.
+        { id => 'run', label => 'Run', kind => 'command', command => "$^X -e 'print qq(allowed\\n)'" },
     ],
     permissions => {
         allow_untrusted_actions => 1,
@@ -353,7 +361,7 @@ my $transient_allowed = Developer::Dashboard::PageDocument->new(
 );
 my $allowed_page = $transient_allowed;
 my $allowed_result = $actions->run_page_action(
-    action => { id => 'run', label => 'Run', kind => 'command', command => 'printf allowed' },
+    action => { id => 'run', label => 'Run', kind => 'command', command => "$^X -e 'print qq(allowed\\n)'" },
     page   => $allowed_page,
     source => 'transient',
 );
