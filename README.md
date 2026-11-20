@@ -7,7 +7,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/manif3station/developer-dashboard/actions/workflows/five-platform-coverage.yml"><img src="https://github.com/manif3station/developer-dashboard/actions/workflows/five-platform-coverage.yml/badge.svg" alt="Five-platform coverage"></a>
   <a href="https://metacpan.org/pod/Developer::Dashboard"><img src="https://img.shields.io/cpan/v/Developer-Dashboard.svg" alt="CPAN version"></a>
   <img src="https://img.shields.io/badge/Perl-5.38%2B-2e6ea6?logo=perl&amp;logoColor=white" alt="Perl 5.38 and later">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-1f2933" alt="macOS, Linux and Windows">
@@ -3567,9 +3566,9 @@ The init process reaps orphaned child processes so process-group cleanup tests
 observe the expected exit behavior. This option does not skip tests or change
 their assertions.
 
-The five-platform coverage workflow runs the full suite serially on macOS arm64,
-Linux amd64, Linux arm64, Windows amd64, and Windows arm64. Each stage must pass
-before the next begins. Linux and macOS install `Devel::Cover` into the local
+Pull requests are checked by the shared Jenkins job `D2/testing-v1`, which
+runs the full suite on macOS arm64, Linux amd64, Linux arm64, and Windows
+amd64. Linux and macOS install `Devel::Cover` into the local
 dependency tree and export that tree through `PERL5LIB` before running the
 complete suite. Coverage-gate regression tests launch child Perl processes, so
 those processes must resolve the same coverage serializer and project

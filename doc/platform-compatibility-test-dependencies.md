@@ -12,7 +12,6 @@ serializer. If the workflow omits the coverage tool or the `PERL5LIB` export,
 the gate exits before reaching its intended assertions, making tests such as
 `t/149`, `t/150`, `t/169`, and `t/175` fail for setup reasons.
 
-The regression test `t/227-skills-md-ci-triggers.t` checks that the install and
-environment-export step exists and precedes the full-suite step. Keep the
-existing test assertions intact; this workflow setup must make their required
-tooling available rather than changing expected results.
+The install and environment-export step must exist and precede the
+full-suite step. This workflow setup must make the required tooling
+available rather than changing expected results.
