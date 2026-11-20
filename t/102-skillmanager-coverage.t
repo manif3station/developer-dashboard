@@ -876,6 +876,7 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     }
     {
         local $ENV{DD_TEST_OS} = 'MSWin32';
+        local $ENV{PATH} = _path_without_winget($fake_bin);
         ok( !$manager->_install_skill_wingetfile($skill)->{error}, 'wingetfile install runs on Windows' );
     }
     {
@@ -922,6 +923,7 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
         }
         {
             local $ENV{DD_TEST_OS} = 'MSWin32';
+            local $ENV{PATH} = _path_without_winget($failbin);
             like( $manager->_install_skill_wingetfile($skill)->{error}, qr/winget dependencies/, 'wingetfile install reports failures' );
         }
         {
@@ -2504,6 +2506,25 @@ sub _path_without_git {
         push @kept, $dir
           if !-f File::Spec->catfile( $dir, 'git.exe' )
           && !-f File::Spec->catfile( $dir, 'git.com' );
+    }
+    return join( $path_sep, $fake_bin, @kept );
+}
+
+# _path_without_winget($fake_bin): like _path_without_git, but for winget.
+# The new Windows box has a real winget.exe (the App Installer execution
+# alias in the user's WindowsApps directory) in PATH; a direct spawn finds
+# it before the winget.cmd stub, so the test would run the real installer
+# instead of the stub. Strip every directory holding a winget.exe or
+# winget.com from PATH so the stub is what the spawn reaches.
+sub _path_without_winget {
+    my ($fake_bin) = @_;
+    return "$fake_bin$path_sep$ENV{PATH}" if $^O ne 'MSWin32';
+    my @kept;
+    for my $dir ( split /\Q$path_sep\E/, ( $ENV{PATH} || '' ) ) {
+        next if $dir eq '';
+        push @kept, $dir
+          if !-f File::Spec->catfile( $dir, 'winget.exe' )
+          && !-f File::Spec->catfile( $dir, 'winget.com' );
     }
     return join( $path_sep, $fake_bin, @kept );
 }
