@@ -100,6 +100,11 @@ like( $c_out, qr/config_snapshot=automatic\b/,
 # stderr on separate files (not Capture::Tiny), polled with a hard cap.
 # This separates "Capture::Tiny lost the output" from "the script printed
 # nothing": if both channels agree, the loss is not in the capture layer.
+# The handles must be passed in the ">&fd" dup form: a bare handle is
+# replaced by open3 with a pipe (the child then writes to the pipe, whose
+# read end is never read and the file stays empty - proven in a minimal
+# probe: trivial child, exit 0, both files empty with bare handles, both
+# correct with the dup form).
 my $b_out_file = "$tmpdir/open3-stdout.txt";
 my $b_err_file = "$tmpdir/open3-stderr.txt";
 open my $b_out_fh, '>', $b_out_file or die "Unable to open $b_out_file: $!";
@@ -108,7 +113,8 @@ diag '# HEARTBEAT: phase B starting, open3 portable run';
 my $b_pid;
 {
     local $ENV{P48_LIB} = $repo_lib;
-    $b_pid = open3( undef, $b_out_fh, $b_err_fh, $^X, $script, @portable_args );
+    $b_pid = open3( undef, '>&' . fileno($b_out_fh), '>&' . fileno($b_err_fh),
+        $^X, $script, @portable_args );
 }
 my $b_raw     = 0;
 my $b_reaped  = 0;
