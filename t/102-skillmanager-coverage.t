@@ -2249,7 +2249,7 @@ my $repos = tempdir( CLEANUP => 1 );
     _spew( File::Spec->catfile( $skill, 'wingetfile' ), "Git.Git\n" );
     my $bin = tempdir( CLEANUP => 1 );
     _stub_at( File::Spec->catfile( $bin, 'winget' ), "#!/bin/sh\nprintf out\nprintf err 1>&2\nexit 0\n", "\@echo off\n<nul set /p=out\n1>&2 <nul set /p=err\nexit /b 0\n" );
-    local $ENV{PATH}       = "$bin$path_sep$ENV{PATH}";
+    local $ENV{PATH}       = _path_without_winget($bin);
     local $ENV{DD_TEST_OS} = 'MSWin32';
     my $res = $manager->_install_skill_wingetfile($skill);
     ok( !$res->{error}, 'wingetfile install runs and accumulates output' ) or diag $res->{error};
