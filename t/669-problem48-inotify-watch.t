@@ -6,9 +6,10 @@ use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use Time::HiRes qw(sleep);
-use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
 use Errno ();
 use IO::Handle;
+use IO::Select;
+use IO::Socket::INET;
 use Test::More;
 
 my $repo_root = File::Spec->catdir( $FindBin::Bin, '..' );
@@ -730,41 +731,53 @@ ok( !$blank_disable_close_failure->configure( 'partial-blank-close', ['/root'] )
 like( $blank_disable_close_failure->last_error, qr/descriptor close failed: unknown close failure/,
     'partial cleanup with a blank native diagnostic remains explicitly visible' );
 
-# _windows_pipe_nonblocking($reader)
-# Makes the read end of an anonymous pipe nonblocking on Windows, where
-# fcntl has no F_SETFL, F_GETFL or O_NONBLOCK (Strawberry Perl defines
-# none of them) and IO::Handle->blocking(0) reports success yet still
-# blocks. SetNamedPipeHandleState with PIPE_NOWAIT is the Win32
-# mechanism for anonymous-pipe read ends.
-# Input: pipe read-end filehandle.
-# Output: true when the pipe is nonblocking, false otherwise.
-sub _windows_pipe_nonblocking {
-    my ($reader) = @_;
-    my $set_state = eval {
-        require Win32API::File;
-        require Win32::API;
-        Win32::API->new( 'kernel32', 'SetNamedPipeHandleState', 'QPPP', 'I' );
-    };
-    return 0 if !$set_state;
-    my $os_handle = Win32API::File::GetOsFHandle($reader);
-    return 0 if !defined $os_handle;
-    my $mode = pack 'L', 0x00000001;    # PIPE_READMODE_BYTE | PIPE_NOWAIT
-    return $set_state->Call( $os_handle, $mode, undef, undef ) ? 1 : 0;
+# _loopback_socketpair()
+# Creates a connected loopback socket pair for the read-error/eof fixture.
+# The read end can be made nonblocking on every platform with
+# IO::Handle->blocking(0): on Windows that is FIONBIO on a socket, where
+# an anonymous pipe cannot be made nonblocking at all (fcntl has no
+# F_SETFL on Strawberry Perl, and SetNamedPipeHandleState rejects
+# anonymous pipes with $^E = 87, probe solo #374). The peer stays open
+# for the error case and is closed for the end-of-file case.
+# Input: none.
+# Output: ($reader, $peer) connected socket handles, or dies on failure.
+sub _loopback_socketpair {
+    my $listener = IO::Socket::INET->new(
+        LocalAddr => '127.0.0.1',
+        LocalPort => 0,
+        Proto     => 'tcp',
+        Listen    => 1,
+        ReuseAddr => 1,
+    ) or die "Unable to create loopback listener: $!";
+    my $peer = IO::Socket::INET->new(
+        PeerAddr => '127.0.0.1',
+        PeerPort => $listener->sockport,
+        Proto    => 'tcp',
+    ) or die "Unable to connect loopback peer: $!";
+    my $reader = $listener->accept
+      or die "Unable to accept loopback connection: $!";
+    close $listener;
+    return ( $reader, $peer );
 }
 
 for my $read_case ( [ error => 1 ], [ eof => 0 ] ) {
-    my ( $kind, $send_writer ) = @{$read_case};
-    my ( $reader, $writer );
-    pipe( $reader, $writer ) or die "Unable to create $kind test pipe: $!";
-    if ( $^O eq 'MSWin32' ) {
-        _windows_pipe_nonblocking($reader)
-          or die "Unable to make $kind test pipe nonblocking: $!";
+    my ( $kind, $keep_peer ) = @{$read_case};
+    my ( $reader, $peer ) = _loopback_socketpair();
+    $reader->blocking(0)
+      or die "Unable to make $kind test socket nonblocking: $!";
+    if ( !$keep_peer ) {
+        close $peer;
+        # The peer's close sends FIN, but it reaches the read end
+        # asynchronously; wait until the socket reports readable so the
+        # forced read below sees end-of-file, not a transient EAGAIN.
+        my $selector = IO::Select->new($reader);
+        my $eof_ready = 0;
+        for ( 1 .. 100 ) {
+            if ( $selector->can_read(0) ) { $eof_ready = 1; last; }
+            sleep 0.01;
+        }
+        $eof_ready or die "Unable to observe EOF on $kind test socket: $!";
     }
-    else {
-        fcntl( $reader, F_SETFL, fcntl( $reader, F_GETFL, 0 ) | O_NONBLOCK )
-          or die "Unable to make $kind test pipe nonblocking: $!";
-    }
-    close $writer if !$send_writer;
     my $read_failure = $module->new(
         backend => {
             initialize => sub { return $reader },
@@ -775,9 +788,12 @@ for my $read_case ( [ error => 1 ], [ eof => 0 ] ) {
     ok( $read_failure->configure( "read-$kind", ['/root'] ), "$kind-read watcher configures" );
     $read_failure->{select} = bless {}, 'Local::Problem48AlwaysReadable';
     ok( !$read_failure->unchanged("read-$kind"), "$kind read invalidates the watcher" );
-    like( $read_failure->last_error, qr/Unable to read filesystem watch events|closed unexpectedly/,
+    my $expected_diagnostic = $kind eq 'error'
+      ? qr/Unable to read filesystem watch events/
+      : qr/closed unexpectedly/;
+    like( $read_failure->last_error, $expected_diagnostic,
         "$kind read failure has an explicit diagnostic" );
-    close $writer if $send_writer;
+    close $peer if $keep_peer;
 }
 
 my $unsupported;
