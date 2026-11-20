@@ -252,8 +252,14 @@ ok(
           && $phase_a[0]{stdout} =~ /Unable to wrap inotify descriptor/ ),
     'phase A: child output carries the shape-appropriate diagnostic'
 );
-is( $phase_a[0]{exit}, classify( $phase_a[0] ) eq 'oom' ? 255 : 0,
-    'phase A: child exit code matches the shape' );
+# Solo #365 measured the out-of-memory death exiting 22 on ARM64 (3/3),
+# not 255 as first assumed: the perlio failure is fatal to the child but
+# does not go through Perl's normal die path. What matters is only that
+# the death is fatal (non-zero) while the graceful path exits cleanly,
+# so assert that shape rather than the exact code.
+ok( ( classify( $phase_a[0] ) eq 'oom' && $phase_a[0]{exit} != 0 )
+      || ( classify( $phase_a[0] ) eq 'graceful' && $phase_a[0]{exit} == 0 ),
+    'phase A: child exit code matches the shape (non-zero for oom, zero for graceful)' );
 
 diag 'HEARTBEAT: phase B starting - threshold sweep over descriptor size';
 my @sweep_fds = ( 1_024, 65_536, 1_000_000, 100_000_000, 999_999_999 );
