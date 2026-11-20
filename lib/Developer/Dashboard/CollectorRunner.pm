@@ -1338,11 +1338,16 @@ sub _is_managed_loop {
     # here would let stop_loop signal another runtime's loop.
     if ( $^O eq 'MSWin32' ) {
         my $runtime_key = $self->_runtime_state_key;
+        # The loop title is hoisted out of the match: a method call inside
+        # a regex never runs (Perl interpolates only the $self variable,
+        # stringified, and treats ->_process_title(...) as literal text),
+        # so matching against it inline can never agree with any title.
+        my $loop_title = $self->_process_title($name);
         my $title_disagrees = defined $title && $title ne ''
           && !( $title =~ /\bcollector-loop-foreground\b/
             && $title =~ /--name\s+\Q$name\E(?:\s|\z)/
             && $title =~ /--runtime\s+\Q$runtime_key\E\b/ )
-          && !( $title =~ /\b\Q$self->_process_title($name)\E\b/ );
+          && !( $title =~ /\b\Q$loop_title\E\b/ );
         my $marker_disagrees = defined $marker && $marker ne $name;
         if ( !$title_disagrees && !$marker_disagrees ) {
             my $recorded = eval { slurp_file( $self->_pidfile($name) ) };
