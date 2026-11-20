@@ -6,6 +6,7 @@ our $VERSION = '6.31';
 
 use Errno qw(EILSEQ);
 use IO::Select;
+use POSIX ();
 
 use constant EVENT_MASK => 0x00000fce;
 
@@ -234,6 +235,20 @@ sub _linux_backend {
         initialize => sub {
             my $fd = _xs_inotify_init();
             return if !defined $fd || $fd < 0;
+
+            # Validate the descriptor before wrapping it: perlio grows its
+            # fd refcount table to cover the descriptor number before the
+            # open can fail with EBADF, so wrapping a bogus fd such as
+            # 999,999,999 asks for a ~4 GB table and dies out of memory
+            # on a small box (t/669 on ARM64). dup() is a raw syscall
+            # that never touches perlio, so it tests validity safely;
+            # the duplicate is closed at once. A failed dup dies with
+            # the same diagnostic the wrap itself would have produced.
+            my $probe = POSIX::dup($fd);
+            if ( !defined $probe ) {
+                die "Unable to wrap inotify descriptor $fd: $!";
+            }
+            POSIX::close($probe);
             open my $handle, '<&=', $fd
               or die "Unable to wrap inotify descriptor $fd: $!";
             return $handle;
