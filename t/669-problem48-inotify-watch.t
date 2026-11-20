@@ -730,12 +730,40 @@ ok( !$blank_disable_close_failure->configure( 'partial-blank-close', ['/root'] )
 like( $blank_disable_close_failure->last_error, qr/descriptor close failed: unknown close failure/,
     'partial cleanup with a blank native diagnostic remains explicitly visible' );
 
+# _windows_pipe_nonblocking($reader)
+# Makes the read end of an anonymous pipe nonblocking on Windows, where
+# fcntl has no F_SETFL, F_GETFL or O_NONBLOCK (Strawberry Perl defines
+# none of them) and IO::Handle->blocking(0) reports success yet still
+# blocks. SetNamedPipeHandleState with PIPE_NOWAIT is the Win32
+# mechanism for anonymous-pipe read ends.
+# Input: pipe read-end filehandle.
+# Output: true when the pipe is nonblocking, false otherwise.
+sub _windows_pipe_nonblocking {
+    my ($reader) = @_;
+    my $set_state = eval {
+        require Win32API::File;
+        require Win32::API;
+        Win32::API->new( 'kernel32', 'SetNamedPipeHandleState', 'QPPP', 'I' );
+    };
+    return 0 if !$set_state;
+    my $os_handle = Win32API::File::GetOsFHandle($reader);
+    return 0 if !defined $os_handle;
+    my $mode = pack 'L', 0x00000001;    # PIPE_READMODE_BYTE | PIPE_NOWAIT
+    return $set_state->Call( $os_handle, $mode, undef, undef ) ? 1 : 0;
+}
+
 for my $read_case ( [ error => 1 ], [ eof => 0 ] ) {
     my ( $kind, $send_writer ) = @{$read_case};
     my ( $reader, $writer );
     pipe( $reader, $writer ) or die "Unable to create $kind test pipe: $!";
-    fcntl( $reader, F_SETFL, fcntl( $reader, F_GETFL, 0 ) | O_NONBLOCK )
-      or die "Unable to make $kind test pipe nonblocking: $!";
+    if ( $^O eq 'MSWin32' ) {
+        _windows_pipe_nonblocking($reader)
+          or die "Unable to make $kind test pipe nonblocking: $!";
+    }
+    else {
+        fcntl( $reader, F_SETFL, fcntl( $reader, F_GETFL, 0 ) | O_NONBLOCK )
+          or die "Unable to make $kind test pipe nonblocking: $!";
+    }
     close $writer if !$send_writer;
     my $read_failure = $module->new(
         backend => {
