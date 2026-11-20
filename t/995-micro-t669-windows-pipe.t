@@ -70,8 +70,8 @@ diag 'HEARTBEAT: phase A before CORE select vec';
 vec( my $bits = '', fileno($reader), 1 ) = 1;
 my $selected = select( $bits, undef, undef, 0 );
 diag "HEARTBEAT: phase A CORE select returned $selected";
-is( $selected, $is_windows ? 0 : 1,
-    'phase A: CORE select on a pipe with data fires on Unix, never on Windows' );
+is( $selected, $is_windows ? -1 : 1,
+    'phase A: CORE select on a pipe with data fires on Unix, errors (-1) on Windows' );
 diag 'HEARTBEAT: phase A before empty-pipe control';
 my ( $empty_reader, $empty_writer );
 pipe( $empty_reader, $empty_writer ) or die "Unable to create empty control pipe: $!";
@@ -155,24 +155,32 @@ pipe( $mac_read_fh, $mac_write_fh ) or die "Unable to create FSEvents fixture pi
 $mac_write_fh->autoflush(1);
 our $micro995_read_events_called = 0;
 my $mac_backend;
+my ( $mac_handle, $mac_error );
+my ( $quiet_state, $quiet_error );
+my ( $event_state, $event_error );
 {
+    # The stub must stay installed while configure_paths runs: it calls
+    # Mac::FSEvents->new, and once this block ends the localization is
+    # undone and setup fails. (Solo #370 red on every leg for exactly
+    # this: configure was called outside the stub block.)
     no warnings qw(redefine once);
     local $INC{'Mac/FSEvents.pm'} = __FILE__;
     local *Mac::FSEvents::new = sub {
         return bless { fh => $mac_read_fh }, 'Local::Micro995FSEvents';
     };
     $mac_backend = $module->_macos_backend;
+    ( $mac_handle, $mac_error ) = $mac_backend->{configure_paths}->(['/one']);
+    diag "HEARTBEAT: phase C configure error=" . ( defined $mac_error ? $mac_error : 'undef' );
 }
 ok( ref($mac_backend) eq 'HASH', 'phase C: macOS backend loads with the stubbed module' );
-my ( $mac_handle, $mac_error ) = $mac_backend->{configure_paths}->(['/one']);
 ok( defined $mac_handle, 'phase C: macOS backend configures over the pipe fixture' );
 diag 'HEARTBEAT: phase C before quiet unchanged';
-my ( $quiet_state, $quiet_error ) = $mac_backend->{unchanged}->($mac_handle);
+( $quiet_state, $quiet_error ) = $mac_backend->{unchanged}->($mac_handle);
 is( $quiet_state, 1, 'phase C: quiet FSEvents stream reports unchanged on every leg' );
 diag 'HEARTBEAT: phase C before write';
 print {$mac_write_fh} "event\n" or die "Unable to signal FSEvents fixture: $!";
 diag 'HEARTBEAT: phase C wrote event, before unchanged';
-my ( $event_state, $event_error ) = $mac_backend->{unchanged}->($mac_handle);
+( $event_state, $event_error ) = $mac_backend->{unchanged}->($mac_handle);
 diag "HEARTBEAT: phase C unchanged after write: state="
   . ( defined $event_state ? $event_state : 'undef' );
 is( $event_state, $is_windows ? 1 : 0,
@@ -181,20 +189,26 @@ my ( $unread_read_fh, $unread_write_fh );
 pipe( $unread_read_fh, $unread_write_fh ) or die "Unable to create unreadable fixture pipe: $!";
 $unread_write_fh->autoflush(1);
 my $unread_backend;
+my ( $unread_handle, $unread_setup_error );
+my ( $unread_state, $unread_error );
 {
+    # Same stub-scope rule as the readable fixture above: configure_paths
+    # calls Mac::FSEvents->new, so it must run inside this block.
     no warnings qw(redefine once);
     local $INC{'Mac/FSEvents.pm'} = __FILE__;
     local *Mac::FSEvents::new = sub {
         return bless { fh => $unread_read_fh }, 'Local::Micro995UnreadableFSEvents';
     };
     $unread_backend = $module->_macos_backend;
+    ( $unread_handle, $unread_setup_error ) = $unread_backend->{configure_paths}->(['/one']);
+    diag "HEARTBEAT: phase C unreadable configure error="
+      . ( defined $unread_setup_error ? $unread_setup_error : 'undef' );
 }
-my ( $unread_handle, $unread_setup_error ) = $unread_backend->{configure_paths}->(['/one']);
 ok( defined $unread_handle, 'phase C: unreadable FSEvents fixture configures' );
 $micro995_read_events_called = 0;
 print {$unread_write_fh} "event\n" or die "Unable to signal unreadable fixture: $!";
 diag 'HEARTBEAT: phase C wrote unreadable event, before unchanged';
-my ( $unread_state, $unread_error ) = $unread_backend->{unchanged}->($unread_handle);
+( $unread_state, $unread_error ) = $unread_backend->{unchanged}->($unread_handle);
 diag "HEARTBEAT: phase C unreadable unchanged: state="
   . ( defined $unread_state ? $unread_state : 'undef' )
   . " error=" . ( defined $unread_error ? $unread_error : 'undef' )
