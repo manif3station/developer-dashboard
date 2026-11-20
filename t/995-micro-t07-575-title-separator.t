@@ -3,7 +3,9 @@ use warnings;
 use utf8;
 
 use IPC::Open3 qw(open3);
+use Symbol qw(gensym);
 use Test::More;
+use Time::HiRes qw(sleep);
 
 use lib 'lib';
 use lib 't/lib';
@@ -83,7 +85,13 @@ diag 'HEARTBEAT: phase B starting - spawned children, verbatim token echo';
 # command line, exactly as prove's file argument rides in a test child's.
 sub _spawn_and_read_title {
     my ($token) = @_;
-    my $pid = open3( my $in, my $out, my $err, $^X, '-e', 'sleep 30', $token );
+    # open3 only assigns handles back for stdin/stdout when passed undef;
+    # a stderr passed as undef stays undef (it shares stdout) and closing
+    # it dies, so all three handles are real globs up front.
+    my $in  = gensym;
+    my $out = gensym;
+    my $err = gensym;
+    my $pid = open3( $in, $out, $err, $^X, '-e', 'sleep 30', $token );
     close $in;
     my $title;
     for my $attempt ( 1 .. 10 ) {
