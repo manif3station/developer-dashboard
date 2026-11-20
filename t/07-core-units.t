@@ -4171,7 +4171,7 @@ ok( !$runner->_is_managed_loop( undef, 'demo' ), '_is_managed_loop rejects missi
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return };
-    like( $runner->_read_process_title($$), qr/t\/07-core-units\.t|prove/, '_read_process_title falls back to ps output when proc cmdline is unavailable' );
+    like( $runner->_read_process_title($$), qr{t[/\\]07-core-units\.t|prove}, '_read_process_title falls back to ps output when proc cmdline is unavailable' );
 }
 
 my $live_pidfile = File::Spec->catfile( $paths->collectors_root, 'live.pid' );
