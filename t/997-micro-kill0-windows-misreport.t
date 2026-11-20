@@ -96,7 +96,7 @@ sub _ps_state {
     return $state eq '' ? undef : $state;
 }
 
-my ( $_OPEN_PROCESS, $_GET_EXIT_CODE, $_GET_LAST_ERROR, $_CLOSE_HANDLE, $_WIN32_API_FAILED );
+my ( $_OPEN_PROCESS, $_GET_EXIT_CODE, $_GET_LAST_ERROR, $_CLOSE_HANDLE, $_GET_PROCESS_ID, $_WIN32_API_FAILED );
 
 # _win32_api()
 # Lazily imports the four kernel32 functions the OpenProcess probe needs,
@@ -117,6 +117,8 @@ sub _win32_api {
         die "GetLastError import failed\n" if !defined $_GET_LAST_ERROR;
         $_CLOSE_HANDLE = Win32::API->new( 'kernel32', 'CloseHandle', 'Q', 'I' );
         die "CloseHandle import failed\n" if !defined $_CLOSE_HANDLE;
+        $_GET_PROCESS_ID = Win32::API->new( 'kernel32', 'GetProcessId', 'Q', 'N' );
+        die "GetProcessId import failed\n" if !defined $_GET_PROCESS_ID;
         1;
     };
     if ( !$ok ) {
@@ -128,26 +130,33 @@ sub _win32_api {
 }
 
 # _open_process_state($pid)
-# Windows only. Opens the process and reads its exit code: STILL_ACTIVE
-# (259) means it has not exited; any other code means the process object
-# is lingering after exit while some handle to it is still open. That is
-# the distinction kill(0) cannot make: OpenProcess succeeds for both.
-# Output: (opened boolean, exit code or undef, Win32 last error).
+# Windows only. Opens the process and reads its exit code AND the real pid
+# the handle refers to. Two separate traps live here, both proven by the
+# read-only SSH probes on win-ts: OpenProcess rounds the requested pid
+# down to a multiple of 4 (OpenProcess(3101) opens pid 3100, proven by
+# GetProcessId on the handle in both Win32::API and exact .NET P/Invoke),
+# so the handle must be verified to be the pid asked for; and a process
+# object can linger after exit while some handle to it is still open
+# (pid 3104: tasklist/WMI/.NET all say absent, yet OpenProcess succeeds
+# with exit code 0), so STILL_ACTIVE must be checked too. Either check
+# alone still misreports.
+# Output: (opened boolean, real pid or undef, exit code or undef, Win32 last error).
 sub _open_process_state {
     my ($pid) = @_;
-    return ( undef, undef, undef ) if !_win32_api();
+    return ( undef, undef, undef, undef ) if !_win32_api();
     $^E = 0;
     my $handle = $_OPEN_PROCESS->Call( $QUERY_LIMITED_INFORMATION, 0, $pid );
     if ( !$handle ) {
         my $err = $_GET_LAST_ERROR->Call();
-        return ( 0, undef, $err );
+        return ( 0, undef, undef, $err );
     }
+    my $real_pid = $_GET_PROCESS_ID->Call($handle);
     my $code_buf = pack 'L', 0;
     $^E = 0;
     my $ok = $_GET_EXIT_CODE->Call( $handle, $code_buf );
     my $code = $ok ? unpack( 'L', $code_buf ) : undef;
     $_CLOSE_HANDLE->Call($handle);
-    return ( 1, $code, 0 );
+    return ( 1, $real_pid, $code, 0 );
 }
 
 # _probe_pid($pid, $live_before, $live_after)
@@ -160,8 +169,8 @@ sub _open_process_state {
 sub _probe_pid {
     my ( $pid, $live_before, $live_after ) = @_;
     my ( $alive, $errno_num, $errno_str, $winerr ) = _kill0($pid);
-    my ( $opened, $code, $last_error ) = ( undef, undef, undef );
-    ( $opened, $code, $last_error ) = _open_process_state($pid) if $IS_WINDOWS;
+    my ( $opened, $real_pid, $code, $last_error ) = ( undef, undef, undef, undef );
+    ( $opened, $real_pid, $code, $last_error ) = _open_process_state($pid) if $IS_WINDOWS;
     my $in_before = $live_before->{$pid} ? 1 : 0;
     my $in_after  = $live_after->{$pid}  ? 1 : 0;
     my $membership = ( $in_before && $in_after ) ? 'live' : ( !$in_before && !$in_after ) ? 'absent' : 'churned';
@@ -172,6 +181,7 @@ sub _probe_pid {
         errno_str   => $errno_str,
         winerr      => $winerr,
         opened      => $opened,
+        real_pid    => $real_pid,
         exit_code   => $code,
         last_error  => $last_error,
         membership  => $membership,
@@ -180,12 +190,14 @@ sub _probe_pid {
 
 # _running_via_open_process($probe)
 # Whether the OpenProcess exit-code check calls this probe running: the
-# handle opened AND the exit code is STILL_ACTIVE. A lingering handle to
-# an exited process opens fine but reports a real exit code, so it is
-# correctly not running.
+# handle opened AND it refers to exactly the pid asked for AND the exit
+# code is STILL_ACTIVE. Both halves are required: without the real-pid
+# check, OpenProcess(3101) reports the live pid 3100 as running; without
+# the exit-code check, the lingering pid 3104 object reports as running.
 sub _running_via_open_process {
     my ($probe) = @_;
     return 0 if !defined $probe->{opened} || !$probe->{opened};
+    return 0 if !defined $probe->{real_pid} || $probe->{real_pid} != $probe->{pid};
     return 0 if !defined $probe->{exit_code};
     return $probe->{exit_code} == $STILL_ACTIVE ? 1 : 0;
 }
@@ -242,12 +254,14 @@ my $sleeper = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', "sleep $SLEEP
 BAIL_OUT('GoRoutine::spawn failed for the live-child control') if !$sleeper;
 diag("HEARTBEAT: phase B sleeper pid=$sleeper");
 my ( $sleeper_alive ) = _kill0($sleeper);
-my ( $sleeper_opened, $sleeper_code ) = $IS_WINDOWS ? _open_process_state($sleeper) : ( undef, undef );
+my ( $sleeper_opened, $sleeper_real, $sleeper_code ) = $IS_WINDOWS ? _open_process_state($sleeper) : ( undef, undef, undef );
 diag("HEARTBEAT: phase B sleeper alive kill0=$sleeper_alive opened="
-        . ( defined $sleeper_opened ? $sleeper_opened : 'n/a' ) . ' exit_code='
-        . ( defined $sleeper_code ? $sleeper_code : 'n/a' ) );
+        . ( defined $sleeper_opened ? $sleeper_opened : 'n/a' )
+        . ' real_pid=' . ( defined $sleeper_real ? $sleeper_real : 'n/a' )
+        . ' exit_code=' . ( defined $sleeper_code ? $sleeper_code : 'n/a' ) );
 my $sleeper_alive_ok = $sleeper_alive
-    && ( !$IS_WINDOWS || ( $sleeper_opened && defined $sleeper_code && $sleeper_code == $STILL_ACTIVE ) );
+    && ( !$IS_WINDOWS
+        || ( $sleeper_opened && defined $sleeper_real && $sleeper_real == $sleeper && defined $sleeper_code && $sleeper_code == $STILL_ACTIVE ) );
 ok( $sleeper_alive_ok, 'live spawned child reports alive via kill(0) (and OpenProcess STILL_ACTIVE on Windows)' );
 
 my $exited = 0;
@@ -306,6 +320,7 @@ for my $repeat ( 1 .. $REPEAT_COUNT ) {
                 . ' errno=' . $probe->{errno_num} . '/' . $probe->{errno_str}
                 . ' winerr=' . $probe->{winerr}
                 . ' opened=' . ( defined $probe->{opened} ? $probe->{opened} : 'n/a' )
+                . ' real_pid=' . ( defined $probe->{real_pid} ? $probe->{real_pid} : 'n/a' )
                 . ' exit_code=' . ( defined $probe->{exit_code} ? $probe->{exit_code} : 'n/a' )
                 . ' last_error=' . ( defined $probe->{last_error} ? $probe->{last_error} : 'n/a' ) );
     }
@@ -383,6 +398,13 @@ for my $probe (@range_kill0_fp) {
 diag( 'HEARTBEAT: phase D range kill0_fp=[' . join( ',', map { $_->{pid} } @range_kill0_fp ) . ']'
         . ' openprocess_fp=[' . join( ',', map { $_->{pid} } @range_open_fp ) . ']'
         . ' nearest_live_distances={' . join( ' ', @range_distances ) . '}' );
+for my $probe (@range_kill0_fp) {
+    diag( 'HEARTBEAT: phase D range kill(0) false positive pid=' . $probe->{pid}
+            . ' opened=' . ( defined $probe->{opened} ? $probe->{opened} : 'n/a' )
+            . ' real_pid=' . ( defined $probe->{real_pid} ? $probe->{real_pid} : 'n/a' )
+            . ' exit_code=' . ( defined $probe->{exit_code} ? $probe->{exit_code} : 'n/a' )
+            . ' last_error=' . ( defined $probe->{last_error} ? $probe->{last_error} : 'n/a' ) );
+}
 diag('HEARTBEAT: phase D range scan done');
 
 my $range_open_fp_total = scalar @range_open_fp;
@@ -411,7 +433,7 @@ my $quick = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'exit 0' ], {} 
 BAIL_OUT('GoRoutine::spawn failed for the exited-child control') if !$quick;
 sleep 0.5;
 my ( $quick_alive, $quick_errno, $quick_str, $quick_winerr ) = _kill0($quick);
-my ( $quick_opened, $quick_code ) = $IS_WINDOWS ? _open_process_state($quick) : ( undef, undef );
+my ( $quick_opened, $quick_real, $quick_code ) = $IS_WINDOWS ? _open_process_state($quick) : ( undef, undef, undef );
 my $quick_exited = Developer::Dashboard::GoRoutine::process_exited($quick);
 my $quick_running = Developer::Dashboard::GoRoutine::process_running($quick);
 my $quick_ps = $IS_WINDOWS ? undef : _ps_state($quick);
@@ -419,6 +441,7 @@ diag( 'HEARTBEAT: phase E unreaped child pid=' . $quick
         . ' kill0=' . $quick_alive
         . ' errno=' . $quick_errno . '/' . $quick_str . ' winerr=' . $quick_winerr
         . ' opened=' . ( defined $quick_opened ? $quick_opened : 'n/a' )
+        . ' real_pid=' . ( defined $quick_real ? $quick_real : 'n/a' )
         . ' exit_code=' . ( defined $quick_code ? $quick_code : 'n/a' )
         . ' process_exited=' . $quick_exited
         . ' process_running=' . $quick_running
@@ -427,6 +450,8 @@ my $phase_e_ok;
 if ($IS_WINDOWS) {
     $phase_e_ok = $quick_alive
         && $quick_opened
+        && defined $quick_real
+        && $quick_real == $quick
         && defined $quick_code
         && $quick_code != $STILL_ACTIVE;
 }
@@ -461,10 +486,26 @@ t/09 test-209 block called the real stop_collectors with fake loop pids
 'running.alpha' did not stop after TERM and KILL": _process_exists is a
 bare kill(0, $pid), and on this Strawberry Perl kill(0) answers true for
 pids that the Win32 process list does not contain. The micro scans
-fixture and range pids with kill(0), an OpenProcess exit-code check, and
-a live-set enumeration in the same breath, repeats the fixture scan
-three times for stability, and reproduces the shape in miniature with a
-spawned child that exits before it is reaped.
+fixture and range pids with kill(0), an OpenProcess check (handle plus
+GetProcessId identity plus GetExitCodeProcess), and a live-set
+enumeration in the same breath, repeats the fixture scan three times
+for stability, and reproduces the shape in miniature with a spawned
+child that exits before it is reaped.
+
+The mechanism, proven by read-only SSH probes on win-ts before this
+micro was revised: Windows pids are multiples of 4, and OpenProcess
+resolves a requested pid by rounding down to a multiple of 4, so
+OpenProcess(3101) opens pid 3100 (ShellHost.exe, live) - proven by
+GetProcessId on the returned handle in both Win32::API and exact .NET
+P/Invoke, so the rounding is in OpenProcess itself, not in the Perl
+marshalling. Perl's kill(0) on Windows is OpenProcess-based, so it
+inherits the rounding. A second, separate trap: pid 3104 is an exited
+process whose object lingers while some handle to it is still open
+(exit code 0, yet tasklist, WMI, Get-Process and .NET all say absent),
+so kill(0, 3104..3107) is also true. Either check alone still
+misreports, so the OpenProcess check in this micro requires all three:
+the handle opened, GetProcessId equal to the pid asked for, and the
+exit code STILL_ACTIVE.
 
 =head1 WHY IT EXISTS
 
@@ -472,11 +513,12 @@ The round-42 monitor reproduced the misreport three times across fifteen
 minutes with read-only probes on win-ts and cross-checked it against a
 full Win32_Process scan and Get-Process, but a hand probe is not a
 verdict: the false-positive set, its stability, what $! and $^E say, and
-whether an OpenProcess exit-code check agrees with the live set all need
-to be pinned by the same run on all four legs. Without that, the fix
-choice (harden _process_exists in the product, or change the t/09
-fixture pids in the test) would be a guess, and a guessed fix for a
-liveness check can turn a loud failure into a silent wrong answer.
+whether an OpenProcess check (handle, GetProcessId identity, exit
+code) agrees with the live set all need to be pinned by the same run
+on all four legs. Without that, the fix choice (harden _process_exists
+in the product, or change the t/09 fixture pids in the test) would be a
+guess, and a guessed fix for a liveness check can turn a loud failure
+into a silent wrong answer.
 
 =head1 WHEN TO USE
 
@@ -489,15 +531,17 @@ against a live box for a verdict: the solo is the evidence.
 
 No setup: the micro enumerates the live pid set (tasklist on Windows,
 ps elsewhere), probes the t/09 fixture pids and two ranges with kill(0)
-plus OpenProcess/GetExitCodeProcess on Windows, repeats the fixture scan
-three times with sleeps, and runs two spawned-child controls (a sleeper
-that exits on its own, and a child that exits before it is reaped). The
-OUTCOME is in the HEARTBEAT diag lines: the kill(0) false-positive set
-per repeat, the OpenProcess false-positive set, the nearest-live distance
-of each false positive, and the $!/$^E values. The assertions only pin
-what must hold for the fix to work (the OpenProcess exit-code check never
-calls a definitely-absent pid running); the kill(0) false-positive set
-itself is recorded, not asserted, on Windows.
+plus OpenProcess/GetProcessId/GetExitCodeProcess on Windows, repeats
+the fixture scan three times with sleeps, and runs two spawned-child
+controls (a sleeper that exits on its own, and a child that exits
+before it is reaped). The OUTCOME is in the HEARTBEAT diag lines: the
+kill(0) false-positive set per repeat, the OpenProcess false-positive
+set, the nearest-live distance of each false positive, and the $!/$^E
+values. The assertions only pin what must hold for the fix to work
+(the OpenProcess check - handle opened, GetProcessId equal to the pid
+asked for, exit code STILL_ACTIVE - never calls a definitely-absent
+pid running); the kill(0) false-positive set itself is recorded, not
+asserted, on Windows.
 
 =head1 WHAT USES IT
 
@@ -507,12 +551,13 @@ verified. The Jenkins solo runner is the only caller.
 
 =head1 EXAMPLES
 
-On a leg where kill(0) is reliable the file passes with eleven
+On a leg where kill(0) is reliable the file passes with twelve
 assertions and empty false-positive sets. On the Windows node it passes
-the same eleven while the HEARTBEAT lines name the false positives, for
-example "kill(0) false positive pid=3101 errno=0/ winerr=0 opened=1
-exit_code=0 last_error=0", which is the whole mechanism in one line: the
-handle opens, the exit code is a real code rather than STILL_ACTIVE, and
-kill(0) still answers alive.
+the same twelve while the HEARTBEAT lines name the false positives, for
+example "kill(0) false positive pid=3101 errno=22/Invalid argument
+winerr=87 opened=1 real_pid=3100 exit_code=259 last_error=0", which is
+the whole mechanism in one line: the handle opens, GetProcessId shows
+it is really pid 3100, the exit code is STILL_ACTIVE for that live
+process, and kill(0) still answers alive for 3101.
 
 =cut
