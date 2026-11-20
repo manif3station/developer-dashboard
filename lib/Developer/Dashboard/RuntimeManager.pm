@@ -1855,6 +1855,10 @@ sub _run_collector_supervisor_child {
     # exits on a parent it never had.
     my $serve_parent = {};
 
+    # Epoch since which no watched loop has been running, for the
+    # quiesce check below. Undef while any watched loop is alive.
+    my $no_live_work_since;
+
     while (1) {
         $self->_reap_any_child_processes;
         my $state = $self->_collector_supervisor_state || {};
@@ -1888,22 +1892,77 @@ sub _run_collector_supervisor_child {
                 }
             );
         }
+        # Quiesce: a supervisor with no adopted parent (no web at all,
+        # for example a standalone collector start) and no live watched
+        # loop for a continuous period has nothing left to watch, so it
+        # exits instead of idling forever over dead loops. The timer
+        # resets whenever any watched loop is running, so a healthy
+        # supervisor never quiesces. A clean `d2 stop` already stops
+        # the supervisor, so this only covers the killed-run case,
+        # where no stop ever runs; _start_collector_supervisor
+        # respawns on the next collector start. When the loop scan
+        # itself fails, stay alive rather than quiescing blind.
+        if ( !defined $serve_parent->{pid} ) {
+            my @live = eval { $self->{runner}->running_loops };
+            my $scan_failed = $@ ? 1 : 0;
+            my %watched = map { $_ => 1 } @targets;
+            my $any_live = $scan_failed
+              || scalar grep { $watched{ $_->{name} } } @live;
+            if ($any_live) {
+                $no_live_work_since = undef;
+            }
+            else {
+                $no_live_work_since = time if !defined $no_live_work_since;
+                if ( time - $no_live_work_since >= $self->_collector_supervisor_quiesce_seconds ) {
+                    $self->_shutdown_collector_supervisor('quiesced');
+                }
+            }
+        }
         sleep $self->_collector_supervisor_poll_interval;
     }
 }
 
+# _is_starman_worker($pid)
+# Reports whether a pid is a Starman worker process. Workers hold the
+# listen socket like the master, so listener discovery can record one
+# in web.json, but a worker never dies on its own, so it must never be
+# adopted as a supervisor parent. Starman sets a worker's title to
+# "starman worker ..." and the master's to "starman master ...". An
+# unreadable title is not a worker: adoption keeps its previous
+# behaviour when the title cannot be read.
+# Input: process id integer.
+# Output: boolean true when the process title starts with "starman worker".
+sub _is_starman_worker {
+    my ( $self, $pid ) = @_;
+    return 0 if !defined $pid || $pid !~ /\A\d+\z/ || $pid <= 0;
+    my $title = $self->_read_process_title($pid);
+    return 0 if !defined $title;
+    return $title =~ /\Astarman worker\b/ ? 1 : 0;
+}
+
 # _check_collector_supervisor_parent($targets, $parent)
-# Adopts the live serve (web) pid as the supervisor's parent and exits
+# Adopts the serve (web) pid as the supervisor's parent and exits
 # once that parent has been dead longer than the grace period, stopping
 # the watched loops on the way out. The spawner pid is deliberately NOT
 # followed: restart and collector-start flows spawn the supervisor from
 # short-lived CLI processes, so spawner-following would kill a healthy
-# supervisor seconds after every restart. Adoption requires a live pid,
-# so a dead or absent web before adoption never triggers an exit, and a
-# supervisor with no web at all (standalone collectors) keeps running
-# exactly as today. Parent liveness is _pid_is_running, which is already
-# platform-aware, so the identical code path runs on Windows; no
-# getppid() anywhere (unimplemented on Strawberry Perl).
+# supervisor seconds after every restart. Adoption takes a dead pid as
+# well as a live one, with dead_since starting at adoption, so a
+# supervisor that starts after its web has already died still exits
+# once the grace expires instead of idling forever; a new live web
+# re-adopts on the next poll before the grace expires. A live Starman
+# worker is never adopted: workers hold the listen socket like the
+# master, so listener discovery can record one in web.json, but a
+# worker never dies on its own, so a supervisor that adopts it stays
+# alive forever. When web.json names a live worker and no parent is
+# adopted, no adoption happens and the quiesce check applies; when an
+# adopted parent is still alive, it still decides. A supervisor
+# with no web at all (standalone collectors) never adopts here and
+# keeps running while its loops are alive; once all its watched loops
+# have been dead for the quiesce period it exits via the quiesce check
+# in _run_collector_supervisor_child. Parent liveness is _pid_is_running,
+# which is already platform-aware, so the identical code path runs on
+# Windows; no getppid() anywhere (unimplemented on Strawberry Perl).
 # Input: watched collector names array reference, and the parent-state
 # hash reference the caller keeps across loop iterations.
 # Output: never returns once the adopted parent has been dead past the
@@ -1915,10 +1974,38 @@ sub _check_collector_supervisor_parent {
     if ( !$@ && $web && defined $web->{pid} && $web->{pid} =~ /\A\d+\z/ && $web->{pid} > 0 ) {
         $web_pid = $web->{pid} + 0;
     }
-    if ( defined $web_pid && $self->_pid_is_running($web_pid) ) {
+    my $web_running = defined $web_pid && $self->_pid_is_running($web_pid);
+    if ($web_running) {
+        if ( defined $parent->{pid} && $parent->{pid} == $web_pid ) {
+            # Same pid as already adopted: refresh the grace and stay.
+            # The title was checked at adoption, so there is no
+            # per-poll title read here; on Windows a title read costs
+            # a full process-table enumeration.
+            $parent->{dead_since} = undef;
+            return;
+        }
+        if ( $self->_is_starman_worker($web_pid) ) {
+            # A live worker is not a parent. A live adopted parent
+            # still decides (web.json can name a worker after a
+            # restart that recorded one); otherwise no adoption
+            # happens and the quiesce check applies.
+            return if defined $parent->{pid} && $self->_pid_is_running( $parent->{pid} );
+        }
+        else {
+            $parent->{pid}        = $web_pid;
+            $parent->{dead_since} = undef;
+            return;
+        }
+    }
+    if ( defined $web_pid && !defined $parent->{pid} && !$web_running ) {
+        # Adopt a dead web pid as well. A supervisor that starts after
+        # its web has already died (or whose web.json names a pid from
+        # an earlier run) would otherwise never adopt and never exit.
+        # dead_since starts now, so the grace period still covers a
+        # restart handover, and a new live web re-adopts on the next
+        # poll before the grace expires.
         $parent->{pid}        = $web_pid;
-        $parent->{dead_since} = undef;
-        return;
+        $parent->{dead_since} = time;
     }
     return if !defined $parent->{pid};
     $parent->{dead_since} = time if !defined $parent->{dead_since};
@@ -2201,6 +2288,21 @@ sub _collector_supervisor_parent_grace_seconds {
     my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR_PARENT_GRACE_SECONDS};
     return $value if defined $value && $value =~ /^(?:\d+|\d*\.\d+)$/ && $value > 0;
     return 30;
+}
+
+# _collector_supervisor_quiesce_seconds()
+# Returns how long a supervisor with no adopted serve parent may have no
+# live watched loop before it exits, in seconds. Covers the killed-run
+# case, where no stop ever runs and the supervisor would otherwise idle
+# forever over dead loops. A healthy supervisor resets the timer on
+# every pass, so only a sustained dead state quiesces.
+# Input: none.
+# Output: positive fractional second quiesce period.
+sub _collector_supervisor_quiesce_seconds {
+    my ($self) = @_;
+    my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR_QUIESCE_SECONDS};
+    return $value if defined $value && $value =~ /^(?:\d+|\d*\.\d+)$/ && $value > 0;
+    return 600;
 }
 
 # stop_progress_tasks()
