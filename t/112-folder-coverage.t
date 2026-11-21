@@ -91,8 +91,13 @@ is( Developer::Dashboard::Folder->tmp, File::Spec->tmpdir, 'tmp() reports the sy
 
     my $built = Developer::Dashboard::Folder::_paths_obj();
     isa_ok( $built, 'Developer::Dashboard::PathRegistry', 'a default path registry is built from HOME' );
-    is_deeply( [ $built->workspace_roots ], [ "$home/projects", "$home/work" ], 'the default registry keeps only existing workspace roots' );
-    is_deeply( [ $built->project_roots ],   [ "$home/projects", "$home/work" ], 'the default registry keeps only existing project roots' );
+    # catdir, not "$home/projects": the product builds default roots with
+    # File::Spec->catdir (Folder.pm _paths_obj, native separators), and
+    # interpolation spells the separator with a forward slash, so on Windows
+    # the expected value is a mixed-separator path the product never produces
+    # (round 56, t/112 tests 12-13: tempdir returns backslashes).
+    is_deeply( [ $built->workspace_roots ], [ File::Spec->catdir( $home, 'projects' ), File::Spec->catdir( $home, 'work' ) ], 'the default registry keeps only existing workspace roots' );
+    is_deeply( [ $built->project_roots ],   [ File::Spec->catdir( $home, 'projects' ), File::Spec->catdir( $home, 'work' ) ], 'the default registry keeps only existing project roots' );
 }
 
 # A registry object that cannot answer the runtime accessors must not be called
