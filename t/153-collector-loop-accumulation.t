@@ -78,6 +78,25 @@ sub supervisor_liveness {
                 : "DD-543: pid $pid was signalled (signal $signal) before its handler could run - an unnamed window",
             };
         }
+        # Windows has no signal deaths: waitpid never reports signal bits,
+        # so a supervisor killed by a signal arrives here as an exit code
+        # instead. Perl's kill() terminates with the signal number as the
+        # exit code (proven live on win-ts: kill KILL leaves exit 9, kill
+        # TERM against a process with no handler installed leaves exit 21
+        # via SIGBREAK), and the supervisor itself never exits 9 or 21 on
+        # its own - an orderly shutdown exits 0, a fatal error 255. An
+        # exit code of 9 or 21 is therefore the Windows shape of the
+        # DD-543 signal race, not an exit on its own.
+        if ( $^O eq 'MSWin32' ) {
+            my $status = $? >> 8;
+            if ( $status == 9 || $status == 21 ) {
+                my $name = $status == 9 ? 'SIGKILL' : 'SIGBREAK';
+                return {
+                    alive  => 0,
+                    reason => "DD-543: pid $pid was terminated by $name (exit code $status, the Windows shape of a signal death) before its handler could run - an unnamed window",
+                };
+            }
+        }
         return {
             alive  => 0,
             reason => 'pid ' . $pid . ' exited on its own (status ' . ( $? >> 8 ) . '), not a DD-543 signal race',
