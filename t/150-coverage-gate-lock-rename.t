@@ -26,6 +26,18 @@ my $source = File::Spec->catfile( getcwd(), 'script', 'coverage-gate' );
 
 plan skip_all => "the coverage gate is not present at $source" if !-f $source;
 
+# Devel::Cover is an optional development tool, not a declared runtime dependency.
+# Without it the gate takes a different and correct path - it reports that
+# Devel::Cover::DB::IO could not be loaded - so this file's subject cannot be
+# measured at all, and its assertions would report an environmental gap as a
+# defect. The guard sits BEFORE any plan is declared: t/151 previously died after
+# 3 of a planned 9, and "Bad plan. You planned 9 tests but ran 3" cannot tell a
+# reader which assertions were unmet and which were never attempted. Gated by
+# t/170-optional-tooling-skips.t, because CI carries Devel::Cover and would never
+# notice this guard being removed.
+plan skip_all => 'Devel::Cover is not installed, so the coverage gate cannot be exercised'
+  if !eval { require Devel::Cover::DB::IO; 1 };
+
 # The behaviour under test is about the DEFAULT database - the only one that ever
 # had a legacy lock name - so the test cannot simply pass --database and step out
 # of the way. Instead it gives the gate a repository of its own: the script
