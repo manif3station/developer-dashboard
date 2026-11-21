@@ -135,6 +135,24 @@ sub _set_child_subreaper {
 sub _terminate_group {
     my ( $pid, $can_reap_orphans ) = @_;
 
+    if ( $^O eq 'MSWin32' ) {
+        # Windows has no process-group signal: Perl's kill() rejects a
+        # negative pid with EINVAL (proven live on win-ts - kill TERM
+        # -pid returns 0 and the child stays alive), TerminateProcess
+        # kills one process only, and wait_process would then block
+        # until the child exits on its own - 600 seconds for the
+        # sleeper this helper exists to bound. Kill the whole tree
+        # with taskkill /T /F instead, the discipline
+        # CommandRunner::terminate_command_process already follows
+        # (t/121: the supervisor timeout escalation), then collect the
+        # leader (already reaped by then, so wait_process reports the
+        # documented 255 unknown status).
+        require Developer::Dashboard::CommandRunner;
+        Developer::Dashboard::CommandRunner::terminate_command_process($pid);
+        wait_process($pid);
+        return;
+    }
+
     kill 'TERM', -$pid;
 
     my $reaped_politely = 0;
@@ -240,6 +258,17 @@ forking, so that orphan reparents to the caller instead of to PID 1, and gets
 reaped directly once the group is killed. On a bare host, or on any other
 platform/architecture, this is a no-op: init there already reaps the orphan
 on its own, which is the behaviour this module always had.
+
+=head1 ON WINDOWS
+
+Perl's C<kill> cannot signal a process group on Windows: a negative pid is
+rejected with EINVAL, so the TERM/KILL escalation above would leave the
+child alive and C<wait_process> would block until it exits on its own -
+600 seconds for the sleeper this module exists to bound. The Windows
+branch of C<_terminate_group> therefore kills the whole tree with
+C<taskkill /T /F>, the discipline
+C<CommandRunner::terminate_command_process> already follows, and then
+collects the leader.
 
 =head1 HOW TO USE
 
