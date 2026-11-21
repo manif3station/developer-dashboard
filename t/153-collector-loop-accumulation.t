@@ -435,9 +435,35 @@ SKIP: {
 
 # Leave nothing behind whatever the assertions did.
 END {
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS. Every waitpid
+    # below that does not reap a child sets $? to -1 (proven: a WNOHANG
+    # waitpid on a live child, and one on an already-reaped child, both
+    # leave $? == -1 from a clean 0), and a reaped child leaves its own
+    # exit status there - a TERM-terminated supervisor exits 143 on
+    # Windows. Without this guard that value stays set when the process
+    # exits, and Test2's exit callback hands it to Test::Builder as the
+    # real exit code: solo #458 failed exactly that way, "Looks like your
+    # test exited with -1 just after 34", with all 34 tests passing.
+    # Same rule as ProcessSupervision::_reap_child_process and
+    # CollectorRunner::_read_process_title (DD-585).
+    local $?;
     my %seen;
     for my $pid ( grep { defined && /^\d+\z/ && $_ > 0 && !$seen{$_}++ } @owned_supervisor_pids ) {
-        kill 'TERM', $pid if kill 0, $pid;
+        if ( kill 0, $pid ) {
+            if ( $^O eq 'MSWin32' ) {
+                # Perl kill TERM never reaches a CreateProcess child (it
+                # has no console to deliver the event to), so the
+                # supervisors survived this block as orphans - six were
+                # still running on win-ts after the earlier direct runs.
+                # Terminate through the native process API instead, the
+                # discipline stop_loop already follows.
+                require Developer::Dashboard::GoRoutine;
+                Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
+            }
+            else {
+                kill 'TERM', $pid;
+            }
+        }
         for ( 1 .. 100 ) {
             my $reaped = waitpid( $pid, WNOHANG );
             last if $reaped == $pid || $reaped == -1;

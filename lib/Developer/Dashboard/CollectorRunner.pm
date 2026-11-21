@@ -1051,6 +1051,28 @@ sub stop_loop {
     }
     else {
         $pid = $self->_find_running_loop($name);
+        if ( !defined $pid ) {
+            # The process-table scan is procfs-only: on Windows opendir
+            # '/proc' fails, so it always returns undef and a loop whose
+            # pidfile is gone could never be stopped there - it survived
+            # stop_loop, held its log open, and (through the inherited
+            # handles GoRoutine spawn passes) held prove's stdout pipe
+            # open until the failsafe taskkilled the tree. Two live
+            # survivors on win-ts proved it: stop-finds-probe-7896 (pid
+            # 1396) and stop-finds-probe-10528 (pid 9276), both left by
+            # direct runs of t/153 whose stop_loop returned without
+            # signalling. Fall back to the launcher-written state, the
+            # same channel _adopt_existing_loop_if_running already
+            # trusts, validated the same way. The eval keeps a torn
+            # state file from turning a "nothing found" into a die,
+            # which is stop_loop's contract for an absent collector.
+            my $state = eval { $self->loop_state($name) };
+            my $state_pid = ref($state) eq 'HASH' ? $state->{pid} : undef;
+            $pid = $state_pid
+              if defined $state_pid
+              && "$state_pid" =~ /\A[1-9][0-9]*\z/
+              && $self->_state_confirms_managed_loop( $name, $state_pid );
+        }
         return if !defined $pid;
     }
     my @state_worker_pids = $self->_state_active_worker_pids($name);
