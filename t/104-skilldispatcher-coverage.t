@@ -354,7 +354,10 @@ is_deeply( $disp->_execute_hooks_streaming( 'runner', 'greet', [] ), { hooks => 
 
 my $child = quietly( sub {
     $disp->_run_child_command_streaming(
-        command    => [ '/bin/sh', '-c', 'echo direct-out; echo direct-err >&2' ],
+        # No /bin/sh on Windows, so the child never runs there (solo #416,
+        # test 40). Use the running perl instead, the same portable shape
+        # t/102 already uses for streaming children.
+        command    => [ $^X, '-e', 'print q{direct-out}; print STDERR q{direct-err}' ],
         stdin_mode => 'null',
     );
 } );
@@ -367,7 +370,11 @@ like( $child->{stdout}, qr/direct-out/, 'direct child runner captures stdout and
     $? = 12 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
     quietly( sub {
         $disp->_run_child_command_streaming(
-            command    => [ '/bin/sh', '-c', 'exit 0' ],
+            # As above: /bin/sh does not exist on Windows, so this passed
+            # vacuously there with no child ever spawned or reaped. The
+            # perl exit runs a real child on every platform, so the $?
+            # guard is genuinely exercised.
+            command    => [ $^X, '-e', 'exit 0' ],
             stdin_mode => 'null',
         );
     } );
