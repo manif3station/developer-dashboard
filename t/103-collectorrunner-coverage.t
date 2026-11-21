@@ -510,11 +510,14 @@ SKIP: {
 # _read_process_title: proc cmdline path, then the ps fallback under a mocked
 # capture so every exit-code and defined-title branch is exercised.
 {
-    # There is no procfs and no ps on Windows, so a title the product
-    # cannot read is undef there (the callers treat it as unknown); on a
-    # Unix host the current process always has a readable cmdline.
+    # On Windows the reader returns the CIM launch command line for a
+    # live process (the t/07 work: a $0 assignment never rewrites the
+    # Windows launch command line, but the process table still lists
+    # the full launch command), so the title is defined there too; on
+    # a Unix host the current process always has a readable cmdline.
     if ( $^O eq 'MSWin32' ) {
-        is( $runner->_read_process_title($$), undef, '_read_process_title returns undef on Windows, where there is no procfs and no ps' );
+        my $title = $runner->_read_process_title($$);
+        ok( defined $title && $title ne '', '_read_process_title reads the current process command line on Windows via CIM' );
     }
     else {
         my $title = $runner->_read_process_title($$);
@@ -522,19 +525,32 @@ SKIP: {
     }
 }
 {
-    # Windows branch: with procfs mocked away and no ps on Windows, the
-    # reader returns undef without spawning ps at all. Proved on Linux
-    # by mocking the procfs read and localizing the platform; on Windows
-    # the branch is live.
+    # Windows branch: with procfs mocked away the reader takes the CIM
+    # path on a live Windows host, where PowerShell resolves, so the
+    # capture runs once and returns the trimmed title; on a simulated
+    # Windows there is no PowerShell to run, so it returns undef
+    # without spawning anything at all. Proved on Linux by mocking
+    # the procfs read and localizing the platform; on Windows the
+    # branch is live.
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return undef };
     my $capture_called = 0;
     local *Developer::Dashboard::CollectorRunner::capture = sub { $capture_called++; return ( 'ps-title   ', '', 0 ) };
     {
         local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
-        is( $runner->_read_process_title($$), undef, 'on Windows _read_process_title returns undef without spawning ps' );
+        if ( $^O eq 'MSWin32' ) {
+            is( $runner->_read_process_title($$), 'ps-title', 'on Windows _read_process_title reads the title via CIM when procfs is unavailable' );
+        }
+        else {
+            is( $runner->_read_process_title($$), undef, 'on Windows _read_process_title returns undef without spawning ps' );
+        }
     }
-    is( $capture_called, 0, 'on Windows _read_process_title does not spawn ps at all' );
+    if ( $^O eq 'MSWin32' ) {
+        is( $capture_called, 1, 'on Windows _read_process_title calls capture once for the CIM read' );
+    }
+    else {
+        is( $capture_called, 0, 'on Windows _read_process_title does not spawn ps at all' );
+    }
 }
 {
     no warnings 'redefine';
@@ -563,12 +579,25 @@ SKIP: {
     {
         local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return 'garbage-without-format' };
         local *Developer::Dashboard::CollectorRunner::capture         = sub { return ( ' Ss ', '', 0 ) };
-        is( $runner->_read_process_state($$), 'S', '_read_process_state falls back to ps when procfs stat is unparseable' );
+        if ( $^O eq 'MSWin32' ) {
+            # ps does not exist on Windows, so a state procfs did not
+            # supply is simply unavailable there (the product returns
+            # early) and the callers treat undef as unknown.
+            is( $runner->_read_process_state($$), undef, '_read_process_state returns undef on Windows, where ps does not exist and state is unavailable' );
+        }
+        else {
+            is( $runner->_read_process_state($$), 'S', '_read_process_state falls back to ps when procfs stat is unparseable' );
+        }
     }
     {
         local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return '' };
         local *Developer::Dashboard::CollectorRunner::capture         = sub { return ( 'R', '', 0 ) };
-        is( $runner->_read_process_state($$), 'R', '_read_process_state falls back to ps when procfs stat is empty' );
+        if ( $^O eq 'MSWin32' ) {
+            is( $runner->_read_process_state($$), undef, '_read_process_state returns undef on Windows, where ps does not exist and state is unavailable' );
+        }
+        else {
+            is( $runner->_read_process_state($$), 'R', '_read_process_state falls back to ps when procfs stat is empty' );
+        }
     }
     {
         local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return undef };
