@@ -1304,7 +1304,13 @@ like( ( eval { $runner->_run_code( source => '1', cwd => File::Spec->catdir( $ho
     my $run_cwd = File::Spec->catdir( $home, 'restore-run-cmd' );
     make_path( $old_cwd, $run_cwd );
     chdir $old_cwd or die $!;
-    my $err = eval { $runner->_run_command( source => qq{rmdir '$old_cwd'}, cwd => $run_cwd, timeout_ms => 2000 ); 1 } ? '' : $@;
+    # A cold powershell.exe spawn on Windows takes about 2.2s (first-use
+    # module preparation), longer than the 2000ms this fixture used to
+    # allow, so the command was killed before rmdir ran, the directory
+    # survived, and the chdir back succeeded instead of dying (solo
+    # #413, test 253). Give it the product's own 30s default budget;
+    # the point of the test is the restore failure, not the timeout.
+    my $err = eval { $runner->_run_command( source => qq{rmdir '$old_cwd'}, cwd => $run_cwd, timeout_ms => 30000 ); 1 } ? '' : $@;
     chdir $home or die $!;
     like( $err, qr/Unable to restore cwd/, '_run_command dies when it cannot chdir back to the original cwd' );
 }
