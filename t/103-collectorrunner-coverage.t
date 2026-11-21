@@ -110,6 +110,12 @@ my $runner          = Developer::Dashboard::CollectorRunner->new(
     my $expected_cwd = ( $ENV{HARNESS_PERL_SWITCHES} // q{} ) =~ /Devel::Cover/ ? $repo_root : $home;
     ( my $portable_child_cwd = $child_cwd ) =~ s{/private(?=/var/folders/)}{}g;
     ( my $portable_expected_cwd = "$expected_cwd\n" ) =~ s{/private(?=/var/folders/)}{}g;
+    # Windows spells the same directory two ways: Cwd::cwd() returns
+    # forward slashes while File::Temp::tempdir returns backslashes, so
+    # the raw strings never match there (round 52, test 2). Compare
+    # with one separator; Unix paths carry no backslashes to disturb.
+    $portable_child_cwd =~ s{\\}{/}g;
+    $portable_expected_cwd =~ s{\\}{/}g;
     is( $portable_child_cwd, $portable_expected_cwd, 'coverage-instrumented GoRoutine children start in the checkout while ordinary fixtures retain the temporary HOME cwd' );
 }
 
