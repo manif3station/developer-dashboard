@@ -24,7 +24,17 @@ sub run_cli {
     my (@args) = @_;
     my ( $stdout, $stderr, $exit ) = capture {
         system $perl, "-I$lib", $d2, @args;
-        return $? >> 8;
+        my $status = $?;
+        # A child killed by a signal leaves $? >> 8 at 0, which would
+        # masquerade as a successful exit: in build #443 a
+        # `shell zsh --help` child died by signal in the failFast window
+        # after another leg failed (empty stdout/stderr, exit reported 0),
+        # and the test then reported a spurious "exits successfully" plus
+        # an empty synopsis. Encode signal death the way the product does
+        # (128 + signal, see CommandRunner::exit_code_from_status) so a
+        # killed child is reported as a failure instead.
+        return 128 + ( $status & 127 ) if $status > 0 && ( $status & 127 );
+        return $status >> 8;
     };
     return ( $stdout, $stderr, $exit );
 }
