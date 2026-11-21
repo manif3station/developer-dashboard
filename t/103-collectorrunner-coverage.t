@@ -870,7 +870,17 @@ SKIP: {
 }
 
 # _overwrite_state_file_in_place: Linux no-op and Windows failure/success paths.
-is_deeply( [ $runner->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '_overwrite_state_file_in_place no-ops on a non-Windows host' );
+if ( $^O eq 'MSWin32' ) {
+    # On Windows the helper does not no-op: it takes the Windows path and
+    # tries to read the source, so a missing source fails with a read
+    # error instead of the (0, '') no-op (solo #410, test 137). Match
+    # the stable error prefix; the trailing $! text varies by platform.
+    my ( $ok, $err ) = $runner->_overwrite_state_file_in_place( 'a', 'b' );
+    ok( !$ok && $err =~ /\AUnable to read a for in-place overwrite: /, '_overwrite_state_file_in_place fails to read a missing source on Windows' );
+}
+else {
+    is_deeply( [ $runner->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '_overwrite_state_file_in_place no-ops on a non-Windows host' );
+}
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
