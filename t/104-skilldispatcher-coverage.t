@@ -282,6 +282,27 @@ ok( $hook_entry, 'execute_hooks records the failing hook' );
 is( $hook_fail->{hooks}{$hook_entry}{exit_code}, 1,
     'execute_hooks reports the real exit code for a failing hook, not the raw wait-status' );
 
+# _run_with_exec_failure($fail_re, $code)
+# Runs $code with the final exec handoff faked to fail, so the error path of
+# exec_command / _exec_resolved_command can be asserted without replacing
+# the test process. On Unix the exec shim above does it: $fail_re selects
+# the argv to fail. On Windows _exec_replacement never calls exec() at all
+# - it runs system() and exits - so the shim can never fire there (round
+# 53, t/104 test 26: the real 'solo' ran and exit killed the test process
+# mid-test). Mock the replacement itself on Windows instead; it is the seam
+# the product actually uses there, and _exec_resolved_command still
+# assembles the same 'Unable to exec ...' error from its return.
+sub _run_with_exec_failure {
+    my ( $fail_re, $code ) = @_;
+    local $Local::ExecShim::FAIL_RE = $fail_re;
+    if ( $^O eq 'MSWin32' ) {
+        no warnings 'redefine';
+        local *Developer::Dashboard::SkillDispatcher::_exec_replacement = sub { 'No such file or directory' };
+        return $code->();
+    }
+    return $code->();
+}
+
 # ---------------------------------------------------------------------------
 # exec_command(): guards plus the exec handoff (faked via the shim).
 # ---------------------------------------------------------------------------
@@ -293,27 +314,24 @@ ok( $disp->exec_command( 'disabledskill', 'greet' )->{error}, 'exec_command refu
 
 {
     local %ENV = %ENV;
-    local $Local::ExecShim::FAIL_RE = qr{/solo\z};
-    my $exec_solo = $disp->exec_command( 'runner', 'solo' );
+    my $exec_solo = _run_with_exec_failure( qr{/solo\z}, sub { $disp->exec_command( 'runner', 'solo' ) } );
     like( $exec_solo->{error}, qr/\AUnable to exec /, 'exec_command surfaces the exec failure for a hookless command' );
 }
 {
     local %ENV = %ENV;
-    local $Local::ExecShim::FAIL_RE = qr{/exectest\z};
-    my $exec_hooked = quietly( sub { $disp->exec_command( 'runner', 'exectest' ) } );
+    my $exec_hooked = _run_with_exec_failure( qr{/exectest\z}, sub { quietly( sub { $disp->exec_command( 'runner', 'exectest' ) } ) } );
     like( $exec_hooked->{error}, qr/\AUnable to exec /, 'exec_command runs streaming hooks then reports the exec failure' );
 }
 
 # DD-1043: exec_command's native .version fallback - no cli/version script
 # exists for 'runner', so it reads VERSION=9.99 from the .env staged above
-# and hands it to _exec_replacement, going through the same shimmed exec()
-# every other exec_command path already uses.
+# and hands it to _exec_replacement, going through the same faked exec
+# failure every other exec_command path already uses.
 {
     is( $disp->dispatch( 'runner', 'version' )->{stdout}, "9.99\n", 'dispatch native .version fallback prints the .env VERSION=' );
 
-    local $Local::ExecShim::FAIL_RE = qr/./s;
-    my $exec_version = $disp->exec_command( 'runner', 'version' );
-    like( $exec_version->{error}, qr/\AUnable to exec /, 'exec_command native .version fallback routes through the shimmed exec()' );
+    my $exec_version = _run_with_exec_failure( qr/./s, sub { $disp->exec_command( 'runner', 'version' ) } );
+    like( $exec_version->{error}, qr/\AUnable to exec /, 'exec_command native .version fallback reports the exec failure' );
 }
 
 # ---------------------------------------------------------------------------
@@ -368,8 +386,7 @@ is_deeply( $disp->execute_hooks( 'runner', 'nosuchcmd' ), { hooks => {}, result_
 # _exec_resolved_command / _exec_replacement error handoff.
 # ---------------------------------------------------------------------------
 {
-    local $Local::ExecShim::FAIL_RE = qr{/bin/false\z};
-    my $res = $disp->_exec_resolved_command( '/bin/false', [ '/bin/false' ], [] );
+    my $res = _run_with_exec_failure( qr{/bin/false\z}, sub { $disp->_exec_resolved_command( '/bin/false', [ '/bin/false' ], [] ) } );
     like( $res->{error}, qr{\AUnable to exec /bin/false:}, '_exec_resolved_command returns the exec failure' );
 }
 
