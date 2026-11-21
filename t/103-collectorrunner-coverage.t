@@ -1182,6 +1182,11 @@ like( ( eval { $runner->_run_command( source => 'true', cwd => File::Spec->catdi
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CommandRunner::shell_command_argv = sub { die "argv boom\n" };
+    # On Windows the command goes through _windows_powershell_argv, not
+    # shell_command_argv, so only mocking the latter leaves the die
+    # unfired there (solo #412, test 228). Mock both builders; each
+    # platform calls exactly one of them.
+    local *Developer::Dashboard::CommandRunner::_windows_powershell_argv = sub { die "argv boom\n" };
     like( ( eval { $runner->_run_command( source => 'true', cwd => $home, timeout_ms => 1000 ); 1 } ? '' : $@ ), qr/argv boom/, '_run_command re-throws a non-timeout error from the command build' );
 }
 {
