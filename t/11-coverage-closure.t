@@ -893,11 +893,11 @@ unlike( $provider_html, qr{id="share-url"}, 'provider pages do not expose a brok
 
 my $prompt = Developer::Dashboard::Prompt->new( indicators => $indicators, paths => $paths );
 my $project_only_prompt = $prompt->render( cwd => $repo, jobs => 0 );
-# The prompt renders the cwd with native separators (backslash on Windows),
-# so build the expected bracketed path with the platform separator instead
-# of hardcoding forward slashes.
-my $prompt_sep = $^O eq 'MSWin32' ? '\\' : '/';
-like( $project_only_prompt, qr{\Q[~${prompt_sep}projects${prompt_sep}coverage-app]\E}, 'prompt renders the bracketed cwd when git branch is unavailable' );
+# The prompt normalises the home-shortened cwd to forward slashes on every
+# platform (Prompt::render, since e5eb6b4da), so the expected bracketed path
+# always uses forward slashes - never the platform separator. Every other
+# prompt test in the suite (t/02, t/07) expects the same ~/... form.
+like( $project_only_prompt, qr{\Q[~/projects/coverage-app]\E}, 'prompt renders the bracketed cwd when git branch is unavailable' );
 unlike( $project_only_prompt, qr/\{coverage-app\}/, 'prompt no longer appends the old project-only brace context' );
 
 {
@@ -905,7 +905,7 @@ unlike( $project_only_prompt, qr/\{coverage-app\}/, 'prompt no longer appends th
     local *Developer::Dashboard::Prompt::_git_branch = sub { return 'main' };
     local *Developer::Dashboard::PathRegistry::project_root_for = sub { return undef };
     my $branch_only_prompt = $prompt->render( cwd => File::Spec->catdir( $home, 'outside' ), jobs => 0 );
-    like( $branch_only_prompt, qr{\Q[~${prompt_sep}outside] 🌿main\E}, 'prompt renders branch-only context as a trailing branch marker when no project root resolves' );
+    like( $branch_only_prompt, qr{\Q[~/outside] 🌿main\E}, 'prompt renders branch-only context as a trailing branch marker when no project root resolves' );
 }
 
 chdir $original_cwd or die "Unable to restore original cwd $original_cwd: $!";
