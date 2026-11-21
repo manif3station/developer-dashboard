@@ -10,7 +10,7 @@ use Developer::Dashboard::Platform qw(command_in_path is_real_windows);
 use Exporter 'import';
 use File::Spec;
 
-our @EXPORT_OK = qw(grep_matching_files);
+our @EXPORT_OK = qw(grep_matching_files native_grep_usage);
 
 # grep_matching_files(%args)
 # Runs grep with the caller's argument vector and extracts unique matching
@@ -70,6 +70,26 @@ sub grep_matching_files {
     }
 
     return @files;
+}
+
+# native_grep_usage()
+# Usage text for the built-in content search, shown when `d2 of grep --help`
+# runs on a box with no system grep installed (plain Windows). It lists
+# exactly the options _parse_native_grep_args honours, in the same wording
+# as the HOW TO USE section below, so the text stays honest about what the
+# built-in search can do; with a system grep present the caller execs grep
+# unchanged and this text is never shown.
+# Input: none.
+# Output: the usage string, starting with "Usage: grep", ending with a newline.
+sub native_grep_usage {
+    return <<'USAGE';
+Usage: grep [OPTION]... PATTERN [FILE]...
+Search for PATTERN in each FILE, printing file:line:content for matches.
+No system grep is installed on this machine, so the dashboard's built-in
+search runs instead. It honours -r/-R, -i, -v, -w, -x, -F, -E, -e, -n,
+-H, -s, -q, -a, -I, -d and their long forms; any other option is reported
+as unsupported rather than searched with the wrong meaning.
+USAGE
 }
 
 # _native_grep_output($argv)
@@ -481,6 +501,8 @@ interface, grep process failure handling, or conversion of grep output into
 file matches. The Perl-native fallback lives here too: change it when the
 set of grep options it honours needs to grow, or when its output shape
 must stay identical to what the system executable produces.
+C<native_grep_usage()> prints the usage text for that fallback; C<d2 of
+grep --help> shows it when no system grep is installed.
 
 =head1 HOW TO USE
 

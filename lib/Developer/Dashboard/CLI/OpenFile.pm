@@ -11,7 +11,7 @@ use Exporter 'import';
 use File::Find ();
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
-use Developer::Dashboard::CLI::OpenFileGrep qw(grep_matching_files);
+use Developer::Dashboard::CLI::OpenFileGrep qw(grep_matching_files native_grep_usage);
 
 use Developer::Dashboard::CLI::OpenFileChooser qw(_default_editor _editor_supports_tabs _select_open_file_matches _stdin_has_pending_input _selection_matches);
 use Developer::Dashboard::CLI::OpenFileJavaSource qw(
@@ -28,7 +28,7 @@ use Developer::Dashboard::CLI::OpenFileJavaSource qw(
 );
 use Developer::Dashboard::CLI::OpenFileUtil qw(_unique_matches _unique_existing_dirs);
 use Developer::Dashboard::Config;
-use Developer::Dashboard::Platform qw(command_argv_for_path command_in_path_direct is_windows);
+use Developer::Dashboard::Platform qw(command_argv_for_path command_in_path command_in_path_direct is_windows);
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 
@@ -48,7 +48,8 @@ sub build_path_registry {
 # run_open_file_command(%args)
 # Resolves and opens or prints matching files from a direct path, file:line reference, or search scope.
 # Input: optional path registry object and mutable argv array reference.
-# Output: prints matches, execs grep for native --help, or execs the configured editor.
+# Output: prints matches, execs grep for native --help, prints the built-in
+# grep usage when grep does not resolve, or execs the configured editor.
 sub run_open_file_command {
     my (%args) = @_;
     my $paths = $args{paths};
@@ -66,6 +67,15 @@ sub run_open_file_command {
     if ( @argv && $argv[0] eq 'grep' ) {
         shift @argv;
         if ( grep { defined $_ && $_ eq '--help' } @argv ) {
+            # No system grep on this box (plain Windows): show the usage
+            # of the built-in search instead of dying on the missing
+            # binary, so `of grep --help` works the same way the search
+            # itself does through the Perl-native fallback. With a system
+            # grep present the exec below runs untouched.
+            if ( !command_in_path('grep') ) {
+                print native_grep_usage();
+                _command_exit(0);
+            }
             _command_exec( 'grep', @argv );
         }
         my @matches = grep_matching_files( args => \@argv );
@@ -609,7 +619,10 @@ C<--print> before C<grep> prints those paths without launching an editor. The
 grep arguments are passed directly to the executable, not through a shell.
 When C<--help> is supplied after C<grep>, the helper execs grep unchanged so
 its native usage text and exit status reach the caller rather than being
-parsed as search results.
+parsed as search results. When no system grep is installed, the helper
+prints the built-in search's usage instead rather than dying on the missing
+binary (see C<native_grep_usage> in
+C<Developer::Dashboard::CLI::OpenFileGrep>).
 Perl module lookup maps C<Foo::Bar> to C<Foo/Bar.pm> under every existing
 directory in the running process's C<@INC>; Java lookup maps dotted class
 names to C<.java> source files or
