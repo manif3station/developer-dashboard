@@ -961,7 +961,17 @@ else {
     my $existing_src = File::Spec->catfile( $home, 'rs-src' );
     open my $sfh, '>', $existing_src or die $!;
     close $sfh;
-    like( ( eval { $runner->_replace_state_file( $existing_src, File::Spec->catfile( $home, 'no-tgt2' ) ); 1 } ? '' : $@ ), qr/Unable to rename/, '_replace_state_file unlinks an existing source before dying on a non-Windows rename failure' );
+    my $rs_tgt = File::Spec->catfile( $home, 'no-tgt2' );
+    if ( $^O eq 'MSWin32' ) {
+        # On Windows the rename failure is rescued by the retry path:
+        # the PowerShell fallback runs first, and the in-place overwrite
+        # rescues it even when PowerShell fails, so the call succeeds and
+        # the file is moved instead of dying (solo #411, test 148).
+        ok( $runner->_replace_state_file( $existing_src, $rs_tgt ) && !-e $existing_src && -e $rs_tgt, '_replace_state_file succeeds on Windows by moving the file when the rename fails' );
+    }
+    else {
+        like( ( eval { $runner->_replace_state_file( $existing_src, $rs_tgt ); 1 } ? '' : $@ ), qr/Unable to rename/, '_replace_state_file unlinks an existing source before dying on a non-Windows rename failure' );
+    }
 }
 {
     no warnings 'redefine';
