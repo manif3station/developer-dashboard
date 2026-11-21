@@ -281,7 +281,10 @@ sub AUTOLOAD {
     return if $name eq 'DESTROY';
     my $path = $class->_resolve_path($name);
     die "Unknown folder '$name'" if !defined $path;
-    make_path($path) if $path ne '' && $path =~ m{^/} && !-e $path;
+    # file_name_is_absolute, not m{^/}: a Windows drive-letter path never
+    # starts with a forward slash, so the old guard never created the
+    # directory there (solo #423, t/112 test 60).
+    make_path($path) if $path ne '' && File::Spec->file_name_is_absolute($path) && !-e $path;
     return $path;
 }
 

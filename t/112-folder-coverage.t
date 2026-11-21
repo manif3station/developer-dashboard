@@ -16,9 +16,16 @@ use lib 'lib';
 use Developer::Dashboard::Config ();
 use Developer::Dashboard::Folder;
 
-sub _without_private_var_prefix {
+# Normalises a path for comparison: strips the macOS /private prefix
+# (cwd() spells /var/folders/... with it, tempdir without) and folds
+# backslashes to forward slashes (on Windows cwd() spells with forward
+# slashes while tempdir spells with backslashes). Same directory, two
+# spellings - compare the normalised form (solo #423, t/112 tests 36-37).
+sub _normalised_path {
     my ($path) = @_;
-    $path =~ s{/private(?=/var/folders/)}{}g if defined $path;
+    return if !defined $path;
+    $path =~ s{/private(?=/var/folders/)}{}g;
+    $path =~ s{\\}{/}g;
     return $path;
 }
 use Developer::Dashboard::PathRegistry;
@@ -225,7 +232,7 @@ chdir $home or die "Unable to chdir back to $home: $!";
     my $err = $@;
     ok( !$died, 'cd() lets a dying callback\'s exception propagate out of cd() itself' );
     like( $err, qr/\Aboom\n/, 'and the ORIGINAL exception is not swallowed or replaced' );
-    is( _without_private_var_prefix( cwd() ), _without_private_var_prefix($home),
+    is( _normalised_path( cwd() ), _normalised_path($home),
         'cd() still restores the caller\'s original directory when the callback dies' );
 }
 
@@ -246,7 +253,7 @@ chdir $home or die "Unable to chdir back to $home: $!";
             }
         );
     };
-    is( _without_private_var_prefix( cwd() ), _without_private_var_prefix($stay_dest),
+    is( _normalised_path( cwd() ), _normalised_path($stay_dest),
         'cd() restores to the stay()-redirected directory, not the original, when the callback dies after calling stay()' );
 }
 chdir $home or die "Unable to chdir back to $home: $!";
