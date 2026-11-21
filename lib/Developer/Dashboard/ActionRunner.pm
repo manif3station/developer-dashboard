@@ -230,6 +230,34 @@ sub _spawn_background_action {
     };
 }
 
+# _terminate_background_child($pid)
+# Ends one supervisor command child, including every descendant it spawned.
+# On Windows the command runs through PowerShell, so the real command is a
+# grandchild: terminating only the direct child orphans it, and the orphan
+# inherits the harness stdio pipe handles (CreateProcess bInheritHandles),
+# so prove never sees EOF and the run stalls after the test prints its plan
+# (round 58: t/121 printed 1..13, then the Windows leg sat silent until the
+# 180s watchdog killed it). CommandRunner::terminate_command_process
+# kills the whole tree (taskkill /T) - the discipline CollectorRunner already
+# follows - so the supervisor uses it on Windows. POSIX commands exec the
+# script directly, so there is no grandchild and the single-pid TERM, grace
+# wait, then KILL sequence stands.
+# Input: direct command child pid integer.
+# Output: true value.
+sub _terminate_background_child {
+    my ($pid) = @_;
+    if ( is_windows() ) {
+        require Developer::Dashboard::CommandRunner;
+        Developer::Dashboard::CommandRunner::terminate_command_process($pid);
+        return 1;
+    }
+    Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
+    _wait_background_child_exit($pid, 0.2);
+    Developer::Dashboard::GoRoutine::terminate_process( $pid, 'KILL' )
+      if !Developer::Dashboard::GoRoutine::process_exited($pid);
+    return 1;
+}
+
 # run_background_supervisor($payload_json)
 # Runs the detached command child, enforcing its timeout and forwarding stop signals.
 # Input: JSON scalar containing the trusted command, cwd, timeout, and log path; environment is inherited.
@@ -265,10 +293,7 @@ sub run_background_supervisor {
     my $deadline = $timeout_ms > 0 ? time() + ( $timeout_ms / 1000 ) : undef;
     while (1) {
         if ($stop_signal) {
-            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'TERM' );
-            _wait_background_child_exit($child_pid, 0.2);
-            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'KILL' )
-              if !Developer::Dashboard::GoRoutine::process_exited($child_pid);
+            _terminate_background_child($child_pid);
             Developer::Dashboard::GoRoutine::wait_process($child_pid);
             return 0;
         }
@@ -276,10 +301,7 @@ sub run_background_supervisor {
             return Developer::Dashboard::GoRoutine::wait_process($child_pid);
         }
         if ( defined $deadline && time() >= $deadline ) {
-            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'TERM' );
-            _wait_background_child_exit($child_pid, 0.2);
-            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'KILL' )
-              if !Developer::Dashboard::GoRoutine::process_exited($child_pid);
+            _terminate_background_child($child_pid);
             Developer::Dashboard::GoRoutine::wait_process($child_pid);
             return 124;
         }
