@@ -1064,9 +1064,19 @@ ok( !$runner->_cron_due( "* * $other_month_day * $other_weekday", 'problem30.day
     'Problem 30: when both day fields are restricted, neither match means the cron job is not due' );
 ok( $runner->_cron_due( "* * $cron_now[3] * *", 'problem30.dom-wild-dow' ),
     'Problem 30: a matching day-of-month applies when day-of-week is a wildcard' );
-my $other_minute = ( $cron_now[1] + 1 ) % 60;
-my $other_hour   = ( $cron_now[2] + 1 ) % 24;
-my $other_month  = ( $cron_now[4] + 1 ) % 12 + 1;
+# The non-matching fields below are picked far from now on purpose, not one
+# step away: @cron_now was captured at the top of this block and the four
+# _cron_due calls above it take about 0.9s on Windows (real state file reads
+# and writes), so a minute one step ahead can tick into "now" before the
+# assertion below evaluates it and the cron then fires - that is what flaked
+# test 168 in round 70. A minute 30 minutes ahead, an hour 12 hours ahead
+# and a month 6 months ahead cannot become current during this test, so the
+# "rejects" assertions below are stable. Proved by probe-t103-cron-boundary
+# on win-ts: the +1 minute expression flipped from not-due to due across a
+# real minute boundary while the +30 expression stayed not-due.
+my $other_minute = ( $cron_now[1] + 30 ) % 60;
+my $other_hour   = ( $cron_now[2] + 12 ) % 24;
+my $other_month  = ( $cron_now[4] + 6 ) % 12 + 1;
 ok( !$runner->_cron_due( "$other_minute * * * *", 'problem30.minute-no-match' ),
     'Problem 30: cron rejects a non-matching minute' );
 ok( !$runner->_cron_due( "* $other_hour * * *", 'problem30.hour-no-match' ),
