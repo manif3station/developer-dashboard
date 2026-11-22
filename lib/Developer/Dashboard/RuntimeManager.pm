@@ -1832,9 +1832,11 @@ sub _run_collector_supervisor_child {
     # is invisible to /proc readers and the marker was a dead recognition
     # path. It is deleted from %ENV instead, before any collector is
     # supervised, so a loop this supervisor restarts cannot inherit it and
-    # be mistaken for a supervisor itself. The supervisor's own /proc
-    # environ block still shows it - that block is the initial one,
-    # unaffected by this delete.
+    # be mistaken for a supervisor itself. The delete also removes the
+    # marker from the supervisor's own /proc environ block (Perl's delete
+    # calls unsetenv, which rewrites that block), so after the first ~0.2s
+    # of boot no recognition path sees the marker; only the process title
+    # and the helper-command shape can identify the supervisor.
     delete $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR};
     local $0 = $self->_collector_supervisor_process_title;
     local $COLLECTOR_SUPERVISOR_MANAGER = $self;
@@ -2116,6 +2118,17 @@ sub _looks_like_collector_supervisor_process {
     my ( $self, $proc ) = @_;
     return 0 if !$proc || !$proc->{args};
     return 1 if $proc->{args} =~ /^d2 collector supervisor$/;
+    # The helper's own title between spawn and the supervisor's own $0
+    # assignment: _dashboard-core sets $0 to 'developer-dashboard <command>'
+    # before dispatching, so a booting supervisor carries
+    # 'developer-dashboard collector-supervisor-foreground' for ~2.5s on the
+    # Pi. By then the child has already deleted the environ marker from %ENV
+    # (which removes it from /proc environ too) and the spawn-argv
+    # shape below is gone, so without this pattern the supervisor is
+    # unrecognisable to _is_collector_supervisor for the whole window. A
+    # stop landing in it then sends no signal and the supervisor survives
+    # to respawn the collector (t/05 test 319, round 71).
+    return 1 if $proc->{args} =~ /^developer-dashboard collector-supervisor-foreground(?:\s+.*)?$/;
     return 1 if $proc->{args} =~ m{^(?:\S*qemu-\S*\s+)?(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$};
     return 1 if $proc->{args} =~ m{^(?:\S*qemu-\S*\s+)?(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$}i;
     return 0;
