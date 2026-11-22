@@ -690,13 +690,16 @@ FOLDER_MODULE
     is( $paths_err, '', 'paths lists Folder.pm aliases without diagnostics' );
     my $listed_paths = json_decode($paths_json);
     is( $listed_paths->{'folder-skill.docs'}, '/configured/docs', 'paths keeps the config alias value when a Folder.pm alias collides' );
-    is( $listed_paths->{'folder-skill.module_only'}, '/module/only', 'paths merges aliases returned by Folder->__list__ and Folder methods' );
+    # Folder.pm targets are handed through _expand_home, which returns the
+    # native spelling on Windows (as the cdr and resolve checks above already
+    # expect); the configured alias is listed exactly as stored.
+    is( $listed_paths->{'folder-skill.module_only'}, File::Spec->canonpath('/module/only'), 'paths merges aliases returned by Folder->__list__ and Folder methods' );
 
     my ( $path_list_json, $path_list_err ) = capture {
         $run->( command => 'path', args => [ 'list', '-o', 'json' ] );
     };
     is( $path_list_err, '', 'path list includes Folder.pm aliases without diagnostics' );
-    is( json_decode($path_list_json)->{'folder-skill.module_only'}, '/module/only', 'path list merges the listed Folder.pm aliases without persisting them' );
+    is( json_decode($path_list_json)->{'folder-skill.module_only'}, File::Spec->canonpath('/module/only'), 'path list merges the listed Folder.pm aliases without persisting them' );
 
     my ( $completion, $completion_err ) = capture {
         $run->( command => 'path', args => [ 'complete-cdr', 1, 'cdr', 'folder-skill.m' ] );
