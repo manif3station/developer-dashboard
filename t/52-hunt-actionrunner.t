@@ -126,10 +126,19 @@ my $forged_page = Developer::Dashboard::PageDocument->new(
 # through run_page_action with a server-established saved source is unaffected.
 {
     my $marker  = File::Spec->catfile( $home, 'saved-route.marker' );
+    # Windows runs command actions through PowerShell, which has no
+    # printf; there the same side effect comes from a Perl script run by
+    # the current interpreter.
+    my $marker_command = qq{printf ok > "$marker"};
+    if ( $^O eq 'MSWin32' ) {
+        my $script = _write_script( 'saved-route-marker.pl',
+            qq{open my \$fh, '>', \$ARGV[0] or die "Unable to write \$ARGV[0]: \$!"; print {\$fh} 'ok'; close \$fh or die "Unable to close \$ARGV[0]: \$!";\n} );
+        $marker_command = qq{& "$^X" "$script" "$marker"};
+    }
     my $command = {
         id      => 'run',
         kind    => 'command',
-        command => qq{printf ok > "$marker"},
+        command => $marker_command,
         cwd     => $home,
     };
     my $result = $runner->run_page_action(
@@ -167,14 +176,30 @@ my $forged_page = Developer::Dashboard::PageDocument->new(
 # exit code (128 + signal), not the naive $? >> 8 value of zero.
 {
     local $ENV{SHELL} = 'bash';
+    # Windows has no signals: a process that kills itself with 9 simply
+    # ends with exit code 9, and a wait status never carries signal bits.
+    # There the child is a Perl script run through PowerShell, and the
+    # real contract is that its exit code comes back unchanged.
+    my $is_windows   = $^O eq 'MSWin32';
+    my $kill_command = 'kill -9 $$';
+    if ($is_windows) {
+        my $script = _write_script( 'kill-self.pl', qq{kill 9, \$\$; sleep 5; exit 0;\n} );
+        $kill_command = qq{& "$^X" "$script"; exit \$LASTEXITCODE};
+    }
     my $result = $runner->run_command_action(
-        command    => 'kill -9 $$',
+        command    => $kill_command,
         cwd        => $home,
         timeout_ms => 5000,
     );
     is( $result->{timed_out}, 0, 'signal-killed command is not treated as a timeout' );
-    cmp_ok( $result->{exit_code}, '>=', 128, 'signal-killed command reports a signal-aware exit code' );
-    is( $result->{exit_code}, 137, 'SIGKILL maps to shell-style exit code 137 (128 + 9)' );
+    if ($is_windows) {
+        cmp_ok( $result->{exit_code}, '>', 0, 'self-killed command reports a failing exit code on Windows' );
+        is( $result->{exit_code}, 9, 'a self-kill with 9 comes back as plain exit code 9 on Windows (no signal bits)' );
+    }
+    else {
+        cmp_ok( $result->{exit_code}, '>=', 128, 'signal-killed command reports a signal-aware exit code' );
+        is( $result->{exit_code}, 137, 'SIGKILL maps to shell-style exit code 137 (128 + 9)' );
+    }
 }
 
 # Finding 3 (no regression): a normal exit code is passed through unchanged.
@@ -186,6 +211,19 @@ my $forged_page = Developer::Dashboard::PageDocument->new(
         timeout_ms => 5000,
     );
     is( $result->{exit_code}, 3, 'normal command exit codes are preserved unchanged' );
+}
+
+# _write_script($name, $source)
+# Writes one Perl helper script under the test home.
+# Input: file name and Perl source text.
+# Output: absolute script path.
+sub _write_script {
+    my ( $name, $source ) = @_;
+    my $path = File::Spec->catfile( $home, $name );
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    print {$fh} $source;
+    close $fh or die "Unable to close $path: $!";
+    return $path;
 }
 
 # A hand-built token whose action is not a hash still routes into the normal
