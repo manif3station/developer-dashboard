@@ -18,9 +18,13 @@ our @EXPORT_OK = qw(_path_identity _same_or_descendant_path current_working_dire
 # Input: none; reads PWD only as an untrusted candidate.
 # Output: verified logical absolute path, physical cwd, or Cwd::cwd fallback.
 sub current_working_directory {
+    # Cwd::getcwd (and Cwd::cwd) overwrite $ENV{PWD} with the physical
+    # directory on Windows, so read the logical candidate before any
+    # getcwd call: otherwise the symlink spelling is destroyed before it
+    # can be verified and the identity check below can never fire.
+    my $logical  = $ENV{PWD};
     my $physical = eval { getcwd() };
     if ( defined $physical && $physical ne '' ) {
-        my $logical = $ENV{PWD};
         return File::Spec->canonpath($physical) if defined $logical && $logical eq $physical;
 
         if ( defined $logical && $logical ne '' && File::Spec->file_name_is_absolute($logical) ) {
