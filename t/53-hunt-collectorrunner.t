@@ -180,11 +180,16 @@ sleep 30;
 HELPER
     close $helper_fh or die "Unable to close $helper: $!";
 
-    my $shell = Developer::Dashboard::Platform::is_windows() ? 'cmd' : 'sh';
+    # Collector commands run through PowerShell on Windows (cmd is not a
+    # shell the product supports), where a quoted program path needs the
+    # call operator in front of it.
+    my $is_windows = Developer::Dashboard::Platform::is_windows();
+    my $shell = $is_windows ? Developer::Dashboard::Platform::native_shell_name() : 'sh';
     my @build_inc = map { '-I' . $_ } @test_perl_libs;
     my $command = join ' ',
       map { Developer::Dashboard::Platform::shell_quote_for( $shell, $_ ) }
       ( $^X, @build_inc, $helper, $pidfile );
+    $command = "& $command" if $is_windows;
     my ( $stdout, $stderr, $exit_code, $timed_out );
     {
         local $ENV{PERL5LIB} = $test_perl5lib;
@@ -192,7 +197,10 @@ HELPER
             source     => $command,
             cwd        => $home,
             env        => { PERL5LIB => $test_perl5lib },
-            timeout_ms => 100,
+            # PowerShell itself needs well over 100 ms to start on
+            # Windows, so the helper would be killed before it could
+            # record its pids; give it time to get ready there.
+            timeout_ms => $is_windows ? 8000 : 100,
         );
     }
 
