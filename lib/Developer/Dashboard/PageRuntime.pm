@@ -1098,9 +1098,14 @@ sub _saved_ajax_child_exited {
 
 # _noop_writer(@parts)
 # Accepts streamed output chunks when the caller does not need them.
+# A stream writer's return value is its "keep streaming" answer: a defined
+# false value tells the saved-Ajax streamer the client has gone, and the
+# streamer then terminates the worker. The default writer therefore answers
+# true. It used to return an empty string, so a caller that left the writers
+# defaulted had its worker terminated at the first chunk of output.
 # Input: zero or more ignored chunk parts.
-# Output: empty string.
-sub _noop_writer { return '' }
+# Output: true value.
+sub _noop_writer { return 1 }
 
 # _drain_saved_ajax_ready_handle(%args)
 # Reads one ready saved-Ajax process pipe handle and forwards the chunk or error to the right writer.

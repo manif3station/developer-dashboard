@@ -324,7 +324,7 @@ my $runtime = Developer::Dashboard::PageRuntime->new( paths => $paths );
     );
     is_deeply( $stream_result->{returns}, [ { ok => 1 } ], 'stream_code_block works with the default no-op stream writers' );
 }
-is( Developer::Dashboard::PageRuntime::_noop_writer('ignored'), '', '_noop_writer accepts ignored streamed chunks' );
+ok( Developer::Dashboard::PageRuntime::_noop_writer('ignored'), '_noop_writer accepts ignored streamed chunks and answers keep-streaming' );
 like( $runtime->_runtime_value_text( { ok => 1 } ), qr/ok => 1/, '_runtime_value_text renders structured runtime values' );
 {
     my $saved_path = Developer::Dashboard::Zipper::saved_ajax_file_path(
@@ -868,8 +868,10 @@ PL
         );
     }
     is( $result->{error}, '', 'Windows reader completes with its default no-op output writers' );
-    is( $result->{disconnected}, 1, 'default no-op writer signals a disconnected output stream' );
-    is( $terminated_pid, 123, 'Windows reader terminates the worker after the default writer declines output' );
+    # The default writer accepts every chunk, so leaving the writers out is
+    # not a client disconnect and must not get the worker terminated.
+    ok( !$result->{disconnected}, 'default no-op writer does not signal a disconnected output stream' );
+    is( $terminated_pid, undef, 'Windows reader leaves the worker alone when the default writer accepts output' );
 }
 {
     pipe my $stdout_read, my $stdout_write or die "Unable to create bad-fd stdout pipe: $!";

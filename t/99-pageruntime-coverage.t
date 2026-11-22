@@ -988,8 +988,16 @@ is( $runtime->_system_context( runtime_context => {}, source => '' )->{cwd}, '.'
         'stream_saved_ajax_file direct-wait fallback does not leak the reaped worker status into the caller global $?' );
 
     # path only: params, writers, page, and type all defaulted (L400/401/402/409 right).
+    # The whole result is pinned, not only the exit code: a defaulted writer
+    # that answered "stop streaming" got the worker terminated at its first
+    # chunk, which Unix hid (a TERM death is wait status 15, whose exit-code
+    # half is 0) and Windows showed as exit code 255.
     my $bare_res = $runtime->stream_saved_ajax_file( path => $ok_file );
-    is( $bare_res->{exit_code}, 0, 'stream_saved_ajax_file runs with defaulted params, writers, page, and type' );
+    is_deeply(
+        $bare_res,
+        { disconnected => 0, exit_code => 0, status => 0 },
+        'stream_saved_ajax_file runs with defaulted params, writers, page, and type',
+    );
 
     # writer failure that is not disconnect-like surfaces a fatal error (L483 true).
     my $we_file = write_file(
