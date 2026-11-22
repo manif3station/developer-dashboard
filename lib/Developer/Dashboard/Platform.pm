@@ -905,7 +905,12 @@ sub _exec_java_source_via_mvn {
     $dependency_classpath =~ s/\s+\z//;
 
     my $classes_dir = File::Spec->catdir( $layer_root, 'target', 'classes' );
-    my $classpath = $dependency_classpath eq '' ? $classes_dir : "$classes_dir:$dependency_classpath";
+    # The JVM splits -cp on ';' on Windows and ':' everywhere else, and mvn
+    # writes its resolved classpath with the same platform separator. A ':'
+    # join on Windows fuses the layer classes directory and the first
+    # dependency into one unusable entry (and collides with drive letters).
+    my $classpath_separator = is_windows() ? ';' : ':';
+    my $classpath = $dependency_classpath eq '' ? $classes_dir : $classes_dir . $classpath_separator . $dependency_classpath;
 
     $EXEC_LAUNCHER->( 'java', '-cp', $classpath, $class, @args ) or die "Unable to exec java for $pom: $!";
 }

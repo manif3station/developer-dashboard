@@ -338,6 +338,7 @@ like( $@, qr/Unable to find runnable file/, 'unresolvable path error surfaced' )
     );
 }
 
+{
 # The two counterpart natural-Linux (is_windows() false) states on the same
 # lines are ALSO gaps: Devel::Cover measures the true/false columns against
 # the literal written condition (!is_windows() on line 226; is_windows() as
@@ -345,7 +346,18 @@ like( $@, qr/Unable to find runnable file/, 'unresolvable path error surfaced' )
 # text it prints ("unless is_windows()") - so the forced-Windows block above
 # only closes half of each line's coverage. See docs/forced-windows-unit-tests.md.
 
-my $noexec = File::Spec->catfile( $work, 'notexec.sh' );
+# These four assertions pin the is_windows()-false side, so on a real Windows
+# host that side has to be forced the same way the block above forces the
+# is_windows()-true side on Unix: by localizing $OS_NAME. Unix hosts keep
+# their own name, so nothing changes there.
+local $Developer::Dashboard::Platform::OS_NAME = $^O eq 'MSWin32' ? 'linux' : $^O;
+
+# Windows has no execute bit: a .sh file there counts as runnable whenever a
+# POSIX shell can be found (resolve_runnable_file deliberately accepts what
+# the real platform can run), so "exists but is not executable" needs a file
+# Windows cannot run either - a data file with no shebang. Unix keeps the
+# .sh file whose mode says not executable.
+my $noexec = File::Spec->catfile( $work, $^O eq 'MSWin32' ? 'notexec.dat' : 'notexec.sh' );
 write_file( $noexec, "echo x\n" );
 chmod 0644, $noexec;    # exists, but not executable
 is(
@@ -393,6 +405,7 @@ is_deeply(
     [ $^X, '-I', Developer::Dashboard::Platform::_module_lib_root(), $noshebangpl ],
     'DD-856: a .pl file with no shebang at all still resolves through perl (extension fallback, no regression)',
 );
+}
 
 # ---------------------------------------------------------------------------
 # _shebang_uses_perl : line 173 (open) + 176 (defined first)
@@ -438,6 +451,13 @@ my $iwrc = \&Developer::Dashboard::Platform::_is_windows_runnable_candidate;
 
 {
     local $ENV{PATH} = $bin;
+
+    # A real Windows host with Git for Windows installed would rescue the
+    # "no shell anywhere" case through %ProgramFiles%\Git\usr\bin, which is
+    # not on PATH. Point both install roots somewhere empty so only $bin
+    # decides, as it does on Unix.
+    local $ENV{ProgramFiles}        = File::Spec->catdir( $home, 'no-git-here' );
+    local $ENV{'ProgramFiles(x86)'} = File::Spec->catdir( $home, 'no-git-here-x86' );
 
     # line 242: .py with python present / python3 present / neither.
     only_commands('python');
@@ -520,6 +540,11 @@ is( Developer::Dashboard::Platform::_has_shebang($shebang),   1, 'shebang detect
 # ---------------------------------------------------------------------------
 {
     local $ENV{PATH} = $bin;
+
+    # Same isolation as above: without it a Git for Windows install answers
+    # the final-fallback lookup with its own bash.exe.
+    local $ENV{ProgramFiles}        = File::Spec->catdir( $home, 'no-git-here' );
+    local $ENV{'ProgramFiles(x86)'} = File::Spec->catdir( $home, 'no-git-here-x86' );
 
     only_commands('pwsh');
     is( Developer::Dashboard::Platform::_powershell_binary(), File::Spec->catfile( $bin, 'pwsh' ), 'pwsh preferred when present' );
@@ -794,7 +819,24 @@ is(
     ok( $cp_written, 'the dependency:build-classpath mvn call resolved a classpath file' );
     is( $java_exec[0], 'java', 'java is invoked to run the resolved main class' );
     is( $java_exec[1], '-cp', 'the -cp flag is passed' );
-    like( $java_exec[2], qr{\Q/target/classes\E:/fake/dep1\.jar:/fake/dep2\.jar\z}, 'classpath includes the layer target/classes plus mvn-resolved dependencies' );
+    # The layer classes directory is spelled with the platform's directory
+    # separator, and joined to mvn's own output with the JVM's classpath
+    # separator for the platform (';' on Windows, ':' elsewhere).
+    my $classes_dir = File::Spec->catdir( $skill, 'target', 'classes' );
+    my $cp_sep      = $^O eq 'MSWin32' ? ';' : ':';
+    is( $java_exec[2], $classes_dir . $cp_sep . '/fake/dep1.jar:/fake/dep2.jar', 'classpath includes the layer target/classes plus mvn-resolved dependencies' );
+
+    # The other platform's separator, forced through $OS_NAME so both sides
+    # of the choice are pinned on every host.
+    {
+        my $other_os  = $^O eq 'MSWin32' ? 'linux' : $win;
+        my $other_sep = $^O eq 'MSWin32' ? ':'     : ';';
+        local $Developer::Dashboard::Platform::OS_NAME = $other_os;
+        my @other_exec;
+        local $Developer::Dashboard::Platform::EXEC_LAUNCHER = sub { @other_exec = @_; return 1 };
+        eval { Developer::Dashboard::Platform::_exec_java_source_via_mvn( $pom, 'demo.Foo' ); 1 } or diag $@;
+        is( $other_exec[2], $classes_dir . $other_sep . '/fake/dep1.jar:/fake/dep2.jar', 'classpath separator follows the platform the launch is resolved for' );
+    }
     is( $java_exec[3], 'demo.Foo', 'the resolved fully-qualified class is execed' );
     is( $java_exec[4], 'alpha', 'passthrough argv reaches java' );
 
@@ -865,7 +907,7 @@ is(
         local $Developer::Dashboard::Platform::EXEC_LAUNCHER = sub { @java_exec = @_; return 1 };
         my $ok = eval { Developer::Dashboard::Platform::_exec_java_source($baz); 1 };
         ok( $ok, '_exec_java_source succeeds with an empty resolved classpath' );
-        like( $java_exec[2], qr{\Q/target/classes\E\z}, 'an empty dependency classpath leaves just the layer target/classes, no trailing colon-suffix' );
+        is( $java_exec[2], File::Spec->catdir( $skill, 'target', 'classes' ), 'an empty dependency classpath leaves just the layer target/classes, no trailing colon-suffix' );
     }
 
     # the final java exec fails.
@@ -900,10 +942,14 @@ is(
 {
     my $skill = File::Spec->catdir( $work, 'pyskill' );
     my $cli   = File::Spec->catdir( $skill, 'cli' );
-    my $venv_bin = File::Spec->catdir( $skill, 'local', 'venv', 'bin' );
+    # A Python venv keeps its interpreter in bin/python on Unix and in
+    # Scripts\python.exe on Windows; the product looks where the platform
+    # puts it, so the fixture is laid out the same way.
+    my ( $venv_bin_name, $venv_python_name ) = $^O eq 'MSWin32' ? ( 'Scripts', 'python.exe' ) : ( 'bin', 'python' );
+    my $venv_bin = File::Spec->catdir( $skill, 'local', 'venv', $venv_bin_name );
     mkdir $skill; mkdir $cli;
     make_path($venv_bin) if !-d $venv_bin;
-    my $venv_python = write_file( File::Spec->catfile( $venv_bin, 'python' ), "#!/bin/sh\n" );
+    my $venv_python = write_file( File::Spec->catfile( $venv_bin, $venv_python_name ), "#!/bin/sh\n" );
     chmod 0755, $venv_python;
     my $foo = write_file( File::Spec->catfile( $cli, 'foo.py' ), "print('hi')\n" );
 
@@ -935,10 +981,10 @@ is(
     # against its own venv, with no interference between the two.
     my $skill2 = File::Spec->catdir( $work, 'pyskill2' );
     my $cli2   = File::Spec->catdir( $skill2, 'cli' );
-    my $venv_bin2 = File::Spec->catdir( $skill2, 'local', 'venv', 'bin' );
+    my $venv_bin2 = File::Spec->catdir( $skill2, 'local', 'venv', $venv_bin_name );
     mkdir $skill2; mkdir $cli2;
     make_path($venv_bin2) if !-d $venv_bin2;
-    my $venv_python2 = write_file( File::Spec->catfile( $venv_bin2, 'python' ), "#!/bin/sh\n" );
+    my $venv_python2 = write_file( File::Spec->catfile( $venv_bin2, $venv_python_name ), "#!/bin/sh\n" );
     chmod 0755, $venv_python2;
     my $bar = write_file( File::Spec->catfile( $cli2, 'bar.py' ), "print('hi')\n" );
     is( Developer::Dashboard::Platform::_find_layer_venv_python($bar), $venv_python2,
@@ -952,11 +998,15 @@ is(
 {
     # A uid that owns no passwd record on the test host, so the "no record"
     # outcome is exercised with the real lookup instead of a stub.
-    my ($absent_uid) = grep { !defined scalar getpwuid($_) }
+    # Windows perl leaves getpwuid unimplemented and dies when it is called,
+    # so the test's own reference lookups go through eval. There every uid
+    # is "absent" and the reference record is empty, which is exactly the
+    # product's contract on Windows: no passwd database, undef answers.
+    my ($absent_uid) = grep { !defined scalar eval { getpwuid($_) } }
       (4294967293, 4294967292, 2147483647, 999999999);
     die 'Unable to select an absent uid' if !defined $absent_uid;
 
-    my @real = getpwuid($<);
+    my @real = eval { getpwuid($<) };
     is( passwd_user_name($<),      $real[0], 'passwd_user_name resolves the account name' );
     is( passwd_home_directory($<), $real[7], 'passwd_home_directory resolves the home directory' );
 
