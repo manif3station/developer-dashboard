@@ -790,17 +790,27 @@ sub _scoped_tool_path {
 # Collapses '.'/'..' segments in an absolute path string, purely
 # lexically - no filesystem access, so it works on a path that does not
 # exist.
+# On Windows File::Spec spells absolute paths with backslashes and a drive
+# letter (C:\dir\file); those are turned into forward slashes first and
+# the drive letter is kept as the prefix (C:/dir/file), so the containment
+# check in _scoped_tool_path compares like with like. Without this every
+# in-root path was refused on Windows.
 # Input: absolute path string.
 # Output: normalized absolute path string.
 sub _normalize_path_segments {
     my ($path) = @_;
+    my $prefix = '/';
+    if ( $^O eq 'MSWin32' ) {
+        $path =~ tr{\\}{/};
+        $prefix = uc($1) . '/' if $path =~ s{\A([A-Za-z]:)(?=/|\z)}{};
+    }
     my @out;
     for my $part ( split m{/}, $path ) {
         next if $part eq '' || $part eq '.';
         if ( $part eq '..' ) { pop @out; }
         else                 { push @out, $part; }
     }
-    return '/' . join( '/', @out );
+    return $prefix . join( '/', @out );
 }
 
 # _extract_api_text($data)
