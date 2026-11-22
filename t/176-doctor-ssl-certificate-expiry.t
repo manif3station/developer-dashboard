@@ -72,9 +72,25 @@ my $key_file  = File::Spec->catfile( $cert_dir, 'server.key' );
 # the lookup entirely, exactly like Web::Server::generate_self_signed_cert
 # already does for the real certificate-generation path (it writes its own
 # temp config and passes '-config' - this is the same defensive pattern,
-# not a new one). A minimal empty file is sufficient here because '-subj'
-# already supplies the full DN non-interactively; no [req] section is read.
+# not a new one).
 my ( undef, $openssl_config ) = tempfile( 'dd-t161-openssl-XXXXXX', SUFFIX => '.cnf', UNLINK => 1 );
+
+# OpenSSL 1.1.1 (Strawberry Perl on Windows) reads the [req] section for
+# `distinguished_name` even when -subj supplies the DN non-interactively,
+# and dies on an empty config ("unable to find 'distinguished_name' in
+# config", round 76) - so the file must carry a [req] section naming a
+# distinguished_name section. The section itself stays empty: -subj
+# supplies the whole DN, and nothing is ever prompted for. OpenSSL 3.0
+# tolerates the empty file, so this also keeps the Unix legs unchanged.
+open my $openssl_config_fh, '>', $openssl_config
+  or die "Unable to write $openssl_config: $!";
+print {$openssl_config_fh} <<'OPENSSL_CONFIG';
+[req]
+distinguished_name = req_distinguished_name
+
+[req_distinguished_name]
+OPENSSL_CONFIG
+close $openssl_config_fh or die "Unable to close $openssl_config: $!";
 
 # make_cert($days) - writes a self-signed certificate valid for $days from now.
 # A negative value is not accepted by -days, so an already-expired certificate is
