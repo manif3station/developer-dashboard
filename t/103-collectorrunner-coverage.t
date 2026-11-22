@@ -1138,6 +1138,22 @@ $cron_config->save_global(
 );
 my ($cron_job) = grep { ( $_->{name} || '' ) eq 'problem30.config-json' } @{ $cron_config->collectors };
 ok( $cron_job && $cron_job->{cron} eq '* * * * *', 'Problem 30: config.json collector cron expression survives configuration loading' );
+# The two _job_is_due calls below must land in the same minute: the
+# de-duplication stamp is minute-granular, so if the clock ticks into a new
+# minute between them the second call is legitimately due again and the
+# "runs only once" assertion fails - that is what flaked test 199 in solo
+# #467. A _job_is_due call takes up to about 1s on Windows (real state file
+# reads and writes), so wait until at least 5 seconds of the current minute
+# remain before starting. The fully qualified Time::HiRes::sleep is
+# deliberate: this file imports only Time::HiRes::time, so a bare sleep would
+# compile to CORE::sleep and truncate the fraction to 0. Proved by micro
+# t/997 on win-ts: due then not-due inside one minute, due then due again
+# across a boundary 2 seconds apart.
+my $waited_for_minute = 0;
+while ( ( localtime() )[0] > 55 && $waited_for_minute < 10 ) {
+    Time::HiRes::sleep(0.5);
+    $waited_for_minute += 0.5;
+}
 ok( $runner->_job_is_due( $cron_job, 'problem30.config-json' ), 'Problem 30: a loaded config.json cron collector is due in its matching minute' );
 ok( !$runner->_job_is_due( $cron_job, 'problem30.config-json' ), 'Problem 30: a config.json cron collector runs only once in the matching minute' );
 
