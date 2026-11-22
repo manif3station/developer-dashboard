@@ -74,8 +74,15 @@ subtest '--files lists real installed files, sorted' => sub {
     );
     is( $rc, 0, 'exits 0' );
     my @lines = split /\n/, $out;
-    ok( ( grep { $_ eq $lib_file } @lines ), 'lists the fake lib file' );
-    ok( ( grep { $_ eq $bin_file } @lines ), 'lists the fake bin file' );
+    # File::Find reports every name with forward slashes on Windows, while
+    # File::Spec builds the fixture paths with backslashes there. Both spell
+    # the same file, so compare the two in one spelling on Windows.
+    my ( $want_lib, $want_bin ) = ( $lib_file, $bin_file );
+    if ( $^O eq 'MSWin32' ) {
+        tr{\\}{/} for $want_lib, $want_bin;
+    }
+    ok( ( grep { $_ eq $want_lib } @lines ), 'lists the fake lib file' );
+    ok( ( grep { $_ eq $want_bin } @lines ), 'lists the fake bin file' );
     is_deeply( \@lines, [ sort @lines ], 'output is sorted' );
 };
 
