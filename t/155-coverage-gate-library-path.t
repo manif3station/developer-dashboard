@@ -13,8 +13,10 @@ use File::Temp qw(tempdir);
 my $repo = abs_path('.');
 my $gate = File::Spec->catfile( $repo, 'script', 'coverage-gate' );
 
-skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
-ok( -x $gate, 'the coverage gate is executable' );
+SKIP: {
+    skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
+    ok( -x $gate, 'the coverage gate is executable' );
+}
 
 # Purpose: run the gate the way a scheduler runs it - with a named environment
 #          and nothing inherited from this shell.
