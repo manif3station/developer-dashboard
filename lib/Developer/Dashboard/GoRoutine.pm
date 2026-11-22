@@ -810,6 +810,9 @@ sub pump {
 
     # Bound the wait by the nearest routine timeout, so a timeout fires
     # promptly even when the next engine trigger is far away.
+    # $timeout_bound_at is set only when a routine timeout, and not the
+    # caller's own bound, decides how long this pump waits.
+    my $timeout_bound_at;
     my $now = _ev_now();
     for my $rec (values %ROUTINES) {
         next if _is_finished_state($rec->{state});
@@ -818,7 +821,10 @@ sub pump {
         # short of the deadline and the check below would miss the timeout.
         my $until = int(($rec->{timeout_at} - $now) * 1000);
         $until = $until < 0 ? 0 : $until + 1;
-        $wait_ms = $until if $wait_ms < 0 || $until < $wait_ms;
+        if ($wait_ms < 0 || $until < $wait_ms) {
+            $wait_ms = $until;
+            $timeout_bound_at = $rec->{timeout_at};
+        }
     }
 
     my $progress = 0;
@@ -830,7 +836,21 @@ sub pump {
     # picks up anything already due without blocking again.
     while (1) {
         my @due = _ev_wait($wait_ms);
-        last unless @due;
+        if (!@due) {
+            # The wait was sized to end at a routine timeout, but the wait
+            # is measured in real milliseconds and the engine clock can be
+            # coarser: on Windows it moves in steps of about 15.6ms, so it
+            # can still read up to one step short of the deadline when the
+            # wait returns. Returning now would leave the routine pending
+            # with nothing dispatched. Wait out the remainder instead; it is
+            # at most one clock step. Where the clock is fine-grained the
+            # deadline has always passed here and this never repeats.
+            last if $progress || !defined $timeout_bound_at;
+            my $short = $timeout_bound_at - _ev_now();
+            last if $short <= 0;
+            $wait_ms = int($short * 1000) + 1;
+            next;
+        }
         for my $signed (@due) {
             $progress++;
             if ($signed < 0) {
