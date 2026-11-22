@@ -11,7 +11,18 @@ use warnings;
 our ( %FAIL, $EXEC_FAKE );
 
 BEGIN {
+    require Symbol;
     *CORE::GLOBAL::open = sub (*;$@) {
+        # A bareword handle such as STDOUT reaches a "*" prototype as a plain
+        # string, which CORE::open refuses under strict refs. Resolve it to
+        # the caller's glob first. Windows is where this is exercised: the
+        # product secures runtime paths there by running icacls with STDOUT
+        # and STDERR redirected and restored.
+        if ( defined $_[0] && !ref $_[0] ) {
+            my $glob = Symbol::qualify_to_ref( $_[0], scalar caller );
+            return CORE::open( $glob, $_[1] ) if @_ == 2;
+            return CORE::open( $glob, $_[1], @_[ 2 .. $#_ ] );
+        }
         if ( @_ >= 3 && defined $_[2] && !ref $_[2] && $FAIL{ $_[2] } ) {
             $! = 13;
             return 0;
@@ -175,7 +186,9 @@ is_deeply( [ $dispatcher->_relative_files($nav_root) ], ['a.tt'], 'relative file
 # so the faked exit above is what makes this fall through there.
 {
     local $EXEC_FAKE = 1;
-    ok( !$dispatcher->_exec_replacement( ['true'], [] ), 'an exec that hands off falls through without an error string' );
+    # A Perl child, not the Unix-only "true": the Windows handoff really
+    # runs the command with system() before the faked exit.
+    ok( !$dispatcher->_exec_replacement( [ $^X, '-e', 'exit 0' ], [] ), 'an exec that hands off falls through without an error string' );
 }
 
 done_testing;
