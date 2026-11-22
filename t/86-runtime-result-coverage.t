@@ -296,9 +296,21 @@ my $P = 'Developer::Dashboard::Runtime::Result';
     # _open_channel_file's OWN explicit chmod fired - it targets the
     # filehandle specifically (File::Temp's targets the path string), which
     # is the one distinguishing signal available here.
-    my @fh_calls = grep { ref $_->[1] eq 'GLOB' } @DD621_CHMOD_CALLS;
-    is( scalar(@fh_calls), 1, '_open_channel_file explicitly chmods the tempfile handle exactly once' );
-    is( $fh_calls[0][0], 0600, "the explicit chmod call requests mode 0600" );
+    if ( $^O eq 'MSWin32' ) {
+        # Strawberry Perl has no fchmod, so on Windows _open_channel_file
+        # issues its explicit chmod by path, the same form File::Temp's own
+        # creation chmod uses. The distinguishing signal there is the count
+        # on the returned tempfile path: File::Temp's one call alone would
+        # leave exactly one, the product's explicit call makes it two.
+        my @path_calls = grep { !ref $_->[1] && $_->[1] eq $fd_path } @DD621_CHMOD_CALLS;
+        is( scalar(@path_calls) - 1, 1, '_open_channel_file explicitly chmods the tempfile handle exactly once' );
+        is( $path_calls[-1][0], 0600, "the explicit chmod call requests mode 0600" );
+    }
+    else {
+        my @fh_calls = grep { ref $_->[1] eq 'GLOB' } @DD621_CHMOD_CALLS;
+        is( scalar(@fh_calls), 1, '_open_channel_file explicitly chmods the tempfile handle exactly once' );
+        is( $fh_calls[0][0], 0600, "the explicit chmod call requests mode 0600" );
+    }
     ok( defined $fd_path && length $fd_path, '_open_channel_file still returns a usable fd-backed path' );
     close $fh;
 }
