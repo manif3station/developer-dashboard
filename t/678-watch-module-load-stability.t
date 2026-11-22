@@ -4,6 +4,7 @@ use warnings;
 use Capture::Tiny qw(capture);
 use Test::More;
 use File::Spec;
+use File::Temp ();
 
 use lib 'lib';
 
@@ -90,8 +91,15 @@ my $app = bless {}, 'Developer::Dashboard::Web::App';
 $app->_config_snapshot_watcher;
 print exists $INC{'Developer/Dashboard/IndicatorStore/Watch.pm'} ? "canonical=1\n" : "canonical=0\n";
 PERL
+# The probe goes through a script file, not -e: a multi-line -e argument
+# holding double quotes does not survive the Windows command line.
+my $probe_dir    = File::Temp::tempdir( CLEANUP => 1 );
+my $probe_script = File::Spec->catfile( $probe_dir, 'canonical-load-probe.pl' );
+open my $probe_fh, '>', $probe_script or die "Unable to write $probe_script: $!";
+print {$probe_fh} $canonical_load_probe;
+close $probe_fh or die "Unable to close $probe_script: $!";
 my ( $probe_stdout, $probe_stderr, $probe_exit ) = capture {
-    system( $^X, "-I$repo_lib", '-e', $canonical_load_probe );
+    system( $^X, "-I$repo_lib", $probe_script );
 };
 is( $probe_exit, 0, 'watcher loader probe exits successfully' );
 is( $probe_stdout, "canonical=1\n", 'lazy watcher loading registers the canonical module key' );
