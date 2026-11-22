@@ -17,7 +17,19 @@ my $lib       = File::Spec->catdir( $repo_root, 'lib' );
 my $d2        = File::Spec->catfile( $repo_root, 'bin', 'd2' );
 
 ok( -f $d2, 'bin/d2 is shipped as a real entrypoint' );
-ok( -x $d2, 'bin/d2 is executable' );
+# Windows has no exec bit for an extensionless script (Strawberry Perl
+# derives -x from the file extension), and d2 is run there through perl,
+# never executed directly. The shebang is the runnable-script evidence on
+# Windows, the same shape as t/142.
+if ( $^O eq 'MSWin32' ) {
+    open my $d2_fh, '<', $d2 or die "Unable to read $d2: $!";
+    my $first_line = <$d2_fh>;
+    close $d2_fh;
+    like( $first_line, qr{\A\#!/usr/bin/env perl\r?\n}, 'bin/d2 is executable' );
+}
+else {
+    ok( -x $d2, 'bin/d2 is executable' );
+}
 
 # d2 is the switchboard itself, not a re-exec into a sibling entrypoint
 # and not a shell alias. bin/dashboard is gone; d2 is the only entrypoint.
