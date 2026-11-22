@@ -9,6 +9,7 @@ use File::Temp qw(tempdir);
 use File::Path qw(make_path);
 use File::Spec;
 use Cwd qw(getcwd);
+use Capture::Tiny ();
 
 use lib 'lib';
 use lib 't/lib';
@@ -71,19 +72,15 @@ sub make_exec {
     return $path;
 }
 
-# capture_stdout(\&code): run code with STDOUT redirected into a scalar and
-# return ($captured_text, @code_return). Test::Builder keeps its own handle, so
+# capture_stdout(\&code): run code with STDOUT captured at the file-descriptor
+# level and return ($captured_text, @code_return). An in-memory handle has no
+# descriptor, so on Windows the product's icacls child would write to the real
+# stdout and the command's own output would be lost; Capture::Tiny gives a
+# real descriptor on every platform. Test::Builder keeps its own handle, so
 # assertions outside the closure still emit real TAP.
 sub capture_stdout {
     my ($code) = @_;
-    my $buf = '';
-    open my $fh, '>', \$buf or die "Unable to open scalar handle: $!";
-    my @ret;
-    {
-        local *STDOUT = $fh;
-        @ret = $code->();
-    }
-    close $fh;
+    my ( $buf, @ret ) = Capture::Tiny::capture_stdout( sub { return $code->() } );
     return ( $buf, @ret );
 }
 
