@@ -2088,6 +2088,10 @@ sub _collector_supervisor_running {
     return if !-f $pidfile;
     open my $fh, '<', $pidfile or die "Unable to read $pidfile: $!";
     my $pid = <$fh>;
+    # Close before any cleanup: Windows refuses to unlink a file that is
+    # still open, which left a stale pidfile behind there. CORE::close,
+    # because close in this file is POSIX::close.
+    CORE::close($fh);
     chomp $pid if defined $pid;
     if ( $pid && $pid =~ /^\d+$/ && kill( 0, $pid ) && $self->_same_pid_namespace($pid) && $self->_is_collector_supervisor($pid) ) {
         return $pid + 0;
