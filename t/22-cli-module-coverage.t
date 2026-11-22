@@ -773,10 +773,22 @@ is_deeply(
 }
 
 {
+    # The handoff target must be something the native spawn can run. On
+    # Unix that is the #!/bin/sh demo-tool itself. Windows cannot spawn an
+    # extensionless sh script (build #506: "Can't spawn cmd.exe", exit
+    # 255), so there the same check runs against a .bat twin kept outside
+    # the which fixture tree, so it cannot change any which lookup.
+    my $exec_target = $home_command;
+    if ( $^O eq 'MSWin32' ) {
+        $exec_target = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'demo-tool.bat' );
+        open my $exec_target_fh, '>', $exec_target or die "Unable to write $exec_target: $!";
+        print {$exec_target_fh} "\@echo off\necho home\n";
+        close $exec_target_fh;
+    }
     is(
         _run_perl_child(
             'use Developer::Dashboard::CLI::Which (); Developer::Dashboard::CLI::Which::_command_exec($ARGV[0]);',
-            $home_command,
+            $exec_target,
         ),
         0,
         'which exec helper delegates to process exec',
