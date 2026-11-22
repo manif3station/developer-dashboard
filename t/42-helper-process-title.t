@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 
+use Config;
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -22,22 +23,28 @@ my $stderr_log = File::Spec->catfile( $home, 'helper.err' );
 
 make_path( File::Spec->catdir( $home, '.developer-dashboard', 'skills' ) );
 
-_write_executable(
-    File::Spec->catfile( $fake_bin, 'git' ),
-    <<"SH",
-#!/bin/sh
-printf '%s\\n' "\$*" >> "$git_log"
-sleep 3
-exit 1
-SH
-);
+# The fake git is a Perl script so it needs no POSIX shell: it logs its
+# arguments, lingers long enough for the process table to be read, and
+# fails. Unix runs it through its shebang as plain "git". Windows program
+# search cannot run an extensionless script, so there the same script gets a
+# batch twin that hands it to the running perl.
+my $fake_git = File::Spec->catfile( $fake_bin, 'git' );
+_write_executable( $fake_git, <<"PERL" );
+#!$^X
+open my \$log, '>>', q{$git_log} or die "Unable to append git log: \$!";
+print {\$log} "\@ARGV\\n";
+close \$log;
+sleep 3;
+exit 1;
+PERL
+_write_executable( "$fake_git.bat", qq{\@"$^X" "$fake_git" %*\r\n} ) if $^O eq 'MSWin32';
 
 my $pid = Developer::Dashboard::GoRoutine::spawn(
     [ $^X, $helper, 'skills', 'install', 'browser' ],
     {
         env => {
             HOME                         => $home,
-            PATH                         => $fake_bin . ':' . ( $ENV{PATH} || '' ),
+            PATH                         => join( $Config{path_sep}, $fake_bin, ( $ENV{PATH} || '' ) ),
             SHELL                        => '/bin/sh',
             DEVELOPER_DASHBOARD_REPO_LIB => File::Spec->catdir( $root, 'lib' ),
         },
@@ -46,6 +53,15 @@ my $pid = Developer::Dashboard::GoRoutine::spawn(
     },
 );
 
+# A $0 assignment rewrites what ps shows on Unix, but it never rewrites the
+# launch command line Windows keeps for a process. The Windows contract is
+# the one the product itself relies on there: the command line still names
+# the staged helper followed by the public command words, so an operator can
+# read which d2 command is running.
+my $title_pattern =
+  $^O eq 'MSWin32'
+  ? qr/\b_dashboard-core"? skills install browser\b/
+  : qr/\bdeveloper-dashboard skills install browser\b/;
 my $ps_args = '';
 my $saw_public_title = 0;
 SKIP: {
@@ -60,7 +76,7 @@ SKIP: {
       if _running_under_qemu();
     for ( 1 .. 50 ) {
         $ps_args = _ps_args($pid);
-        if ( $ps_args =~ /\bdeveloper-dashboard skills install browser\b/ ) {
+        if ( $ps_args =~ $title_pattern ) {
             $saw_public_title = 1;
             last;
         }
@@ -78,10 +94,24 @@ ok( -f $git_log, 'helper reached the git-backed skills install path while the pu
 
 done_testing();
 
+# _ps_args($pid)
+# Reads the command line the process table shows for one process. Windows
+# has no ps, so there the product's own reader is used, which asks the
+# Windows process table through CIM.
+# Input: process id integer.
+# Output: command line string, or an empty string when it cannot be read.
 sub _ps_args {
     my ($pid) = @_;
     return '' if !defined $pid || $pid !~ /\A\d+\z/;
-    my $args = qx{ps -o args= -p $pid 2>/dev/null};
+    my $args;
+    if ( $^O eq 'MSWin32' ) {
+        require Developer::Dashboard::CollectorRunner;
+        $args = Developer::Dashboard::CollectorRunner->_read_process_title($pid);
+    }
+    else {
+        $args = qx{ps -o args= -p $pid 2>/dev/null};
+    }
+    $args = '' if !defined $args;
     $args =~ s/\s+\z//;
     return $args;
 }
