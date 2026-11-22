@@ -595,6 +595,122 @@ ok(
 }
 
 {
+    # Lifetime owner: a starter that can be killed without ever running a
+    # stop ties the runtime to its own pid through
+    # DEVELOPER_DASHBOARD_LIFETIME_PID. Unset, malformed and self values
+    # give no owner, so an ordinary runtime is never tied to anything.
+    {
+        local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
+        delete $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
+        is( scalar( $manager->_lifetime_owner_pid ), undef, 'no lifetime owner when the starter did not opt in' );
+        $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = 'abc';
+        is( scalar( $manager->_lifetime_owner_pid ), undef, 'a malformed lifetime owner value is ignored' );
+        $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = 0;
+        is( scalar( $manager->_lifetime_owner_pid ), undef, 'a zero lifetime owner value is ignored' );
+        $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = $$;
+        is( scalar( $manager->_lifetime_owner_pid ), undef, 'a process is never tied to its own pid' );
+        $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = 4242;
+        is( scalar( $manager->_lifetime_owner_pid ), 4242, 'a numeric lifetime owner value is returned as the owner pid' );
+    }
+
+    my @stopped_loops;
+    my $web_stops       = 0;
+    my $shutdown_status = '';
+    my $owner_running   = 1;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub { return $owner_running };
+    my $pattern_stops = 0;
+    local *Developer::Dashboard::RuntimeManager::stop_web = sub { $pattern_stops++; return };
+    local *Developer::Dashboard::RuntimeManager::_stop_recorded_web_for_lifetime_owner = sub { $web_stops++; die "web stop failed\n" };
+    local *Developer::Dashboard::RuntimeManager::_shutdown_collector_supervisor = sub {
+        my ( undef, $status ) = @_;
+        $shutdown_status = $status;
+        die "shutdown-$status\n";
+    };
+    no warnings 'once';
+    local *Local::SupervisorRunner::stop_loop = sub {
+        my ( undef, $name ) = @_;
+        push @stopped_loops, $name;
+        die "loop stop failed\n" if $name eq 'beta';
+        return 1;
+    };
+
+    my $no_owner = { pid => undef, dead_polls => 0 };
+    $owner_running = 0;
+    is( scalar( $manager->_check_collector_supervisor_lifetime_owner( [ 'alpha', 'beta' ], $no_owner ) ),
+        undef, 'the lifetime check does nothing when no owner is set' );
+    is( $no_owner->{dead_polls}, 0, 'the lifetime check counts nothing when no owner is set' );
+
+    my $owner = { pid => 4242, dead_polls => 1 };
+    $owner_running = 1;
+    is( scalar( $manager->_check_collector_supervisor_lifetime_owner( [ 'alpha', 'beta' ], $owner ) ),
+        undef, 'the lifetime check leaves the runtime alone while the owner is alive' );
+    is( $owner->{dead_polls}, 0, 'a live owner resets the dead-poll count' );
+
+    $owner_running = 0;
+    is( scalar( $manager->_check_collector_supervisor_lifetime_owner( [ 'alpha', 'beta' ], $owner ) ),
+        undef, 'one dead poll alone does not end the runtime' );
+    is( $owner->{dead_polls}, 1, 'the first dead poll is counted' );
+    is_deeply( \@stopped_loops, [], 'nothing is stopped on the first dead poll' );
+
+    my $error = eval {
+        $manager->_check_collector_supervisor_lifetime_owner( [ 'alpha', 'beta' ], $owner );
+        return '';
+    } || $@;
+    like( $error, qr/shutdown-lifetime-owner-gone/, 'a second dead poll in a row shuts the supervisor down' );
+    is( $shutdown_status, 'lifetime-owner-gone', 'the shutdown records that the lifetime owner is gone' );
+    is_deeply( \@stopped_loops, [ 'alpha', 'beta' ], 'every watched loop is stopped, even when one stop fails' );
+    is( $web_stops, 1, 'the recorded web process of this runtime is stopped once, and a failed web stop does not keep the supervisor alive' );
+    is( $pattern_stops, 0, 'the machine-wide stop_web is never used when the lifetime owner dies' );
+}
+
+{
+    # The targeted web stop used when the lifetime owner dies: only the pid
+    # this runtime recorded, only while it still proves to be a managed
+    # dashboard web process, TERM first and KILL only if it stays.
+    my $recorded;
+    my $running = 1;
+    my $managed = 1;
+    my @signals;
+    my $files_class = ref $manager->{files};
+    no strict 'refs';
+    no warnings 'redefine';
+    local *{ $files_class . '::read' } = sub { return $recorded };
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub { return $running };
+    local *Developer::Dashboard::RuntimeManager::_is_managed_web = sub { return $managed };
+    local *Developer::Dashboard::RuntimeManager::_runtime_poll_interval = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_send_signal = sub {
+        my ( undef, $signal, @pids ) = @_;
+        push @signals, join ' ', $signal, @pids;
+        $running = 0 if $signal eq 'TERM' && $recorded eq "5151\n";
+        return scalar @pids;
+    };
+    use strict 'refs';
+
+    is( scalar( $manager->_stop_recorded_web_for_lifetime_owner ), undef, 'no recorded web pid means nothing is stopped' );
+    $recorded = "junk\n";
+    is( scalar( $manager->_stop_recorded_web_for_lifetime_owner ), undef, 'a malformed recorded web pid is ignored' );
+    $recorded = "4343\n";
+    $running  = 0;
+    is( scalar( $manager->_stop_recorded_web_for_lifetime_owner ), undef, 'a recorded web pid that is no longer running is left alone' );
+    $running = 1;
+    $managed = 0;
+    is( scalar( $manager->_stop_recorded_web_for_lifetime_owner ), undef, 'a recorded pid that is not a managed web process is left alone' );
+    is_deeply( \@signals, [], 'nothing has been signalled so far' );
+
+    $managed  = 1;
+    $recorded = "5151\n";
+    is( scalar( $manager->_stop_recorded_web_for_lifetime_owner ), 5151, 'a managed web process that ends on TERM is reported stopped' );
+    is_deeply( \@signals, ['TERM 5151'], 'a web process that ends on TERM is not sent KILL' );
+
+    @signals  = ();
+    $running  = 1;
+    $recorded = "6262\n";
+    is( scalar( $manager->_stop_recorded_web_for_lifetime_owner ), 6262, 'a managed web process that ignores TERM is still reported stopped' );
+    is_deeply( \@signals, [ 'TERM 6262', 'KILL 6262' ], 'a web process that ignores TERM is sent KILL after the wait' );
+}
+
+{
     my $child_script = _runtime_fixture_script(q{
         $manager->_write_collector_supervisor_state(
             {

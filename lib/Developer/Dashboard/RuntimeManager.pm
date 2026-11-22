@@ -1874,6 +1874,12 @@ sub _run_collector_supervisor_child {
     # quiesce check below. Undef while any watched loop is alive.
     my $no_live_work_since;
 
+    # The process this whole runtime's lifetime is tied to, when the
+    # starter opted in through DEVELOPER_DASHBOARD_LIFETIME_PID, and how
+    # many polls in a row it has been seen dead. Undef pid when the
+    # starter did not opt in, which is every ordinary user.
+    my $lifetime_owner = { pid => $self->_lifetime_owner_pid, dead_polls => 0 };
+
     while (1) {
         $self->_reap_any_child_processes;
         my $state = $self->_collector_supervisor_state || {};
@@ -1882,6 +1888,7 @@ sub _run_collector_supervisor_child {
             $self->_shutdown_collector_supervisor('stopped');
         }
         $self->_check_collector_supervisor_parent( \@targets, $serve_parent );
+        $self->_check_collector_supervisor_lifetime_owner( \@targets, $lifetime_owner );
         $self->_write_collector_supervisor_state(
             {
                 %{$state},
@@ -2029,6 +2036,85 @@ sub _check_collector_supervisor_parent {
         eval { $self->{runner}->stop_loop($name); 1 };
     }
     $self->_shutdown_collector_supervisor('parent-gone');
+}
+
+# _lifetime_owner_pid()
+# Returns the pid this runtime's lifetime is tied to. A starter opts in
+# by exporting DEVELOPER_DASHBOARD_LIFETIME_PID before it starts the
+# runtime; every process the runtime starts inherits it. It exists for
+# starters that can be killed without ever running a stop, such as a
+# test run ended by a CI stop-all: the web, the supervisor and the loops
+# are all detached, so nothing else would ever end them. An ordinary
+# user never sets it, so a runtime started from a shell still outlives
+# that shell exactly as before. The supervisor's own pid is refused, so
+# a process cannot be tied to itself.
+# Input: none.
+# Output: pid integer, or undef when no usable owner pid is set.
+sub _lifetime_owner_pid {
+    my ($self) = @_;
+    my $value = $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
+    return if !defined $value || $value !~ /\A\d+\z/ || $value < 1;
+    return if $value == $$;
+    return $value + 0;
+}
+
+# _check_collector_supervisor_lifetime_owner($targets, $owner)
+# Ends the whole runtime once the opted-in lifetime owner is dead: stops
+# the watched loops, stops this runtime's own recorded web process, then
+# shuts the supervisor down. The owner must be seen dead on two polls in a row, so one failed
+# liveness probe cannot end a healthy runtime. Liveness is
+# _pid_is_running, the same platform-aware check the serve-parent guard
+# uses, so the identical path runs on Windows. A stop that fails is not
+# allowed to keep the supervisor alive.
+# Input: watched collector names array reference, and the owner-state
+# hash reference the caller keeps across loop iterations (pid,
+# dead_polls).
+# Output: never returns once the owner has been confirmed dead;
+# otherwise undef.
+sub _check_collector_supervisor_lifetime_owner {
+    my ( $self, $targets, $owner ) = @_;
+    return if !defined $owner->{pid};
+    if ( $self->_pid_is_running( $owner->{pid} ) ) {
+        $owner->{dead_polls} = 0;
+        return;
+    }
+    $owner->{dead_polls}++;
+    return if $owner->{dead_polls} < 2;
+    for my $name ( @{$targets} ) {
+        eval { $self->{runner}->stop_loop($name); 1 };
+    }
+    eval { $self->_stop_recorded_web_for_lifetime_owner; 1 };
+    $self->_shutdown_collector_supervisor('lifetime-owner-gone');
+}
+
+# _stop_recorded_web_for_lifetime_owner()
+# Stops the one web process this runtime itself recorded, and nothing
+# else. stop_web is deliberately not used here: it also ends every
+# 'd2 web:' process on the machine by name, which is right for a user
+# running `d2 stop` but wrong for a supervisor acting on its own some
+# seconds after its owner died, when a different runtime (the next test
+# run, for one) may already be up. The recorded pid is only signalled
+# while it still proves to be a managed dashboard web process, so a pid
+# that has been reused by something else is left alone. TERM first, a
+# short wait, then KILL if it is still there.
+# Input: none.
+# Output: stopped web pid integer, or undef when there was nothing of
+# this runtime's to stop.
+sub _stop_recorded_web_for_lifetime_owner {
+    my ($self) = @_;
+    my $pid = $self->{files}->read('web_pid');
+    return if !defined $pid;
+    chomp $pid;
+    return if $pid !~ /\A\d+\z/ || $pid < 1;
+    $pid += 0;
+    return if !$self->_pid_is_running($pid) || !$self->_is_managed_web($pid);
+    $self->_send_signal( 'TERM', $pid );
+    for ( 1 .. 30 ) {
+        return $pid if !$self->_pid_is_running($pid);
+        sleep $self->_runtime_poll_interval;
+    }
+    $self->_send_signal( 'KILL', $pid );
+    return $pid;
 }
 
 # _shutdown_collector_supervisor($status)
