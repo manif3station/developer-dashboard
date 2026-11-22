@@ -1444,14 +1444,24 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
     open my $copy_source_fh, '>', $copy_source or die $!;
     print {$copy_source_fh} "copied\n";
     close $copy_source_fh;
-    chmod 0600, $copy_source or die $!;
+    # Windows has no Unix mode bits: the only mode chmod can express there
+    # is the read-only attribute, which stat reports as 0444 against the
+    # 0666 default (probe on win-ts: chmod 0600 stays 0666, chmod 0400
+    # reads back 0444). So the same check runs there with a read-only
+    # source instead of being skipped: the copied target must come out
+    # read-only too, not at the 0666 default.
+    my $copy_source_mode   = $^O eq 'MSWin32' ? 0400   : 0600;
+    my $copy_expected_mode = $^O eq 'MSWin32' ? '0444' : '0600';
+    chmod $copy_source_mode, $copy_source or die $!;
     my $copy_target_root = tempdir( CLEANUP => 1 );
     $manager->_copy_tree_contents( $copy_source_root, $copy_target_root );
     my $copy_target = File::Spec->catfile( $copy_target_root, 'nested', 'source.txt' );
     ok( -f $copy_target, '_copy_tree_contents creates the target parent directory and copies the source file' );
     my $copied_mode = ( stat $copy_target )[2] & 07777;
-    skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
-    is( sprintf( '%04o', $copied_mode ), '0600', '_copy_tree_contents applies the requested file mode to copied targets' );
+    is( sprintf( '%04o', $copied_mode ), $copy_expected_mode, '_copy_tree_contents applies the requested file mode to copied targets' );
+    # Make both files writable again so the temp-dir cleanup can remove
+    # them on Windows, where a read-only file cannot be unlinked.
+    chmod 0600, $copy_source, $copy_target;
 
     my @events;
     my $progress_manager = bless {
@@ -1529,7 +1539,11 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
         "#!/bin/sh\necho winget-ok\necho winget-warn >&2\nexit 0\n",
         "\@echo off\necho winget-ok\necho winget-warn 1>&2\nexit /b 0\n",
     );
-    local $ENV{PATH} = join $path_sep, $winget_root, ( $ENV{PATH} || '' );
+    # A plain prepend is not enough on Windows: a direct spawn finds the
+    # real winget.exe in a later PATH directory before the winget.cmd stub
+    # in an earlier one, so the real installer would run (it did, by hand
+    # on win-ts, 22 Nov 2026). Drop every directory that holds a winget.
+    local $ENV{PATH} = _path_without_winget($winget_root);
     local *Developer::Dashboard::SkillManager::_is_windows = sub { 1 };
     my $winget_ok = $manager->_install_skill_wingetfile($winget_root);
     ok( $winget_ok->{success}, '_install_skill_wingetfile succeeds on Windows when winget exits cleanly' );
@@ -1622,6 +1636,28 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
     like( $cpan_local_failure->{error}, qr/cpan local boom/, '_install_skill_cpanfile_local surfaces the streamed cpanm failure text in the structured error result' );
     is( Cwd::getcwd(), $original_cwd, '_install_skill_cpanfile_local restores the original cwd after an in-flight failure' );
 };
+
+# _path_without_winget($fake_bin): a PATH with $fake_bin first and, on
+# Windows, every directory holding a real winget.exe/winget.com removed.
+# On Windows a direct spawn finds a same-named .exe in a later PATH
+# directory before a .cmd stub in an earlier one, so the stub only shadows
+# the real winget when no winget executable remains in PATH. The real one
+# is the App Installer execution alias, a reparse point that -f/-e/-l
+# cannot see, so the directory is detected by listing it. Same helper as
+# t/102. On Unix the fake directory is simply put first.
+sub _path_without_winget {
+    my ($fake_bin) = @_;
+    return join( $path_sep, $fake_bin, ( $ENV{PATH} || '' ) ) if $^O ne 'MSWin32';
+    my @kept;
+    for my $dir ( split /\Q$path_sep\E/, ( $ENV{PATH} || '' ) ) {
+        next if $dir eq '';
+        opendir my $dh, $dir or do { push @kept, $dir; next };
+        my $has_winget = grep { lc($_) eq 'winget.exe' || lc($_) eq 'winget.com' } readdir $dh;
+        closedir $dh;
+        push @kept, $dir if !$has_winget;
+    }
+    return join( $path_sep, $fake_bin, @kept );
+}
 
 sub _dies {
     my ($code) = @_;
