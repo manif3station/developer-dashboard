@@ -1133,6 +1133,18 @@ sub _load_skill_page {
         $cache_key = join "\0", $skill_name, $route_id, $file, @skill_layers;
         $cache_fingerprint = _skill_nav_fingerprint($file_stat);
         my $cached_page = $self->_cached_literal_skill_nav_page( $cache_key, $cache_fingerprint );
+        if ( $cached_page && _skill_nav_stat_is_unsettled($file_stat) ) {
+            # A matching fingerprint is not proof here: this stat has
+            # whole-second timestamps and the file changed within the last
+            # tick, so a same-size rewrite leaves every field identical.
+            # Compare the bytes on disk with the bytes the cached page was
+            # built from; a difference drops the entry and reloads.
+            my $disk = eval { $self->_read_skill_page_instruction($file) };
+            if ( !defined $disk || $disk ne ( $cached_page->{meta}{raw_instruction} // '' ) ) {
+                $self->_cached_literal_skill_nav_page( $cache_key, '' );
+                $cached_page = undef;
+            }
+        }
         return $cached_page if $cached_page;
     }
 
@@ -1221,6 +1233,22 @@ sub _skill_nav_fingerprint {
     my ($stat) = @_;
     return if ref($stat) ne 'ARRAY' || @{$stat} < 11;
     return join "\0", @{$stat}[ 0, 1, 2, 7, 9, 10 ];
+}
+
+# _skill_nav_stat_is_unsettled($stat)
+# Reports whether a stat fingerprint alone cannot yet prove a file unchanged.
+# Where stat has no sub-second timestamps (Windows), a rewrite of the same
+# size inside the same tick is invisible, so a file modified within the last
+# two seconds (covers one-second and two-second filesystem timestamps) is
+# unsettled. Where stat is high-resolution this is always false, so the cache
+# behaves exactly as before there.
+# Input: stat array reference for the nav file.
+# Output: boolean true when the cached bytes must be confirmed against disk.
+sub _skill_nav_stat_is_unsettled {
+    my ($stat) = @_;
+    return 0 if Time::HiRes::d_hires_stat();
+    return 1 if ref($stat) ne 'ARRAY' || !defined $stat->[9];
+    return $stat->[9] + 2 > time ? 1 : 0;
 }
 
 # _cached_literal_skill_nav_page($key, $fingerprint)

@@ -1466,7 +1466,14 @@ is_deeply( { $dispatcher->_skill_nav_route_ids('') }, {},
     {
         no warnings qw(redefine once);
         my $catdir_calls = 0;
-        local *File::Spec::Unix::catdir = sub { $catdir_calls++; return undef };
+        # File::Spec->catdir resolves to the platform class (File::Spec::Win32
+        # on Windows, which defines its own catdir), so override it there.
+        my $spec_class = File::Spec->can('catdir') == File::Spec::Unix->can('catdir')
+          ? 'File::Spec::Unix'
+          : $File::Spec::ISA[0];
+        no strict 'refs';
+        local *{ $spec_class . '::catdir' } = sub { $catdir_calls++; return undef };
+        use strict 'refs';
         ok( !$ancestor_dispatcher->_cache_all_skill_nav_pages( [$literal_page], [], ['layer'] ),
             'aggregate cache skips an invalid target returned by path construction' );
         is( $catdir_calls, 3, 'aggregate cache attempts all watched directory targets through File::Spec' );
@@ -2768,6 +2775,15 @@ EOF
 
 {
     local $Local::ExecShim::MODE = 'fail';
+
+    # On Windows _exec_replacement never calls exec(): it runs the command
+    # with system() and exits with its status, so the exec shim above cannot
+    # make it fail and a real launch would end this process. Stand in for
+    # the failed handoff there, as t/104 does, so the error wrapping in
+    # _exec_resolved_command is still checked on every platform.
+    no warnings 'redefine';
+    local *Developer::Dashboard::SkillDispatcher::_exec_replacement = sub { 'No such file or directory' }
+      if $^O eq 'MSWin32';
     my $error = $dispatcher->_exec_resolved_command(
         '/bin/echo',
         ['/bin/echo'],
