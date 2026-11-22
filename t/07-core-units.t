@@ -4333,6 +4333,12 @@ close $stale_pid;
     local $/;
     is( <$windows_loop_pid_fh>, '6161', 'start_loop writes the detached Windows collector loop pidfile' );
     close $windows_loop_pid_fh or die $!;
+    # The fake loop's pidfile and state are real files in the shared
+    # collectors root, and nothing else removes them: a later running_loops
+    # call would list this loop whenever the stub pid happens to be a live
+    # process on the box (the state file confirms any live pid), so tidy
+    # them away now that the block's checks have read them.
+    $runner->_cleanup_loop_files('windows-loop');
 }
 
 {
