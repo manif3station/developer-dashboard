@@ -1589,6 +1589,19 @@ sub _collector_stalled_for_watchdog {
     return 0 if !$latest_epoch;
     my $stale_after = $self->_collector_watchdog_stale_seconds($job);
     return 0 if $stale_after < 1;
+    # A loop that started less than one stale window ago cannot be stalled.
+    # Its first run has not had a full window in which to happen yet, and
+    # the collector status still carries the pre-start last-run timestamp,
+    # so judging the fresh loop on that timestamp restarts a healthy loop
+    # (t/05 test 319, round 78: the supervisor's first poll landed before
+    # the fresh loop's first run and restarted it on the stale timestamp).
+    if ( ref($running_entry) eq 'HASH' && ref( $running_entry->{state} ) eq 'HASH' ) {
+        my $started_at = $running_entry->{state}->{started_at};
+        if ( defined $started_at && $started_at ne '' ) {
+            my $started_epoch = eval { $self->{collectors}->_iso8601_to_epoch($started_at) } || 0;
+            return 0 if $started_epoch && time - $started_epoch < $stale_after;
+        }
+    }
     return time - $latest_epoch > $stale_after ? 1 : 0;
 }
 
