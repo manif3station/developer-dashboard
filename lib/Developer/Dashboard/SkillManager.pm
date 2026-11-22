@@ -1917,6 +1917,24 @@ sub _install_skill_nested_dependency_manifest {
     };
 }
 
+# _cmd_protected_argument($argument)
+# Protects one argv element from cmd.exe on Windows. npx is a .cmd shim
+# there, so Perl hands the command line to cmd.exe, which strips "^" and
+# treats "<", ">", "&" and "|" as operators: an npm range such as "^1.2.3"
+# would lose its caret and ">=1.0" would become a redirection. Wrapping the
+# element in double quotes keeps it literal. Every other platform passes
+# the element through untouched.
+# Input: one argv element string.
+# Output: the element, double-quoted on Windows when it carries a cmd.exe
+# metacharacter and is not already quoted.
+sub _cmd_protected_argument {
+    my ($argument) = @_;
+    return $argument if $^O ne 'MSWin32';
+    return $argument if !defined $argument || $argument =~ /"/;
+    return $argument if $argument !~ /[\^&|<>%()]/;
+    return qq{"$argument"};
+}
+
 # _install_skill_package_json($skill_path)
 # Installs Node dependencies declared by package.json into the dashboard home
 # node_modules directory by running npx-wrapped npm inside a private staging
@@ -1949,7 +1967,7 @@ sub _install_skill_package_json {
     close $workspace_fh;
 
     my $run = $self->_run_streaming_command(
-        command    => [ 'npx', '--yes', 'npm', 'install', @specs ],
+        command    => [ 'npx', '--yes', 'npm', 'install', map { _cmd_protected_argument($_) } @specs ],
         cwd        => $workspace,
         banner     => "Installing Node dependencies for " . basename($skill_path) . " from $package_json: " . join( ' ', @specs ),
         timeout_ms => $self->_skill_install_timeout_ms,

@@ -178,13 +178,17 @@ sub ensure_helper {
 
     my $target = helper_path( paths => $paths, name => $name );
     require Developer::Dashboard::Platform;
+    # On Windows an already-managed helper is left as it is on this hot path,
+    # but the retired and legacy flat helper cleanup below must still run, as
+    # it does on every other platform.
+    my $keep_existing = 0;
     if ( Developer::Dashboard::Platform::is_windows() && _helper_uses_dashboard_core($name) && -f $target ) {
         open my $existing_fh, '<:raw', $target or die "Unable to read $target: $!";
         my $existing = do { local $/; <$existing_fh> };
         close $existing_fh or die "Unable to close $target: $!";
-        return \@written if _is_dashboard_managed_helper( $existing, $name );
+        $keep_existing = 1 if _is_dashboard_managed_helper( $existing, $name );
     }
-    if ( !_managed_helper_file_current( $target, $name ) ) {
+    if ( !$keep_existing && !_managed_helper_file_current( $target, $name ) ) {
         if ( _stage_managed_helper( paths => $paths, name => $name, target => $target ) ) {
             $paths->secure_file_permissions( $target, executable => 1 );
             push @written, $target;
