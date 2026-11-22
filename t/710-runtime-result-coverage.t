@@ -15,6 +15,13 @@ BEGIN {
             $! = 1;
             return 0;
         }
+        # Windows has no fchmod, so the product hardens the RESULT
+        # tempfile by path there; fail that path-form call (and only the
+        # product's own, never File::Temp's) when the flag is armed.
+        if ( $FAIL{chmod} && $^O eq 'MSWin32' && @_ == 2 && !ref $_[1] && caller eq 'Developer::Dashboard::Runtime::Result' ) {
+            $! = 1;
+            return 0;
+        }
         # Windows has no fchmod, so a handle-form chmod (File::Temp's
         # tempfile hardening and _open_channel_file) dies unimplemented
         # there; Unix modes are not a Windows security control, so treat
@@ -169,7 +176,7 @@ sub scripted {
     is_deeply( Developer::Dashboard::Runtime::Result::current(), $payload,
         'Darwin named channel is readable by the parent' );
     is( system( $^X, '-Ilib', '-MDeveloper::Dashboard::Runtime::Result',
-        '-e', 'my $x = Developer::Dashboard::Runtime::Result::current(); exit(length($x->{big} // "") == 80 ? 0 : 1)' ),
+        '-e', 'my $x = Developer::Dashboard::Runtime::Result::current(); exit(length($x->{big} // q{}) == 80 ? 0 : 1)' ),
         0, 'Darwin named channel is readable independently after exec' );
     Developer::Dashboard::Runtime::Result::clear_current();
 }
