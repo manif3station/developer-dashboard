@@ -5,6 +5,12 @@ use warnings;
 use utf8;
 
 use Test::More;
+
+# The CLI output below is captured with Capture::Tiny, which redirects the
+# real stdout descriptor. An in-memory STDOUT has no descriptor: on Windows
+# the product reads ACLs through icacls with its own descriptor-level
+# capture, and around an in-memory handle that loses the CLI's JSON.
+use Capture::Tiny qw(capture_stdout);
 use File::Path qw(make_path);
 use File::Temp qw(tempdir);
 use File::Spec;
@@ -318,14 +324,12 @@ SKIP: {
     for my $case ( sort keys %cases ) {
         my ( $alias, $rest ) = @{ $cases{$case} };
         my $stdout = '';
-        {
-            local *STDOUT;
-            open STDOUT, '>', \$stdout or die $!;
+        ( $stdout ) = capture_stdout {
             Developer::Dashboard::CLI::Paths::run_paths_command(
                 command => 'path',
                 args    => [ 'add', $alias, @{$rest}, '-o', 'json' ],
             );
-        }
+        };
         my $decoded = eval { json_decode($stdout) };
         ok( $decoded && $decoded->{create}, "CLI ($case): d2 path add recorded create=>1" );
     }
@@ -340,14 +344,12 @@ SKIP: {
     local $ENV{HOME} = $home;
 
     my $stdout = '';
-    {
-        local *STDOUT;
-        open STDOUT, '>', \$stdout or die $!;
+    ( $stdout ) = capture_stdout {
         Developer::Dashboard::CLI::Paths::run_paths_command(
             command => 'path',
             args    => [ 'add', 'cli-plain', File::Spec->catdir( $home, 'plain-target' ), '-o', 'json' ],
         );
-    }
+    };
     my $decoded = eval { json_decode($stdout) };
     ok( $decoded && !$decoded->{create}, 'CLI: a plain d2 path add with no -c/--create records no create flag' );
 }
@@ -373,27 +375,23 @@ SKIP: {
     for my $case ( sort keys %cases ) {
         my ( $alias, $rest ) = @{ $cases{$case} };
         my $stdout = '';
-        {
-            local *STDOUT;
-            open STDOUT, '>', \$stdout or die $!;
+        ( $stdout ) = capture_stdout {
             Developer::Dashboard::CLI::Files::run_files_command(
                 command => 'file',
                 args    => [ 'add', $alias, @{$rest}, '-o', 'json' ],
             );
-        }
+        };
         my $decoded = eval { json_decode($stdout) };
         ok( $decoded && $decoded->{create}, "CLI file add ($case): recorded create=>1" );
     }
 
     my $plain_stdout = '';
-    {
-        local *STDOUT;
-        open STDOUT, '>', \$plain_stdout or die $!;
+    ( $plain_stdout ) = capture_stdout {
         Developer::Dashboard::CLI::Files::run_files_command(
             command => 'file',
             args    => [ 'add', 'cli-file-plain', File::Spec->catfile( $home, 'plain-file-target.txt' ), '-o', 'json' ],
         );
-    }
+    };
     my $plain_decoded = eval { json_decode($plain_stdout) };
     ok( $plain_decoded && !$plain_decoded->{create}, 'CLI file add: a plain add with no -c/--create records no create flag' );
 }
