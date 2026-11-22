@@ -550,11 +550,12 @@ my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npx_log_fh>;
 close $npx_log_fh;
 like(
     _without_private_var_prefix($npm_steps[0]),
-    # The specs carry a ^ semver prefix on Unix, but cmd.exe eats the
-    # caret before the .bat twin ever sees it (micro-probe 19 on win-ts:
-    # the log line reads express@4.19.2), so the caret is optional here.
-    # The spec name and version are still pinned exactly.
-    qr/^--yes npm install express\@\^?4\.19\.2 uuid\@\^?11\.0\.0 playwright\@\^?1\.52\.0\|cwd=\Q$ENV{HOME}\E[\/\\]\.developer-dashboard[\/\\]cache[\/\\]node-package-installs[\/\\]npm-install-/,
+    # The specs carry a ^ semver prefix. cmd.exe used to eat the caret
+    # before the .bat twin ever saw it; the product now double-quotes any
+    # spec carrying a cmd.exe metacharacter on Windows, so the caret
+    # survives there and the log line shows the quoted spec. The caret is
+    # therefore required on every platform and the quotes are optional.
+    qr/^--yes npm install "?express\@\^4\.19\.2"? "?uuid\@\^11\.0\.0"? "?playwright\@\^1\.52\.0"?\|cwd=\Q$ENV{HOME}\E[\/\\]\.developer-dashboard[\/\\]cache[\/\\]node-package-installs[\/\\]npm-install-/,
     'package.json installs declared Node dependencies through npx from a private staging workspace instead of using bare HOME as the npm project root',
 );
 open my $python_log_fh, '<', $python_log or die "Unable to read $python_log: $!";
