@@ -105,31 +105,41 @@ sub _stdin_has_pending_input {
 }
 
 # _windows_stdin_pipe_ready($timeout_seconds)
-# Polls a Windows named-pipe STDIN for waiting data with PeekNamedPipe, which
-# is the Windows-native readiness check for a pipe: select() cannot wait on
+# Polls a Windows pipe STDIN for waiting data with PeekNamedPipe, which is
+# the Windows-native readiness check for a pipe: select() cannot wait on
 # one. A closed writer (broken pipe) counts as ready, because a read then
 # returns end-of-file at once instead of blocking.
+#
+# PeekNamedPipe lives in kernel32 and is reached through Win32::API;
+# Win32API::File does not export it. The real Win32 HANDLE comes from
+# Win32API::File::GetOsFHandle with the filehandle glob: passing the fileno
+# number instead returns nothing (proved live on Strawberry Perl 5.38.2),
+# which made the earlier version of this check report every silent pipe as
+# ready at once. This is the same route StreamDrain already takes for its
+# Windows pipes, and the byte count is read by its helper.
 # Input: how many seconds to wait for data before giving up.
 # Output: true when data is waiting or the pipe is at end-of-file, false
 # when the timeout expires with nothing waiting, or undef when the native
 # check cannot run at all.
 sub _windows_stdin_pipe_ready {
     my ($timeout_seconds) = @_;
-    my $handle = eval {
+    my ( $peek, $handle ) = eval {
         require Win32API::File;
-        my $os_handle = Win32API::File::GetOsFHandle( fileno(STDIN) );
+        require Win32::API;
+        require Developer::Dashboard::StreamDrain;
+        my $imported = Win32::API->new( 'kernel32', 'PeekNamedPipe', 'QPIPPP', 'I' );
+        die "Could not import PeekNamedPipe from kernel32\n" if !defined $imported;
+        my $os_handle = Win32API::File::GetOsFHandle( \*STDIN );
         die "unable to resolve the STDIN operating-system handle\n" if !$os_handle;
-        $os_handle;
+        ( $imported, $os_handle );
     };
-    return if $@ || !$handle;
+    return if !$peek || !$handle;
     require Time::HiRes;
     my $deadline = Time::HiRes::time() + $timeout_seconds;
     while (1) {
-        my $buffer = '';
-        my ( $bytes_read, $bytes_available, $bytes_left );
-        my $ok = Win32API::File::PeekNamedPipe( $handle, $buffer, 1, $bytes_read, $bytes_available, $bytes_left );
-        return 1 if !$ok;    # writer closed: a read returns end-of-file at once
-        return 1 if ( $bytes_available || 0 ) > 0;
+        my $available = Developer::Dashboard::StreamDrain::_windows_pipe_available( $peek, $handle );
+        return 1 if !defined $available;    # writer closed: a read returns end-of-file at once
+        return 1 if $available > 0;
         return 0 if Time::HiRes::time() >= $deadline;
         Time::HiRes::sleep(0.01);
     }
