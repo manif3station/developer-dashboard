@@ -10,6 +10,7 @@ our ( %FAIL, %FAIL_PREFIX, %FAIL_OPENDIR, %CLOSE_FAIL_PREFIX, %CLOSE_FAIL_HANDLE
 
 BEGIN {
     require Scalar::Util;
+    require Symbol;
     *CORE::GLOBAL::open = sub (*;$@) {
         if ( @_ >= 3 && defined $_[2] && !ref $_[2] ) {
             my $path = $_[2];
@@ -22,6 +23,16 @@ BEGIN {
                 $CLOSE_FAIL_HANDLE{ Scalar::Util::refaddr( ref $_[0] ? $_[0] : \$_[0] ) } = 1 if $ok && ref $_[0];
                 return $ok;
             }
+        }
+        # A bareword handle such as STDOUT reaches a "*" prototype as a plain
+        # string, which CORE::open refuses under strict refs. Resolve it to
+        # the caller's glob first, as the close override below does. Windows
+        # is where this is exercised: the product secures runtime paths there
+        # by running icacls with STDOUT and STDERR redirected and restored.
+        if ( defined $_[0] && !ref $_[0] ) {
+            my $glob = Symbol::qualify_to_ref( $_[0], scalar caller );
+            return CORE::open( $glob, $_[1] ) if @_ == 2;
+            return CORE::open( $glob, $_[1], @_[ 2 .. $#_ ] );
         }
         return CORE::open( $_[0], $_[1] ) if @_ == 2;
         return CORE::open( $_[0], $_[1], @_[ 2 .. $#_ ] );
@@ -466,7 +477,13 @@ sub fresh {
 # --- Handle / Dashboard ------------------------------------------------------
 {
     my $h = Developer::Dashboard::Handle->new;
-    is( $h->{cwd}, Cwd::cwd(), 'Handle->new defaults cwd to the current directory' );
+    # Windows hands back the same directory with either separator depending
+    # on which API produced it; compare one spelling of the same path.
+    my ( $handle_cwd, $process_cwd ) = ( $h->{cwd}, Cwd::cwd() );
+    if ( $^O eq 'MSWin32' ) {
+        s{\\}{/}g for $handle_cwd, $process_cwd;
+    }
+    is( $handle_cwd, $process_cwd, 'Handle->new defaults cwd to the current directory' );
     {
         no warnings 'redefine';
         local *Developer::Dashboard::Handle::current_working_directory = sub { return undef };
