@@ -1164,6 +1164,8 @@ STUB
 }
 
 # Development compose files are opt-in overlays, not alternatives to the base.
+# The resolved file list holds native paths, so the separators around the
+# service folder are matched as [\\/]: backslashes on Windows.
 {
     my $old = getcwd();
     chdir $repo or die $!;
@@ -1176,8 +1178,8 @@ STUB
         project_root => $repo,
         args         => [ 'config', $service ],
     );
-    ok( grep( { /\/dualcompose\/compose\.yml\z/ } @{ $base_only->{files} } ), 'base compose file loads without a development marker' );
-    ok( !grep( { /\/dualcompose\/development\.compose\.yml\z/ } @{ $base_only->{files} } ), 'development compose file stays opt-in without develop.yml' );
+    ok( grep( { /[\\\/]dualcompose[\\\/]compose\.yml\z/ } @{ $base_only->{files} } ), 'base compose file loads without a development marker' );
+    ok( !grep( { /[\\\/]dualcompose[\\\/]development\.compose\.yml\z/ } @{ $base_only->{files} } ), 'development compose file stays opt-in without develop.yml' );
 
     my $development_enabled = $docker->enable_service_development(
         project_root => $repo,
@@ -1188,8 +1190,8 @@ STUB
         project_root => $repo,
         args         => [ 'config', $service ],
     );
-    my ($base_index) = grep { $both->{files}[$_] =~ /\/dualcompose\/compose\.yml\z/ } 0 .. $#{ $both->{files} };
-    my ($dev_index)  = grep { $both->{files}[$_] =~ /\/dualcompose\/development\.compose\.yml\z/ } 0 .. $#{ $both->{files} };
+    my ($base_index) = grep { $both->{files}[$_] =~ /[\\\/]dualcompose[\\\/]compose\.yml\z/ } 0 .. $#{ $both->{files} };
+    my ($dev_index)  = grep { $both->{files}[$_] =~ /[\\\/]dualcompose[\\\/]development\.compose\.yml\z/ } 0 .. $#{ $both->{files} };
     ok( defined $base_index && defined $dev_index, 'base and development files both load when the marker is enabled' );
     ok( $base_index < $dev_index, 'development file overlays the base file' );
 
@@ -1202,8 +1204,8 @@ STUB
         project_root => $repo,
         args         => [ 'config', $service ],
     );
-    ok( grep( { /\/dualcompose\/compose\.yml\z/ } @{ $base_again->{files} } ), 'base compose remains loaded after development is disabled' );
-    ok( !grep( { /\/dualcompose\/development\.compose\.yml\z/ } @{ $base_again->{files} } ), 'development overlay is omitted after development is disabled' );
+    ok( grep( { /[\\\/]dualcompose[\\\/]compose\.yml\z/ } @{ $base_again->{files} } ), 'base compose remains loaded after development is disabled' );
+    ok( !grep( { /[\\\/]dualcompose[\\\/]development\.compose\.yml\z/ } @{ $base_again->{files} } ), 'development overlay is omitted after development is disabled' );
 
     $docker->enable_service_development( project_root => $repo, service => $service );
     unlink File::Spec->catfile( $service_root, 'development.compose.yml' ) or die $!;
@@ -1214,7 +1216,7 @@ STUB
         );
     };
     ok( !$@, 'an enabled development marker with no overlay file is a no-op' );
-    ok( grep( { /\/dualcompose\/compose\.yml\z/ } @{ $missing_overlay->{files} } ), 'base compose remains when the enabled overlay is missing' );
+    ok( grep( { /[\\\/]dualcompose[\\\/]compose\.yml\z/ } @{ $missing_overlay->{files} } ), 'base compose remains when the enabled overlay is missing' );
     chdir $old or die $!;
 }
 
