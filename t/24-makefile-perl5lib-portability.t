@@ -94,11 +94,16 @@ unlike( $generated, qr/^export\s+PERL5LIB\s*$/m,
     'BDD: generated Makefile avoids GNU-only export syntax' );
 
 my $runner_source = _slurp($runner);
-like( $runner_source, qr/\Q$local_perl5\E/,
+# The launcher holds each path as a single-quoted Perl string, so a backslash
+# or a quote inside the path is written escaped. Windows paths are made of
+# backslashes; compare with the path as that literal spells it.
+my ( $local_perl5_literal, $active_arch_literal, $active_version_literal ) =
+  map { _single_quoted_literal($_) } $local_perl5, $active_arch, $active_version;
+like( $runner_source, qr/\Q$local_perl5_literal\E/,
     'BDD: launcher preserves an absolute HOME local-lib base without a checkout prefix' );
-like( $runner_source, qr/\Q$active_arch\E/,
+like( $runner_source, qr/\Q$active_arch_literal\E/,
     'BDD: launcher includes the active Config architecture directory' );
-like( $runner_source, qr/\Q$active_version\E/,
+like( $runner_source, qr/\Q$active_version_literal\E/,
     'BDD: launcher includes the active Config version directory' );
 like( $runner_source, qr/\$Config\{path_sep\}/,
     'BDD: launcher joins paths with the active Config path separator' );
@@ -135,11 +140,14 @@ SKIP: {
     ok( !-e $temp_stdout, 'ATDD: File::Temp removes the probe tempfile when its child exits' );
 }
 
+# The probe code is written with qq() and not with double quotes: Perl on
+# Windows passes a list-form argument on without escaping a double quote
+# inside it, so the child would receive a bare "print" and print nothing.
 my ( $probe_stdout, $probe_stderr, $probe_exit );
 {
     local $ENV{PERL5LIB} = $inherited_lib;
     ( $probe_stdout, $probe_stderr, $probe_exit ) = capture {
-        system( $^X, $runner, '-MDDPortableProbe', '-MDDVersionProbe', '-e', 'print "$DDPortableProbe::SOURCE\\n"' );
+        system( $^X, $runner, '-MDDPortableProbe', '-MDDVersionProbe', '-e', 'print qq($DDPortableProbe::SOURCE\n)' );
     };
 }
 is( $probe_exit, 0, 'ATDD: launcher keeps inherited and local-lib probe modules available' );
@@ -165,7 +173,7 @@ is( $child_exit, 3, 'ATDD: launcher exits with the child Perl exit status' );
     chdir $original_cwd or die "Unable to restore cwd: $!";
     is( $configure_exit, 0, 'ATDD: explicit PERL5LIB still permits Makefile.PL configuration' );
     my $refreshed_runner = _slurp($runner);
-    unlike( $refreshed_runner, qr/\Q$local_perl5\E/,
+    unlike( $refreshed_runner, qr/\Q$local_perl5_literal\E/,
         'BDD: explicit PERL5LIB prevents injection of potentially stale checkout-local XS paths' );
 
     _open_write( File::Spec->catfile( $fixture, 'blib', 'lib', 'DDBuildProbe.pm' ), "package DDBuildProbe; our \$SOURCE = 'build';\n1;\n" );
@@ -173,7 +181,7 @@ is( $child_exit, 3, 'ATDD: launcher exits with the child Perl exit status' );
     {
         local $ENV{PERL5LIB} = $inherited_lib;
         ( $build_stdout, $build_stderr, $build_exit ) = capture {
-            system( $^X, $runner, '-MTest::Harness', '-MDDBuildProbe', '-e', 'print "$DDBuildProbe::SOURCE\\n"' );
+            system( $^X, $runner, '-MTest::Harness', '-MDDBuildProbe', '-e', 'print qq($DDBuildProbe::SOURCE\n)' );
             return $? >> 8;
         };
     }
@@ -199,6 +207,18 @@ sub _open_write {
     print {$fh} $content or die "Unable to populate $path: $!";
     close $fh or die "Unable to close $path: $!";
     return;
+}
+
+# _single_quoted_literal($path)
+# Spells one path the way the generated launcher stores it inside a
+# single-quoted Perl string.
+# Input: a filesystem path.
+# Output: the same path with each backslash and single quote escaped.
+sub _single_quoted_literal {
+    my ($path) = @_;
+    $path =~ s/\\/\\\\/g;
+    $path =~ s/'/\\'/g;
+    return $path;
 }
 
 # _slurp($path)
