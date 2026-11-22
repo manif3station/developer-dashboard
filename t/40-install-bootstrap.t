@@ -14,8 +14,37 @@ use Test::More;
 use lib File::Spec->catdir( $RealBin, File::Spec->updir, 'lib' );
 use Developer::Dashboard::InternalCLI ();
 
+# On Windows the install.sh scenarios run through Git for Windows' sh (see
+# _posix_shell_binary). Two spelling differences are levelled here so every
+# check below compares the same strings on every platform:
+# 1. Paths are spelled with "/" throughout this file (temp directories and
+#    File::Spec joins), exactly as install.sh builds "$HOME/.bashrc";
+#    Windows accepts either separator, and a backslash would be eaten by
+#    the shell stubs and their sed replacements.
+# 2. Text that comes back from the shell names the temp directory the
+#    shell's way (/c/Users/... or /tmp/...); it is turned back into the
+#    native spelling that File::Temp handed out.
+my ( $TEMP_NATIVE, $TEMP_MSYS );
+if ( $^O eq 'MSWin32' ) {
+    ( $TEMP_NATIVE = File::Spec->tmpdir ) =~ tr{\\}{/};
+    $TEMP_MSYS = _msys_path($TEMP_NATIVE);
+    no warnings qw(redefine prototype);
+    *main::tempdir = sub { ( my $dir = File::Temp::tempdir(@_) ) =~ tr{\\}{/}; return $dir };
+    *File::Spec::Win32::catfile = sub { shift; return join '/', @_ };
+    *File::Spec::Win32::catdir  = sub { shift; return join '/', @_ };
+    my $capture = \&Capture::Tiny::capture;
+    *main::capture = sub (&;@) {
+        my @result = $capture->(@_);
+        $result[$_] = _native_spelling( $result[$_] ) for 0, 1;
+        return @result;
+    };
+}
+
 my $root = File::Spec->catdir( $RealBin, File::Spec->updir );
 my $install_sh = File::Spec->catfile( $root, 'install.sh' );
+# The same script as the POSIX shell is asked to run it (Git for Windows'
+# sh on Windows wants /c/dir, not C:\dir).
+my $install_sh_for_sh = _msys_path($install_sh);
 my $install_ps = File::Spec->catfile( $root, 'install.ps1' );
 my $aptfile    = File::Spec->catfile( $root, 'aptfile' );
 my $apkfile    = File::Spec->catfile( $root, 'apkfile' );
@@ -87,7 +116,7 @@ like(
         $ENV{USERPROFILE} = $profile_home;
         my $previous_dir = Cwd::getcwd();
         chdir $root or die "Unable to chdir to $root: $!";
-        system( $^X, '-e', $windows_like_prelude . $staging_code );
+        system( $^X, _perl_source_file( $windows_like_prelude . $staging_code ) );
         my $status = $?;
         chdir $previous_dir or die "Unable to chdir back to $previous_dir: $!";
         $status;
@@ -117,7 +146,7 @@ like(
         delete $ENV{USERPROFILE};
         my $previous_dir = Cwd::getcwd();
         chdir $sandbox or die "Unable to chdir to $sandbox: $!";
-        system( $^X, '-e', $windows_like_prelude . $staging_code );
+        system( $^X, _perl_source_file( $windows_like_prelude . $staging_code ) );
         my $status = $?;
         chdir $previous_dir or die "Unable to chdir back to $previous_dir: $!";
         $status;
@@ -133,7 +162,7 @@ like(
 
 {
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-n', $install_sh );
+        system( _posix_shell_binary('sh'), '-n', $install_sh );
     };
     is( $exit >> 8, 0, 'install.sh passes POSIX shell syntax validation' )
       or diag $stdout . $stderr;
@@ -309,16 +338,16 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                   value => $home },
-        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                   value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                  value => '/bin/bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'fedora' },
         { key => 'DD_INSTALL_CPAN_TARGET', value => $target },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh succeeds on Fedora hosts with mocked system commands' )
       or diag $stdout . $stderr;
@@ -367,16 +396,16 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                   value => $home },
-        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                   value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                  value => '/bin/sh' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'alpine' },
         { key => 'DD_INSTALL_CPAN_TARGET', value => $target },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh succeeds on Alpine hosts with mocked system commands' )
       or diag $stdout . $stderr;
@@ -428,9 +457,9 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                   value => $home },
-        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                   value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                  value => '/bin/bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'ubuntu' },
         { key => 'DD_INSTALL_CPAN_TARGET', value => $target },
@@ -438,13 +467,14 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
 
     my $existing_bashrc = File::Spec->catfile( $home, '.bashrc' );
     open my $existing_bashrc_fh, '>', $existing_bashrc or die "Unable to seed $existing_bashrc: $!";
+    binmode $existing_bashrc_fh;
     print {$existing_bashrc_fh} <<'BASHRC';
 [ -z "$PS1" ] && return
 BASHRC
     close $existing_bashrc_fh or die "Unable to close $existing_bashrc: $!";
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh succeeds on Debian-family hosts with mocked system commands' )
       or diag $stdout . $stderr;
@@ -458,7 +488,7 @@ BASHRC
         1,
         'install.sh prints the progress board header once and then emits step transitions without redrawing the whole board',
     );
-    if ( ( $> || 0 ) == 0 ) {
+    if ( _shell_runs_as_root() ) {
         unlike(
             $stdout,
             qr/sudo will ask for your operating-system account password, not a Developer Dashboard password/s,
@@ -546,7 +576,7 @@ BASHRC
     );
 
     my ( $again_out, $again_err, $again_exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $again_exit >> 8, 0, 'install.sh remains idempotent for the selected shell rc file' )
       or diag $again_out . $again_err;
@@ -579,9 +609,9 @@ SH
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                     value => $home },
-        { key => 'PATH',                     value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                     value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                    value => '/bin/bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE',   value => 'ubuntu' },
         { key => 'DD_INSTALL_SHELL_COMMANDS', value => 'd2 version; d2 version; d2 skills install browser' },
@@ -589,7 +619,7 @@ SH
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh can run post-install commands through the activated shell environment' )
       or diag $stdout . $stderr;
@@ -632,9 +662,9 @@ SH
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                       value => $home },
-        { key => 'PATH',                       value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                       value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                      value => '' },
         { key => 'DD_INSTALL_PREFERRED_SHELL', value => 'bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE',     value => 'ubuntu' },
@@ -642,7 +672,7 @@ SH
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh can run post-install commands when SHELL is unset in a blank container' )
       or diag $stdout . $stderr;
@@ -686,9 +716,9 @@ SH
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                      value => $home },
-        { key => 'PATH',                      value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                      value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                     value => '/bin/sh' },
         { key => 'DD_INSTALL_OS_OVERRIDE',    value => 'alpine' },
         { key => 'DD_INSTALL_SHELL_COMMANDS', value => 'd2 version; d2 version' },
@@ -696,7 +726,7 @@ SH
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh can run post-install commands through the activated sh environment' )
       or diag $stdout . $stderr;
@@ -730,9 +760,9 @@ SH
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                      value => $home },
-        { key => 'PATH',                      value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                      value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                     value => '/bin/bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE',    value => 'ubuntu' },
         { key => 'DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR', value => $checkout },
@@ -741,7 +771,7 @@ SH
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh skips the distro npm package when nodejs already provides npm and npx' )
       or diag $stdout . $stderr;
@@ -775,16 +805,16 @@ SH
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                   value => $home },
-        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                   value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                  value => '/bin/zsh' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'darwin' },
         { key => 'DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR', value => $checkout },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh succeeds on macOS hosts with mocked Homebrew commands' )
       or diag $stdout . $stderr;
@@ -829,16 +859,16 @@ SH
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                   value => $home },
-        { key => 'PATH',                   value => $fake_bin . ':' . _path_hiding_command('brew') },
+        { key => 'PATH',                   value => _msys_path($fake_bin) . ':' . _path_hiding_command('brew') },
         { key => 'SHELL',                  value => '/bin/zsh' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'darwin' },
         { key => 'DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR', value => $checkout },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh bootstraps Homebrew on blank macOS hosts before installing brew packages' )
       or diag $stdout . $stderr;
@@ -879,16 +909,16 @@ SH
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                       value => $home },
-        { key => 'PATH',                       value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                       value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                      value => '/bin/sh' },
         { key => 'DD_INSTALL_PREFERRED_SHELL', value => '/bin/zsh' },
         { key => 'DD_INSTALL_OS_OVERRIDE',     value => 'darwin' },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh succeeds when sh runs the installer for a zsh user' )
       or diag $stdout . $stderr;
@@ -924,15 +954,15 @@ SH
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                   value => $home },
-        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                   value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                  value => '/bin/sh' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'debian' },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh succeeds with POSIX sh users' )
       or diag $stdout . $stderr;
@@ -959,16 +989,17 @@ SH
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                   value => $home },
-        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                   value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                  value => '/bin/bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'ubuntu' },
         { key => 'DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR', value => $checkout },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        open my $pipe, '|-', 'sh', '-c', "cd '$scratch' && $env_prefix sh -s" or die "Unable to start streamed installer: $!";
+        open my $pipe, '|-', _posix_shell_binary('sh'), _sh_script("cd '$scratch' && $env_prefix sh -s") or die "Unable to start streamed installer: $!";
+        binmode $pipe;
         print {$pipe} $script_copy;
         close $pipe or die "Streamed installer exited non-zero: $?";
     };
@@ -1007,9 +1038,9 @@ SH
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                   value => $home },
-        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'PATH',                   value => _msys_path($fake_bin) . ':' . _base_path() },
         { key => 'SHELL',                  value => '/bin/bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'debian' },
         { key => 'FAKE_PERL_MEETS_MIN',    value => '0' },
@@ -1017,7 +1048,7 @@ SH
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh bootstraps perlbrew when the system Perl is too old on Debian-family hosts' )
       or diag $stdout . $stderr;
@@ -1090,9 +1121,9 @@ SH
     );
 
     my $env_prefix = join ' ',
-      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
         { key => 'HOME',                   value => $home },
-        { key => 'PATH',                   value => $fake_bin . ':' . _path_hiding_command('perlbrew') },
+        { key => 'PATH',                   value => _msys_path($fake_bin) . ':' . _path_hiding_command('perlbrew') },
         { key => 'SHELL',                  value => '/bin/sh' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'alpine' },
         { key => 'FAKE_PERL_MEETS_MIN',    value => '0' },
@@ -1100,7 +1131,7 @@ SH
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+        _sh_c("$env_prefix '$install_sh_for_sh'");
     };
     is( $exit >> 8, 0, 'install.sh can invoke a locally bootstrapped perlbrew on Alpine without losing @INC' )
       or diag $stdout . $stderr;
@@ -1167,6 +1198,10 @@ done_testing;
 # _shadow_dir_without). DD-851.
 sub _path_hiding_command {
     my ($command) = @_;
+    # On Windows the scenarios run with Git for Windows' /usr/bin as the
+    # only real directory (see _base_path); it holds neither brew nor
+    # perlbrew, so there is nothing to hide.
+    return _base_path() if $^O eq 'MSWin32';
     my @dirs = grep { length } split /:/, ( $ENV{PATH} || '' );
     return join ':', map {
         my $dir       = $_;
@@ -1212,7 +1247,7 @@ sub _expected_apt_bootstrap_steps {
     return (
         'apt-get update',
         @install_lines,
-    ) if ( $> || 0 ) == 0;
+    ) if _shell_runs_as_root();
     return (
         'sudo apt-get update',
         'apt-get update',
@@ -1224,7 +1259,7 @@ sub _expected_apk_bootstrap_steps {
     my (%args) = @_;
     my @packages = @{ $args{packages} || [] };
     my $install_line = 'apk add --no-cache ' . join( ' ', @packages );
-    return ($install_line) if ( $> || 0 ) == 0;
+    return ($install_line) if _shell_runs_as_root();
     return (
         "sudo $install_line",
         $install_line,
@@ -1235,7 +1270,7 @@ sub _expected_dnf_bootstrap_steps {
     my (%args) = @_;
     my @packages = @{ $args{packages} || [] };
     my $install_line = 'dnf install -y ' . join( ' ', @packages );
-    return ($install_line) if ( $> || 0 ) == 0;
+    return ($install_line) if _shell_runs_as_root();
     return (
         "sudo $install_line",
         $install_line,
@@ -1628,6 +1663,118 @@ SH
     }
 }
 
+# _posix_shell_binary($preferred)
+# Resolves the POSIX shell that runs install.sh. Windows has no sh on PATH,
+# so the copy shipped with Git for Windows (usr\bin) is located explicitly;
+# same helper as t/172.
+# Input: shell name such as 'sh'.
+# Output: the name unchanged off Windows, else the sh.exe path when found.
+sub _posix_shell_binary {
+    my ($preferred) = @_;
+    return $preferred if $^O ne 'MSWin32';
+
+    my @roots;
+    my %seen;
+
+    # git.exe lives in <root>\cmd, <root>\bin or <root>\mingw64\bin: strip
+    # those trailing components to recover the Git install root.
+    for my $dir ( split /;/, $ENV{PATH} // '' ) {
+        my $git = File::Spec->catfile( $dir, 'git.exe' );
+        next if !-f $git;
+        my ( $volume, $dirs ) = File::Spec->splitpath($git);
+        my @parts = grep { $_ ne '' } File::Spec->splitdir($dirs);
+        pop @parts while @parts && $parts[-1] =~ /\A(?:cmd|bin|mingw64|mingw32)\z/i;
+        my $root = File::Spec->catdir( $volume . File::Spec->rootdir(), @parts );
+        push @roots, $root if !$seen{$root}++;
+        last;
+    }
+
+    for my $program_files ( grep { defined && $_ ne '' } $ENV{ProgramFiles}, $ENV{'ProgramFiles(x86)'} ) {
+        my $root = File::Spec->catdir( $program_files, 'Git' );
+        push @roots, $root if !$seen{$root}++;
+    }
+
+    for my $root (@roots) {
+        my $shell = File::Spec->catfile( $root, 'usr', 'bin', "$preferred.exe" );
+        return $shell if -f $shell;
+    }
+    return $preferred;
+}
+
+# _msys_path($path)
+# Spells a Windows path the way Git for Windows' sh expects it inside a
+# ':'-joined PATH (C:\dir becomes /c/dir). Unchanged off Windows.
+# Input: native path. Output: path usable inside the POSIX shell.
+sub _msys_path {
+    my ($path) = @_;
+    return $path if $^O ne 'MSWin32';
+    $path =~ s{\\}{/}g;
+    $path =~ s{\A([A-Za-z]):}{'/' . lc($1)}e;
+    return $path;
+}
+
+# _base_path()
+# The real directories the install.sh scenarios may fall through to after
+# the fake command directory. Off Windows that is the caller's PATH. On
+# Windows it is only Git for Windows' /usr/bin (coreutils, sed, awk, grep):
+# it holds no curl, git, cpanm, winget or make, so a scenario can never
+# reach a real downloader or installer there.
+# Input: none. Output: ':'-joined PATH tail.
+sub _base_path {
+    return '/usr/bin' if $^O eq 'MSWin32';
+    return $ENV{PATH} || '';
+}
+
+# _sh_script($command)
+# Writes a shell command line to a script file. A command holding quotes
+# does not survive the Windows command line as a -c argument.
+# Input: shell command text. Output: path of the script file.
+sub _sh_script {
+    my ($command) = @_;
+    my $dir  = tempdir( CLEANUP => 1 );
+    my $path = File::Spec->catfile( $dir, 'run.sh' );
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    binmode $fh;
+    print {$fh} $command, "\n";
+    close $fh or die "Unable to close $path: $!";
+    return $path;
+}
+
+# _sh_c($command)
+# Runs a shell command line through the POSIX shell, as "sh -c" does.
+# Input: shell command text. Output: the system() status.
+sub _sh_c {
+    my ($command) = @_;
+    return system( 'sh', '-c', $command ) if $^O ne 'MSWin32';
+    return system( _posix_shell_binary('sh'), _sh_script($command) );
+}
+
+# _native_spelling($text)
+# Turns the shell's spelling of the temp directory back into the native one
+# on Windows (see the note at the top of the file). Unchanged elsewhere.
+# Input: text produced by the shell. Output: the text in native spelling.
+sub _native_spelling {
+    my ($text) = @_;
+    return $text if $^O ne 'MSWin32' || !defined $text;
+    $text =~ s{\Q$TEMP_MSYS\E/}{$TEMP_NATIVE/}g;
+    $text =~ s{(?<![\w.\}])/tmp/(?=\w{10}(?:\W|\z))}{$TEMP_NATIVE/}g;
+    return $text;
+}
+
+# _shell_runs_as_root()
+# Says whether install.sh will see itself as root, which decides whether it
+# goes through sudo. Perl's effective uid is always 0 on Windows, so there
+# the shell is asked the same question install.sh asks.
+# Input: none. Output: true when "id -u" is 0 for the installer.
+sub _shell_runs_as_root {
+    return ( ( $> || 0 ) == 0 ) if $^O ne 'MSWin32';
+    my ( $uid, undef, $status ) = capture {
+        _sh_c( q{PATH='/usr/bin' id -u} );
+    };
+    $uid =~ s/\s+//g;
+    return $status == 0 && $uid eq '0';
+}
+
 sub _log_lines {
     my ($path) = @_;
     return () if !-f $path;
@@ -1635,17 +1782,34 @@ sub _log_lines {
     return grep { defined && $_ ne '' } split /\n/, $text;
 }
 
+# _perl_source_file($source)
+# Writes Perl source to a script file so it can run as "perl FILE". A -e
+# argument holding double quotes does not survive the Windows command line.
+# Input: Perl source text.
+# Output: absolute path of the script file (removed at exit).
+sub _perl_source_file {
+    my ($source) = @_;
+    my $dir  = tempdir( CLEANUP => 1 );
+    my $path = File::Spec->catfile( $dir, 'one-liner.pl' );
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    print {$fh} $source;
+    close $fh or die "Unable to close $path: $!";
+    return $path;
+}
+
 sub _slurp {
     my ($path) = @_;
     open my $fh, '<', $path or die "Unable to read $path: $!";
     my $text = do { local $/; <$fh> };
     close $fh;
-    return $text;
+    return _native_spelling($text);
 }
 
 sub _write_executable {
     my ( $path, $body ) = @_;
     open my $fh, '>', $path or die "Unable to write $path: $!";
+    # Raw: a carriage return after "#!/bin/sh" would break the stub.
+    binmode $fh;
     print {$fh} $body;
     close $fh;
     chmod 0755, $path or die "Unable to chmod $path: $!";
