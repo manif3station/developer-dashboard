@@ -675,6 +675,86 @@ ok(
 }
 
 {
+    # The path every ordinary user runs: a supervisor whose starter never
+    # set DEVELOPER_DASHBOARD_LIFETIME_PID. The reader, the shared
+    # dead-poll rule, the liveness probe and the supervisor's own check
+    # are all real here; only the three things the check would do to the
+    # runtime are recorded. When the reader ended with a bare return, the
+    # owner state built this way read its pid as the text 'dead_polls',
+    # the liveness probe refused it, and the second poll shut the
+    # supervisor down.
+    local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
+    delete $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
+    my @stopped_loops;
+    my $web_stops = 0;
+    my @shutdowns;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_stop_recorded_web_for_lifetime_owner = sub { $web_stops++; return };
+    local *Developer::Dashboard::RuntimeManager::_shutdown_collector_supervisor = sub {
+        my ( undef, $status ) = @_;
+        push @shutdowns, $status;
+        die "shutdown-$status\n";
+    };
+    no warnings 'once';
+    local *Local::SupervisorRunner::stop_loop = sub {
+        my ( undef, $name ) = @_;
+        push @stopped_loops, $name;
+        return 1;
+    };
+
+    # The owner state exactly as the supervisor builds it before its loop.
+    my $owner = { pid => $manager->_lifetime_owner_pid, dead_polls => 0 };
+    is_deeply( $owner, { pid => undef, dead_polls => 0 },
+        'unset owner: the owner state the supervisor builds has no pid and no extra key' );
+    my @outcomes;
+    for ( 1 .. 4 ) {
+        my $returned = eval { $manager->_check_collector_supervisor_lifetime_owner( [ 'alpha', 'beta' ], $owner ); 1 };
+        push @outcomes, $returned ? 'returned' : "died: $@";
+    }
+    is_deeply( \@outcomes, [ ('returned') x 4 ],
+        'unset owner: the real supervisor check returns on four polls in a row' );
+    is( $owner->{dead_polls}, 0, 'unset owner: the real supervisor check never counts a dead poll' );
+    is_deeply( \@stopped_loops, [], 'unset owner: the real supervisor check never stops a watched loop' );
+    is( $web_stops, 0, 'unset owner: the real supervisor check never stops the web process' );
+    is_deeply( \@shutdowns, [], 'unset owner: the real supervisor check never shuts the supervisor down' );
+
+    # The supervisor's own loop, four passes, so the line that builds the
+    # owner state inside _run_collector_supervisor_child is the one that
+    # runs. The quiesce period is left at its default, far beyond four
+    # instant passes.
+    my $sleeps = 0;
+    my @states;
+    local *Developer::Dashboard::RuntimeManager::_collector_supervisor_state = sub {
+        return { watched_names => [ 'alpha', 'beta' ] };
+    };
+    local *Developer::Dashboard::RuntimeManager::_supervise_collectors_once = sub { return {} };
+    local *Developer::Dashboard::RuntimeManager::_reap_any_child_processes = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_write_collector_supervisor_state = sub {
+        my ( undef, $state ) = @_;
+        push @states, { %{$state} };
+        return $state;
+    };
+    local *Developer::Dashboard::RuntimeManager::web_state = sub { return };
+    local *Developer::Dashboard::RuntimeManager::sleep = sub {
+        $sleeps++;
+        die "loop-finished\n" if $sleeps >= 4;
+        return 0;
+    };
+    my $error = eval {
+        $manager->_run_collector_supervisor_child( daemonize => 0, redirect => 0 );
+        return '';
+    } || $@;
+    like( $error, qr/\Aloop-finished/,
+        'unset owner: the supervisor loop is still running after four passes and is only ended by the test' );
+    is( $sleeps, 4, 'unset owner: the supervisor loop reached its sleep on all four passes' );
+    is_deeply( \@shutdowns, [], 'unset owner: the supervisor loop never shuts itself down' );
+    is_deeply( \@stopped_loops, [], 'unset owner: the supervisor loop never stops a watched loop' );
+    is( $web_stops, 0, 'unset owner: the supervisor loop never stops the web process' );
+    is( scalar( grep { ( $_->{status} || '' ) eq 'running' } @states ), 4,
+        'unset owner: the supervisor loop records itself running on each of the four passes' );
+}
+
+{
     # The targeted web stop used when the lifetime owner dies: only the pid
     # this runtime recorded, only while it still proves to be a managed
     # dashboard web process, TERM first and KILL only if it stays.
