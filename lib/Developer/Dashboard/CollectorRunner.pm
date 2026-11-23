@@ -435,7 +435,11 @@ sub _adopt_existing_loop_if_running {
             # valid state record while the child is still adopting that title,
             # which makes process-table matching temporarily miss it. Consult
             # that launcher-written state before deciding to spawn another loop.
-            my $state = $self->loop_state($name);
+            # loop_state dies on a state file that stays empty or torn (a
+            # write caught half way, a crash mid-write). That is no record
+            # of a running loop, so it must mean "nothing to adopt" and let
+            # start_loop spawn, not make the start itself die.
+            my $state = eval { $self->loop_state($name) };
             my $state_pid = ref($state) eq 'HASH' ? $state->{pid} : undef;
             $existing = $state_pid
               if defined $state_pid
