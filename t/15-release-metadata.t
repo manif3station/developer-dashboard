@@ -699,7 +699,7 @@ SKIP: {
     }
 
     my @tracked = grep { m{^\.worktrees/} || m{^dogfood-output/} }
-      split /\n/, `git -C @{[ _repo_path() ]} ls-files 2>/dev/null`;
+      sort keys %tracked_repo_paths;
     is_deeply( \@tracked, [], 'no sandbox file is tracked in this repository' );
 }
 
@@ -720,7 +720,7 @@ SKIP: {
     );
 
     my @tracked = grep { m{^\.claude/} }
-      split /\n/, `git -C @{[ _repo_path() ]} ls-files 2>/dev/null`;
+      sort keys %tracked_repo_paths;
     is_deeply( \@tracked, [], 'no .claude/ file is tracked in this repository' );
 }
 
