@@ -1155,4 +1155,31 @@ main() {
     say "  d2 version"
 }
 
-main "$@"
+# Arguments.
+#   (none)      Install Developer Dashboard for this user. This is the
+#               only path there was before arguments existed, and it is
+#               unchanged.
+#   --jenkins   Set this machine up as a Jenkins test node instead. It
+#               does not install the dashboard and does not edit shell
+#               rc files. Not implemented yet: it stops with a message.
+# Anything else is refused before anything is installed or changed.
+usage() {
+    printf '%s\n' 'Usage: install.sh [--jenkins]' >&2
+    printf '%s\n' '  (no argument)  install Developer Dashboard for this user' >&2
+    printf '%s\n' '  --jenkins      set this machine up as a Jenkins test node' >&2
+}
+
+jenkins_main() {
+    printf '%s\n' 'install.sh --jenkins: the Jenkins test-node setup is not implemented yet. Nothing was installed or changed.' >&2
+    exit 1
+}
+
+if [ "$#" -eq 0 ]; then
+    main
+elif [ "$#" -eq 1 ] && [ "$1" = '--jenkins' ]; then
+    jenkins_main
+else
+    printf '%s\n' "install.sh: unknown argument: $*" >&2
+    usage
+    exit 2
+fi

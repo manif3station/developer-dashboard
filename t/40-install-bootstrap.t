@@ -1187,6 +1187,59 @@ SH
     );
 }
 
+# install.sh arguments. No argument is the existing path, covered by every
+# scenario above. Anything else must be settled before a single tool runs,
+# so each scenario here seeds the full set of fake tools and then checks
+# that none of them was called and no shell rc file was written.
+for my $case (
+    {
+        label  => 'an unknown argument',
+        args   => q{'--no-such-option'},
+        exit   => 2,
+        stderr => qr/install\.sh: unknown argument: --no-such-option\n.*Usage: install\.sh \[--jenkins\]/s,
+    },
+    {
+        label  => 'a second argument after --jenkins',
+        args   => q{'--jenkins' 'extra'},
+        exit   => 2,
+        stderr => qr/install\.sh: unknown argument: --jenkins extra\n.*Usage: install\.sh \[--jenkins\]/s,
+    },
+    {
+        label  => '--jenkins',
+        args   => q{'--jenkins'},
+        exit   => 1,
+        stderr => qr/\Ainstall\.sh --jenkins: the Jenkins test-node setup is not implemented yet\. Nothing was installed or changed\.\n\z/,
+    },
+  )
+{
+    my $home     = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log      = File::Spec->catfile( $home, 'install.log' );
+    _seed_fake_install_commands(
+        fake_bin => $fake_bin,
+        log      => $log,
+    );
+
+    my $env_prefix = join ' ',
+      map { sprintf q{%s='%s'}, $_->{key}, _msys_path( $_->{value} ) } (
+        { key => 'HOME',                   value => $home },
+        { key => 'PATH',                   value => _msys_path($fake_bin) . ':' . _base_path() },
+        { key => 'SHELL',                  value => '/bin/bash' },
+        { key => 'DD_INSTALL_OS_OVERRIDE', value => 'debian' },
+      );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' $case->{args}");
+    };
+    is( $exit >> 8, $case->{exit}, "install.sh given $case->{label} stops with exit $case->{exit}" )
+      or diag $stdout . $stderr;
+    like( $stderr, $case->{stderr}, "install.sh given $case->{label} says why on standard error" );
+    is( $stdout, '', "install.sh given $case->{label} prints nothing on standard output, so the normal install never started" );
+    is_deeply( [ _log_lines($log) ], [], "install.sh given $case->{label} calls no package manager, perlbrew, cpanm or d2" );
+    my @written = grep { -e File::Spec->catfile( $home, $_ ) } qw(.bashrc .profile .bash_profile .zshrc .zprofile perl5 .developer-dashboard);
+    is_deeply( \@written, [], "install.sh given $case->{label} writes no shell rc file and creates nothing under the home directory" );
+}
+
 done_testing;
 
 # Purpose: build a PATH string in which `command -v $command` genuinely
@@ -1834,6 +1887,9 @@ It verifies that the installer remains valid POSIX shell, that Debian-family
 and macOS package installation flows use the repo manifests in order, that the
 user-space Perl bootstrap goes through C<local::lib>, and that the correct
 shell rc file receives exactly one bootstrap line.
+It also checks the installer's arguments: an unknown argument is refused
+with a usage line, and C<--jenkins> takes its own route, and in both cases no
+tool is called and no shell rc file is written.
 
 =head1 WHY IT EXISTS
 
