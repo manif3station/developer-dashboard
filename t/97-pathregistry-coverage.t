@@ -16,7 +16,7 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::PathIdentity ();
 use Developer::Dashboard::Config;
 use Developer::Dashboard::JSON qw(json_decode);
-use Developer::Dashboard::Platform ();
+use Developer::Dashboard::Platform qw(effective_mode_octal);
 
 sub _without_private_var_prefix {
     my ($path) = @_;
@@ -65,8 +65,10 @@ my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
     is( $paths->config_root, $overlay, 'config writes target the private overlay when configured' );
     is_deeply( [ $paths->config_roots ], [ $overlay, @base_roots ], 'private config overlay augments existing config lookup roots at highest priority' );
     is_deeply( [ $paths->config_layers ], [ ( map { File::Spec->catdir( $_, 'config' ) } $paths->runtime_layers ), $overlay ], 'private config overlay is the final inherited config layer' );
-    my @overlay_stat = stat $overlay;
-    is( $overlay_stat[2] & 0777, 0700, 'private config overlay is restricted to its owner' );
+    # Raw stat cannot see a Windows DACL (a directory stays 0777 whatever
+    # its ACL says), so read the effective mode, which derives 0700 from an
+    # owner-only DACL on Windows and is the stat mode unchanged on Unix.
+    is( effective_mode_octal($overlay), '0700', 'private config overlay is restricted to its owner' );
 }
 
 {
@@ -263,11 +265,11 @@ sub dies_like {
     local *Developer::Dashboard::PathRegistry::cwd = sub { die "with_dir must not fork pwd\n"; };
 
     is(
-        _without_private_var_prefix( $paths->with_dir( $nested, sub { return Cwd::getcwd(); } ) ),
+        _without_private_var_prefix( $paths->with_dir( $nested, sub { return File::Spec->canonpath( Cwd::getcwd() ); } ) ),
         _without_private_var_prefix($nested),
         'with_dir enters the requested directory without using external pwd',
     );
-    is( _without_private_var_prefix( Cwd::getcwd() ), _without_private_var_prefix($home), 'with_dir restores the original working directory' );
+    is( _without_private_var_prefix( File::Spec->canonpath( Cwd::getcwd() ) ), _without_private_var_prefix($home), 'with_dir restores the original working directory' );
     is( $cwd_calls, 1, 'with_dir snapshots the original directory in-process once' );
 }
 
@@ -544,12 +546,18 @@ sub dies_like {
     my $written = do { local $/; <$read_fh> };
     close $read_fh;
     is( $written, "hello\n", 'the destination file holds the written content' );
-    is( ( stat($target) )[2] & 07777, 0600, 'a default-mode write lands at 0600' );
+    SKIP: {
+        skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
+        is( ( stat($target) )[2] & 07777, 0600, 'a default-mode write lands at 0600' );
+    }
 
     my $exec_target = File::Spec->catfile( $fresh, 'atomic-exec-target' );
     my $exec_tmp    = "$exec_target.pending";
     $reg->atomic_write_secure( $exec_tmp, $exec_target, '#!/bin/true', executable => 1 );
-    is( ( stat($exec_target) )[2] & 07777, 0700, 'an executable write lands at 0700' );
+    SKIP: {
+        skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
+        is( ( stat($exec_target) )[2] & 07777, 0700, 'an executable write lands at 0700' );
+    }
 
     # Open failure: the staging path is itself an existing directory.
     my $open_target = File::Spec->catfile( $fresh, 'open-blocked-target' );
@@ -608,6 +616,7 @@ sub dies_like {
         # and changes nothing.
         my $devnull   = File::Spec->devnull;
         my $null_mode = ( stat $devnull )[2];
+        skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
         skip 'cannot stat the null device to probe chmod ownership', 1 if !defined $null_mode;
         skip 'this process can chmod a device it does not own, so the chmod failure cannot occur', 1
           if chmod( $null_mode & 07777, $devnull );
@@ -748,15 +757,28 @@ sub dies_like {
 
     chmod 0644, $metadata or die "Unable to loosen test metadata $metadata: $!";
     $metadata_paths->_write_state_metadata( $metadata_dir, '/rt/x' );
-    is( $secure_calls, 4, 'metadata with loose permissions is rewritten and secured' );
+    if ( $^O eq 'MSWin32' ) {
+        # Modes are not a Windows security control, so the metadata is
+        # already secured there and identical content is not rewritten.
+        is( $secure_calls, 3, 'metadata with loose permissions is already secured on Windows, so it is not rewritten' );
+    }
+    else {
+        is( $secure_calls, 4, 'metadata with loose permissions is rewritten and secured' );
+    }
+    # The loose-permissions rewrite above does not happen on Windows, so
+    # every secure-count after it runs one lower there.
+    my $mode_rewrite_offset = $^O eq 'MSWin32' ? -1 : 0;
     my @secure_stat = stat $metadata;
-    is( $secure_stat[2] & 0777, 0600, 'rewritten state metadata remains owner-only' );
+    SKIP: {
+        skip 'Unix permission modes are not a Windows security control', 1 if $^O eq 'MSWin32';
+        is( $secure_stat[2] & 0777, 0600, 'rewritten state metadata remains owner-only' );
+    }
 
     open my $empty_fh, '>:raw', $metadata or die "Unable to empty test metadata $metadata: $!";
     close $empty_fh or die "Unable to close empty test metadata $metadata: $!";
     chmod 0600, $metadata or die "Unable to secure empty test metadata $metadata: $!";
     $metadata_paths->_write_state_metadata( $metadata_dir, '/rt/x' );
-    is( $secure_calls, 5, 'an empty existing metadata file is rewritten' );
+    is( $secure_calls, 5 + $mode_rewrite_offset, 'an empty existing metadata file is rewritten' );
 
     {
         require Symbol;
@@ -774,7 +796,7 @@ sub dies_like {
             return $close->(@_);
         };
         $metadata_paths->_write_state_metadata( $metadata_dir, '/rt/x' );
-        is( $secure_calls, 6, 'metadata with an unreadable empty content stream is rewritten' );
+        is( $secure_calls, 6 + $mode_rewrite_offset, 'metadata with an unreadable empty content stream is rewritten' );
     }
 
     can_ok( 'Developer::Dashboard::PathRegistry',
@@ -1047,7 +1069,7 @@ sub dies_like {
     is( $paths->_path_identity(undef), '', 'undef path has empty identity' );
     is( $paths->_path_identity(''),    '', 'empty path has empty identity' );
     ok( length $paths->_path_identity('/tmp'), 'an existing path resolves to a canonical identity' );
-    is( $paths->_path_identity('/no/such/path/zzz'), '/no/such/path/zzz',
+    is( $paths->_path_identity('/no/such/path/zzz'), File::Spec->canonpath('/no/such/path/zzz'),
         'a non-existent path falls back to a canonical string' );
 }
 
@@ -1080,9 +1102,16 @@ sub dies_like {
     is( $paths->_prefer_reference_style( '/other/place', '/ref/base' ), '/other/place',
         'a path outside the reference is unchanged' );
 
-    # A '..' segment is stripped when restyling under the reference.
+    # A '..' segment is stripped when restyling under the reference. On
+    # Windows the identity canonicalisation collapses a/.. first, so the
+    # restyled path has no 'a' to keep; on Unix the segment survives
+    # canonicalisation and is dropped here instead. Either way the output
+    # carries no '..' segment.
+    my $restyled = $^O eq 'MSWin32'
+      ? File::Spec->catdir( '/nx', 'b' )
+      : File::Spec->catdir( '/nx', 'a', 'b' );
     is( $paths->_prefer_reference_style( '/nx/a/../b', '/nx' ),
-        File::Spec->catdir( '/nx', 'a', 'b' ),
+        $restyled,
         'equivalent path is restyled beneath the reference' );
 }
 

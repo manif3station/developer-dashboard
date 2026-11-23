@@ -92,6 +92,20 @@ my $self = bless {}, 'Developer::Dashboard::ProcessSupervision';
     ok( !scalar( grep { $_ !~ /^\d+$/ } @fds ), 'descriptor listing is numeric only' );
 }
 
+# Windows branch: with no /proc or /dev/fd, the descriptor listing probes
+# the CRT descriptor table instead, so it still includes the standard
+# descriptors. Proved on Linux by localizing the platform; on Windows the
+# branch is live.
+{
+    my @win_fds;
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        @win_fds = $self->_open_file_descriptors;
+    }
+    ok( scalar( grep { $_ == 0 } @win_fds ), 'on Windows the descriptor listing still includes stdin' );
+    ok( !scalar( grep { $_ !~ /^\d+$/ } @win_fds ), 'on Windows the descriptor listing is numeric only' );
+}
+
 # Simulate procfs/devfs listing the same descriptor more than once. This
 # reaches the deduplication branch independent of host descriptor layout.
 {
@@ -99,6 +113,11 @@ my $self = bless {}, 'Developer::Dashboard::ProcessSupervision';
     local *Developer::Dashboard::ProcessSupervision::_fd_candidate_paths = sub {
         return ('/proc/self/fd/3', '/dev/fd/3', '/dev/fd/7');
     };
+    # The procfs/devfs listing is the non-Windows branch: on Windows the
+    # product probes the CRT descriptor table and never consults candidate
+    # paths. Localize the platform, as the Windows-branch block above does in
+    # the other direction, so the deduplication is proved on every host.
+    local $Developer::Dashboard::Platform::OS_NAME = 'linux';
     is_deeply( [ $self->_open_file_descriptors ], [3, 7],
         '_open_file_descriptors removes duplicate procfs/devfs descriptor entries' );
 }
@@ -284,7 +303,11 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
     is( $self->_read_process_env_marker( $pid + 1, 'DD_MARK' ), undef,
         '_read_process_env_marker handles a missing procfs entry on every platform' );
     {
+        # The reader opens "$PROCFS_ROOT/$pid/environ" with forward slashes
+        # on every platform; key the injected failure on that spelling too,
+        # since File::Spec gives backslashes on Windows.
         local $OPEN_FAIL{$environ} = 1;
+        local $OPEN_FAIL{"$root/$pid/environ"} = 1;
         is( $self->_read_process_env_marker( $pid, 'DD_MARK' ), undef,
             '_read_process_env_marker handles a denied open after the readable-file check' );
     }
@@ -371,7 +394,13 @@ is( $self->_descriptor_is_inherited_pipe(99999), 0, 'a closed descriptor is not 
     {
         local %ENV = %ENV;
         delete $ENV{SystemRoot};
-        is( Developer::Dashboard::ProcessSupervision::_powershell_command(), '',
+        # With SystemRoot unset the resolver guesses the standard
+        # C:\Windows root (deliberate since the original resolver in
+        # a8a95985, kept by DD-753): on a Windows host that file exists
+        # and is returned, off Windows the guess names nothing.
+        my $default = File::Spec->catfile( 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe' );
+        my $expected = -f $default ? $default : '';
+        is( Developer::Dashboard::ProcessSupervision::_powershell_command(), $expected,
             'PowerShell fallback chooses default Windows root without SystemRoot' );
     }
 }

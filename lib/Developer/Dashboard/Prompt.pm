@@ -47,6 +47,13 @@ sub render {
     my $home = $self->{paths}->home;
     my $cwd_for_home = $cwd // '';
     my $home_for_match = $home // '';
+    # Home and cwd can arrive spelled with different separators on Windows:
+    # abs_path spells with forward slashes while catdir spells with
+    # backslashes, so a literal prefix match never shortens the home
+    # directory there. Normalise both to forward slashes first; the
+    # captured suffix is then already in the ~/... form the prompt shows.
+    $cwd_for_home =~ s{\\}{/}g;
+    $home_for_match =~ s{\\}{/}g;
     $cwd_for_home =~ s{\A/private(?=/var/folders/)}{};
     $home_for_match =~ s{\A/private(?=/var/folders/)}{};
     if ( defined $home_for_match && $home_for_match ne ''
@@ -372,9 +379,11 @@ sub _git_metadata_dir {
     $git_dir = File::Spec->catdir( $project_root, $git_dir )
       if !File::Spec->file_name_is_absolute($git_dir);
     my $resolved = abs_path($git_dir);
-    return $resolved if defined $resolved && -d $resolved;
+    # abs_path spells with forward slashes on Windows; canonicalise so the
+    # returned metadata directory spells like every other registry path.
+    return File::Spec->canonpath($resolved) if defined $resolved && -d $resolved;
     return if !-d $git_dir;
-    return $git_dir;
+    return File::Spec->canonpath($git_dir);
 }
 
 1;

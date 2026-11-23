@@ -40,12 +40,15 @@ my @expected_inc_args = map { '-I' . File::Spec->rel2abs($_, $inc_base) } grep {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::_current_perl_command = sub { return '/active/perl' };
     local *Developer::Dashboard::CollectorRunner::_dashboard_core_helper_path = sub { return '/active/_dashboard-core' };
+    # The runner here is a bare bless with no paths, so the runtime key it
+    # would resolve from its state root is stubbed to a fixed 32-hex value.
+    local *Developer::Dashboard::CollectorRunner::_runtime_state_key = sub { return '0123456789abcdef0123456789abcdef' };
 
     my $runner = bless {}, 'Developer::Dashboard::CollectorRunner';
     my @command = $runner->_windows_background_loop_command('sample.loop');
     is_deeply(
         \@command,
-        [ '/active/perl', @expected_inc_args, '/active/_dashboard-core', 'collector-loop-foreground', '--name', 'sample.loop' ],
+        [ '/active/perl', @expected_inc_args, '/active/_dashboard-core', 'collector-loop-foreground', '--name', 'sample.loop', '--runtime', '0123456789abcdef0123456789abcdef' ],
         'collector loop command preserves the active Perl module search path',
     );
 

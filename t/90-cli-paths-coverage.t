@@ -229,6 +229,30 @@ subtest 'paths reuses one nested-skill inventory for configured and Folder.pm al
     like( $out, qr/\A\{/, 'the path list still emits its JSON payload' );
 };
 
+subtest 'nested skill discovery resolves backslash-spelled Windows roots' => sub {
+    my $registry = Developer::Dashboard::PathRegistry->new( home => $home );
+    {
+        no warnings qw(once redefine);
+        local *Developer::Dashboard::PathRegistry::installed_skill_roots = sub {
+            return ( 'C:\skills\alpha-skill', 'C:\skills\beta-skill' );
+        };
+        my @entries = $registry->nested_skill_entries;
+        is_deeply( [ map { $_->{segments} } @entries ], [ ['alpha-skill'], ['beta-skill'] ],
+            'backslash-spelled Windows skill roots resolve their names' );
+        is_deeply( [ map { $_->{dir} } @entries ], [ 'C:\skills\alpha-skill', 'C:\skills\beta-skill' ],
+            'backslash-spelled Windows skill roots keep their directories' );
+    }
+    {
+        no warnings qw(once redefine);
+        local *Developer::Dashboard::PathRegistry::installed_skill_roots = sub {
+            return ( 'alpha-skill', 'C:\\' );
+        };
+        my @entries = $registry->nested_skill_entries;
+        is_deeply( \@entries, [],
+            'skill roots without an extractable name are skipped instead of producing a phantom alias' );
+    }
+};
+
 subtest 'path dispatch reports usage for missing verbs and operands' => sub {
     my $no_action = eval { $run->( command => 'path', args => [] ); 1 };
     is( $no_action, undef, 'an empty path argument list falls through to the dispatch usage error' );
@@ -425,6 +449,17 @@ subtest 'Folder.pm alias validation reports malformed providers and unsafe layou
     is( $entries_without_segments[0]{name}, '',
         'a skill entry without segments defaults to an empty name safely' );
     @entries = ();
+
+    my @entries_with_bad_segments = $folder_entries->(
+        $paths,
+        [
+            { segments => [undef, 'work'], dir => $home },
+            { segments => ['', 'work'],    dir => $home },
+            { segments => ['good'],        dir => $home },
+        ],
+    );
+    is_deeply( [ map { $_->{name} } @entries_with_bad_segments ], ['good'],
+        'skill entries with an undef or empty name segment are skipped instead of producing a phantom alias' );
 
     my $missing_entry = eval { Developer::Dashboard::CLI::Paths::_load_skill_folder_module(undef); 1 };
     is( $missing_entry, undef, '_load_skill_folder_module rejects a non-hash entry' );
@@ -635,19 +670,19 @@ FOLDER_MODULE
         $run->( command => 'path', args => [ 'cdr', 'folder-skill.docs' ] );
     };
     is( $config_cdr_err, '', 'a configured skill alias resolves without a Folder.pm error' );
-    is( json_decode($config_cdr)->{target}, '/configured/docs', 'config/config.json takes precedence over a colliding Folder.pm method' );
+    is( json_decode($config_cdr)->{target}, File::Spec->canonpath('/configured/docs'), 'config/config.json takes precedence over a colliding Folder.pm method' );
 
     my ( $folder_cdr, $folder_cdr_err ) = capture {
         $run->( command => 'path', args => [ 'cdr', 'folder-skill.module_only' ] );
     };
     is( $folder_cdr_err, '', 'a Folder.pm-only skill alias resolves without diagnostics' );
-    is( json_decode($folder_cdr)->{target}, '/module/only', 'cdr resolves an alias from the skill Folder.pm method' );
+    is( json_decode($folder_cdr)->{target}, File::Spec->canonpath('/module/only'), 'cdr resolves an alias from the skill Folder.pm method' );
 
     my ( $resolved_output, $resolved_err ) = capture {
         $run->( command => 'path', args => [ 'resolve', 'folder-skill.module_only' ] );
     };
     is( $resolved_err, '', 'path resolve handles Folder.pm aliases without diagnostics' );
-    is( $resolved_output, "/module/only\n", 'path resolve consults Folder.pm after configured aliases' );
+    is( $resolved_output, File::Spec->canonpath('/module/only') . "\n", 'path resolve consults Folder.pm after configured aliases' );
 
     my ( $paths_json, $paths_err ) = capture {
         $run->( command => 'paths', args => [ '-o', 'json' ] );
@@ -655,13 +690,16 @@ FOLDER_MODULE
     is( $paths_err, '', 'paths lists Folder.pm aliases without diagnostics' );
     my $listed_paths = json_decode($paths_json);
     is( $listed_paths->{'folder-skill.docs'}, '/configured/docs', 'paths keeps the config alias value when a Folder.pm alias collides' );
-    is( $listed_paths->{'folder-skill.module_only'}, '/module/only', 'paths merges aliases returned by Folder->__list__ and Folder methods' );
+    # Folder.pm targets are handed through _expand_home, which returns the
+    # native spelling on Windows (as the cdr and resolve checks above already
+    # expect); the configured alias is listed exactly as stored.
+    is( $listed_paths->{'folder-skill.module_only'}, File::Spec->canonpath('/module/only'), 'paths merges aliases returned by Folder->__list__ and Folder methods' );
 
     my ( $path_list_json, $path_list_err ) = capture {
         $run->( command => 'path', args => [ 'list', '-o', 'json' ] );
     };
     is( $path_list_err, '', 'path list includes Folder.pm aliases without diagnostics' );
-    is( json_decode($path_list_json)->{'folder-skill.module_only'}, '/module/only', 'path list merges the listed Folder.pm aliases without persisting them' );
+    is( json_decode($path_list_json)->{'folder-skill.module_only'}, File::Spec->canonpath('/module/only'), 'path list merges the listed Folder.pm aliases without persisting them' );
 
     my ( $completion, $completion_err ) = capture {
         $run->( command => 'path', args => [ 'complete-cdr', 1, 'cdr', 'folder-skill.m' ] );

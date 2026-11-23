@@ -15,6 +15,19 @@ BEGIN {
             $! = 1;
             return 0;
         }
+        # Windows has no fchmod, so the product hardens the RESULT
+        # tempfile by path there; fail that path-form call (and only the
+        # product's own, never File::Temp's) when the flag is armed.
+        if ( $FAIL{chmod} && $^O eq 'MSWin32' && @_ == 2 && !ref $_[1] && caller eq 'Developer::Dashboard::Runtime::Result' ) {
+            $! = 1;
+            return 0;
+        }
+        # Windows has no fchmod, so a handle-form chmod (File::Temp's
+        # tempfile hardening and _open_channel_file) dies unimplemented
+        # there; Unix modes are not a Windows security control, so treat
+        # the handle form as a successful no-op instead of reaching
+        # CORE::chmod. Path-form chmod still passes through.
+        return 1 if $^O eq 'MSWin32' && @_ == 2 && ref $_[1];
         return CORE::chmod(@_);
     };
     *CORE::GLOBAL::fcntl = sub (*$$) {
@@ -85,10 +98,13 @@ sub scripted {
 
 # A RESULT_FILE that names a directory opens but fails to close after the
 # read error, so the close failure is reported; an empty file is no payload.
+# On Windows the open itself fails (a directory cannot be opened for
+# reading there), so the same unreadable RESULT file is reported at the
+# read step instead of the close step; either wording names the failure.
 {
     local $ENV{RESULT_FILE} = $home;
     my $err = eval { Developer::Dashboard::Runtime::Result::current(); 1 } ? '' : $@;
-    like( $err, qr/Unable to close RESULT file/, 'a RESULT_FILE that cannot be read cleanly is fatal' );
+    like( $err, qr/Unable to (?:read|close) RESULT file/, 'a RESULT_FILE that cannot be read cleanly is fatal' );
 
     my $empty = File::Spec->catfile( $home, 'empty-result' );
     open my $fh, '>', $empty or die "Unable to write $empty: $!";
@@ -107,9 +123,18 @@ sub scripted {
 
     for my $case ( [ chmod => qr/Unable to chmod RESULT tempfile/ ], [ fcntl_get => qr/Unable to inspect RESULT file descriptor flags/ ], [ fcntl_set => qr/Unable to clear close-on-exec/ ] ) {
         my ( $flag, $re ) = @{$case};
-        local $FAIL{$flag} = 1;
-        my $err = eval { Developer::Dashboard::Runtime::Result::_open_channel_file(); 1 } ? '' : $@;
-        like( $err, $re, "_open_channel_file reports a $flag failure" );
+        SKIP: {
+            # The fcntl flag dance is a Unix mechanism: F_GETFD and
+            # F_SETFD do not exist on Strawberry Perl, so the product
+            # skips it on Windows and there is no failure to inject
+            # there. The chmod case still runs on Windows (the
+            # override treats handle-form chmod as a successful no-op).
+            skip "_open_channel_file does no fcntl on Windows (F_GETFD/F_SETFD do not exist there)", 1
+              if $^O eq 'MSWin32' && $flag =~ /^fcntl_/;
+            local $FAIL{$flag} = 1;
+            my $err = eval { Developer::Dashboard::Runtime::Result::_open_channel_file(); 1 } ? '' : $@;
+            like( $err, $re, "_open_channel_file reports a $flag failure" );
+        }
     }
 
     local $Developer::Dashboard::Runtime::Result::CHANNEL_USE_NAMED_PATH = 0;
@@ -121,6 +146,21 @@ sub scripted {
     ( $fh, $path ) = Developer::Dashboard::Runtime::Result::_open_channel_file();
     like( $path, qr{\A/proc/self/fd/\d+\z}, 'without a /dev/fd directory the channel path falls back to /proc/self/fd' );
     close $fh;
+}
+
+# Windows branch: close-on-exec is a Unix flag, so the product skips the
+# fcntl dance on Windows and the channel still opens. Proved on Linux by
+# localizing the platform; on Windows the branch is live.
+{
+    my ( $fh, $path );
+    {
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        ( $fh, $path ) = Developer::Dashboard::Runtime::Result::_open_channel_file();
+    }
+    ok( defined $fh, 'on Windows _open_channel_file still returns a handle without the fcntl dance' );
+    ok( defined $path && length $path, 'on Windows _open_channel_file still returns a usable fd-backed path' );
+    close $fh if $fh;
 }
 
 {
@@ -136,7 +176,7 @@ sub scripted {
     is_deeply( Developer::Dashboard::Runtime::Result::current(), $payload,
         'Darwin named channel is readable by the parent' );
     is( system( $^X, '-Ilib', '-MDeveloper::Dashboard::Runtime::Result',
-        '-e', 'my $x = Developer::Dashboard::Runtime::Result::current(); exit(length($x->{big} // "") == 80 ? 0 : 1)' ),
+        '-e', 'my $x = Developer::Dashboard::Runtime::Result::current(); exit(length($x->{big} // q{}) == 80 ? 0 : 1)' ),
         0, 'Darwin named channel is readable independently after exec' );
     Developer::Dashboard::Runtime::Result::clear_current();
 }

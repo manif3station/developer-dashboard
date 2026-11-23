@@ -20,6 +20,11 @@ use Developer::Dashboard::PathRegistry;
 # deepest .developer-dashboard layer discovered from the current working
 # directory, so the test must chdir into the temp home before building objects.
 my $home = tempdir( CLEANUP => 1 );
+
+# Windows runs command actions through PowerShell, which has neither true
+# nor printf. The always-successful command there is "exit 0", and the
+# marker side effect comes from a Perl script run by the current interpreter.
+my $TRUE_COMMAND = $^O eq 'MSWin32' ? 'exit 0' : 'true';
 local $ENV{HOME} = $home;
 chdir $home or die "Unable to chdir to $home: $!";
 
@@ -95,10 +100,18 @@ my $source_page = Developer::Dashboard::PageDocument->new(
 # ---------------------------------------------------------------------------
 {
     my $marker  = File::Spec->catfile( $home, 'run-page-command.marker' );
+    my $marker_command = qq{printf ok > "$marker"};
+    if ( $^O eq 'MSWin32' ) {
+        my $script = File::Spec->catfile( $home, 'run-page-command-marker.pl' );
+        open my $script_fh, '>', $script or die "Unable to write $script: $!";
+        print {$script_fh} qq{open my \$fh, '>', \$ARGV[0] or die "Unable to write \$ARGV[0]: \$!"; print {\$fh} 'ok'; close \$fh or die "Unable to close \$ARGV[0]: \$!";\n};
+        close $script_fh or die "Unable to close $script: $!";
+        $marker_command = qq{& "$^X" "$script" "$marker"};
+    }
     my $command = {
         id      => 'run',
         kind    => 'command',
-        command => qq{printf ok > "$marker"},
+        command => $marker_command,
         cwd     => $home,
     };
     my $result = $runner->run_page_action(
@@ -117,7 +130,7 @@ my $source_page = Developer::Dashboard::PageDocument->new(
 {
     my $rejected = eval {
         $runner->run_page_action(
-            action => { id => 'x', kind => 'command', command => 'true', cwd => $home },
+            action => { id => 'x', kind => 'command', command => $TRUE_COMMAND, cwd => $home },
             page   => Developer::Dashboard::PageDocument->new( id => 'p', title => 'P', layout => { body => 'b' } ),
             source => 'transient',
         );
@@ -206,7 +219,7 @@ my $source_page = Developer::Dashboard::PageDocument->new(
                 version     => 1,
                 source      => 'saved',
                 page_source => $page_src,
-                action      => { id => 'run', kind => 'command', command => 'true' },
+                action      => { id => 'run', kind => 'command', command => $TRUE_COMMAND },
             }
         )
     );
@@ -233,28 +246,28 @@ my $source_page = Developer::Dashboard::PageDocument->new(
     like( $@, qr/Missing command/, 'run_command_action() reports the missing command' );
 
     # Absolute cwd -> file_name_is_absolute true (line 145 left-false).
-    my $absolute = $runner->run_command_action( command => 'true', cwd => $home );
+    my $absolute = $runner->run_command_action( command => $TRUE_COMMAND, cwd => $home );
     is( $absolute->{exit_code}, 0, 'run_command_action() runs with an absolute cwd' );
 
     # No cwd -> defaults to cwd() (line 144 left-false-right-true); the current
     # directory is the temp home, which exists.
-    my $defaulted_cwd = $runner->run_command_action( command => 'true' );
+    my $defaulted_cwd = $runner->run_command_action( command => $TRUE_COMMAND );
     is( $defaulted_cwd->{exit_code}, 0, 'run_command_action() defaults the cwd to the current directory' );
 
     # Relative cwd that names a path-registry method (line 145 left-true-right-true).
-    my $relative_method = $runner->run_command_action( command => 'true', cwd => 'home' );
+    my $relative_method = $runner->run_command_action( command => $TRUE_COMMAND, cwd => 'home' );
     is( $relative_method->{exit_code}, 0, 'run_command_action() resolves a relative cwd that names a path registry accessor' );
 
     # Relative cwd that is a real directory but is not a path-registry method
     # (line 145 left-true-right-false).
     my $workdir = File::Spec->catdir( $home, 'workdir' );
     mkdir $workdir or die "Unable to create $workdir: $!";
-    my $relative_plain = $runner->run_command_action( command => 'true', cwd => 'workdir' );
+    my $relative_plain = $runner->run_command_action( command => $TRUE_COMMAND, cwd => 'workdir' );
     is( $relative_plain->{exit_code}, 0, 'run_command_action() runs in a relative cwd that is not a path registry accessor' );
 
     # Missing cwd -> the existence guard fires.
     my $missing_cwd = eval {
-        $runner->run_command_action( command => 'true', cwd => File::Spec->catdir( $home, 'no-such-cwd' ) );
+        $runner->run_command_action( command => $TRUE_COMMAND, cwd => File::Spec->catdir( $home, 'no-such-cwd' ) );
         1;
     };
     ok( !$missing_cwd, 'run_command_action() rejects a cwd that does not exist' );
@@ -267,7 +280,7 @@ my $source_page = Developer::Dashboard::PageDocument->new(
 {
     no warnings 'redefine';
     local *Developer::Dashboard::ActionRunner::shell_command_argv = sub { die "forced argv failure\n" };
-    my $argv_die = eval { $runner->run_command_action( command => 'true', cwd => $home ); 1 };
+    my $argv_die = eval { $runner->run_command_action( command => $TRUE_COMMAND, cwd => $home ); 1 };
     ok( !$argv_die, 'run_command_action() propagates a non-timeout exception from the command runner' );
     like( $@, qr/forced argv failure/, 'the non-timeout exception message is preserved' );
 }
@@ -404,26 +417,65 @@ my $source_page = Developer::Dashboard::PageDocument->new(
 # ps fallback with undef, populated, and blank output (lines 309, 310, 311).
 # ---------------------------------------------------------------------------
 {
-    my $state = $runner->_read_process_state($$);
-    ok( defined $state && $state =~ /^\S$/, '_read_process_state() reads the live procfs one-letter state' );
+    # There is no procfs and no ps on Windows, so a state the product
+    # cannot read is undef there (the callers treat it as unknown); on a
+    # Unix host the current process always has a readable state.
+    if ( $^O eq 'MSWin32' ) {
+        is( $runner->_read_process_state($$), undef, '_read_process_state() returns undef on Windows, where there is no procfs and no ps' );
+    }
+    else {
+        my $state = $runner->_read_process_state($$);
+        ok( defined $state && $state =~ /^\S$/, '_read_process_state() reads the live procfs one-letter state' );
+    }
+}
+{
+    # Windows branch: with no procfs entry for the pid and no ps on
+    # Windows, the reader returns undef without spawning ps at all.
+    # Proved on Linux by localizing the platform (pid 999998 has no
+    # procfs entry there, so the ps path is the one taken); on Windows
+    # the branch is live.
+    no warnings 'redefine';
+    my $capture_called = 0;
+    local *Developer::Dashboard::ActionRunner::capture = sub (&) { $capture_called++; return ( "S\n", '', 0 ) };
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_read_process_state(999998), undef, 'on Windows _read_process_state() returns undef without spawning ps' );
+    }
+    is( $capture_called, 0, 'on Windows _read_process_state() does not spawn ps at all' );
 }
 {
     no warnings 'redefine';
+    # The ps fallback is the Unix branch; on Windows the product returns
+    # early, so the platform is localized to reach the same branch there
+    # (capture is mocked, so no real ps is ever started).
+    local $Developer::Dashboard::Platform::OS_NAME = $^O eq 'MSWin32' ? 'linux' : $Developer::Dashboard::Platform::OS_NAME;
     local *Developer::Dashboard::ActionRunner::capture = sub (&) { return ( undef, '', 0 ) };
     is( scalar $runner->_read_process_state(999998), undef, '_read_process_state() tolerates undefined ps output' );
 }
 {
     no warnings 'redefine';
+    # The ps fallback is the Unix branch; on Windows the product returns
+    # early, so the platform is localized to reach the same branch there
+    # (capture is mocked, so no real ps is ever started).
+    local $Developer::Dashboard::Platform::OS_NAME = $^O eq 'MSWin32' ? 'linux' : $Developer::Dashboard::Platform::OS_NAME;
     local *Developer::Dashboard::ActionRunner::capture = sub (&) { return ( "S\n", '', 0 ) };
     is( $runner->_read_process_state(999997), 'S', '_read_process_state() falls back to ps output when procfs is unavailable' );
 }
 {
     no warnings 'redefine';
+    # The ps fallback is the Unix branch; on Windows the product returns
+    # early, so the platform is localized to reach the same branch there
+    # (capture is mocked, so no real ps is ever started).
+    local $Developer::Dashboard::Platform::OS_NAME = $^O eq 'MSWin32' ? 'linux' : $Developer::Dashboard::Platform::OS_NAME;
     local *Developer::Dashboard::ActionRunner::capture = sub (&) { return ( "   \n", '', 0 ) };
     is( scalar $runner->_read_process_state(999996), undef, '_read_process_state() returns undef when ps output is blank' );
 }
 {
     no warnings 'redefine';
+    # The ps fallback is the Unix branch; on Windows the product returns
+    # early, so the platform is localized to reach the same branch there
+    # (capture is mocked, so no real ps is ever started).
+    local $Developer::Dashboard::Platform::OS_NAME = $^O eq 'MSWin32' ? 'linux' : $Developer::Dashboard::Platform::OS_NAME;
     local *Developer::Dashboard::ActionRunner::capture = sub (&) { return ( '', '', 3 ) };
     is( scalar $runner->_read_process_state(999995), undef, '_read_process_state() returns undef when ps exits non-zero' );
 }
@@ -564,7 +616,7 @@ my $source_page = Developer::Dashboard::PageDocument->new(
     DDActionRunnerCwdSpy::reset();
     my $spy_paths = DDActionRunnerCwdSpy->new;
     my $spy_runner = Developer::Dashboard::ActionRunner->new( files => $files, paths => $spy_paths );
-    eval { $spy_runner->run_command_action( command => 'true', cwd => 'named_paths' ) };
+    eval { $spy_runner->run_command_action( command => $TRUE_COMMAND, cwd => 'named_paths' ) };
     my @calls = DDActionRunnerCwdSpy::calls();
     is( scalar(@calls), 0,
         "DD-881: run_command_action(cwd => 'named_paths') never dispatches to the spy's named_paths method"
@@ -572,7 +624,7 @@ my $source_page = Developer::Dashboard::PageDocument->new(
 }
 
 {
-    my $result = $runner->run_command_action( command => 'true', cwd => 'home' );
+    my $result = $runner->run_command_action( command => $TRUE_COMMAND, cwd => 'home' );
     is( $result->{exit_code}, 0, 'DD-881: a legitimate accessor alias (home) still resolves' );
 }
 

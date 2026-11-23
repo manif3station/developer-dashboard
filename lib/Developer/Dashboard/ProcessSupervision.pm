@@ -50,11 +50,13 @@ our @EXPORT_OK = qw(
     _pid_namespace_id
     _powershell_command
     _powershell_single_quote
+    _taskkill_command
     _process_exists
     _read_process_env_marker
     _reap_child_process
     _rename_path
     _replace_state_file
+    _source_is_movable
     _unlink_path
     _helper_file_supports_internal_command
     _same_pid_namespace
@@ -76,6 +78,15 @@ sub _reap_child_process {
     # leak only became visible once a test process ended with the stale value.
     local $?;
     return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    if ( is_windows() ) {
+        # A GoRoutine (CreateProcess) child is reaped through the native
+        # process API, because waitpid below cannot reliably see one once
+        # its process object is gone. A pid the spawn registry does not
+        # know falls through to waitpid, which keeps its existing behaviour
+        # for any other direct child.
+        require Developer::Dashboard::GoRoutine;
+        return 1 if Developer::Dashboard::GoRoutine::reap_child($pid);
+    }
     my $waited = waitpid( $pid, 1 );
     return $waited == $pid ? 1 : 0;
 }
@@ -105,6 +116,25 @@ sub _replace_state_file {
 
     my $rename_error = $!;
     if ( $self->is_windows ) {
+        # A rename can fail two ways: the target already exists (a collision,
+        # where the source itself is movable) or the source is locked against
+        # rename/delete (which the writer itself holds briefly after close).
+        # Only the second case goes straight to the in-place overwrite: it
+        # reads the source (which still works while the source is locked) and
+        # rewrites the target without ever removing it, so a reader never
+        # finds the target missing. The unlink-then-rename and PowerShell
+        # paths below delete the target first and can leave it missing for
+        # seconds (PowerShell startup) while a locked source defeats every
+        # move, which starved loop_state and killed the t/07 stale-loop
+        # test at 580.
+        if ( !$self->_source_is_movable($source) ) {
+            my ( $overwrite_ok, $overwrite_error ) = $self->_overwrite_state_file_in_place( $source, $target );
+            return 1 if $overwrite_ok;
+            if ( defined $overwrite_error && $overwrite_error ne '' ) {
+                chomp $overwrite_error;
+                $rename_error = "$rename_error; in-place overwrite fallback failed: $overwrite_error";
+            }
+        }
         for my $attempt ( 1 .. 10 ) {
             if ( -e $target ) {
                 $self->_unlink_path($target)
@@ -156,6 +186,25 @@ sub _unlink_path {
     return unlink $path;
 }
 
+# _source_is_movable($source)
+# Probes whether a prepared temporary file can be renamed, to tell a target
+# collision (the rename failed only because the destination exists) from a
+# locked source (the rename fails because the source itself cannot be moved).
+# Renames the source to a probe name and straight back, so the file ends up
+# exactly where it started; uses the real rename, not the _rename_path
+# wrapper, so a test stubbing that wrapper to simulate a collision still sees
+# the true movability of the file on disk.
+# Input: temporary source path string.
+# Output: true when the source renames away and back, false otherwise.
+sub _source_is_movable {
+    my ( $self, $source ) = @_;
+    my $probe = $source . '.movable-probe';
+    return 0 if !CORE::rename( $source, $probe );
+    CORE::rename( $probe, $source )
+      or die "Unable to restore $source after movability probe: $!";
+    return 1;
+}
+
 # _overwrite_state_file_in_place($source, $target)
 # Rewrites one runtime state target in place from the prepared temporary
 # payload when Windows denies delete-or-move replacement but still permits a
@@ -184,6 +233,24 @@ sub _overwrite_state_file_in_place {
 # Output: sorted list of descriptor integers.
 sub _open_file_descriptors {
     my ($self) = @_;
+    if ( is_windows() ) {
+        # There is no /proc or /dev/fd on Windows, so there is no
+        # directory to list descriptors from. Probe the CRT descriptor
+        # table instead: a descriptor that duplicates is open, one that
+        # does not is not. The bound is the common CRT table size; a
+        # detached child only ever inherits low-numbered descriptors,
+        # and the standard three are always found this way, so the
+        # listing still includes stdin.
+        my @fds;
+        for my $fd ( 0 .. 1023 ) {
+            my $handle;
+            if ( open( $handle, '<&', $fd ) || open( $handle, '>&', $fd ) ) {
+                push @fds, $fd;
+                close $handle;
+            }
+        }
+        return @fds;
+    }
     my %seen;
     my @fds;
     for my $path ( Developer::Dashboard::ProcessSupervision::_fd_candidate_paths($self) ) {
@@ -299,6 +366,31 @@ sub _powershell_command {
     return '';
 }
 
+# _taskkill_command()
+# Resolves the taskkill executable _send_signal shells out to on
+# Windows. A bare 'taskkill' handed to system() is resolved by
+# CreateProcess, which only appends .exe, so a .bat on PATH is
+# invisible to it - the t/09 fake taskkill.bat never ran and build
+# #269 died reading the args file it never wrote (the real taskkill
+# ran instead and exited 128 for the nonexistent pids; micro t/988
+# proved it). Resolving here through command_in_path, which expands
+# PATHEXT, finds the .bat, and the absolute path runs it through cmd.
+# Falls back to System32 taskkill.exe when PATH cannot find it, and
+# to the bare name when even that is absent, so callers that stub
+# capture keep their existing behaviour. Called as a plain function,
+# not a method - it needs no object state.
+# Input: none.
+# Output: taskkill path string (resolved, System32 fallback, or bare name).
+sub _taskkill_command {
+    return 'taskkill' if !is_windows();
+    my $resolved = command_in_path('taskkill');
+    return $resolved if defined $resolved && $resolved ne '';
+    my $system_root = $ENV{SystemRoot} || 'C:\\Windows';
+    my $fallback = File::Spec->catfile( $system_root, 'System32', 'taskkill.exe' );
+    return $fallback if -f $fallback;
+    return 'taskkill';
+}
+
 # _powershell_single_quote($value)
 # Escapes one literal string for safe use in a single-quoted PowerShell
 # argument position.
@@ -345,12 +437,99 @@ sub _pid_namespace_id {
     return readlink $path;
 }
 
+# Cached Win32 process-query imports, attempted once; a failed import is
+# never retried, so a missing Win32 primitive degrades to kill(0) exactly
+# once (the Watch.pm _windows_peek_named_pipe shape).
+my $_WINDOWS_PROCESS_API;
+my $_WINDOWS_PROCESS_API_FAILED;
+
+# STILL_ACTIVE is the exit code GetExitCodeProcess reports for a process
+# that has not exited; PROCESS_QUERY_LIMITED_INFORMATION is the access
+# right OpenProcess needs to query it (micro t/997, solo #385).
+my $_WINDOWS_STILL_ACTIVE              = 259;
+my $_WINDOWS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+# _windows_process_api()
+# Imports the four kernel32 functions the Windows liveness check needs,
+# once, and caches them. Win32::API is loaded lazily so Unix legs never
+# pay for it and a leg without it keeps working.
+# Input: none.
+# Output: hash reference of imported function objects, or undef when the
+# import fails (callers fall back to kill(0)).
+sub _windows_process_api {
+    return $_WINDOWS_PROCESS_API if defined $_WINDOWS_PROCESS_API;
+    return undef if $_WINDOWS_PROCESS_API_FAILED;
+    my $api = eval {
+        require Win32::API;
+        my $open_process = Win32::API->new( 'kernel32', 'OpenProcess', 'NIN', 'Q' );
+        die "OpenProcess import failed\n" if !defined $open_process;
+        my $get_exit_code = Win32::API->new( 'kernel32', 'GetExitCodeProcess', 'QP', 'I' );
+        die "GetExitCodeProcess import failed\n" if !defined $get_exit_code;
+        my $get_process_id = Win32::API->new( 'kernel32', 'GetProcessId', 'Q', 'N' );
+        die "GetProcessId import failed\n" if !defined $get_process_id;
+        my $close_handle = Win32::API->new( 'kernel32', 'CloseHandle', 'Q', 'I' );
+        die "CloseHandle import failed\n" if !defined $close_handle;
+        {
+            open_process   => $open_process,
+            get_exit_code  => $get_exit_code,
+            get_process_id => $get_process_id,
+            close_handle   => $close_handle,
+        };
+    };
+    if ( !$api ) {
+        $_WINDOWS_PROCESS_API_FAILED = 1;
+        return undef;
+    }
+    $_WINDOWS_PROCESS_API = $api;
+    return $api;
+}
+
+# _process_exists_windows($pid)
+# Windows-only liveness check. A bare kill(0) cannot be trusted here:
+# Perl's kill(0) on Windows is OpenProcess-based, and OpenProcess rounds
+# the requested pid DOWN to a multiple of 4 (Windows pids are multiples
+# of 4), so kill(0, 3101) tests live pid 3100 and answers true - and a
+# process object can linger after exit while some handle to it is still
+# open, so the exit code must be checked too (round 42, t/09 test 209
+# with fake loop pids 3101/3102; micro t/997 proved both traps in solo
+# #385). All three must hold: the handle opened, GetProcessId on the
+# handle is exactly the pid asked for, and the exit code is STILL_ACTIVE.
+# The handle is closed on every path once opened: the values are read
+# into Perl scalars first and CloseHandle runs before any of the verdict
+# returns below, so there is no early return that can leak it. Called as
+# a plain function, not a method - it needs no object state. When the
+# Win32 imports are unavailable the check falls back to kill(0), so
+# behaviour degrades to today's rather than dying.
+# Input: process id integer.
+# Output: boolean true when the process is really running.
+sub _process_exists_windows {
+    my ($pid) = @_;
+    my $api = _windows_process_api();
+    return kill( 0, $pid ) ? 1 : 0 if !$api;
+    my $handle = $api->{open_process}->Call( $_WINDOWS_QUERY_LIMITED_INFORMATION, 0, $pid );
+    return 0 if !$handle;
+    my $real_pid = $api->{get_process_id}->Call($handle);
+    my $code_buf = pack 'L', 0;
+    my $ok = $api->{get_exit_code}->Call( $handle, $code_buf );
+    my $code = $ok ? unpack( 'L', $code_buf ) : undef;
+    $api->{close_handle}->Call($handle);
+    return 0 if !defined $real_pid || $real_pid != $pid;
+    return 0 if !defined $code;
+    return $code == $_WINDOWS_STILL_ACTIVE ? 1 : 0;
+}
+
 # _process_exists($pid)
 # Checks whether one process id still exists from the current runtime view.
+# On Windows a bare kill(0) is not that check: OpenProcess rounds the pid
+# down to a multiple of 4 and a lingering process object still opens, so
+# _process_exists_windows verifies the handle, the real pid and the exit
+# code instead (round 42, micro t/997). Unix keeps the bare kill(0),
+# which is exact there.
 # Input: process id integer.
-# Output: boolean true when signal 0 succeeds.
+# Output: boolean true when the process is really running.
 sub _process_exists {
     my ( $self, $pid ) = @_;
+    return _process_exists_windows($pid) if is_windows();
     return kill( 0, $pid ) ? 1 : 0;
 }
 

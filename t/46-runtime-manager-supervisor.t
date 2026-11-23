@@ -423,6 +423,7 @@ ok(
             stdin  => File::Spec->devnull(),
             stdout => $files->collector_log,
             stderr => $files->collector_log . '.stderr',
+            env    => { DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR => 1 },
         },
         'collector supervisor start redirects helper standard streams',
     );
@@ -539,8 +540,20 @@ ok(
             stderr => "$home/collector-supervisor-defaults.err",
         },
     );
-    is( Developer::Dashboard::GoRoutine::wait_process($child), 0,
-        'collector supervisor child default daemonize and redirect path exits cleanly after TERM' );
+    # Windows has no POSIX signal handlers: GoRoutine::terminate_process maps
+    # TERM to native process termination there (documented in GoRoutine.pm),
+    # so the child is ended at once with the TERM exit code 143 and its
+    # $SIG{TERM} shutdown closure cannot run. Assert that real contract on
+    # Windows and the handler-driven clean exit everywhere else.
+    my $windows = $^O eq 'MSWin32';
+    if ($windows) {
+        is( Developer::Dashboard::GoRoutine::wait_process($child), 143,
+            'collector supervisor child default daemonize and redirect path is ended natively by TERM on Windows' );
+    }
+    else {
+        is( Developer::Dashboard::GoRoutine::wait_process($child), 0,
+            'collector supervisor child default daemonize and redirect path exits cleanly after TERM' );
+    }
     open my $fh, '<', $marker or die "Unable to read $marker: $!";
     my @marker_lines = <$fh>;
     close $fh;
@@ -548,10 +561,18 @@ ok(
         ( scalar grep { $_ eq "detached\n" } @marker_lines ),
         'collector supervisor child default path detaches the process session before entering the loop',
     );
-    ok(
-        ( scalar grep { $_ eq "shutdown:stopped\n" } @marker_lines ),
-        'collector supervisor child TERM handler invokes the shutdown closure through the local signal binding',
-    );
+    if ($windows) {
+        ok(
+            !( scalar grep { /^shutdown:/ } @marker_lines ),
+            'collector supervisor child is terminated natively on Windows before any signal handler can run',
+        );
+    }
+    else {
+        ok(
+            ( scalar grep { $_ eq "shutdown:stopped\n" } @marker_lines ),
+            'collector supervisor child TERM handler invokes the shutdown closure through the local signal binding',
+        );
+    }
 }
 
 {

@@ -14,7 +14,7 @@ use File::Basename qw(dirname);
 use File::Spec ();
 use Developer::Dashboard::EnvAudit;
 use Developer::Dashboard::EnvLoader;
-use Developer::Dashboard::Platform qw(command_in_path shell_quote_for);
+use Developer::Dashboard::Platform qw(command_in_path command_in_path_direct shell_quote_for);
 
 our @EXPORT_OK = qw(
   apply_ticket_status
@@ -181,14 +181,20 @@ sub ticket_environment {
 # Selects the directory tmux should use for its server socket when /tmp is not
 # writable in a container or other restricted runtime.
 # Input: optional tmpdir, fallback, and is_writable callback for deterministic
-# tests; otherwise checks /tmp and /dev/shm directly and honors TMUX_TMPDIR.
+# tests; otherwise checks /tmp and /dev/shm directly on Unix, or the platform
+# temp directory for both on Windows, and honors TMUX_TMPDIR.
 # Output: an explicit socket directory, or undef to keep tmux's /tmp default.
 sub _tmux_socket_directory {
     my (%args) = @_;
     return $ENV{TMUX_TMPDIR} if defined $ENV{TMUX_TMPDIR} && $ENV{TMUX_TMPDIR} ne '';
 
-    my $tmpdir      = $args{tmpdir}   || '/tmp';
-    my $fallback    = $args{fallback} || '/dev/shm';
+    # The Unix defaults do not exist on Windows, where /tmp is not writable
+    # (or present) and /dev/shm never exists, so the check below died before
+    # tmux was even reached. On Windows the platform temp directory is both
+    # the default and the fallback; tmux keeps its own default when it is
+    # writable, and an explicit tmpdir or fallback argument still wins.
+    my $tmpdir   = $args{tmpdir}   || ( $^O eq 'MSWin32' ? File::Spec->tmpdir() : '/tmp' );
+    my $fallback = $args{fallback} || ( $^O eq 'MSWin32' ? File::Spec->tmpdir() : '/dev/shm' );
     my $is_writable = $args{is_writable};
     if ( !defined $is_writable ) {
         $is_writable = sub { return -w $_[0] };
@@ -265,6 +271,37 @@ sub exec_workspace_attach {
 # Output: false when exec fails, never returns on success.
 sub _exec_tmux {
     my (@args) = @_;
+    if ( $^O eq 'MSWin32' ) {
+        # Perl's exec() with a bare name on Windows falls back to cmd,
+        # which runs a .bat twin - but the calling process exits before
+        # the batch completes, so the attach-session log line lands after
+        # the caller has already read the log (t/05 tests 725/726: the
+        # attach step raced the test's log read). Resolve 'tmux' to a
+        # runnable file first (a .bat twin counts, an extensionless
+        # script does not), then run it with system() and exit with the
+        # child's status, so the caller still never returns and the
+        # attach completes before the caller resumes - the same shape as
+        # OpenFile::_exec_raw's Windows branch (t/05 line 2403). When
+        # nothing resolves, return false exactly as a failed exec does,
+        # so exec_workspace_attach dies and t/770's failure path holds.
+        my $resolved = command_in_path_direct('tmux');
+        if ( !defined $resolved ) {
+            $! = 2;    # ENOENT
+            warn "Can't exec \"tmux\": $!";
+            return 0;
+        }
+        my $rc;
+        {
+            local $SIG{__WARN__} = sub { return };
+            $! = 0;
+            $rc = system { $resolved } ( $resolved, @args );
+        }
+        if ( $rc == -1 || $! ) {
+            warn "Can't exec \"tmux\": $!";
+            return 0;
+        }
+        exit( $rc >> 8 );
+    }
     return exec 'tmux', @args;
 }
 
@@ -434,9 +471,38 @@ sub _run_docker_workspace {
     };
 }
 
+# _workspace_env_home()
+# Resolves the user's home directory the same way PathRegistry does
+# ($HOME, then $USERPROFILE, then $HOMEDRIVE + $HOMEPATH), as a path
+# identity for ancestor comparisons.
+# Input: none.
+# Output: home path identity string, or '' when no home resolves.
+sub _workspace_env_home {
+    my $home = $ENV{HOME};
+    return Developer::Dashboard::EnvLoader->_path_identity($home)
+      if defined $home && $home ne '';
+
+    my $userprofile = $ENV{USERPROFILE};
+    return Developer::Dashboard::EnvLoader->_path_identity($userprofile)
+      if defined $userprofile && $userprofile ne '';
+
+    my $homedrive = $ENV{HOMEDRIVE};
+    my $homepath  = $ENV{HOMEPATH};
+    if ( defined $homedrive && $homedrive ne '' && defined $homepath && $homepath ne '' ) {
+        return Developer::Dashboard::EnvLoader->_path_identity( File::Spec->catdir( $homedrive, $homepath ) );
+    }
+
+    return '';
+}
+
 # _workspace_env_files(%args)
 # Returns the ordered plain .env files that should seed one tmux workspace
 # session, from the highest ancestor down to the current directory.
+# The walk stops at the user's home directory: a workspace inherits the
+# user's own defaults, but a stray .env above the home (a machine-level
+# file in a shared ancestor, or one left in a temp root) must not leak
+# into every workspace below it. When no home resolves the walk keeps
+# its old bound at the filesystem root.
 # Input: cwd path string.
 # Output: ordered list of .env file paths.
 sub _workspace_env_files {
@@ -445,10 +511,12 @@ sub _workspace_env_files {
     $cwd = current_working_directory() if !defined $cwd || $cwd eq '';
     my $dir = Developer::Dashboard::EnvLoader->_path_identity($cwd);
     return () if $dir eq '';
+    my $top = _workspace_env_home();
     my @files;
     while (1) {
         my $file = File::Spec->catfile( $dir, '.env' );
         push @files, $file if -f $file;
+        last if $top ne '' && $dir eq $top;
         last if $dir eq File::Spec->rootdir();
         my $parent = dirname($dir);
         last if $parent eq $dir;

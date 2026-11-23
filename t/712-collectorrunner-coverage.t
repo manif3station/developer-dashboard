@@ -213,6 +213,27 @@ WORKER
     ok( -f $pidfile, 'the repaired pidfile exists' );
 }
 
+# --- adopting with no pidfile and an unreadable state record ------------------
+{
+    # With the pidfile gone and nothing found in the process table, the
+    # state record is the last place asked. A state file that is empty or
+    # torn is no record of a running loop: adoption must answer "nothing to
+    # adopt" so start_loop goes on to spawn, never die and fail the start.
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return; };
+    for my $case ( [ 's8-adopt-empty', '', 'an empty' ], [ 's8-adopt-torn', '{"pid":', 'a torn' ] ) {
+        my ( $name, $content, $label ) = @{$case};
+        my $pidfile = File::Spec->catfile( $home, "$name.pid" );
+        write_file( $runner->_statefile($name), $content );
+        my %args = ( pidfile => $pidfile, name => $name, title => "d2 collector: $name", interval => 1, schedule_mode => 'interval' );
+        my $adopted = 'not-run';
+        my $err = eval { $adopted = $runner->_adopt_existing_loop_if_running(%args); 1 } ? '' : $@;
+        is( $err, '', "adopting with no pidfile does not die on $label state file" );
+        is( $adopted, undef, "adopting with no pidfile and $label state file finds nothing to adopt" );
+        ok( !-f $pidfile, "adopting with no pidfile and $label state file writes no pidfile" );
+    }
+}
+
 # --- loop state read failures -----------------------------------------------
 {
     $runner->_write_loop_state( 's8-state', { pid => $$ } );
@@ -254,9 +275,28 @@ SKIP: {
     skip '/proc is not listable here', 2 if !-d '/proc';
     no warnings 'redefine';
     my $calls = 0;
+    my @seen;
     local *Developer::Dashboard::CollectorRunner::_read_proc_file      = sub { return 'x' };
     local *Developer::Dashboard::CollectorRunner::_read_process_title  = sub { return 'd2 collector: s8-ns' };
-    local *Developer::Dashboard::CollectorRunner::_same_pid_namespace  = sub { return ++$calls >= 2 ? 1 : 0 };
+    local *Developer::Dashboard::CollectorRunner::_same_pid_namespace  = sub {
+        my ( undef, $pid ) = @_;
+        push @seen, $pid;
+        return ++$calls >= 2 ? 1 : 0;
+    };
+    # Fix C scopes every _find_running_loop branch through
+    # _loop_runtime_matches, which fails closed on a candidate with no
+    # runtime identity - and this fixture provides none, so the gate
+    # rejects the positive candidate the scan reaches (micro-proven in
+    # t/981). Hold the gate at yes for the positive candidate only: the
+    # pid is taken from the scan itself ($seen[1], the second
+    # candidate), and for every other pid this is exactly the real
+    # gate's answer here (the candidates carry no marker, no --runtime
+    # token and no loop state), so the filtering this block pins is
+    # unchanged.
+    local *Developer::Dashboard::CollectorRunner::_loop_runtime_matches = sub {
+        my ( undef, $pid ) = @_;
+        return $pid == $seen[1] ? 1 : 0;
+    };
     my $found = $runner->_find_running_loop('s8-ns');
     ok( $found, '_find_running_loop returns a title match from the same pid namespace' );
     is( $calls, 2, '_find_running_loop skips a title match from another pid namespace' );

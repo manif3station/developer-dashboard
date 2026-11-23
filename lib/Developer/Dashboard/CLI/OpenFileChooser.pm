@@ -70,6 +70,20 @@ sub _stdin_has_pending_input {
     my $fileno = fileno(STDIN);
     return 1 if !defined $fileno || $fileno < 0;
 
+    if ( $^O eq 'MSWin32' ) {
+        # On Windows IO::Select only works for real sockets, so the call
+        # below returns 0 immediately for a regular file (which never
+        # blocks) and never waits out the timeout for a pipe, which is
+        # exactly backwards. Answer the two cases Windows can answer
+        # natively and leave anything else (a socket) to IO::Select.
+        return 1 if -f STDIN;
+        if ( -p STDIN ) {
+            my $ready = _windows_stdin_pipe_ready($timeout_seconds);
+            return $ready if defined $ready;
+            return 1;    # the native check is unavailable: fall back to the ordinary blocking read
+        }
+    }
+
     # select(2) - and therefore IO::Select - is only reliably usable on
     # non-socket handles (a console, a pipe, STDIN itself) on Unix-family
     # platforms; on Windows it is documented to work only for real sockets,
@@ -88,6 +102,47 @@ sub _stdin_has_pending_input {
     };
     return 1 if !defined $ready;    # IO::Select misbehaving on this platform: fall back to the ordinary blocking read
     return $ready;
+}
+
+# _windows_stdin_pipe_ready($timeout_seconds)
+# Polls a Windows pipe STDIN for waiting data with PeekNamedPipe, which is
+# the Windows-native readiness check for a pipe: select() cannot wait on
+# one. A closed writer (broken pipe) counts as ready, because a read then
+# returns end-of-file at once instead of blocking.
+#
+# PeekNamedPipe lives in kernel32 and is reached through Win32::API;
+# Win32API::File does not export it. The real Win32 HANDLE comes from
+# Win32API::File::GetOsFHandle with the filehandle glob: passing the fileno
+# number instead returns nothing (proved live on Strawberry Perl 5.38.2),
+# which made the earlier version of this check report every silent pipe as
+# ready at once. This is the same route StreamDrain already takes for its
+# Windows pipes, and the byte count is read by its helper.
+# Input: how many seconds to wait for data before giving up.
+# Output: true when data is waiting or the pipe is at end-of-file, false
+# when the timeout expires with nothing waiting, or undef when the native
+# check cannot run at all.
+sub _windows_stdin_pipe_ready {
+    my ($timeout_seconds) = @_;
+    my ( $peek, $handle ) = eval {
+        require Win32API::File;
+        require Win32::API;
+        require Developer::Dashboard::StreamDrain;
+        my $imported = Win32::API->new( 'kernel32', 'PeekNamedPipe', 'QPIPPP', 'I' );
+        die "Could not import PeekNamedPipe from kernel32\n" if !defined $imported;
+        my $os_handle = Win32API::File::GetOsFHandle( \*STDIN );
+        die "unable to resolve the STDIN operating-system handle\n" if !$os_handle;
+        ( $imported, $os_handle );
+    };
+    return if !$peek || !$handle;
+    require Time::HiRes;
+    my $deadline = Time::HiRes::time() + $timeout_seconds;
+    while (1) {
+        my $available = Developer::Dashboard::StreamDrain::_windows_pipe_available( $peek, $handle );
+        return 1 if !defined $available;    # writer closed: a read returns end-of-file at once
+        return 1 if $available > 0;
+        return 0 if Time::HiRes::time() >= $deadline;
+        Time::HiRes::sleep(0.01);
+    }
 }
 
 # _stdin_is_tty()

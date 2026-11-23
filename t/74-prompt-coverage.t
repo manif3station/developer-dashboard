@@ -519,7 +519,9 @@ sub write_file {
     mkdir $relative_wt or die "mkdir $relative_wt: $!";
     my $relative_gitdir = File::Spec->abs2rel( $realgit, $relative_wt );
     write_file( File::Spec->catfile( $relative_wt, '.git' ), "gitdir: $relative_gitdir\n" );
-    is( $prompt->_git_metadata_dir($relative_wt), abs_path($realgit), 'a relative worktree gitdir pointer resolves from its worktree root' );
+    # The product returns the canonical native spelling; abs_path alone spells
+    # with forward slashes on Windows, so canonicalise the expected value too.
+    is( $prompt->_git_metadata_dir($relative_wt), File::Spec->canonpath( abs_path($realgit) ), 'a relative worktree gitdir pointer resolves from its worktree root' );
     {
         no warnings 'redefine';
         local *Developer::Dashboard::Prompt::abs_path = sub { return undef };

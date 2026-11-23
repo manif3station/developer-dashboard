@@ -223,7 +223,15 @@ sub marker_paths_under {
     ok( defined $normalised, 'leading, redundant and inner-cancelling segments still yield a cache path' );
     my $tail = catfile( 'com', 'example', 'Foo.java' );
     like( $normalised, qr{\Q$tail\E\z}, 'those segments normalise to the same contained tail' );
-    is( index( $normalised, $java_cache . '/' ), 0, 'the normalised path stays inside the java-sources cache' );
+    # The product returns native paths, so on Windows both sides carry
+    # backslashes while this check appends a literal forward slash - the
+    # prefix never matches and index() reports -1 for a path that is in
+    # fact contained (round 65, proven live on win-ts). Compare
+    # separator-normalised copies instead, so the check asserts the same
+    # containment on every platform.
+    ( my $normalised_unix = $normalised ) =~ s{\\}{/}g;
+    ( my $java_cache_unix = $java_cache ) =~ s{\\}{/}g;
+    is( index( $normalised_unix, $java_cache_unix . '/' ), 0, 'the normalised path stays inside the java-sources cache' );
 }
 
 # ---------------------------------------------------------------------------

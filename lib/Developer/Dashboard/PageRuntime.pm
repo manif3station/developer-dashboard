@@ -826,23 +826,58 @@ sub stream_saved_ajax_file {
     };
 }
 
-# _read_saved_ajax_windows_pipe($reader, $chunk_ref)
-# Reads the next bytes from one Windows saved-Ajax pipe. Keeping the low-level
-# read behind this method makes the EINTR retry path deterministic to test.
-# Input: the pipe reader handle and a scalar reference for the received chunk.
-# Output: sysread's byte count, zero at EOF, or undef with $! describing failure.
-sub _read_saved_ajax_windows_pipe {
-    my ( $self, $reader, $chunk_ref ) = @_;
-    return sysread( $reader, $$chunk_ref, 8192 );
+# _saved_ajax_windows_pipe_available($peek, $fh)
+# Reports how many bytes are waiting to be read on one Windows saved-Ajax
+# pipe, without blocking. On Windows this uses PeekNamedPipe on the pipe's
+# real Win32 HANDLE, which comes from Win32API::File::GetOsFHandle: that
+# function takes the filehandle GLOB, never the fileno number — passing
+# fileno returns undef even for STDOUT itself. On any other platform
+# ($peek undef) it uses the builtin select, which works on pipes there; this
+# path exists only so tests that mock is_windows can exercise the Windows
+# drain on Linux, and it never touches IO::Select.
+# Input: imported PeekNamedPipe function object (undef off Windows) and one
+#        pipe handle.
+# Output: bytes available (0 when none are waiting), or undef when the pipe
+#         cannot be peeked at all — including after the child closed it, so
+#         EOF is then found by sysread returning 0, exactly as on POSIX.
+sub _saved_ajax_windows_pipe_available {
+    my ( $self, $peek, $fh ) = @_;
+    return undef if !defined $fh || !defined fileno($fh);
+    if ( defined $peek ) {
+        my $handle = Win32API::File::GetOsFHandle($fh);
+        return undef if !defined $handle;
+        $^E = 0;
+        my $bytes_read  = pack 'L', 0;
+        my $total_avail = pack 'L', 0;
+        my $bytes_left  = pack 'L', 0;
+        my $ok = $peek->Call( $handle, '', 0, $bytes_read, $total_avail, $bytes_left );
+        return undef if !$ok;
+        return unpack 'L', $total_avail;
+    }
+    my $fd = fileno($fh);
+    return undef if !defined $fd;
+    my $rin = '';
+    vec( $rin, $fd, 1 ) = 1;
+    my $n = select( $rin, undef, undef, 0 );
+    return undef if !defined $n;
+    return $n ? 1 : 0;
 }
 
 # _stream_saved_ajax_windows(%args)
-# Streams Windows saved-Ajax pipes from dedicated reader threads because IO::Select
-# cannot reliably report anonymous pipe readiness on Windows. The caller handles
-# final file closure and preserves the shared result and cleanup contract.
+# Streams Windows saved-Ajax pipes in the main thread with a PeekNamedPipe
+# readiness loop, mirroring the POSIX IO::Select loop in
+# stream_saved_ajax_file. No reader threads: on Windows Perl, creating and
+# destroying a pair of reader threads per stream call races at teardown —
+# join panics ("PANIC: underlying join failed"), COND_DESTROY (6), hangs,
+# and a dying reader's interpreter cleanup closes process-wide handles it
+# inherited (STDOUT/STDERR, and any other open handle). PeekNamedPipe on the
+# open3 pipes' real Win32 HANDLEs gives the same readiness check select
+# gives on POSIX, so the drain needs no threads at all and none of those
+# failure modes can occur. The caller handles final file closure and
+# preserves the shared result and cleanup contract.
 # Input: worker pid, path, stdout/stderr handles, and corresponding writer callbacks.
 # Output: hash with disconnected, error, saved status, terminated status, and whether
-#         this helper terminated the worker before joining its readers.
+#         this helper terminated the worker after a disconnect or fatal stream event.
 sub _stream_saved_ajax_windows {
     my ( $self, %args ) = @_;
     my $pid           = $args{pid} || die 'Missing saved ajax worker pid';
@@ -852,99 +887,122 @@ sub _stream_saved_ajax_windows {
     my $stdout_writer = $args{stdout_writer} || \&_noop_writer;
     my $stderr_writer = $args{stderr_writer} || \&_noop_writer;
 
-    require threads;
-    require Thread::Queue;
-    my $queue = Thread::Queue->new;
-    $queue->limit(8);
-    my @readers;
-    for my $stream ( [ o => $stdout ], [ e => $stderr ] ) {
-        my ( $label, $fh ) = @{$stream};
-        push @readers, threads->create(
-            sub {
-                my ( $events, $reader, $stream_label ) = @_;
-                while (1) {
-                    my $chunk = '';
-                    my $bytes = $self->_read_saved_ajax_windows_pipe( $reader, \$chunk );
-                    if ( !defined $bytes ) {
-                        next if $!{EINTR};
-                        my $error = "$!";
-                        $events->enqueue( 'R' . $stream_label . pack( 'N', length($error) ) . $error );
-                        last;
-                    }
-                    last if $bytes == 0;
-                    $events->enqueue( 'D' . $stream_label . pack( 'N', length($chunk) ) . $chunk );
-                }
-                $events->enqueue( 'C' . $stream_label );
-                return 1;
-            },
-            $queue, $fh, $label,
-        );
+    # PeekNamedPipe lives in kernel32; GetOsFHandle in Win32API::File. Both
+    # are Windows-only core modules, loaded lazily here and only on a real
+    # Windows perl, so this file still compiles and runs on POSIX perls,
+    # where this function never runs except under a mocked is_windows in
+    # tests — there $peek stays undef and the readiness check falls back to
+    # the builtin select (see _saved_ajax_windows_pipe_available).
+    my $peek;
+    if ( $^O eq 'MSWin32' ) {
+        require Win32API::File;
+        require Win32::API;
+        $peek = Win32::API->new( 'kernel32', 'PeekNamedPipe', 'QPIPPP', 'I' );
+        die 'Could not import PeekNamedPipe from kernel32'
+          if !defined $peek;
     }
 
-    my %open_stream = ( o => 1, e => 1 );
+    # IO::Select is used here only as the handle set the shared drain
+    # helpers expect, never for can_read: _drain_saved_ajax_ready_handle
+    # and _drain_saved_ajax_post_exit_handles retire a handle from it at
+    # EOF. can_read is never called, so the Windows select-on-pipes
+    # limitation does not apply. Liveness is tracked separately in @live
+    # (below), from fileno, so the loop never depends on remove() sticking.
+    my $select = IO::Select->new( $stdout, $stderr );
+
+    # Live pipe handles, retired by fileno after the drain closes one.
+    # A closed handle can never become ready again; tracking it here means
+    # a select object whose remove() does not stick can never leave a
+    # closed handle in the loop to spin on.
+    my @live = ( $stdout, $stderr );
+
     my ( $saved_status, $terminated_status, $disconnected, $terminated );
     my $stream_error = '';
-    while (%open_stream) {
-        my $event = $queue->dequeue_timed(0.25);
-        if ( !defined $event ) {
+    my $fatal_error;
+    eval {
+        STREAM: while (1) {
+            my ( @ready, @broken );
+            for my $fh (@live) {
+                my $avail = $self->_saved_ajax_windows_pipe_available( $peek, $fh );
+                if ( !defined $avail ) {
+                    push @broken, $fh;
+                }
+                elsif ( $avail > 0 ) {
+                    push @ready, $fh;
+                }
+            }
+            # Drain broken handles first: a sysread on one surfaces EOF as
+            # a clean retire and a read failure as a reported error, exactly
+            # as the POSIX loop does for a ready handle.
+            for my $fh ( @broken, @ready ) {
+                my $continued = eval {
+                    $self->_drain_saved_ajax_ready_handle(
+                        fh            => $fh,
+                        path          => $path,
+                        select        => $select,
+                        stdout        => $stdout,
+                        stdout_writer => $stdout_writer,
+                        stderr_writer => $stderr_writer,
+                    );
+                };
+                if ($@) {
+                    # A writer exception is a stream error, not a fatal
+                    # failure of this helper: report it, terminate the
+                    # worker below, and return it in the result hash, as
+                    # the threaded reader did before it.
+                    $stream_error = $@;
+                    last STREAM;
+                }
+                if ( !$continued ) {
+                    $disconnected = 1;
+                    last STREAM;
+                }
+            }
+            # Retire handles the drain closed (EOF or read error): a closed
+            # handle can never become ready again, and its fileno is undef
+            # after close. Tracking liveness from fileno, instead of from
+            # $select->count, means a select object whose remove() does
+            # not stick can never leave a closed handle in the loop to spin
+            # on without ever checking child exit or sleeping.
+            @live = grep { defined fileno($_) } @live;
+            last STREAM if !@live;
+            next STREAM if @broken || @ready;
             my ( $child_exited, $status ) = $self->_saved_ajax_child_exited($pid);
-            $saved_status = $status if $child_exited && !defined $saved_status;
-            next;
-        }
-
-        my $type = substr( $event, 0, 1 );
-        my $label = substr( $event, 1, 1 );
-        if ( $type eq 'C' ) {
-            delete $open_stream{$label};
-            next;
-        }
-        if ( $type ne 'D' && $type ne 'R' ) {
-            $stream_error = 'Invalid Windows saved-Ajax reader event';
-            last;
-        }
-        if ( length($event) < 6 ) {
-            $stream_error = 'Incomplete Windows saved-Ajax reader event';
-            last;
-        }
-        my $length = unpack 'N', substr( $event, 2, 4 );
-        my $payload = substr( $event, 6 );
-        if ( length($payload) != $length ) {
-            $stream_error = 'Truncated Windows saved-Ajax reader event';
-            last;
-        }
-
-        my $continued = eval {
-            if ( $type eq 'R' ) {
-                $stderr_writer->("Unable to read ajax stream for $path: $payload\n");
+            if ($child_exited) {
+                $saved_status = $status if !defined $saved_status;
+                my $continued = eval {
+                    $self->_drain_saved_ajax_post_exit_handles(
+                        path          => $path,
+                        select        => $select,
+                        stdout        => $stdout,
+                        stdout_writer => $stdout_writer,
+                        stderr_writer => $stderr_writer,
+                    );
+                };
+                if ($@) {
+                    $stream_error = $@;
+                    last STREAM;
+                }
+                $disconnected = 1 if !$continued;
+                last STREAM;
             }
-            elsif ( $label eq 'o' ) {
-                $stdout_writer->($payload);
-            }
-            else {
-                $stderr_writer->($payload);
-            }
-        };
-        if ($@) {
-            $stream_error = $@;
-            last;
+            Time::HiRes::sleep(0.05);
         }
-        if ( defined $continued && !$continued ) {
-            $disconnected = 1;
-            last;
-        }
-    }
-
+        1;
+    } or do {
+        $fatal_error = $@;
+    };
     if ( $disconnected || $stream_error ne '' ) {
         $self->_terminate_saved_ajax_process( $pid, undef, \$terminated_status );
         $terminated = 1;
-        while (%open_stream) {
-            my $event = $queue->dequeue_timed(0.25);
-            next if !defined $event;
-            delete $open_stream{ substr( $event, 1, 1 ) }
-              if substr( $event, 0, 1 ) eq 'C';
-        }
     }
-    $_->join for @readers;
+    if ( defined $fatal_error && !$terminated ) {
+        # The stream died mid-flight: terminate the worker so its pipes
+        # close instead of leaving a live child behind.
+        eval { $self->_terminate_saved_ajax_process( $pid, undef, \$terminated_status ); 1 };
+        $terminated = 1;
+    }
+    die $fatal_error if defined $fatal_error;
 
     return {
         disconnected      => $disconnected ? 1 : 0,
@@ -1021,15 +1079,33 @@ sub _saved_ajax_child_exited {
     # restores the caller's $? on return regardless of what runs inside.
     local $?;
     return ( 1, 0 ) if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    if ( is_windows() ) {
+        # waitpid cannot reap a GoRoutine (CreateProcess) child on Windows,
+        # so ask the native process API instead: process_exited is the
+        # non-reaping completion check, and wait_process collects the child
+        # and returns its shell-style exit code, which is shifted back into
+        # the wait status word the callers expect. The spawn registry keeps
+        # the process object alive until this wait, so the code survives.
+        require Developer::Dashboard::GoRoutine;
+        return ( 0, undef )
+          if !Developer::Dashboard::GoRoutine::process_exited($pid);
+        my $code = Developer::Dashboard::GoRoutine::wait_process($pid);
+        return ( 1, $code << 8 );
+    }
     my $waited = waitpid( $pid, WNOHANG );
     return $waited == $pid ? ( 1, $? ) : ( 0, undef );
 }
 
 # _noop_writer(@parts)
 # Accepts streamed output chunks when the caller does not need them.
+# A stream writer's return value is its "keep streaming" answer: a defined
+# false value tells the saved-Ajax streamer the client has gone, and the
+# streamer then terminates the worker. The default writer therefore answers
+# true. It used to return an empty string, so a caller that left the writers
+# defaulted had its worker terminated at the first chunk of output.
 # Input: zero or more ignored chunk parts.
-# Output: empty string.
-sub _noop_writer { return '' }
+# Output: true value.
+sub _noop_writer { return 1 }
 
 # _drain_saved_ajax_ready_handle(%args)
 # Reads one ready saved-Ajax process pipe handle and forwards the chunk or error to the right writer.
@@ -1101,13 +1177,31 @@ sub _terminate_saved_ajax_process {
     my $owns_group = !is_windows() && defined $process_group && $process_group =~ /^\d+$/ && $process_group > 0;
     return 1 if !$owns_group && !kill 0, $pid;
     kill 15, -$process_group if $owns_group;
-    kill 15, $pid;
+    if ( is_windows() ) {
+        # Perl kill TERM never reaches a CreateProcess child (it has no
+        # console to deliver the event to), so terminate through the native
+        # process API, which maps TERM onto native termination. The
+        # escalation below does the same for KILL.
+        require Developer::Dashboard::GoRoutine;
+        Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
+    }
+    else {
+        kill 15, $pid;
+    }
     my $drained = $self->_await_saved_ajax_exit( $pid, ( $owns_group ? $process_group : undef ), $status_ref );
     kill 9, -$process_group if $owns_group && !$drained;
 
     # Only signal the worker again when the window really expired: a drained
     # wait has already reaped it, and a reaped pid can be reissued by the OS.
-    kill 9, $pid if !$drained && kill 0, $pid;
+    if ( !$drained && kill 0, $pid ) {
+        if ( is_windows() ) {
+            require Developer::Dashboard::GoRoutine;
+            Developer::Dashboard::GoRoutine::terminate_process( $pid, 'KILL' );
+        }
+        else {
+            kill 9, $pid;
+        }
+    }
     return 1;
 }
 
@@ -1727,16 +1821,20 @@ C<fragment.tt> continue to resolve from the current skill dashboard first.
 Input: page document, optionally carrying C<meta.skill_path>.
 Output: ordered list of include-root directory paths.
 
-=head2 _read_saved_ajax_windows_pipe, _stream_saved_ajax_windows
+=head2 _saved_ajax_windows_pipe_available, _stream_saved_ajax_windows
 
-C<_read_saved_ajax_windows_pipe> reads one chunk from a Windows saved-Ajax pipe
-into a caller-provided scalar reference. It returns the C<sysread> byte count,
-zero at EOF, or C<undef> with C<$!> set when the operating system reports a
-read failure. C<_stream_saved_ajax_windows> runs one reader thread per pipe,
-queues bounded data/error/close events, forwards chunks to the matching writer,
-and terminates the worker before joining readers after a disconnect or fatal
-stream event. A transient C<EINTR> read is retried; other read errors are
-reported through the stderr writer.
+C<_saved_ajax_windows_pipe_available> reports how many bytes are waiting on
+one Windows saved-Ajax pipe, without blocking: on Windows it uses
+C<PeekNamedPipe> on the pipe's real Win32 HANDLE (from
+C<Win32API::File::GetOsFHandle>, which takes the filehandle glob, never the
+fileno number), and on any other platform it uses the builtin C<select>,
+which works on pipes there. C<_stream_saved_ajax_windows> drains the two
+pipes in the main thread with that readiness loop, mirroring the POSIX
+C<IO::Select> loop, and terminates the worker after a disconnect or fatal
+stream event. It creates no threads: reader threads on Windows Perl race at
+teardown (join panics, C<COND_DESTROY>, hangs, and a dying reader's cleanup
+closing process-wide handles it inherited). A transient C<EINTR> read is
+retried; other read errors are reported through the stderr writer.
 
 Use these private methods through C<stream_saved_ajax_file>; direct calls are
 appropriate only for the focused platform and error-path tests. The streaming

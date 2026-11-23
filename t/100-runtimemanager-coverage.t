@@ -180,6 +180,26 @@ ok( $manager->_pid_is_running($$),        '_pid_is_running confirms the current 
     is( $reaped, 1, '_reap_any_child_processes reaps one exited direct child then stops on -1' );
 }
 
+# Same check through the Windows branch: waitpid(-1) has no equivalent on
+# Windows, so the branch reaps through the spawn registry instead. Proved
+# on Linux with $^O and Platform::OS_NAME localized, with the child
+# spawned inside the localization so the wrapper records it (the registry
+# is a Windows-only mechanism); on Windows the branch is the live one.
+{
+    my $reaped = 0;
+    {
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        my $child = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'exit 0' ], {} );
+        for ( 1 .. 40 ) {
+            $reaped = $manager->_reap_any_child_processes;
+            last if $reaped;
+            select undef, undef, undef, 0.05;
+        }
+    }
+    is( $reaped, 1, 'on Windows _reap_any_child_processes reaps one exited direct child through the spawn registry' );
+}
+
 # --- _wait_for_windows_web_shutdown -----------------------------------------
 ok( $manager->_wait_for_windows_web_shutdown( $$, undef, undef ),   '_wait_for_windows_web_shutdown true when the saved pid is alive' );
 ok( !$manager->_wait_for_windows_web_shutdown( 999999, undef, [] ), '_wait_for_windows_web_shutdown false when nothing is alive' );
@@ -806,6 +826,15 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
         # still failed a third time on a genuinely loaded host (DD-767).
         # Raising the count again would be the same fix, shipped a third
         # time, to fail a fourth - the bound is expressed in seconds instead.
+        # The title is argv[0] after exec, but it is NOT at offset 0 of the
+        # cmdline string under an emulator - qemu-aarch64 prefixes the exec'd
+        # argv with its own binary path, so the title sits at a later offset -
+        # and before exec the title is already present as an argument to the
+        # -e program while the environ is still the inherited (populated)
+        # one. So the title is matched as a substring, and the match is only
+        # accepted once the environ reads back empty. A zombie's cmdline is
+        # empty, so it can never match the title and the poll cannot mistake
+        # a dead child for a live one.
         my $probe_deadline_seconds = $ENV{DD_EMPTY_ENVIRON_PROBE_SECONDS} || 60;
         my $probe_environ;
         my $probe_polls    = 0;
@@ -814,9 +843,12 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
             $probe_polls++;
             my $cmdline = '';
             if ( open my $cf, '<', "/proc/$child/cmdline" ) { local $/; $cmdline = <$cf>; close $cf; }
-            if ( defined $cmdline && index( $cmdline, $probe_title ) == 0 ) {
+            if ( defined $cmdline && index( $cmdline, $probe_title ) >= 0 ) {
                 if ( open my $ef, '<', "/proc/$child/environ" ) { local $/; $probe_environ = <$ef>; close $ef; }
-                last;
+                if ( defined $probe_environ && $probe_environ eq '' ) {
+                    last;
+                }
+                $probe_environ = undef;
             }
             select undef, undef, undef, 0.01;
         }
@@ -863,6 +895,12 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
+    # The ps fallback is POSIX-only: on Windows _read_process_state returns
+    # undef before ps (there is no ps there), so the parse below is never
+    # reached on a real Windows host. Hold the platform off the same way
+    # this block already holds procfs off; the Windows dispatch itself is
+    # covered by the neighbouring tests 161-164.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
     @cap = ( " R \n", '', 0 );
@@ -874,12 +912,37 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
     @cap = ( '', '', 0 );
     is( $manager->_read_process_state(123), undef, '_read_process_state returns undef for empty ps output' );
 }
-ok( defined $manager->_read_process_state($$), '_read_process_state reads the current process state via procfs' );
+ok( defined $manager->_read_process_state($$), '_read_process_state reads the current process state via procfs' ) if $^O ne 'MSWin32';
+is( $manager->_read_process_state($$), undef, '_read_process_state returns undef on Windows, where there is no procfs and no ps' ) if $^O eq 'MSWin32';
+
+# Windows branch: with procfs unavailable and no ps on Windows, the readers
+# return undef without spawning ps at all. The title reader consults the
+# Windows process table instead of ps, so the table is mocked empty here
+# and the test still proves no ps is spawned. Proved on Linux by mocking
+# procfs away and localizing the platform; on Windows the branch is live.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_ps_processes = sub { return () };
+    my $capture_called = 0;
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) { $capture_called++; return ( " R \n", '', 0 ) };
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $manager->_read_process_state(123), undef, 'on Windows _read_process_state returns undef without spawning ps' );
+        is( $manager->_read_process_title(123), undef, 'on Windows _read_process_title returns undef without spawning ps' );
+    }
+    is( $capture_called, 0, 'on Windows the readers do not spawn ps at all' );
+}
 
 # --- _read_process_title ps fallback -----------------------------------------
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
+    # Same as the _read_process_state block above: the ps fallback is
+    # POSIX-only (on Windows the title comes from the process table), so
+    # hold the platform off to reach the parse; the Windows dispatch is
+    # covered by the $^O-gated like-test below.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
     @cap = ( "some title   \n", '', 0 );
@@ -889,7 +952,14 @@ ok( defined $manager->_read_process_state($$), '_read_process_state reads the cu
     @cap = ( undef, '', 0 );
     is( $manager->_read_process_title(123), undef, '_read_process_title returns undef for undef ps output' );
 }
-ok( defined $manager->_read_process_title($$), '_read_process_title reads the current process title via procfs' );
+# As above: no procfs and no ps on Windows, so the title comes from the
+# process table instead: the live command line of the current process.
+if ( $^O eq 'MSWin32' ) {
+    like( $manager->_read_process_title($$), qr/100-runtimemanager-coverage/, '_read_process_title returns the live command line on Windows' );
+}
+else {
+    ok( defined $manager->_read_process_title($$), '_read_process_title reads the current process title via procfs' );
+}
 
 # DD-590: same bug class DD-585 fixed in CollectorRunner.pm and DD-589 fixed in
 # IndicatorStore.pm - a query function must not leave the caller's global $?
@@ -923,6 +993,11 @@ is( $manager->_send_signal( 'TERM', undef, 0, 'nope' ), 0, '_send_signal ignores
     local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
+    # fb4897d5: _send_signal forgives a non-zero taskkill exit when every
+    # target is verifiably gone, so the die only fires when a target is
+    # still alive. Pin the target alive here, or the assertion depends on
+    # whether pid 111 happens to exist on the test host.
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub { return 1 };
     @cap = ( '', '', 0 );
     is( $manager->_send_signal( 'TERM', 111 ), 1, '_send_signal Windows returns the target count on success' );
     @cap = ( '', 'process not found', 1 );
@@ -1210,7 +1285,17 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
 }
 {
     socketpair my $left, my $right, AF_UNIX, SOCK_STREAM, PF_UNSPEC or die "socketpair failed: $!";
-    is( $manager->_descriptor_is_inherited_pipe( fileno($left) ), 0, '_descriptor_is_inherited_pipe ignores a socket without close_ipc' );
+    SKIP: {
+        # On Windows the socket/pipe distinction this assertion relies on
+        # does not exist: socketpair may be emulated with pipes, and the
+        # -p file test reports such a handle as a pipe, so the product
+        # correctly reports it as an inherited pipe. Whether the product
+        # should distinguish a real socket from a pipe on Windows, via
+        # the socket API, is an open question for a box run.
+        skip 'a socket is not distinguishable from a pipe on Windows', 1
+          if $^O eq 'MSWin32';
+        is( $manager->_descriptor_is_inherited_pipe( fileno($left) ), 0, '_descriptor_is_inherited_pipe ignores a socket without close_ipc' );
+    }
     is( $manager->_descriptor_is_inherited_pipe( fileno($left), close_ipc => 1 ), 1, '_descriptor_is_inherited_pipe closes a socket fd when close_ipc is set' );
     close $left;
     close $right;
@@ -1297,7 +1382,10 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
 # --- _replace_path_via_powershell -------------------------------------------
 {
     no warnings 'redefine';
-    is_deeply( [ $manager->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_replace_path_via_powershell is a no-op off Windows' );
+    SKIP: {
+        skip '_replace_path_via_powershell runs real PowerShell on a Windows host', 1 if $^O eq 'MSWin32';
+        is_deeply( [ $manager->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_replace_path_via_powershell is a no-op off Windows' );
+    }
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
     # DD-753: RuntimeManager now resolves the PowerShell executable instead of
     # hardcoding it, so forcing is_windows is no longer enough to reach the
@@ -1315,7 +1403,10 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
 # --- _overwrite_state_file_in_place -----------------------------------------
 {
     no warnings 'redefine';
-    is_deeply( [ $manager->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '_overwrite_state_file_in_place is a no-op off Windows' );
+    SKIP: {
+        skip '_overwrite_state_file_in_place reads the real source on a Windows host', 1 if $^O eq 'MSWin32';
+        is_deeply( [ $manager->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '_overwrite_state_file_in_place is a no-op off Windows' );
+    }
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
     # DD-753: RuntimeManager now resolves the PowerShell executable instead of
     # hardcoding it, so forcing is_windows is no longer enough to reach the
@@ -1616,6 +1707,26 @@ is( $manager->_is_managed_web(999999), 0, '_is_managed_web rejects a dead pid' )
     ok( $manager->_is_managed_web($$), '_is_managed_web recognizes a managed web process title' );
     local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'something else' };
     is( $manager->_is_managed_web($$), 0, '_is_managed_web rejects an unrelated process title' );
+}
+{
+    # Solo #351: the title read costs a full process-table enumeration on
+    # Windows, and the readiness waits call _is_managed_web on every poll.
+    # When persisted running state already names the pid and the live
+    # socket table confirms it owns that exact saved listener port, that
+    # is the same proof the old order used for the Starman master, so the
+    # title read is skipped. The answer is unchanged when state does not
+    # name the pid: the title read still runs, as the block above proves.
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return undef };
+    local *Developer::Dashboard::RuntimeManager::_read_settled_web_state = sub {
+        return ( { status => 'running', pid => $$, port => 7890 } );
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($$) };
+    my $title_calls = 0;
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { $title_calls++; return undef };
+    ok( $manager->_is_managed_web($$), '_is_managed_web trusts persisted running state plus the live socket table without a title read' );
+    is( $title_calls, 0, '_is_managed_web does not read the process title when state plus the socket table already prove the pid' );
 }
 
 # --- _detach_web_process_session --------------------------------------------
@@ -3146,6 +3257,12 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
     open my $fh, '>', $src or die $!;
     print {$fh} "n";
     close $fh;
+    # The name says non-Windows: on a real Windows host the rename failure
+    # takes the Windows retry path and the PowerShell fallback genuinely
+    # moves the file, so the die below is never reached. Hold the platform
+    # off to reach the fall-through die; the Windows fallback itself is
+    # covered by the neighbouring test 522.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_rename_path = sub { return 0 };
     my $err = eval { $manager->_replace_state_file( $src, $tgt ); 1 } ? '' : $@;
     like( $err, qr/Unable to rename/, '_replace_state_file dies on a non-Windows rename failure' );

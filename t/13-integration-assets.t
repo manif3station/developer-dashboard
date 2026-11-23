@@ -40,9 +40,27 @@ ok( -f 'integration/windows/run-host-windows-smoke.sh', 'Windows host rerun help
 ok( -f 'integration/windows/run-collector-timeout-e2e.ps1', 'Windows collector timeout E2E script exists' ) if $has_integration_assets;
 ok( -f 'integration/windows/run-dockur-collector-timeout-e2e.sh', 'host-side Dockur collector timeout E2E driver exists' ) if $has_integration_assets;
 ok( -f 't/29-windows-qemu-smoke.t', 'Windows QEMU smoke test exists under t/' );
-ok( -x 'integration/windows/run-qemu-windows-smoke.sh', 'Windows QEMU smoke launcher is executable' ) if $has_integration_assets;
-ok( -x 'integration/windows/run-host-windows-smoke.sh', 'Windows host rerun helper is executable' ) if $has_integration_assets;
-ok( -x 'integration/windows/run-dockur-collector-timeout-e2e.sh', 'host-side Dockur collector timeout E2E driver is executable' ) if $has_integration_assets;
+# Windows has no exec bit for .sh files: Strawberry Perl derives -x from
+# the file extension, so a .sh file is never -x there even though git
+# tracks it 100755 (round 61, proven live on win-ts: the same content
+# copied to test.exe, test.bat and test.cmd reports mode 0777 and -x,
+# while test.sh reports mode 0666 and not -x; a fresh git checkout of a
+# 100755 .sh file also lands at mode 0666 with core.fileMode=false).
+# These are host-side Unix launchers, run under sh on the host to drive
+# QEMU and Dockur, so on Windows the shebang is the runnable-script
+# evidence and is asserted instead of the exec bit.
+if ($has_integration_assets) {
+    if ( $^O eq 'MSWin32' ) {
+        ok( _file_has_shebang('integration/windows/run-qemu-windows-smoke.sh'), 'Windows QEMU smoke launcher is executable' );
+        ok( _file_has_shebang('integration/windows/run-host-windows-smoke.sh'), 'Windows host rerun helper is executable' );
+        ok( _file_has_shebang('integration/windows/run-dockur-collector-timeout-e2e.sh'), 'host-side Dockur collector timeout E2E driver is executable' );
+    }
+    else {
+        ok( -x 'integration/windows/run-qemu-windows-smoke.sh', 'Windows QEMU smoke launcher is executable' );
+        ok( -x 'integration/windows/run-host-windows-smoke.sh', 'Windows host rerun helper is executable' );
+        ok( -x 'integration/windows/run-dockur-collector-timeout-e2e.sh', 'host-side Dockur collector timeout E2E driver is executable' );
+    }
+}
 
 if ($has_source_tree_docs) {
     open my $plan_fh, '<', 'doc/integration-test-plan.md' or die $!;
@@ -440,6 +458,14 @@ else {
 
 done_testing;
 
+sub _file_has_shebang {
+    my ($path) = @_;
+    open my $fh, '<', $path or return 0;
+    my $first = <$fh>;
+    close $fh;
+    return defined $first && $first =~ /^#!/ ? 1 : 0;
+}
+
 sub _path_is_git_tracked {
     my ($path) = @_;
     return 0 if !defined $path || $path eq '';
@@ -468,7 +494,7 @@ extraction for metadata-backed releases and older literal-version archives.
 
 =head1 PURPOSE
 
-This test is the executable regression contract for the blank-environment Docker integration plan and runner assets, including the release-to-local-library behavior of the ignored local D2 image recipe when it is present. Its version-extraction fixture protects releases where the public module delegates its version scalar to a dedicated version module. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
+This test is the executable regression contract for the blank-environment Docker integration plan and runner assets, including the release-to-local-library behavior of the ignored local D2 image recipe when it is present. Its version-extraction fixture protects releases where the public module delegates its version scalar to a dedicated version module. On Windows the three launcher scripts assert a shebang instead of the exec bit, because Strawberry Perl derives -x from the file extension and a .sh file is never -x there. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
 
 =head1 WHY IT EXISTS
 

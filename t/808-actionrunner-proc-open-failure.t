@@ -33,7 +33,11 @@ my $reader = bless {}, 'Developer::Dashboard::ActionRunner';
 
 {
     local $Developer::Dashboard::ActionRunner::PROCFS_ROOT = $root;
-    local $FAIL_STAT = $stat;
+    # The reader builds its path as "$PROCFS_ROOT/$pid/stat" with forward
+    # slashes on every platform, so the injected failure is keyed on that
+    # exact spelling; File::Spec would give backslashes on Windows and the
+    # override would never match there.
+    local $FAIL_STAT = "$root/424242/stat";
     is( $reader->_read_process_state(424242), undef,
         'a readable stat entry that cannot be opened returns undef' );
 }

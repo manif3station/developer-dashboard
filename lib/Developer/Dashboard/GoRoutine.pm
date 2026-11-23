@@ -49,12 +49,14 @@ die "Developer::Dashboard XS bundle is not loaded; GoRoutine requires its native
 
 my %_SPAWN_CHILDREN;    # pid => Win32::Process object, or 1 when no handle is held
 
-# The platform this process really runs on, captured at load time.
-# Runtime $^O is mockable, so it must never decide whether the spawn
-# registry exists. On POSIX the registry is always empty by design, and
-# "not in registry" only means "already reaped" on real Windows.
+# The platform this process really runs on, captured at load time. Only
+# the wait_process reaped guard below keys off it: the guard must not fire
+# for a test that localizes $^O to MSWin32 on POSIX, where the registry is
+# always empty by design and "not in registry" only means "already reaped"
+# on real Windows. The registry keep/check below key off runtime $^O
+# instead, so tests can localize $^O to exercise the Windows branches on
+# POSIX; on real Windows the two agree.
 my $_REAL_OS_IS_WINDOWS = $^O eq 'MSWin32';
-
 my $_XS_SPAWN           = \&spawn;
 my $_XS_PROCESS_RUNNING = \&process_running;
 my $_XS_PROCESS_EXITED  = \&process_exited;
@@ -70,10 +72,23 @@ sub _keep_spawn_handle {
     # The registry only exists to keep a Windows process object alive until
     # wait_process collects it (the POSIX branch has zombies for that), so
     # a child spawned anywhere else is never recorded.
-    return unless $_REAL_OS_IS_WINDOWS;
+    return if $^O ne 'MSWin32';
     my $handle = 1;
     my $opened = eval {
         require Win32::Process;
+        # Win32::Process objects must never be cloned into a go()
+        # worker interpreter: perl_clone copies the object with the
+        # same raw process HANDLE, and the worker's destruction runs
+        # DESTROY, which CloseHandle()s the PARENT's handle. The
+        # first worker only invalidates the registry handle; the
+        # second worker closes whatever handle value the OS has
+        # reused for the slot by then, which kills the process
+        # silently (this is what killed the t/17 SSL frontend after
+        # exactly two handled clients). CLONE_SKIP makes the clone
+        # hold undef instead, so no worker ever closes the handle.
+        if ( !defined &Win32::Process::CLONE_SKIP ) {
+            *Win32::Process::CLONE_SKIP = sub { 1 };
+        }
         my $object;
         Win32::Process::Open( $object, $pid, 0 )
           or die "unable to open GoRoutine child process $pid\n";
@@ -132,7 +147,7 @@ sub _spawn_wrapper ($$) {
 # Output: boolean true when the process still exists.
 sub _process_running_wrapper ($) {
     my ($pid) = @_;
-    if ( $_REAL_OS_IS_WINDOWS ) {
+    if ( $^O eq 'MSWin32' ) {
         return 1 if defined $pid && exists $_SPAWN_CHILDREN{$pid};
     }
     return $_XS_PROCESS_RUNNING->($pid);
@@ -169,6 +184,48 @@ sub _wait_process_wrapper ($) {
     my $code = $_XS_WAIT_PROCESS->($pid);
     delete $_SPAWN_CHILDREN{$pid} if defined $pid;
     return $code;
+}
+
+# reap_child($pid)
+# Reaps one registry-tracked spawned child when it has already exited, so
+# waitpid-based helpers can collect GoRoutine children on Windows where
+# waitpid cannot see them. Input: child process id integer.
+# Output: boolean true when the child was reaped by this call.
+sub reap_child {
+    my ($pid) = @_;
+    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    return 0 if !exists $_SPAWN_CHILDREN{$pid};
+    return 0 if !$_XS_PROCESS_EXITED->($pid);
+    $_XS_WAIT_PROCESS->($pid);
+    delete $_SPAWN_CHILDREN{$pid};
+    return 1;
+}
+
+# is_spawn_child($pid)
+# Reports whether one pid is a child this process spawned through GoRoutine
+# and still holds a registry entry for, so callers that poll the registry
+# can skip the poll entirely for a pid it never tracked instead of burning
+# the whole bound on a reap that can never succeed (t/122: the poll exists
+# only to collect the kept handle, and an unregistered pid has none).
+# Input: process id integer.
+# Output: boolean true when the pid has a spawn-registry entry.
+sub is_spawn_child {
+    my ($pid) = @_;
+    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    return exists $_SPAWN_CHILDREN{$pid} ? 1 : 0;
+}
+
+# reap_any_exited()
+# Reaps every registry-tracked spawned child that has already exited, so a
+# long-lived supervisor can collect direct children on Windows where
+# waitpid(-1) has no equivalent. Input: none.
+# Output: number of child processes reaped.
+sub reap_any_exited {
+    my $reaped = 0;
+    for my $pid ( keys %_SPAWN_CHILDREN ) {
+        $reaped += reap_child($pid);
+    }
+    return $reaped;
 }
 
 # The wrappers replace the native entries in this package so every caller,
@@ -751,6 +808,9 @@ sub pump {
 
     # Bound the wait by the nearest routine timeout, so a timeout fires
     # promptly even when the next engine trigger is far away.
+    # $timeout_bound_at is set only when a routine timeout, and not the
+    # caller's own bound, decides how long this pump waits.
+    my $timeout_bound_at;
     my $now = _ev_now();
     for my $rec (values %ROUTINES) {
         next if _is_finished_state($rec->{state});
@@ -759,7 +819,10 @@ sub pump {
         # short of the deadline and the check below would miss the timeout.
         my $until = int(($rec->{timeout_at} - $now) * 1000);
         $until = $until < 0 ? 0 : $until + 1;
-        $wait_ms = $until if $wait_ms < 0 || $until < $wait_ms;
+        if ($wait_ms < 0 || $until < $wait_ms) {
+            $wait_ms = $until;
+            $timeout_bound_at = $rec->{timeout_at};
+        }
     }
 
     my $progress = 0;
@@ -771,7 +834,21 @@ sub pump {
     # picks up anything already due without blocking again.
     while (1) {
         my @due = _ev_wait($wait_ms);
-        last unless @due;
+        if (!@due) {
+            # The wait was sized to end at a routine timeout, but the wait
+            # is measured in real milliseconds and the engine clock can be
+            # coarser: on Windows it moves in steps of about 15.6ms, so it
+            # can still read up to one step short of the deadline when the
+            # wait returns. Returning now would leave the routine pending
+            # with nothing dispatched. Wait out the remainder instead; it is
+            # at most one clock step. Where the clock is fine-grained the
+            # deadline has always passed here and this never repeats.
+            last if $progress || !defined $timeout_bound_at;
+            my $short = $timeout_bound_at - _ev_now();
+            last if $short <= 0;
+            $wait_ms = int($short * 1000) + 1;
+            next;
+        }
         for my $signed (@due) {
             $progress++;
             if ($signed < 0) {
@@ -1264,6 +1341,13 @@ so a completed child still reports as running and its real exit code
 survives; it also merges the C<env> overrides into the parent environment
 for the duration of the spawn, because the native layer has no
 environment-block builder and the child inherits its parent environment.
+C<reap_child($pid)> reaps one spawned child that has already exited and
+reports whether it did; C<reap_any_exited()> reaps every spawned child that
+has already exited and returns how many it collected, which is how a
+supervisor collects direct children on Windows, where waitpid(-1) has no
+equivalent. C<is_spawn_child($pid)> reports whether the pid is a
+GoRoutine-spawned child the registry still tracks, so a caller can tell a
+child with a handle to collect from one it never spawned.
 C<terminate_process($pid, $signal)> sends C<TERM>, C<KILL>, C<HUP>, or C<INT>
 on POSIX. Windows supports C<TERM> and C<KILL>, mapped to native process
 termination because POSIX signal handlers are unavailable there. Unsupported

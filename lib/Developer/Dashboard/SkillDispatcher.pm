@@ -20,7 +20,7 @@ use bytes ();
 use URI;
 use URI::Escape qw(uri_escape uri_unescape);
 use Developer::Dashboard::CLI::Suggest;
-use Developer::Dashboard::StreamDrain qw(_drain_ready_handle);
+use Developer::Dashboard::StreamDrain qw(_drain_ready_handle _drain_child_streams_windows);
 use Developer::Dashboard::EnvLoader;
 use Developer::Dashboard::PathRegistry ();
 use Developer::Dashboard::PerlEnv ();
@@ -393,20 +393,44 @@ sub _run_child_command_streaming {
     STDOUT->autoflush(1);
     STDERR->autoflush(1);
 
-    while ( my @ready = $selector->can_read ) {
-        for my $fh (@ready) {
-            my $chunk_ref = $self->_drain_ready_handle( $selector, $fh ) or next;
+    # On Windows IO::Select only works for real sockets, so can_read over
+    # the open3 pipes returns at once with nothing ready and the hook's
+    # output is silently lost. Drain both pipes with PeekNamedPipe there
+    # instead; the select loop below stays for every other platform.
+    my $drained = 0;
+    if ( $^O eq 'MSWin32' ) {
+        $drained = $self->_drain_child_streams_windows(
+            $stdout,
+            $stderr,
+            sub {
+                my ( $is_stdout, $chunk ) = @_;
+                if ($is_stdout) {
+                    print STDOUT $chunk;
+                    $stdout_text .= $chunk;
+                }
+                else {
+                    print STDERR $chunk;
+                    $stderr_text .= $chunk;
+                }
+            },
+        );
+    }
+    if ( !$drained ) {
+        while ( my @ready = $selector->can_read ) {
+            for my $fh (@ready) {
+                my $chunk_ref = $self->_drain_ready_handle( $selector, $fh ) or next;
 
-            if ( fileno($fh) == $stdout_fd ) {
-                print STDOUT ${$chunk_ref};
-                $stdout_text .= ${$chunk_ref};
-                next;
+                if ( fileno($fh) == $stdout_fd ) {
+                    print STDOUT ${$chunk_ref};
+                    $stdout_text .= ${$chunk_ref};
+                    next;
+                }
+
+                # The selector only watches stdout and stderr, so anything that is
+                # not stdout is stderr.
+                print STDERR ${$chunk_ref};
+                $stderr_text .= ${$chunk_ref};
             }
-
-            # The selector only watches stdout and stderr, so anything that is
-            # not stdout is stderr.
-            print STDERR ${$chunk_ref};
-            $stderr_text .= ${$chunk_ref};
         }
     }
 
@@ -441,6 +465,20 @@ sub _exec_replacement {
     my ( $self, $command, $args ) = @_;
     my @command = @{ $self->_arrayref_or_empty($command) };
     my @args = @{ $self->_arrayref_or_empty($args) };
+    if ( $^O eq 'MSWin32' ) {
+        # Perl's exec() does not wait for the child on Windows: the parent
+        # exits at once and the skill's output races with (and is lost after)
+        # the caller's capture closing, so the command must be run with
+        # system() and the parent must exit with the child's status itself
+        # (the same system+exit shape the switchboard and staged helpers
+        # already use on Windows).
+        # DD-597 guard: system() sets $?, so localise it first.
+        local $?;
+        system @command, @args;
+        my $status = $?;
+        my $exit_code = $status > 255 ? $status >> 8 : $status;
+        exit $exit_code;
+    }
     if ( !exec @command, @args ) {
         my $error = "$!";
         return $error;
@@ -1095,6 +1133,18 @@ sub _load_skill_page {
         $cache_key = join "\0", $skill_name, $route_id, $file, @skill_layers;
         $cache_fingerprint = _skill_nav_fingerprint($file_stat);
         my $cached_page = $self->_cached_literal_skill_nav_page( $cache_key, $cache_fingerprint );
+        if ( $cached_page && _skill_nav_stat_is_unsettled($file_stat) ) {
+            # A matching fingerprint is not proof here: this stat has
+            # whole-second timestamps and the file changed within the last
+            # tick, so a same-size rewrite leaves every field identical.
+            # Compare the bytes on disk with the bytes the cached page was
+            # built from; a difference drops the entry and reloads.
+            my $disk = eval { $self->_read_skill_page_instruction($file) };
+            if ( !defined $disk || $disk ne ( $cached_page->{meta}{raw_instruction} // '' ) ) {
+                $self->_cached_literal_skill_nav_page( $cache_key, '' );
+                $cached_page = undef;
+            }
+        }
         return $cached_page if $cached_page;
     }
 
@@ -1183,6 +1233,22 @@ sub _skill_nav_fingerprint {
     my ($stat) = @_;
     return if ref($stat) ne 'ARRAY' || @{$stat} < 11;
     return join "\0", @{$stat}[ 0, 1, 2, 7, 9, 10 ];
+}
+
+# _skill_nav_stat_is_unsettled($stat)
+# Reports whether a stat fingerprint alone cannot yet prove a file unchanged.
+# Where stat has no sub-second timestamps (Windows), a rewrite of the same
+# size inside the same tick is invisible, so a file modified within the last
+# two seconds (covers one-second and two-second filesystem timestamps) is
+# unsettled. Where stat is high-resolution this is always false, so the cache
+# behaves exactly as before there.
+# Input: stat array reference for the nav file.
+# Output: boolean true when the cached bytes must be confirmed against disk.
+sub _skill_nav_stat_is_unsettled {
+    my ($stat) = @_;
+    return 0 if Time::HiRes::d_hires_stat();
+    return 1 if ref($stat) ne 'ARRAY' || !defined $stat->[9];
+    return $stat->[9] + 2 > time ? 1 : 0;
 }
 
 # _cached_literal_skill_nav_page($key, $fingerprint)
@@ -2017,14 +2083,24 @@ sub _skill_nav_route_ids {
 # _skill_nav_directory_fingerprint($directory)
 # Builds a high-resolution identity for one directory in a cached nav inventory.
 # Input: directory path string.
-# Output: NUL-separated stat identity or undef when the directory cannot be statted.
+# Output: NUL-separated stat identity, or undef when the directory cannot be statted.
 sub _skill_nav_directory_fingerprint {
     my ($directory) = @_;
     return if !defined $directory || $directory eq '';
     my @stat = Time::HiRes::stat($directory);
     return if !@stat;
     return if !-d $directory;
-    return join "\0", @stat[ 0, 1, 2, 7, 9, 10 ];
+    my $identity = join "\0", @stat[ 0, 1, 2, 7, 9, 10 ];
+    # Directory timestamps move coarsely on Windows: a file added in the same
+    # tick leaves the stat identity unchanged, so the inventory kept serving
+    # a stale file list. Fold the sorted child entry names into the
+    # fingerprint so an add, removal or rename invalidates it even when the
+    # directory timestamp does not move. The inventory only lists file ids,
+    # so content changes are the file-level fingerprint's job, not this one.
+    opendir my $dh, $directory or return $identity;
+    my @children = sort grep { $_ ne '.' && $_ ne '..' } readdir $dh;
+    closedir $dh;
+    return $identity . "\0" . join( "\0", @children );
 }
 
 # _skill_nav_inventory($nav_root)

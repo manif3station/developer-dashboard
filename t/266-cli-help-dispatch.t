@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use Capture::Tiny qw(capture);
+use Config;
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -24,7 +25,17 @@ sub run_cli {
     my (@args) = @_;
     my ( $stdout, $stderr, $exit ) = capture {
         system $perl, "-I$lib", $d2, @args;
-        return $? >> 8;
+        my $status = $?;
+        # A child killed by a signal leaves $? >> 8 at 0, which would
+        # masquerade as a successful exit: in build #443 a
+        # `shell zsh --help` child died by signal in the failFast window
+        # after another leg failed (empty stdout/stderr, exit reported 0),
+        # and the test then reported a spurious "exits successfully" plus
+        # an empty synopsis. Encode signal death the way the product does
+        # (128 + signal, see CommandRunner::exit_code_from_status) so a
+        # killed child is reported as a failure instead.
+        return 128 + ( $status & 127 ) if $status > 0 && ( $status & 127 );
+        return $status >> 8;
     };
     return ( $stdout, $stderr, $exit );
 }
@@ -155,8 +166,24 @@ open my $docker_fh, '>', $fake_docker or die "Unable to write $fake_docker: $!";
 print {$docker_fh} "#!/bin/sh\nprintf 'docker-argv='\nprintf '%s ' \"\$@\"\nprintf '\\n'\n";
 close $docker_fh or die "Unable to close $fake_docker: $!";
 chmod 0755, $fake_docker or die "Unable to chmod $fake_docker: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Windows twin of the sh fake above: the extensionless script is
+    # invisible to Windows program search (PATHEXT needs .exe/.bat/.cmd),
+    # so the product's list-form system('docker', ...) died with
+    # "'docker' is not recognized" (solo #446, tests 443-445). The same
+    # twin pattern already covers the fake docker in t/05 (builds #76/#77,
+    # micro-proven there). Mirrors the sh fake: echo the invocation after
+    # a 'docker-argv=' prefix.
+    my $fake_docker_bat = File::Spec->catfile( $fake_bin, 'docker.bat' );
+    open my $docker_bat_fh, '>', $fake_docker_bat or die "Unable to write $fake_docker_bat: $!";
+    print {$docker_bat_fh} <<'BAT';
+@echo off
+echo docker-argv=%*
+BAT
+    close $docker_bat_fh or die "Unable to close $fake_docker_bat: $!";
+}
 {
-    local $ENV{PATH} = "$fake_bin:$ENV{PATH}";
+    local $ENV{PATH} = join $Config{path_sep}, $fake_bin, ( $ENV{PATH} // q{} );
     for my $case (
         [ [ 'docker', 'compose', 'config', '--help' ], qr/config --help\s*\n/, 'Docker Compose config --help' ],
         [ [ 'docker', 'compose', 'config', '-h' ], qr/config -h\s*\n/, 'Docker Compose config -h' ],

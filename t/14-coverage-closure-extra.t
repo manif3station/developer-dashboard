@@ -60,6 +60,32 @@ sub _run_perl_child {
     return Developer::Dashboard::GoRoutine::wait_process($pid);
 }
 
+# _kill_child($pid)
+# Terminates and reaps one fixture child, however it was spawned. On Unix
+# this is the ordinary kill 9 plus waitpid. On Windows Perl kill never
+# reaches a CreateProcess child, so terminate through the native process
+# API and reap through it too; a blocking waitpid on Windows would hang
+# until the child's sleep expired instead.
+# Input: child process id integer.
+# Output: nothing.
+sub _kill_child {
+    my ($pid) = @_;
+    return if !defined $pid || $pid < 1;
+    if ( $^O eq 'MSWin32' ) {
+        Developer::Dashboard::GoRoutine::terminate_process( $pid, 'KILL' );
+        my $deadline = time + 5;
+        while ( !Developer::Dashboard::GoRoutine::process_exited($pid) && time < $deadline ) {
+            select undef, undef, undef, 0.05;
+        }
+        Developer::Dashboard::GoRoutine::wait_process($pid)
+          if Developer::Dashboard::GoRoutine::process_exited($pid);
+        return;
+    }
+    kill 9, $pid;
+    waitpid( $pid, 0 ) if kill 0, $pid;
+    return;
+}
+
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
 chdir $home or die "Unable to chdir to $home: $!";
@@ -93,6 +119,13 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
     my $expected_cwd = ( $ENV{HARNESS_PERL_SWITCHES} // q{} ) =~ /Devel::Cover/ ? $repo_root : $home;
     ( my $portable_child_cwd = $child_cwd ) =~ s{/private(?=/var/folders/)}{}g;
     ( my $portable_expected_cwd = "$expected_cwd\n" ) =~ s{/private(?=/var/folders/)}{}g;
+    # Cwd spells the child directory with forward slashes even on Windows,
+    # while a File::Spec path uses backslashes there; compare canonical
+    # spellings so the check is about the directory, not the separator.
+    chomp $portable_child_cwd;
+    chomp $portable_expected_cwd;
+    $portable_child_cwd    = File::Spec->canonpath($portable_child_cwd);
+    $portable_expected_cwd = File::Spec->canonpath($portable_expected_cwd);
     is( $portable_child_cwd, $portable_expected_cwd, 'coverage-instrumented GoRoutine children start in the checkout while ordinary fixtures retain the temporary HOME cwd' );
 }
 
@@ -186,18 +219,48 @@ PAGE
     my $statefile = $runner->_statefile($loop_name);
 
     my $process_title = $runner->_process_title($loop_name);
+    # POSIX::setpgid is not implemented on Windows, and the native spawn
+    # layer ignores process_group there anyway, so the fixture child only
+    # detaches into its own group where that call exists.
+    my $child_program
+        = $^O eq 'MSWin32'
+        ? q{$ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = shift; $0 = shift; $SIG{TERM} = 'IGNORE'; sleep 30;}
+        : q{$ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = shift; $0 = shift; POSIX::setpgid(0, 0) or die "setpgid: $!"; $SIG{TERM} = 'IGNORE'; sleep 30;};
     my $managed_child = Developer::Dashboard::GoRoutine::spawn(
         [
             $^X, '-MPOSIX', '-e',
-            q{$ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = shift; $0 = shift; POSIX::setpgid(0, 0) or die "setpgid: $!"; $SIG{TERM} = 'IGNORE'; sleep 30;},
+            $child_program,
             $loop_name, $process_title,
         ],
-        { cwd => $home, env => { HOME => $home } },
+        # The loop-name marker travels in the spawn environ as well as in
+        # the post-exec $ENV assignment inside the child program: the kernel
+        # environ block is fixed at exec, so a variable assigned after
+        # startup is invisible to /proc readers, and under qemu user-mode
+        # emulation the $0 title is invisible too. Either channel alone
+        # leaves this child unrecognizable on some host.
+        { cwd => $home, env => { HOME => $home, DEVELOPER_DASHBOARD_LOOP_NAME => $loop_name } },
     );
     die "GoRoutine spawn failed: $!" if !defined $managed_child;
     open my $fh, '>', $pidfile or die $!;
     print {$fh} $managed_child;
     close $fh;
+    if ( $^O eq 'MSWin32' ) {
+        # The title is the only identity evidence this fixture carries, and
+        # it is never observable on Windows (no /proc, no ps), so the child
+        # would never be recognized and running_loops would delete its
+        # pidfile. Seed the loop state instead: that is the identity
+        # evidence a real loop carries on Windows, and it is what the
+        # state-confirmation check reads.
+        $runner->_write_loop_state(
+            $loop_name,
+            {
+                pid          => $managed_child,
+                name         => $loop_name,
+                process_name => $process_title,
+                status       => 'running',
+            }
+        );
+    }
     # Wait BEFORE the first running_loops call, not around it. This pidfile has
     # no loop state, so the child's process title is the only evidence of its
     # identity, and running_loops deletes the pidfile of any same-namespace pid it
@@ -317,7 +380,7 @@ PAGE
     $runner->_terminate_loop_workers( { $worker => 1 } );
     select undef, undef, undef, 0.3;
     ok( !kill( 0, $gc_pid ), '_terminate_loop_workers group-SIGKILLs a SIGTERM-ignoring child left in a dead worker process group' );
-    kill 9, -$worker; kill 9, $worker; waitpid( $worker, 0 ) if kill 0, $worker;
+    _kill_child($worker);
     unlink $gc_file;
 }
 
@@ -354,10 +417,17 @@ PAGE
     is( $ret, $echild, 'stop_loop returns a state-confirmed loop pid when proc/ps identity is unavailable' );
     select undef, undef, undef, 0.3;
     ok( !kill( 0, $echild ), 'stop_loop kills a state-confirmed loop with a non-whitelisted status on proc-blind (Windows) hosts' );
-    kill 9, $echild; waitpid( $echild, 0 ) if kill 0, $echild;
+    _kill_child($echild);
 }
 
-{
+SKIP: {
+    # The TERM grace is a Unix signal mechanism: the loop's own TERM
+    # handler takes three seconds to finish cleaning workers, and the flag
+    # only exists if that handler ran. On Windows a signal is never
+    # delivered to a CreateProcess child (the stopper terminates it and
+    # records the receipt in the log instead), so the flag can never be
+    # written and the grace cannot be measured there.
+    skip 'loop TERM grace is a Unix signal mechanism; Windows has no signal delivery to a CreateProcess child', 2 if $^O eq 'MSWin32';
     # Fix B+C (Facet 2): the loop TERM grace scales with the recorded worker
     # count so the loop's own shutdown handler can finish cleaning workers
     # instead of being KILL-9'd at a fixed 2s.
@@ -455,9 +525,30 @@ PAGE
         }
     );
     $runner->stop_loop($cname);
-    select undef, undef, undef, 0.3;
-    ok( !kill( 0, $orphan ), 'stop_loop sweeps orphaned worker subtrees left behind by a crashed loop with a stale pidfile' );
-    kill 9, -$orphan; kill 9, $orphan if kill 0, $orphan;
+    # Bounded poll, not a fixed sleep: under slow scheduling (qemu) the
+    # orphan's death can lag stop_loop's own bounded waits, so a fixed
+    # 0.3s sleep turns this into a flake — it failed once on ARM64 and
+    # passed on immediate re-run. The assertion is unchanged (the orphan
+    # must end up dead); only the waiting is tolerant, and the poll exits
+    # at once when the orphan is gone.
+    # A zombie counts as dead: kill(0) still succeeds on an unreaped
+    # zombie, so without this the poll can expire (10s) even though the
+    # orphan is already dead — it failed again on ARM64 under full-suite
+    # load, where the reap lags stop_loop's bounded waits. /proc is
+    # Linux-only; elsewhere the kill(0) check above is the only signal.
+    my $orphan_dead = 0;
+    for ( 1 .. 100 ) {
+        if ( !kill( 0, $orphan ) ) { $orphan_dead = 1; last; }
+        if ( open my $st, '<', "/proc/$orphan/stat" ) {
+            my $stat = <$st>;
+            close $st;
+            my ($state) = defined $stat ? $stat =~ /.*\)\s+(\w)/ : ();
+            if ( defined $state && $state eq 'Z' ) { $orphan_dead = 1; last; }
+        }
+        select undef, undef, undef, 0.1;
+    }
+    ok( $orphan_dead, 'stop_loop sweeps orphaned worker subtrees left behind by a crashed loop with a stale pidfile' );
+    _kill_child($orphan);
 }
 
 {
@@ -567,13 +658,31 @@ PAGE
                 q{my ( $name, $title ) = @ARGV; $ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = $name; $0 = $title; sleep 30;},
                 $name, $runner->_process_title($name),
             ],
-            { cwd => $home, env => { HOME => $home } },
+            # As in the listing fixture above: the loop-name marker travels
+            # in the spawn environ, because a post-exec $ENV assignment is
+            # invisible to /proc readers and the $0 title is invisible under
+            # qemu user-mode emulation.
+            { cwd => $home, env => { HOME => $home, DEVELOPER_DASHBOARD_LOOP_NAME => $name } },
         );
         die "GoRoutine spawn failed: $!" if !defined $pid;
         push @children, $pid;
         open my $fh, '>', $runner->_pidfile($name) or die $!;
         print {$fh} $pid;
         close $fh;
+        if ( $^O eq 'MSWin32' ) {
+            # As above: a title is never observable on Windows, so seed the
+            # loop state or the first running_loops call sweeps the pidfile
+            # away before the sort has anything left to order.
+            $runner->_write_loop_state(
+                $name,
+                {
+                    pid          => $pid,
+                    name         => $name,
+                    process_name => $runner->_process_title($name),
+                    status       => 'running',
+                }
+            );
+        }
     }
     # Same ordering rule as the listing fixture above: every child has to be
     # recognizable before running_loops is called at all, because the first call
@@ -592,7 +701,7 @@ PAGE
         'running_loops sorts managed loop rows by collector name',
     );
     for my $index ( 0 .. $#children ) {
-        kill 'KILL', $children[$index];
+        _kill_child( $children[$index] );
         $runner->_cleanup_loop_files( $names[$index] );
     }
 }
@@ -758,7 +867,16 @@ PAGE
     is( $dispatch_pid, 676767, 'start_loop returns the spawned loop process pid' );
     is_deeply(
         \@spawned_command,
-        [ $runner->_windows_background_loop_command($dispatch_name) ],
+        [
+            $runner->_windows_background_loop_command($dispatch_name),
+            # The loop's identity marker travels in the spawn environ (the
+            # trailing options hashref): the kernel environ block is fixed at
+            # exec, so a post-exec $ENV assignment is invisible to /proc
+            # readers and the marker would be a dead recognition path. The
+            # runtime marker travels the same way, so the finder can scope
+            # adoption to this runtime.
+            { env => { DEVELOPER_DASHBOARD_LOOP_NAME => $dispatch_name, DEVELOPER_DASHBOARD_LOOP_RUNTIME => $runner->_runtime_state_key } },
+        ],
         'start_loop passes the prepared helper argv to the GoRoutine launcher',
     );
 }
@@ -955,7 +1073,14 @@ PAGE
     );
 }
 
-{
+SKIP: {
+    # This whole fixture makes the descriptors inheritable by clearing
+    # FD_CLOEXEC with fcntl, which is a Unix mechanism: F_GETFD and
+    # F_SETFD do not exist on Strawberry Perl, so even evaluating them
+    # dies. On Windows handle inheritance is decided by the spawn layer,
+    # not by fcntl flags, so the fixture cannot be set up there.
+    skip 'descriptor inheritance via fcntl F_GETFD/F_SETFD is a Unix mechanism; those macros do not exist on Strawberry Perl', 3
+      if $^O eq 'MSWin32';
     pipe my $result_reader, my $result_writer or die "Unable to create result pipe: $!";
     socketpair( my $keep_left, my $keep_right, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
       or die "Unable to create keep socketpair: $!";

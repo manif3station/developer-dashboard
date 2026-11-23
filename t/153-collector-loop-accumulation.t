@@ -78,6 +78,25 @@ sub supervisor_liveness {
                 : "DD-543: pid $pid was signalled (signal $signal) before its handler could run - an unnamed window",
             };
         }
+        # Windows has no signal deaths: waitpid never reports signal bits,
+        # so a supervisor killed by a signal arrives here as an exit code
+        # instead. Perl's kill() terminates with the signal number as the
+        # exit code (proven live on win-ts: kill KILL leaves exit 9, kill
+        # TERM against a process with no handler installed leaves exit 21
+        # via SIGBREAK), and the supervisor itself never exits 9 or 21 on
+        # its own - an orderly shutdown exits 0, a fatal error 255. An
+        # exit code of 9 or 21 is therefore the Windows shape of the
+        # DD-543 signal race, not an exit on its own.
+        if ( $^O eq 'MSWin32' ) {
+            my $status = $? >> 8;
+            if ( $status == 9 || $status == 21 ) {
+                my $name = $status == 9 ? 'SIGKILL' : 'SIGBREAK';
+                return {
+                    alive  => 0,
+                    reason => "DD-543: pid $pid was terminated by $name (exit code $status, the Windows shape of a signal death) before its handler could run - an unnamed window",
+                };
+            }
+        }
         return {
             alive  => 0,
             reason => 'pid ' . $pid . ' exited on its own (status ' . ( $? >> 8 ) . '), not a DD-543 signal race',
@@ -115,11 +134,23 @@ sub live_supervisors {
     opendir my $dh, '/proc' or return @found;
     while ( my $entry = readdir $dh ) {
         next if $entry !~ /\A[0-9]+\z/;
-        # Title identity, for the same reason the finder uses it: the loop-name
-        # environment marker is inherited by every spawned child process, so counting on it
-        # counts a collector's own worker as a second supervisor.
+        # Title identity first, for the same reason the finder uses it: the
+        # loop-name environment marker used to be inherited by every spawned
+        # child process, so counting on it counted a collector's own worker
+        # as a second supervisor. That no longer holds: a loop carries the
+        # marker in its INITIAL environ and deletes it from %ENV before
+        # spawning any worker, so no worker carries it, and the marker is a
+        # safe second identity here. It is also the one that works where the
+        # title cannot be observed at all - under qemu user-mode emulation
+        # the guest's $0 write never reaches the host's /proc, so exact
+        # title equality can never match there.
         my $running = $runner->_read_process_title($entry);
-        push @found, $entry if defined $running && $running eq $runner->_process_title($collector);
+        if ( defined $running && $running eq $runner->_process_title($collector) ) {
+            push @found, $entry;
+            next;
+        }
+        my $marker = $runner->_read_process_env_marker( $entry, 'DEVELOPER_DASHBOARD_LOOP_NAME' );
+        push @found, $entry if defined $marker && $marker eq $collector;
     }
     closedir $dh;
     return @found;
@@ -157,7 +188,14 @@ sub _why_not {
 my $first = $runner->start_loop($job);
 push @owned_supervisor_pids, $first if $first;
 ok( $first, 'the collector starts and reports a supervisor pid' );
-my $first_is_managed = wait_for_managed_loop( $runner, $first, $name );
+# Recognition alone is not readiness: the loop is recognizable from the
+# moment it is spawned (its identity marker travels in the spawn environ),
+# but it has not finished starting then - it still has to load its modules
+# and install its signal handlers. The assertions below signal this
+# supervisor, so wait until it is actually up (ready => 1) rather than
+# merely recognizable, or the signal lands before the handler exists and
+# the child dies by the signal instead of shutting down orderly.
+my $first_is_managed = wait_for_managed_loop( $runner, $first, $name, ready => 1 );
 if ( !$first_is_managed ) {
     my $error_log = $runner->{files}->collector_log . '.stderr';
     my $error_text = _read_optional_file($error_log);
@@ -321,7 +359,7 @@ SKIP: {
     my $forced_pid = $runner->start_loop($forced_job);
     push @owned_supervisor_pids, $forced_pid if $forced_pid;
     ok( $forced_pid, 'AC-1 setup: the probe collector starts and reports a supervisor pid' );
-    ok( wait_for_managed_loop( $runner, $forced_pid, $forced_name ),
+    ok( wait_for_managed_loop( $runner, $forced_pid, $forced_name, ready => 1 ),
         'AC-1 setup: the probe supervisor is recognised before the forced kill' );
 
     # KILL, not TERM: the supervisor installs its own SIGTERM handler
@@ -382,7 +420,7 @@ SKIP: {
     my $healthy_pid = $runner->start_loop($second_forced_job);
     push @owned_supervisor_pids, $healthy_pid if $healthy_pid;
     ok( $healthy_pid, 'AC-2 setup: a second probe collector starts' );
-    ok( wait_for_managed_loop( $runner, $healthy_pid, $second_forced_name ),
+    ok( wait_for_managed_loop( $runner, $healthy_pid, $second_forced_name, ready => 1 ),
         'AC-2 setup: the healthy probe supervisor is recognised' );
 
     my $control = supervisor_liveness( $healthy_pid, $second_forced_name );
@@ -397,9 +435,35 @@ SKIP: {
 
 # Leave nothing behind whatever the assertions did.
 END {
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS. Every waitpid
+    # below that does not reap a child sets $? to -1 (proven: a WNOHANG
+    # waitpid on a live child, and one on an already-reaped child, both
+    # leave $? == -1 from a clean 0), and a reaped child leaves its own
+    # exit status there - a TERM-terminated supervisor exits 143 on
+    # Windows. Without this guard that value stays set when the process
+    # exits, and Test2's exit callback hands it to Test::Builder as the
+    # real exit code: solo #458 failed exactly that way, "Looks like your
+    # test exited with -1 just after 34", with all 34 tests passing.
+    # Same rule as ProcessSupervision::_reap_child_process and
+    # CollectorRunner::_read_process_title (DD-585).
+    local $?;
     my %seen;
     for my $pid ( grep { defined && /^\d+\z/ && $_ > 0 && !$seen{$_}++ } @owned_supervisor_pids ) {
-        kill 'TERM', $pid if kill 0, $pid;
+        if ( kill 0, $pid ) {
+            if ( $^O eq 'MSWin32' ) {
+                # Perl kill TERM never reaches a CreateProcess child (it
+                # has no console to deliver the event to), so the
+                # supervisors survived this block as orphans - six were
+                # still running on win-ts after the earlier direct runs.
+                # Terminate through the native process API instead, the
+                # discipline stop_loop already follows.
+                require Developer::Dashboard::GoRoutine;
+                Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
+            }
+            else {
+                kill 'TERM', $pid;
+            }
+        }
         for ( 1 .. 100 ) {
             my $reaped = waitpid( $pid, WNOHANG );
             last if $reaped == $pid || $reaped == -1;

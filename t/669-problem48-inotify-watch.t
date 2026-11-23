@@ -6,9 +6,10 @@ use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use Time::HiRes qw(sleep);
-use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
 use Errno ();
 use IO::Handle;
+use IO::Select;
+use IO::Socket::INET;
 use Test::More;
 
 my $repo_root = File::Spec->catdir( $FindBin::Bin, '..' );
@@ -560,6 +561,44 @@ like( $unexpected_fsevents_error, qr/synthetic FSEvents loader failure/,
             'Windows rearm failure includes GetLastError' );
         $P48_WINDOWS_NEXT_RESULT = 1;
         $wait_failure->close;
+
+        # A notification handle whose watched directory was deleted reports
+        # GetLastError=6 (ERROR_INVALID_HANDLE). The watch is dead, which is
+        # a change, not a watcher failure: the snapshot must invalidate
+        # without an error, and closing the dead handle must succeed. This
+        # is the GetLastError=6 warning the Windows prove run printed when
+        # a tempdir was cleaned up before its watcher closed.
+        my $dead_handle = $module->new( backend => $windows_backend );
+        @P48_WINDOWS_CHANGE_HANDLES = (501);
+        ok( $dead_handle->configure( 'windows-dead-handle', ['C:\\gone'] ),
+            'Windows dead-handle fixture configures' );
+        @P48_WINDOWS_WAIT_STATES = (0xffffffff);
+        $P48_WINDOWS_LAST_ERROR = 6;
+        my ( $dead_state, $dead_error ) = $windows_backend->{unchanged}->( $dead_handle->{handle} );
+        is( $dead_state, 0, 'a dead Windows notification handle invalidates the snapshot as a change' );
+        ok( !defined $dead_error, 'a dead Windows notification handle reports no watcher error' );
+
+        @P48_WINDOWS_WAIT_STATES = (0);
+        $P48_WINDOWS_NEXT_RESULT = 0;
+        my ( $dead_rearm_state, $dead_rearm_error ) = $windows_backend->{unchanged}->( $dead_handle->{handle} );
+        is( $dead_rearm_state, 0, 'a dead Windows notification handle invalidates the snapshot when rearming fails' );
+        ok( !defined $dead_rearm_error, 'a dead Windows rearm reports no watcher error' );
+        $P48_WINDOWS_NEXT_RESULT = 1;
+
+        $P48_WINDOWS_CLOSE_RESULT = 0;
+        ok( $dead_handle->close, 'closing a dead Windows notification handle succeeds' );
+        ok( !defined $dead_handle->last_error, 'closing a dead Windows notification handle leaves no error' );
+        $P48_WINDOWS_CLOSE_RESULT = 1;
+        $P48_WINDOWS_LAST_ERROR = 5;
+
+        @P48_WINDOWS_CHANGE_HANDLES = ( 601, undef );
+        $P48_WINDOWS_CLOSE_RESULT = 0;
+        $P48_WINDOWS_LAST_ERROR = 6;
+        my ( $dead_partial, $dead_partial_error ) = $windows_backend->{configure_paths}->( [ 'C:\\one', 'C:\\two' ] );
+        ok( !defined $dead_partial, 'Windows setup still rejects a later invalid handle when cleanup meets a dead handle' );
+        unlike( $dead_partial_error, qr/cleanup failed/, 'a dead handle during partial cleanup adds no cleanup error' );
+        $P48_WINDOWS_CLOSE_RESULT = 1;
+        $P48_WINDOWS_LAST_ERROR = 5;
     }
 }
 
@@ -692,13 +731,53 @@ ok( !$blank_disable_close_failure->configure( 'partial-blank-close', ['/root'] )
 like( $blank_disable_close_failure->last_error, qr/descriptor close failed: unknown close failure/,
     'partial cleanup with a blank native diagnostic remains explicitly visible' );
 
+# _loopback_socketpair()
+# Creates a connected loopback socket pair for the read-error/eof fixture.
+# The read end can be made nonblocking on every platform with
+# IO::Handle->blocking(0): on Windows that is FIONBIO on a socket, where
+# an anonymous pipe cannot be made nonblocking at all (fcntl has no
+# F_SETFL on Strawberry Perl, and SetNamedPipeHandleState rejects
+# anonymous pipes with $^E = 87, probe solo #374). The peer stays open
+# for the error case and is closed for the end-of-file case.
+# Input: none.
+# Output: ($reader, $peer) connected socket handles, or dies on failure.
+sub _loopback_socketpair {
+    my $listener = IO::Socket::INET->new(
+        LocalAddr => '127.0.0.1',
+        LocalPort => 0,
+        Proto     => 'tcp',
+        Listen    => 1,
+        ReuseAddr => 1,
+    ) or die "Unable to create loopback listener: $!";
+    my $peer = IO::Socket::INET->new(
+        PeerAddr => '127.0.0.1',
+        PeerPort => $listener->sockport,
+        Proto    => 'tcp',
+    ) or die "Unable to connect loopback peer: $!";
+    my $reader = $listener->accept
+      or die "Unable to accept loopback connection: $!";
+    close $listener;
+    return ( $reader, $peer );
+}
+
 for my $read_case ( [ error => 1 ], [ eof => 0 ] ) {
-    my ( $kind, $send_writer ) = @{$read_case};
-    my ( $reader, $writer );
-    pipe( $reader, $writer ) or die "Unable to create $kind test pipe: $!";
-    fcntl( $reader, F_SETFL, fcntl( $reader, F_GETFL, 0 ) | O_NONBLOCK )
-      or die "Unable to make $kind test pipe nonblocking: $!";
-    close $writer if !$send_writer;
+    my ( $kind, $keep_peer ) = @{$read_case};
+    my ( $reader, $peer ) = _loopback_socketpair();
+    $reader->blocking(0)
+      or die "Unable to make $kind test socket nonblocking: $!";
+    if ( !$keep_peer ) {
+        close $peer;
+        # The peer's close sends FIN, but it reaches the read end
+        # asynchronously; wait until the socket reports readable so the
+        # forced read below sees end-of-file, not a transient EAGAIN.
+        my $selector = IO::Select->new($reader);
+        my $eof_ready = 0;
+        for ( 1 .. 100 ) {
+            if ( $selector->can_read(0) ) { $eof_ready = 1; last; }
+            sleep 0.01;
+        }
+        $eof_ready or die "Unable to observe EOF on $kind test socket: $!";
+    }
     my $read_failure = $module->new(
         backend => {
             initialize => sub { return $reader },
@@ -709,9 +788,12 @@ for my $read_case ( [ error => 1 ], [ eof => 0 ] ) {
     ok( $read_failure->configure( "read-$kind", ['/root'] ), "$kind-read watcher configures" );
     $read_failure->{select} = bless {}, 'Local::Problem48AlwaysReadable';
     ok( !$read_failure->unchanged("read-$kind"), "$kind read invalidates the watcher" );
-    like( $read_failure->last_error, qr/Unable to read filesystem watch events|closed unexpectedly/,
+    my $expected_diagnostic = $kind eq 'error'
+      ? qr/Unable to read filesystem watch events/
+      : qr/closed unexpectedly/;
+    like( $read_failure->last_error, $expected_diagnostic,
         "$kind read failure has an explicit diagnostic" );
-    close $writer if $send_writer;
+    close $peer if $keep_peer;
 }
 
 my $unsupported;

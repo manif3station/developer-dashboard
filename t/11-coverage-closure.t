@@ -106,8 +106,40 @@ print {$repo_cfg_fh} <<'JSON';
 JSON
 close $repo_cfg_fh;
 
-open my $docker_bin_fh, '>', File::Spec->catfile( $bin, 'docker' ) or die $!;
-print {$docker_bin_fh} <<"SH";
+if ( $^O eq 'MSWin32' ) {
+    # Windows has no sh, and an extensionless 'docker' file is not an
+    # executable Windows recognises (PATHEXT needs .exe/.bat/.cmd), so
+    # the shell stub below would die with "'docker' is not recognized".
+    # Write a docker.cmd batch stub instead; 'docker' resolves to it
+    # via PATHEXT. It mirrors the shell stub: print ARGS/DEBUG/MODE when
+    # the -f file is a merged compose file, else a fake compose config.
+    open my $docker_bin_fh, '>', File::Spec->catfile( $bin, 'docker.cmd' ) or die $!;
+    print {$docker_bin_fh} <<'BAT';
+@echo off
+setlocal enabledelayedexpansion
+set "merged_file="
+set "previous="
+for %%A in (%*) do (
+    if "!previous!"=="-f" set "merged_file=%%A"
+    set "previous=%%A"
+)
+echo !merged_file! | findstr /C:"merged-compose-" >nul 2>&1
+if !errorlevel!==0 (
+    echo ARGS:%*
+    echo DEBUG:%DEBUG_ENABLED%
+    echo MODE:%APP_MODE%
+) else (
+    echo services:
+    echo   app: {}
+    echo   worker: {}
+)
+endlocal
+BAT
+    close $docker_bin_fh;
+}
+else {
+    open my $docker_bin_fh, '>', File::Spec->catfile( $bin, 'docker' ) or die $!;
+    print {$docker_bin_fh} <<"SH";
 #!/bin/sh
 last=''
 merged_file=''
@@ -128,9 +160,11 @@ case "\$merged_file" in
     ;;
 esac
 SH
-close $docker_bin_fh;
-chmod 0755, File::Spec->catfile( $bin, 'docker' );
-local $ENV{PATH} = $bin . ':' . ( $ENV{PATH} || '' );
+    close $docker_bin_fh;
+    chmod 0755, File::Spec->catfile( $bin, 'docker' );
+}
+my $path_sep = $^O eq 'MSWin32' ? ';' : ':';
+local $ENV{PATH} = $bin . $path_sep . ( $ENV{PATH} || '' );
 
 my $paths = Developer::Dashboard::PathRegistry->new(
     home            => $home,
@@ -248,7 +282,7 @@ my $saved_page = Developer::Dashboard::PageDocument->new(
     title       => 'Saved Page',
     layout      => { body => 'saved body' },
     actions     => [
-        { id => 'alias-run', kind => 'command', command => 'printf alias-ok', cwd => 'home' },
+        { id => 'alias-run', kind => 'command', command => $^O eq 'MSWin32' ? 'echo alias-ok' : 'printf alias-ok', cwd => 'home' },
     ],
     permissions => {},
 );
@@ -352,7 +386,13 @@ my $background_result = $actions->run_command_action(
     timeout_ms => 1000,
 );
 ok( $background_result->{pid} > 0, 'background action launches a child process' );
-my $background_wait_loops = $INC{'Devel/Cover.pm'} ? 500 : 20;
+# The supervisor is a fresh perl that loads ActionRunner before it can
+# stop: ~0.75s on the qemu ARM64 box, slower under load, and its
+# TERM/wait/KILL shutdown is also slow to schedule there. A 2s poll
+# budget flakes (round 3 and the solo repro failed test 36, and test 38
+# once in ten runs); six seconds gives a slow box room while the loop
+# still exits as soon as the pid stops, so fast machines are unaffected.
+my $background_wait_loops = $INC{'Devel/Cover.pm'} ? 500 : 60;
 for ( 1 .. $background_wait_loops ) {
     last if !$actions->_pid_is_running( $background_result->{pid} );
     sleep 0.1;
@@ -399,12 +439,31 @@ my $interrupt_result = $actions->run_command_action(
     timeout_ms => 5000,
 );
 ok( $interrupt_result->{pid} > 0, 'background action returns a pid for interrupt coverage' );
-kill 'INT', $interrupt_result->{pid};
-for ( 1 .. $background_wait_loops ) {
-    last if !$actions->_pid_is_running( $interrupt_result->{pid} );
-    sleep 0.1;
+SKIP: {
+    # INT delivery to the supervisor is a Unix mechanism: on Windows Perl
+    # kill INT reaches a CreateProcess child only as a console-control
+    # event, which a child without a console never receives, so the
+    # handler never runs and the supervisor would only exit on its own
+    # timeout. Termination by timeout is covered by the block below.
+    skip 'INT delivery to a CreateProcess child does not exist on Windows', 1
+      if $^O eq 'MSWin32';
+    # Give the supervisor time to load and install its INT handler
+    # before signalling it. The supervisor is a fresh perl that loads
+    # ActionRunner first, which takes ~0.75s on the qemu ARM64 box and
+    # longer under load: a 0.5s sleep usually sent the INT while it was
+    # still loading, so the process died on the default disposition
+    # instead of exercising the handler at all, and under load the
+    # shutdown after the INT could still run past the poll budget.
+    # Two seconds lets the handler install and the child spawn first,
+    # so this test actually exercises the INT handler.
+    sleep 2;
+    kill 'INT', $interrupt_result->{pid};
+    for ( 1 .. $background_wait_loops ) {
+        last if !$actions->_pid_is_running( $interrupt_result->{pid} );
+        sleep 0.1;
+    }
+    ok( !$actions->_pid_is_running( $interrupt_result->{pid} ), 'background action INT handler stops the detached wrapper cleanly' );
 }
-ok( !$actions->_pid_is_running( $interrupt_result->{pid} ), 'background action INT handler stops the detached wrapper cleanly' );
 
 my $timeout_background = $actions->run_command_action(
     command    => "$^X -e 'sleep 2'",
@@ -460,7 +519,14 @@ ok( !defined $actions->_read_process_state(999999), '_read_process_state falls b
     local *Developer::Dashboard::ActionRunner::capture = sub (&) {
         return ( "S\n", '', 0 );
     };
-    is( $actions->_read_process_state(999998), 'S', '_read_process_state falls back to ps output when proc state is unavailable but ps succeeds' );
+    if ( $^O eq 'MSWin32' ) {
+        # No ps on Windows: _read_process_state returns undef early and
+        # never reaches the ps fallback, so the mocked capture is unused.
+        is( $actions->_read_process_state(999998), undef, '_read_process_state returns undef on Windows where no ps fallback exists' );
+    }
+    else {
+        is( $actions->_read_process_state(999998), 'S', '_read_process_state falls back to ps output when proc state is unavailable but ps succeeds' );
+    }
 }
 
 {
@@ -544,7 +610,10 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
 my $collector_result = $runner->run_once(
     {
         name      => 'coverage.collector',
-        command   => 'printf collector-ok',
+        # printf is not a Windows cmd.exe command, so use a perl one-liner
+        # (double-quoted program, which CommandRunner rewrites to a temp
+        # file on Windows) so this runs on every platform.
+        command   => "$^X -e \"print 'collector-ok'\"",
         cwd       => 'home',
         interval  => 2,
         indicator => { name => 'coverage.collector', icon => 'C' },
@@ -824,6 +893,10 @@ unlike( $provider_html, qr{id="share-url"}, 'provider pages do not expose a brok
 
 my $prompt = Developer::Dashboard::Prompt->new( indicators => $indicators, paths => $paths );
 my $project_only_prompt = $prompt->render( cwd => $repo, jobs => 0 );
+# The prompt normalises the home-shortened cwd to forward slashes on every
+# platform (Prompt::render, since e5eb6b4da), so the expected bracketed path
+# always uses forward slashes - never the platform separator. Every other
+# prompt test in the suite (t/02, t/07) expects the same ~/... form.
 like( $project_only_prompt, qr{\Q[~/projects/coverage-app]\E}, 'prompt renders the bracketed cwd when git branch is unavailable' );
 unlike( $project_only_prompt, qr/\{coverage-app\}/, 'prompt no longer appends the old project-only brace context' );
 

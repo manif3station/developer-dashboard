@@ -790,17 +790,27 @@ sub _scoped_tool_path {
 # Collapses '.'/'..' segments in an absolute path string, purely
 # lexically - no filesystem access, so it works on a path that does not
 # exist.
+# On Windows File::Spec spells absolute paths with backslashes and a drive
+# letter (C:\dir\file); those are turned into forward slashes first and
+# the drive letter is kept as the prefix (C:/dir/file), so the containment
+# check in _scoped_tool_path compares like with like. Without this every
+# in-root path was refused on Windows.
 # Input: absolute path string.
 # Output: normalized absolute path string.
 sub _normalize_path_segments {
     my ($path) = @_;
+    my $prefix = '/';
+    if ( $^O eq 'MSWin32' ) {
+        $path =~ tr{\\}{/};
+        $prefix = uc($1) . '/' if $path =~ s{\A([A-Za-z]:)(?=/|\z)}{};
+    }
     my @out;
     for my $part ( split m{/}, $path ) {
         next if $part eq '' || $part eq '.';
         if ( $part eq '..' ) { pop @out; }
         else                 { push @out, $part; }
     }
-    return '/' . join( '/', @out );
+    return $prefix . join( '/', @out );
 }
 
 # _extract_api_text($data)
@@ -933,6 +943,21 @@ sub _emit {
 # Output: (stdout, stderr, exit-code) list.
 sub _run_cli {
     my ($argv) = @_;
+    if ( $^O eq 'MSWin32' ) {
+        # On Unix system() fails to exec a missing command with -1 and
+        # "Can't exec" on STDERR, which is the contract this runner's
+        # callers rely on. On Windows system() hands the command to cmd.exe
+        # instead, which exits 1 with "not recognized" text - a missing
+        # backend then looks like a backend that ran and failed. Check
+        # resolvability first and report the same -1, with the same words,
+        # before anything runs.
+        my $command = $argv->[0] || '';
+        if ( $command eq '' || !command_in_path($command) ) {
+            my $message = "Can't exec \"$command\": No such file or directory\n";
+            print STDERR $message;
+            return ( '', $message, -1 );
+        }
+    }
     my ( $stdout, $stderr, $status ) = tee { system( @{$argv} ); };
     my $exit = $status == -1 ? -1 : ( $status >> 8 );
     return ( $stdout, $stderr, $exit );

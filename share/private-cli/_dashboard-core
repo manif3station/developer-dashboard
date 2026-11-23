@@ -698,7 +698,18 @@ elsif ( $cmd eq 'init' ) {
     }
     my %helper_sync_args = ( paths => $paths );
     if (is_windows()) {
-        $helper_sync_args{skip_names} = ['init'];
+        # A staged `init` helper that already exists must not be replaced
+        # in place during init's own sync: on Windows a running executable
+        # is locked, and the init wrapper may be the process that got us
+        # here. But a MISSING `init` helper must still be staged: in a
+        # fresh home nothing is running from that path yet, and skipping
+        # it leaves `d2 doctor` reporting a missing managed helper
+        # forever (t/05 doctor checks on Windows fail on exactly that).
+        my $init_target = Developer::Dashboard::InternalCLI::helper_path(
+            paths => $paths,
+            name  => 'init',
+        );
+        $helper_sync_args{skip_names} = ['init'] if -f $init_target;
     }
     my $internal_cli = Developer::Dashboard::InternalCLI::ensure_helpers(%helper_sync_args);
 
@@ -1165,10 +1176,15 @@ elsif ( $cmd eq 'web-ssl-backend-foreground' ) {
 }
 elsif ( $cmd eq 'collector-loop-foreground' ) {
     my $name = '';
+    my $runtime = '';
     GetOptionsFromArray(
         \@ARGV,
-        'name=s' => \$name,
+        'name=s'    => \$name,
+        'runtime=s' => \$runtime,
     );
+    # The --runtime token is accepted and ignored: it is identity for
+    # observers (the finder scopes adoption through it, the detector
+    # confirms foreign loops through it), not an input the loop acts on.
     die "Usage: d2 collector-loop-foreground --name NAME\n" if !$name || @ARGV;
     my $job = $collectors->read_job($name) || die "Unknown collector '$name'\n";
     my $schedule_mode = $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' );
@@ -1264,6 +1280,14 @@ elsif ( $cmd eq 'doctor' ) {
 elsif ( $cmd eq 'skills' ) {
     require Developer::Dashboard::CLI::Skills;
     my $exit_code = Developer::Dashboard::CLI::Skills::run_skills_command(
+        command => $cmd,
+        args    => \@ARGV,
+    );
+    exit $exit_code;
+}
+elsif ( $cmd eq 'which' ) {
+    require Developer::Dashboard::CLI::Which;
+    my $exit_code = Developer::Dashboard::CLI::Which::run_which_command(
         command => $cmd,
         args    => \@ARGV,
     );

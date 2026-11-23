@@ -5,6 +5,7 @@ use warnings;
 use utf8;
 
 use Test::More;
+use Config;
 use File::Temp qw(tempdir);
 use File::Spec ();
 use Cwd qw(abs_path getcwd);
@@ -112,7 +113,26 @@ esac
 STUB
     close $fh;
     chmod 0755, $stub;
-    local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
+    if ( $^O eq 'MSWin32' ) {
+        # Windows twin of the sh stub above: the extensionless script is
+        # invisible to Windows program search (PATHEXT needs .exe/.bat/.cmd),
+        # so the product's list-form system('d2', ...) died with
+        # "'d2' is not recognized" (round 72). Mirrors the sh stub case by case.
+        my $bat = File::Spec->catfile( $bin_dir, 'd2.bat' );
+        open my $bfh, '>', $bat or die "Unable to write $bat: $!";
+        print {$bfh} <<'BAT';
+@echo off
+if "%1"=="json-thing" echo {"alpha":"beta"}
+if "%1"=="text-thing" echo plain text output
+if "%1"=="fail-thing" echo stub failure detail 1>&2
+if "%1"=="fail-thing" exit /b 7
+BAT
+        close $bfh or die "Unable to close $bat: $!";
+    }
+    # $Config{path_sep}: joining with ':' fuses the stub dir with the next
+    # PATH entry on Windows (';' separates there), so the stub was unreachable
+    # even as a .bat - proved by probe on win-ts.
+    local $ENV{PATH} = join $Config{path_sep}, $bin_dir, ( $ENV{PATH} // q{} );
 
     my $handle = Developer::Dashboard::Handle->new( cwd => $home );
 
@@ -157,7 +177,13 @@ STUB
 # avoids by always passing cwd explicitly.
 {
     my $handle = Developer::Dashboard::Handle->new;
-    is( $handle->{cwd}, getcwd(), 'new() with no cwd uses the shared current-directory lookup' );
+    # current_working_directory() canonpaths (backslashes on Windows) while
+    # getcwd() returns forward slashes there - the same directory either way,
+    # so compare separator-normalised spellings. (Round 72 never reached
+    # this assertion on Windows: the file died at test 9 first.)
+    ( my $got = $handle->{cwd} ) =~ s{\\}{/}g;
+    ( my $want = getcwd() ) =~ s{\\}{/}g;
+    is( $got, $want, 'new() with no cwd uses the shared current-directory lookup' );
 }
 
 # Coverage: run() validates its own subcommand argument - both the "missing
@@ -199,7 +225,17 @@ esac
 STUB
     close $fh;
     chmod 0755, $stub;
-    local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
+    if ( $^O eq 'MSWin32' ) {
+        # Windows twin of the sh stub above - see the AC-6/AC-7 block.
+        my $bat = File::Spec->catfile( $bin_dir, 'd2.bat' );
+        open my $bfh, '>', $bat or die "Unable to write $bat: $!";
+        print {$bfh} <<'BAT';
+@echo off
+if "%1"=="number-thing" echo 42
+BAT
+        close $bfh or die "Unable to close $bat: $!";
+    }
+    local $ENV{PATH} = join $Config{path_sep}, $bin_dir, ( $ENV{PATH} // q{} );
 
     my $handle = Developer::Dashboard::Handle->new( cwd => $home );
     my $result = $handle->run('number-thing');
@@ -261,7 +297,22 @@ echo 'stub-ran'
 STUB
     close $sfh or die "Unable to close $stub: $!";
     chmod 0755, $stub or die "Unable to chmod $stub: $!";
-    local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
+    if ( $^O eq 'MSWin32' ) {
+        # Windows twin of the sh stub above - see the AC-6/AC-7 block.
+        # %* is the batch spelling of "$*" (all args, space-joined). The
+        # redirect comes FIRST: `echo %*>>file` lets a trailing digit fuse
+        # with >> into a handle redirect (`1>>` eats the 1, leaving a
+        # trailing space), so `somecmd --arg1 1` logged as `somecmd --arg1 `.
+        my $bat = File::Spec->catfile( $bin_dir, 'd2.bat' );
+        open my $bfh, '>', $bat or die "Unable to write $bat: $!";
+        print {$bfh} <<"BAT";
+\@echo off
+>>"$log" echo %*
+echo stub-ran
+BAT
+        close $bfh or die "Unable to close $bat: $!";
+    }
+    local $ENV{PATH} = join $Config{path_sep}, $bin_dir, ( $ENV{PATH} // q{} );
 
     # purpose: report every argv the stub has been invoked with since the last reset.
     # input: none. output: list of argv strings, oldest first.
@@ -448,7 +499,19 @@ esac
 JSTUB
         close $jfh or die "Unable to close $js: $!";
         chmod 0755, $js or die "Unable to chmod $js: $!";
-        local $ENV{PATH} = "$json_dir:$ENV{PATH}";
+        if ( $^O eq 'MSWin32' ) {
+            # Windows twin of the sh stub above - see the AC-6/AC-7 block.
+            my $bat = File::Spec->catfile( $json_dir, 'd2.bat' );
+            open my $bfh, '>', $bat or die "Unable to write $bat: $!";
+            print {$bfh} <<'BAT';
+@echo off
+if "%1"=="deep.json" echo {"via":"proxy"}
+if "%1"=="deep.fail" echo proxy failure detail 1>&2
+if "%1"=="deep.fail" exit /b 9
+BAT
+            close $bfh or die "Unable to close $bat: $!";
+        }
+        local $ENV{PATH} = join $Config{path_sep}, $json_dir, ( $ENV{PATH} // q{} );
         my $h = Developer::Dashboard::Handle->new( cwd => $home );
 
         is_deeply( $h->deep->json->(), { via => 'proxy' },
@@ -521,7 +584,19 @@ JSTUB
     print {$rfh} "#!/bin/sh\nexec '$^X' -I'$lib' '$entrypoint' \"\$@\"\n";
     close $rfh or die "Unable to close $real: $!";
     chmod 0755, $real or die "Unable to chmod $real: $!";
-    local $ENV{PATH} = "$real_dir:$ENV{PATH}";
+    if ( $^O eq 'MSWin32' ) {
+        # Windows twin of the sh stub above - see the AC-6/AC-7 block.
+        # Runs the checkout's bin/d2 through the running perl, as the
+        # sh stub execs it on Unix.
+        my $bat = File::Spec->catfile( $real_dir, 'd2.bat' );
+        open my $bfh, '>', $bat or die "Unable to write $bat: $!";
+        print {$bfh} <<"BAT";
+\@echo off
+"$^X" -I"$lib" "$entrypoint" %*
+BAT
+        close $bfh or die "Unable to close $bat: $!";
+    }
+    local $ENV{PATH} = join $Config{path_sep}, $real_dir, ( $ENV{PATH} // q{} );
 
     my $h   = Developer::Dashboard::Handle->new( cwd => $home );
     my $out = $h->run('version');

@@ -196,7 +196,12 @@ is( $ajax_singleton_result, 'HIDE-THIS', 'Ajax still returns the hide marker whe
     like( $saved_ajax_stdout, qr{/ajax/coverage\.json\?type=text&singleton=coverage-stream}, 'Ajax prints a saved bookmark ajax url with the default text type and singleton when a file name is supplied' );
     is( $saved_ajax_result, 'HIDE-THIS', 'saved bookmark Ajax still returns the hide marker' );
     ok( -f Developer::Dashboard::Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax stores the named ajax code file under the dashboards ajax tree' );
-    ok( -x Developer::Dashboard::Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax marks the stored dashboards ajax tree file executable' );
+    SKIP: {
+        # On Windows -x is extension-based, so a .json file can never be
+        # executable there; the executable bit is a Unix concept.
+        skip 'the executable bit has no meaning for a .json file on Windows', 1 if $^O eq 'MSWin32';
+        ok( -x Developer::Dashboard::Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax marks the stored dashboards ajax tree file executable' );
+    }
     is( Developer::Dashboard::Zipper::load_saved_ajax_code( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'print qq{{"ok":1}};', 'saved bookmark Ajax stored code can be loaded back from the dashboards ajax tree' );
     my $saved_ajax_error = eval {
         Ajax(
@@ -319,7 +324,7 @@ my $runtime = Developer::Dashboard::PageRuntime->new( paths => $paths );
     );
     is_deeply( $stream_result->{returns}, [ { ok => 1 } ], 'stream_code_block works with the default no-op stream writers' );
 }
-is( Developer::Dashboard::PageRuntime::_noop_writer('ignored'), '', '_noop_writer accepts ignored streamed chunks' );
+ok( Developer::Dashboard::PageRuntime::_noop_writer('ignored'), '_noop_writer accepts ignored streamed chunks and answers keep-streaming' );
 like( $runtime->_runtime_value_text( { ok => 1 } ), qr/ok => 1/, '_runtime_value_text renders structured runtime values' );
 {
     my $saved_path = Developer::Dashboard::Zipper::saved_ajax_file_path(
@@ -400,12 +405,25 @@ like( "$@", qr/Invalid ajax singleton name/, '_normalize_saved_ajax_singleton re
     print {$fh} "#!/bin/sh\nprintf 'ok\\n'\n";
     close $fh;
     chmod 0700, $shebang_file or die $!;
-    is_deeply( [ $runtime->_saved_ajax_command( path => $shebang_file ) ], [ $shebang_file ], '_saved_ajax_command executes shebang saved Ajax files directly' );
+    if ( $^O eq 'MSWin32' ) {
+        # CreateProcess cannot execute a shebang file directly on Windows;
+        # the command routes through the resolved POSIX shell instead, and
+        # the script still runs.
+        my @shebang_cmd = $runtime->_saved_ajax_command( path => $shebang_file );
+        is( scalar @shebang_cmd, 2, '_saved_ajax_command routes shebang saved Ajax files through a shell on Windows' );
+        like( $shebang_cmd[1], qr/shebang-handler\z/, '_saved_ajax_command passes the shebang file to the shell on Windows' );
+        my ( $shebang_out, undef, $shebang_exit ) = capture { system @shebang_cmd; return $? >> 8; };
+        is( $shebang_exit, 0, '_saved_ajax_command runs a shebang saved Ajax file through the shell on Windows' );
+        is( $shebang_out, "ok\n", '_saved_ajax_command streams the shebang saved Ajax file output on Windows' );
+    }
+    else {
+        is_deeply( [ $runtime->_saved_ajax_command( path => $shebang_file ) ], [ $shebang_file ], '_saved_ajax_command executes shebang saved Ajax files directly' );
+    }
 }
 {
     my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'process-runner.pl' );
     open my $fh, '>', $saved_path or die $!;
-    print {$fh} "print qq{process-out\\n}; warn qq{process-err\\n}; system 'sh', '-c', 'printf \"child-out\\\\n\"; printf \"child-err\\\\n\" >&2'; die qq{process-die\\n};";
+    print {$fh} "print qq{process-out\\n}; warn qq{process-err\\n}; if (\$^O eq 'MSWin32') { system 'cmd', '/d', '/c', 'echo child-out & echo child-err 1>&2'; } else { system 'sh', '-c', 'printf \"child-out\\\\n\"; printf \"child-err\\\\n\" >&2'; } die qq{process-die\\n};";
     close $fh;
     chmod 0700, $saved_path or die $!;
     my $streamed = '';
@@ -524,7 +542,11 @@ PERL
     my $streamed = '';
     {
         local $SIG{ALRM} = sub { die "timeout\n" };
-        alarm 5;
+        # The saved-ajax launcher loads PageRuntime twice before the
+        # script prints anything (~8s cold on a fast machine, slower on
+        # qemu), so a 5s alarm can fire on a legitimate slow load. The
+        # alarm guards against an infinite stall; 15s still catches that.
+        alarm 15;
         eval {
             no warnings 'redefine';
             local *IO::Select::new = sub { return Local::IdleSavedAjaxSelect->new( $_[1], $_[2] ) };
@@ -550,6 +572,12 @@ PERL
     is( $streamed, "ajax-ok\n", 'stream_saved_ajax_file still drains the final saved ajax stdout chunk after the idle-child exit guard notices process exit' );
 }
 {
+    # The post-exit drain is a Unix-loop concept: on Windows
+    # stream_saved_ajax_file takes the Windows _stream_saved_ajax_windows
+    # branch instead, which has its own child-exit branch that calls
+    # _drain_saved_ajax_post_exit_handles — so the stubbed drain returning
+    # 0 produces a disconnect there too.
+    # Windows disconnects are covered by the delegated-streamer tests below.
     my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'post-exit-disconnect.pl' );
     open my $fh, '>', $saved_path or die $!;
     print {$fh} 'sleep 30;';
@@ -642,11 +670,18 @@ PL
         },
         stderr_writer => sub { die "unexpected stderr chunk during timing stream test: $_[0]" if defined $_[0] && $_[0] ne '' },
     );
+    # The launcher loads PageRuntime twice before the script prints
+    # anything (~3s warm, ~8s cold, slower on qemu), so an absolute
+    # bound on the first chunk depends on machine load speed, not on
+    # streaming. Judge the chunks against this run's own end instead:
+    # a batched implementation would deliver everything at $end with
+    # zero inter-arrival, failing both assertions below.
+    my $end = time - $start;
     is( $stream_result->{exit_code}, 0, 'stream_saved_ajax_file succeeds for timed saved ajax stream output' );
     is( join( '', @chunks ), 'tick1tick2tick3', 'stream_saved_ajax_file forwards all timed ajax stdout chunks in order' );
     ok( @times >= 2, 'stream_saved_ajax_file delivers multiple timed chunks before process exit' );
-    ok( $times[0] < 1.5, 'stream_saved_ajax_file forwards the first timed chunk before the saved ajax process finishes' );
-    ok( $times[1] < 2.5, 'stream_saved_ajax_file keeps forwarding later timed chunks during the long-running saved ajax process' );
+    ok( $times[0] < $end - 0.5, 'stream_saved_ajax_file forwards the first timed chunk before the saved ajax process finishes' );
+    ok( $times[1] - $times[0] >= 0.5 && $times[1] - $times[0] < 2.0, 'stream_saved_ajax_file keeps forwarding later timed chunks during the long-running saved ajax process' );
 }
 {
     SKIP: {
@@ -687,11 +722,16 @@ PL
         );
         is( $stream_result->{exit_code}, 0, 'Windows pipe reader returns the child exit code' );
     }
+    # Same relative bounds as the Unix timing block above: the launcher
+    # load makes an absolute 1.5s bound machine-dependent, while the
+    # first chunk arriving well before the run ends and the ~1s
+    # inter-arrival still prove the chunks stream as they are printed.
+    my $end = time - $start;
     is( join( '', @chunks ), 'win-tick1win-tick2win-tick3',
         'Windows pipe reader forwards child output in order before process exit' );
     ok( @times >= 2, 'Windows pipe reader delivers multiple chunks before process exit' );
-    ok( $times[0] < 1.5, 'Windows pipe reader forwards the first chunk while the child is running' );
-    ok( $times[1] < 2.5, 'Windows pipe reader forwards later chunks while the child is running' );
+    ok( $times[0] < $end - 0.5, 'Windows pipe reader forwards the first chunk while the child is running' );
+    ok( $times[1] - $times[0] >= 0.5 && $times[1] - $times[0] < 2.0, 'Windows pipe reader forwards later chunks while the child is running' );
     is( $select_polls, 0, 'Windows pipe reader does not depend on IO::Select readiness for pipes' );
     }
 }
@@ -811,21 +851,9 @@ PL
     close $stdout_write or die "Unable to close default-writer stdout: $!";
     close $stderr_write or die "Unable to close default-writer stderr: $!";
 
-    my ( $queue, $result, $terminated_pid );
+    my ( $result, $terminated_pid );
     {
         no warnings qw(redefine once);
-        local $INC{'threads.pm'} = 1;
-        local $INC{'Thread/Queue.pm'} = 1;
-        local *Thread::Queue::new = sub { $queue = bless { events => [] }, 'Thread::Queue'; return $queue };
-        local *Thread::Queue::limit = sub { $_[0]->{limit} = $_[1]; return $_[1] };
-        local *Thread::Queue::enqueue = sub { push @{ $_[0]->{events} }, $_[1]; return 1 };
-        local *Thread::Queue::dequeue_timed = sub { return shift @{ $_[0]->{events} } };
-        local *threads::create = sub {
-            my ( $class, $worker, @args ) = @_;
-            $worker->(@args);
-            return bless {}, 'Local::WindowsReaderThread';
-        };
-        local *Local::WindowsReaderThread::join = sub { return 1 };
         local *Developer::Dashboard::PageRuntime::_terminate_saved_ajax_process = sub {
             my ( $self, $pid, $group, $status_ref ) = @_;
             $terminated_pid = $pid;
@@ -840,8 +868,10 @@ PL
         );
     }
     is( $result->{error}, '', 'Windows reader completes with its default no-op output writers' );
-    is( $result->{disconnected}, 1, 'default no-op writer signals a disconnected output stream' );
-    is( $terminated_pid, 123, 'Windows reader terminates the worker after the default writer declines output' );
+    # The default writer accepts every chunk, so leaving the writers out is
+    # not a client disconnect and must not get the worker terminated.
+    ok( !$result->{disconnected}, 'default no-op writer does not signal a disconnected output stream' );
+    is( $terminated_pid, undef, 'Windows reader leaves the worker alone when the default writer accepts output' );
 }
 {
     pipe my $stdout_read, my $stdout_write or die "Unable to create bad-fd stdout pipe: $!";
@@ -852,22 +882,10 @@ PL
     defined $stdout_fd or die 'Unable to inspect bad-fd stdout descriptor';
     POSIX::close($stdout_fd) == 0 or die "Unable to invalidate stdout descriptor: $!";
 
-    my ( $queue, $result, @reported_errors, @warnings );
+    my ( $result, @reported_errors, @warnings );
     {
         no warnings qw(redefine once);
         local $SIG{__WARN__} = sub { push @warnings, @_ };
-        local $INC{'threads.pm'} = 1;
-        local $INC{'Thread/Queue.pm'} = 1;
-        local *Thread::Queue::new = sub { $queue = bless { events => [] }, 'Thread::Queue'; return $queue };
-        local *Thread::Queue::limit = sub { $_[0]->{limit} = $_[1]; return $_[1] };
-        local *Thread::Queue::enqueue = sub { push @{ $_[0]->{events} }, $_[1]; return 1 };
-        local *Thread::Queue::dequeue_timed = sub { return shift @{ $_[0]->{events} } };
-        local *threads::create = sub {
-            my ( $class, $worker, @args ) = @_;
-            $worker->(@args);
-            return bless {}, 'Local::WindowsReaderThread';
-        };
-        local *Local::WindowsReaderThread::join = sub { return 1 };
 
         $result = $runtime->_stream_saved_ajax_windows(
             pid           => 124,
@@ -880,80 +898,26 @@ PL
     }
     like( $reported_errors[0], qr/Unable to read ajax stream for bad-descriptor[.]pl: /,
         'Windows reader reports a system pipe-read error to the stderr writer' );
-    is( $result->{error}, '', 'a reported pipe-read error does not become a malformed-event failure' );
+    is( $result->{error}, '', 'a reported pipe-read error does not become a stream failure' );
     is_deeply( \@warnings, [], 'pipe-read error reporting does not emit Perl warnings' );
 }
 {
-    pipe my $stdout_read, my $stdout_write or die "Unable to create cleanup-event stdout pipe: $!";
-    pipe my $stderr_read, my $stderr_write or die "Unable to create cleanup-event stderr pipe: $!";
-    close $stdout_write or die "Unable to close cleanup-event stdout writer: $!";
-    close $stderr_write or die "Unable to close cleanup-event stderr writer: $!";
-
-    my ( $queue, $terminated_pid, $result );
-    my $dequeue_count = 0;
-    {
-        no warnings qw(redefine once);
-        local $INC{'threads.pm'} = 1;
-        local $INC{'Thread/Queue.pm'} = 1;
-        local *Thread::Queue::new = sub {
-            $queue = bless {
-                events     => [ 'Xo', 'Do' . pack( 'N', 1 ) . 'x', 'Co', 'Ce' ],
-            }, 'Thread::Queue';
-            return $queue;
-        };
-        local *Thread::Queue::limit = sub { $_[0]->{limit} = $_[1]; return $_[1] };
-        local *Thread::Queue::dequeue_timed = sub {
-            if ( ++$dequeue_count == 2 ) {
-                return;
-            }
-            return shift @{ $_[0]->{events} };
-        };
-        local *threads::create = sub { return bless {}, 'Local::WindowsReaderThread' };
-        local *Local::WindowsReaderThread::join = sub { return 1 };
-        local *Developer::Dashboard::PageRuntime::_terminate_saved_ajax_process = sub {
-            my ( $self, $pid, $group, $status_ref ) = @_;
-            $terminated_pid = $pid;
-            $$status_ref = 9;
-            return 1;
-        };
-
-        $result = $runtime->_stream_saved_ajax_windows(
-            pid    => 125,
-            stdout => $stdout_read,
-            stderr => $stderr_read,
-        );
-    }
-    like( $result->{error}, qr/Invalid Windows saved-Ajax reader event/,
-        'Windows reader reports malformed event input before cleanup' );
-    is( $terminated_pid, 125, 'Windows reader terminates the child before draining reader threads' );
-    is_deeply( $queue->{events}, [], 'Windows cleanup ignores non-close events and drains both close events' );
-}
-{
+    # The write ends stay open so the pipes are idle (no data, no EOF) while
+    # the child is still running: the reader must poll the child state
+    # instead of draining. The mocked exit closes the write ends, as a real
+    # exiting child would, so the post-exit drain can retire the pipes.
     pipe my $stdout_read, my $stdout_write or die "Unable to create repeated-poll stdout pipe: $!";
     pipe my $stderr_read, my $stderr_write or die "Unable to create repeated-poll stderr pipe: $!";
-    close $stdout_write or die "Unable to close repeated-poll stdout: $!";
-    close $stderr_write or die "Unable to close repeated-poll stderr: $!";
 
-    my ( $queue, $result );
+    my $result;
     my $poll_count = 0;
     {
         no warnings qw(redefine once);
-        local $INC{'threads.pm'} = 1;
-        local $INC{'Thread/Queue.pm'} = 1;
-        local *Thread::Queue::new = sub { $queue = bless { polls => 3, events => ['Co', 'Ce'] }, 'Thread::Queue'; return $queue };
-        local *Thread::Queue::limit = sub { $_[0]->{limit} = $_[1]; return $_[1] };
-        local *Thread::Queue::dequeue_timed = sub {
-            if ( $_[0]->{polls} ) {
-                $_[0]->{polls}--;
-                return;
-            }
-            return shift @{ $_[0]->{events} };
-        };
-        local *threads::create = sub { return bless {}, 'Local::WindowsReaderThread' };
-        local *Local::WindowsReaderThread::join = sub { return 1 };
         local *Developer::Dashboard::PageRuntime::_saved_ajax_child_exited = sub {
             $poll_count++;
-            return ( 0, undef ) if $poll_count == 1;
+            return ( 0, undef ) if $poll_count < 3;
+            close $stdout_write or die "Unable to close repeated-poll stdout on child exit: $!";
+            close $stderr_write or die "Unable to close repeated-poll stderr on child exit: $!";
             return ( 1, 0 );
         };
 
@@ -973,24 +937,12 @@ PL
     close $stdout_write or die "Unable to close interrupted-read stdout: $!";
     close $stderr_write or die "Unable to close interrupted-read stderr: $!";
 
-    my ( $queue, @chunks, $result );
+    my ( @chunks, $result );
     my $read_calls = 0;
     {
         no warnings qw(redefine once);
-        local $INC{'threads.pm'} = 1;
-        local $INC{'Thread/Queue.pm'} = 1;
-        local *Thread::Queue::new = sub { $queue = bless { events => [] }, 'Thread::Queue'; return $queue };
-        local *Thread::Queue::limit = sub { $_[0]->{limit} = $_[1]; return $_[1] };
-        local *Thread::Queue::enqueue = sub { push @{ $_[0]->{events} }, $_[1]; return 1 };
-        local *Thread::Queue::dequeue_timed = sub { return shift @{ $_[0]->{events} } };
-        local *threads::create = sub {
-            my ( $class, $worker, @args ) = @_;
-            $worker->(@args);
-            return bless {}, 'Local::WindowsReaderThread';
-        };
-        local *Local::WindowsReaderThread::join = sub { return 1 };
-        my $read_pipe = \&Developer::Dashboard::PageRuntime::_read_saved_ajax_windows_pipe;
-        local *Developer::Dashboard::PageRuntime::_read_saved_ajax_windows_pipe = sub {
+        my $read_pipe = \&Developer::Dashboard::PageRuntime::_stream_sysread;
+        local *Developer::Dashboard::PageRuntime::_stream_sysread = sub {
             my ( $self, $reader, $chunk_ref ) = @_;
             if ( ++$read_calls == 1 ) {
                 $! = EINTR;
@@ -1017,17 +969,9 @@ PL
     close $stdout_write or die "Unable to close undefined-writer stdout: $!";
     close $stderr_write or die "Unable to close undefined-writer stderr: $!";
 
-    my $queue;
     my $result;
     {
         no warnings qw(redefine once);
-        local $INC{'threads.pm'} = 1;
-        local $INC{'Thread/Queue.pm'} = 1;
-        local *Thread::Queue::new = sub { $queue = bless { events => [ 'Do' . pack( 'N', 1 ) . 'x', 'Co', 'Ce' ] }, 'Thread::Queue'; return $queue };
-        local *Thread::Queue::limit = sub { $_[0]->{limit} = $_[1]; return $_[1] };
-        local *Thread::Queue::dequeue_timed = sub { return shift @{ $_[0]->{events} } };
-        local *threads::create = sub { return bless {}, 'Local::WindowsReaderThread' };
-        local *Local::WindowsReaderThread::join = sub { return 1 };
 
         $result = $runtime->_stream_saved_ajax_windows(
             pid           => 126,
@@ -1047,114 +991,55 @@ PL
     close $stdout_write or die "Unable to close mock Windows stdout: $!";
     close $stderr_write or die "Unable to close mock Windows stderr: $!";
 
-    my ( $queue, $reader_count, @chunks, @errors );
-    my $result;
-    {
-        no warnings qw(redefine once);
-        local $INC{'threads.pm'} = 1;
-        local $INC{'Thread/Queue.pm'} = 1;
-        local *Thread::Queue::new = sub {
-            $queue = bless { events => [] }, 'Thread::Queue';
-            return $queue;
-        };
-        local *Thread::Queue::limit = sub { $_[0]->{limit} = $_[1]; return $_[1] };
-        local *Thread::Queue::enqueue = sub { push @{ $_[0]->{events} }, $_[1]; return 1 };
-        local *Thread::Queue::dequeue_timed = sub { return shift @{ $_[0]->{events} } };
-        local *threads::create = sub {
-            my ( $class, $worker, @args ) = @_;
-            $reader_count++;
-            $worker->(@args);
-            return bless {}, 'Local::WindowsReaderThread';
-        };
-        local *Local::WindowsReaderThread::join = sub { return 1 };
-
-        $result = $runtime->_stream_saved_ajax_windows(
-            pid           => 12345,
-            path          => 'mocked-windows-stream.pl',
-            stdout        => $stdout_read,
-            stderr        => $stderr_read,
-            stdout_writer => sub { push @chunks, $_[0]; return 1 },
-            stderr_writer => sub { push @errors, $_[0]; return 1 },
-        );
-    }
-    is( $reader_count, 2, 'Windows stream starts one reader for each child pipe' );
-    is( $queue->{limit}, 8, 'Windows stream bounds queued pipe chunks' );
-    is( join( '', @chunks ), 'mocked-windows-output', 'Windows reader thread forwards pipe bytes to the stdout writer' );
+    my ( @chunks, @errors );
+    my $result = $runtime->_stream_saved_ajax_windows(
+        pid           => 12345,
+        path          => 'mocked-windows-stream.pl',
+        stdout        => $stdout_read,
+        stderr        => $stderr_read,
+        stdout_writer => sub { push @chunks, $_[0]; return 1 },
+        stderr_writer => sub { push @errors, $_[0]; return 1 },
+    );
+    is( join( '', @chunks ), 'mocked-windows-output', 'Windows reader forwards pipe bytes to the stdout writer' );
     is_deeply( \@errors, [], 'Windows reader does not report stderr data for an empty stderr pipe' );
-    is( $result->{disconnected}, 0, 'Windows reader completes normally when both pipe readers close' );
+    is( $result->{disconnected}, 0, 'Windows reader completes normally when both pipes close' );
     is( $result->{error}, '', 'Windows reader returns an empty error after a normal stream' );
 }
 {
+    # Both pipes carry real data: the reader must forward stdout bytes to
+    # the stdout writer and stderr bytes to the stderr writer, in order,
+    # with no fatal error. (The queued-event injection this block used to
+    # exercise no longer exists: there is no reader-thread event queue.)
     pipe my $stdout_read, my $stdout_write or die "Unable to create queued Windows stdout pipe: $!";
     pipe my $stderr_read, my $stderr_write or die "Unable to create queued Windows stderr pipe: $!";
+    print {$stdout_write} 'out' or die "Unable to write queued Windows stdout: $!";
+    print {$stderr_write} 'err' or die "Unable to write queued Windows stderr: $!";
     close $stdout_write or die "Unable to close queued Windows stdout: $!";
     close $stderr_write or die "Unable to close queued Windows stderr: $!";
 
-    my $read_error = 'synthetic pipe read failure';
-    my $queue;
-    my $poll_count = 0;
-    my @stderr_chunks;
-    my $result;
-    {
-        no warnings qw(redefine once);
-        local $INC{'threads.pm'} = 1;
-        local $INC{'Thread/Queue.pm'} = 1;
-        local *Thread::Queue::new = sub {
-            $queue = bless {
-                events => [
-                    'Re' . pack( 'N', length($read_error) ) . $read_error,
-                    'Do' . pack( 'N', 3 ) . 'out',
-                    'De' . pack( 'N', 3 ) . 'err',
-                    'Co', 'Ce',
-                ],
-            }, 'Thread::Queue';
-            return $queue;
-        };
-        local *Thread::Queue::limit = sub { $_[0]->{limit} = $_[1]; return $_[1] };
-        local *Thread::Queue::dequeue_timed = sub {
-            return if !$poll_count++;
-            return shift @{ $_[0]->{events} };
-        };
-        local *threads::create = sub { return bless {}, 'Local::WindowsReaderThread' };
-        local *Local::WindowsReaderThread::join = sub { return 1 };
-        local *Developer::Dashboard::PageRuntime::_saved_ajax_child_exited = sub {
-            return ( 1, 0 );
-        };
-
-        $result = $runtime->_stream_saved_ajax_windows(
-            pid          => 34567,
-            stdout       => $stdout_read,
-            stderr       => $stderr_read,
-            stdout_writer => sub { return 1 },
-            stderr_writer => sub { push @stderr_chunks, $_[0]; return 1 },
-        );
-    }
-    ok( $poll_count, 'Windows reader checks child state when the event queue is temporarily empty' );
-    is( $result->{saved_status}, 0, 'Windows reader preserves a child status observed during a pipe wait' );
-    is( $result->{error}, '', 'Windows reader reports no fatal error for a readable-pipe diagnostic' );
-    like( $stderr_chunks[0], qr/synthetic pipe read failure/, 'Windows reader forwards pipe read errors to stderr' );
-    is( $stderr_chunks[1], 'err', 'Windows reader forwards non-stdout pipe data to stderr' );
-    is( $queue->{limit}, 8, 'Windows reader keeps the event queue bounded when events are injected' );
+    my ( @stdout_chunks, @stderr_chunks );
+    my $result = $runtime->_stream_saved_ajax_windows(
+        pid           => 34567,
+        stdout        => $stdout_read,
+        stderr        => $stderr_read,
+        stdout_writer => sub { push @stdout_chunks, $_[0]; return 1 },
+        stderr_writer => sub { push @stderr_chunks, $_[0]; return 1 },
+    );
+    is( join( '', @stdout_chunks ), 'out', 'Windows reader forwards stdout pipe data to the stdout writer' );
+    is( join( '', @stderr_chunks ), 'err', 'Windows reader forwards non-stdout pipe data to the stderr writer' );
+    is( $result->{disconnected}, 0, 'Windows reader completes normally when both pipes close' );
+    is( $result->{error}, '', 'Windows reader reports no fatal error for a two-pipe stream' );
 }
 {
     pipe my $stdout_read, my $stdout_write or die "Unable to create writer-error Windows stdout pipe: $!";
     pipe my $stderr_read, my $stderr_write or die "Unable to create writer-error Windows stderr pipe: $!";
+    print {$stdout_write} 'data' or die "Unable to write writer-error Windows stdout: $!";
     close $stdout_write or die "Unable to close writer-error Windows stdout: $!";
     close $stderr_write or die "Unable to close writer-error Windows stderr: $!";
 
-    my ( $queue, $terminated_pid, $result );
+    my ( $terminated_pid, $result );
     {
         no warnings qw(redefine once);
-        local $INC{'threads.pm'} = 1;
-        local $INC{'Thread/Queue.pm'} = 1;
-        local *Thread::Queue::new = sub {
-            $queue = bless { events => [ 'Do' . pack( 'N', 4 ) . 'data', 'Co', 'Ce' ] }, 'Thread::Queue';
-            return $queue;
-        };
-        local *Thread::Queue::limit = sub { $_[0]->{limit} = $_[1]; return $_[1] };
-        local *Thread::Queue::dequeue_timed = sub { return shift @{ $_[0]->{events} } };
-        local *threads::create = sub { return bless {}, 'Local::WindowsReaderThread' };
-        local *Local::WindowsReaderThread::join = sub { return 1 };
         local *Developer::Dashboard::PageRuntime::_terminate_saved_ajax_process = sub {
             my ( $self, $pid, $group, $status_ref ) = @_;
             $terminated_pid = $pid;
@@ -1174,51 +1059,6 @@ PL
     like( $result->{error}, qr/Windows writer exploded/, 'Windows reader reports a writer exception' );
     is( $terminated_pid, 56789, 'Windows reader terminates the child after a writer exception' );
     is( $result->{terminated_status}, 11, 'Windows reader retains the terminated child status after a writer exception' );
-    is_deeply( $queue->{events}, [], 'Windows reader drains close events before joining after a writer exception' );
-}
-for my $case (
-    { label => 'unknown event', event => 'Xo', error => qr/Invalid Windows saved-Ajax reader event/ },
-    { label => 'short event', event => 'Do', error => qr/Incomplete Windows saved-Ajax reader event/ },
-    { label => 'truncated event', event => 'Do' . pack( 'N', 4 ) . 'abc', error => qr/Truncated Windows saved-Ajax reader event/ },
-) {
-    pipe my $stdout_read, my $stdout_write or die "Unable to create malformed Windows stdout pipe: $!";
-    pipe my $stderr_read, my $stderr_write or die "Unable to create malformed Windows stderr pipe: $!";
-    close $stdout_write or die "Unable to close malformed Windows stdout: $!";
-    close $stderr_write or die "Unable to close malformed Windows stderr: $!";
-
-    my ( $queue, $terminated_pid, $result );
-    {
-        no warnings qw(redefine once);
-        local $INC{'threads.pm'} = 1;
-        local $INC{'Thread/Queue.pm'} = 1;
-        local *Thread::Queue::new = sub {
-            $queue = bless { events => [ $case->{event}, 'Co', 'Ce' ] }, 'Thread::Queue';
-            return $queue;
-        };
-        local *Thread::Queue::limit = sub { $_[0]->{limit} = $_[1]; return $_[1] };
-        local *Thread::Queue::dequeue_timed = sub { return shift @{ $_[0]->{events} } };
-        local *threads::create = sub { return bless {}, 'Local::WindowsReaderThread' };
-        local *Local::WindowsReaderThread::join = sub { return 1 };
-        local *Developer::Dashboard::PageRuntime::_terminate_saved_ajax_process = sub {
-            my ( $self, $pid, $group, $status_ref ) = @_;
-            $terminated_pid = $pid;
-            $$status_ref = 9;
-            return 1;
-        };
-
-        $result = $runtime->_stream_saved_ajax_windows(
-            pid           => 45678,
-            path          => 'malformed-windows-stream.pl',
-            stdout        => $stdout_read,
-            stderr        => $stderr_read,
-            stdout_writer => sub { return 1 },
-            stderr_writer => sub { return 1 },
-        );
-    }
-    like( $result->{error}, $case->{error}, "Windows reader rejects a $case->{label}" );
-    is( $terminated_pid, 45678, "Windows reader terminates the child after a $case->{label}" );
-    is( $result->{terminated}, 1, "Windows reader records termination for a $case->{label}" );
-    is_deeply( $queue->{events}, [], "Windows reader drains queued close events after a $case->{label}" );
 }
 {
     pipe my $stdout_read, my $stdout_write or die "Unable to create disconnect Windows stdout pipe: $!";
@@ -1227,25 +1067,10 @@ for my $case (
     close $stdout_write or die "Unable to close disconnect Windows stdout: $!";
     close $stderr_write or die "Unable to close disconnect Windows stderr: $!";
 
-    my ( $queue, $terminated_pid, @chunks );
+    my ( $terminated_pid, @chunks );
     my $result;
     {
         no warnings qw(redefine once);
-        local $INC{'threads.pm'} = 1;
-        local $INC{'Thread/Queue.pm'} = 1;
-        local *Thread::Queue::new = sub {
-            $queue = bless { events => [] }, 'Thread::Queue';
-            return $queue;
-        };
-        local *Thread::Queue::limit = sub { $_[0]->{limit} = $_[1]; return $_[1] };
-        local *Thread::Queue::enqueue = sub { push @{ $_[0]->{events} }, $_[1]; return 1 };
-        local *Thread::Queue::dequeue_timed = sub { return shift @{ $_[0]->{events} } };
-        local *threads::create = sub {
-            my ( $class, $worker, @args ) = @_;
-            $worker->(@args);
-            return bless {}, 'Local::WindowsReaderThread';
-        };
-        local *Local::WindowsReaderThread::join = sub { return 1 };
         local *Developer::Dashboard::PageRuntime::_terminate_saved_ajax_process = sub {
             my ( $self, $pid, $group, $status_ref ) = @_;
             $terminated_pid = $pid;
@@ -1264,7 +1089,7 @@ for my $case (
     }
     is( join( '', @chunks ), 'disconnect-now', 'Windows reader delivers the pending chunk before disconnect cleanup' );
     is( $result->{disconnected}, 1, 'Windows reader marks a failed stream writer as disconnected' );
-    is( $terminated_pid, 23456, 'Windows reader terminates the child before joining blocked pipe readers' );
+    is( $terminated_pid, 23456, 'Windows reader terminates the child after the writer disconnects' );
     is( $result->{terminated_status}, 9, 'Windows reader preserves the child status returned by termination' );
 }
 {

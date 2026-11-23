@@ -226,12 +226,19 @@ subtest '_normalize_add_arguments and delete fallbacks' => sub {
         sub path_aliases { $_[0]{a} }
     }
     my $stub = Test::Paths300::Stub->new;
+    # The stub registry expands nothing, so the alias targets must already
+    # carry the native spelling the product compares the cwd in. $home is an
+    # abs_path spelling (forward slashes on Windows) while the cwd is
+    # canonical (backslashes there); a real registry canonicalises alias
+    # targets in _expand_home, so hand the stub the canonical spelling.
+    # On Unix canonpath leaves the clean abs_path spelling unchanged.
+    my $native_home = File::Spec->canonpath($home);
     is(
-        $del->( paths => $stub, config => Test::Paths300::Cfg->new( { basename($home) => $home } ), name => '.' ),
+        $del->( paths => $stub, config => Test::Paths300::Cfg->new( { basename($home) => $native_home } ), name => '.' ),
         basename($home), 'preferred alias matching cwd'
     );
     is(
-        $del->( paths => $stub, config => Test::Paths300::Cfg->new( { other => $home } ), name => '.' ),
+        $del->( paths => $stub, config => Test::Paths300::Cfg->new( { other => $native_home } ), name => '.' ),
         'other', 'scan alias matching cwd'
     );
     is(
@@ -239,7 +246,7 @@ subtest '_normalize_add_arguments and delete fallbacks' => sub {
         basename($home), 'no alias matches'
     );
     is(
-        $del->( paths => $stub, config => Test::Paths300::Cfg->new( { basename($home) => '/elsewhere', zz => $home } ), name => '.' ),
+        $del->( paths => $stub, config => Test::Paths300::Cfg->new( { basename($home) => '/elsewhere', zz => $native_home } ), name => '.' ),
         'zz', 'preferred alias not at cwd falls to scan'
     );
 };
@@ -247,10 +254,14 @@ subtest '_normalize_add_arguments and delete fallbacks' => sub {
 subtest '_resolve_path_alias branches' => sub {
     my $resolve = \&{"${package}::_resolve_path_alias"};
     my $reg = $registry->( named_paths => { known => $home } );
-    is( $resolve->( paths => $reg, name => 'known' ), $home, 'configured alias resolves directly' );
+    # _expand_home canonicalises on Windows, so the resolved alias spells
+    # with backslashes even though $home itself is an abs_path spelling.
+    is( $resolve->( paths => $reg, name => 'known' ), File::Spec->canonpath($home), 'configured alias resolves directly' );
 
     _skill( 'resolver', "package Folder; sub where { return '$home' } 1;\n" );
-    is( $resolve->( paths => $reg, name => 'resolver.where' ), $home, 'skill alias resolves through Folder.pm' );
+    # The Folder.pm target goes through _expand_home as well, so it comes
+    # back in the same canonical spelling.
+    is( $resolve->( paths => $reg, name => 'resolver.where' ), File::Spec->canonpath($home), 'skill alias resolves through Folder.pm' );
 };
 
 subtest 'Folder alias enumeration' => sub {
@@ -291,7 +302,9 @@ subtest '_skill_folder_alias_target branches' => sub {
     my $ok;
     _skill( 'tgt-ok', "package Folder; sub here { return '$home' } sub bad { return '' } sub refd { return {} } 1;\n" );
     _skill( 'tgt-nofile', undef );
-    is( $target->( paths => $reg, name => 'tgt-ok.here' ), $home, 'target resolved' );
+    # The resolved target is handed through _expand_home, which
+    # canonicalises on Windows, so compare the canonical spelling.
+    is( $target->( paths => $reg, name => 'tgt-ok.here' ), File::Spec->canonpath($home), 'target resolved' );
     ok( !defined $target->( paths => $reg, name => 'tgt-ok.ghost' ), 'unknown method is undef' );
     ok( !defined $target->( paths => $reg, name => 'tgt-nofile.here' ), 'skill without Folder.pm is undef' );
     ok( !defined $target->( paths => $reg, name => 'nosuch.here' ), 'unknown skill is undef' );

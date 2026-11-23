@@ -6,6 +6,8 @@ our $VERSION = '6.31';
 
 use Errno qw(EILSEQ);
 use IO::Select;
+use POSIX ();
+use Socket qw(SO_TYPE SOL_SOCKET);
 
 use constant EVENT_MASK => 0x00000fce;
 
@@ -123,8 +125,7 @@ sub unchanged {
         return $unchanged ? 1 : 0;
     }
     return 0 if !$self->{select};
-    my @readable = $self->{select}->can_read(0);
-    return 1 if !@readable;
+    return 1 if !_handle_readable( $self->{select}, $self->{handle} );
 
     my $events = '';
     my $read = sysread( $self->{handle}, $events, 65_536 );
@@ -136,6 +137,98 @@ sub unchanged {
     }
     $self->{last_error} = undef;
     return 0;
+}
+
+# _handle_readable($select, $handle)
+# Reports whether a watched handle has input waiting, without blocking.
+# On Windows, select() only works on real sockets, so IO::Select->can_read
+# never fires for a pipe handle even with data queued (the t/88 client
+# hang, same class); pipe readiness comes from PeekNamedPipe on the
+# handle's real Win32 HANDLE instead. A select-like object that is not
+# a genuine IO::Select keeps its own can_read: its readiness does not
+# go through the operating-system select, so there is nothing to work
+# around, and test doubles that force readability keep working. When
+# the Windows primitive is unavailable the caller falls back to
+# can_read, the pre-existing behaviour, never a new failure.
+# Input: IO::Select (or select-like) object and the watched handle.
+# Output: true when input is waiting, false when the handle is quiet.
+sub _handle_readable {
+    my ( $select, $handle ) = @_;
+    return 0 if !defined $select || !defined $handle;
+    if ( $^O eq 'MSWin32' && ref($select) eq 'IO::Select' ) {
+        my $readable = _windows_handle_readable( $select, $handle );
+        return $readable if defined $readable;
+    }
+    my @readable = $select->can_read(0);
+    return @readable ? 1 : 0;
+}
+
+# _windows_handle_readable($select, $handle)
+# Windows readiness for one watched handle. A getsockopt probe (Server.pm,
+# t/17 devnull case) tells a socket from a pipe: a socket answers SO_TYPE
+# and keeps the select path, a pipe does not and is polled with
+# PeekNamedPipe. A PeekNamedPipe failure means the pipe is broken, so the
+# handle counts as readable and the caller's read reports the real
+# end-of-file or error diagnostic instead of silently missing the event.
+# Input: IO::Select object and the watched handle.
+# Output: 1 when input is waiting, 0 when quiet, undef when the Windows
+#         primitive is unavailable.
+sub _windows_handle_readable {
+    my ( $select, $handle ) = @_;
+    if ( defined getsockopt( $handle, SOL_SOCKET, SO_TYPE ) ) {
+        my @readable = $select->can_read(0);
+        return @readable ? 1 : 0;
+    }
+    my $peek = _windows_peek_named_pipe();
+    return undef if !defined $peek;
+    my $os_handle = eval { Win32API::File::GetOsFHandle($handle) };
+    return undef if $@ || !defined $os_handle;
+    my $avail = _windows_pipe_available( $peek, $os_handle );
+    return 1 if !defined $avail;
+    return $avail > 0 ? 1 : 0;
+}
+
+# Cached PeekNamedPipe import, attempted once; a failed import is never
+# retried, so a missing Win32 primitive degrades to can_read exactly once.
+my $_WINDOWS_PEEK;
+my $_WINDOWS_PEEK_FAILED;
+
+# _windows_peek_named_pipe()
+# Imports PeekNamedPipe from kernel32 once and caches the function object.
+# Input: none.
+# Output: imported function object, or undef when the import fails.
+sub _windows_peek_named_pipe {
+    return $_WINDOWS_PEEK if defined $_WINDOWS_PEEK;
+    return undef if $_WINDOWS_PEEK_FAILED;
+    my $peek = eval {
+        require Win32API::File;
+        require Win32::API;
+        my $imported = Win32::API->new( 'kernel32', 'PeekNamedPipe', 'QPIPPP', 'I' );
+        die "Could not import PeekNamedPipe from kernel32\n" if !defined $imported;
+        $imported;
+    };
+    if ( !$peek ) {
+        $_WINDOWS_PEEK_FAILED = 1;
+        return undef;
+    }
+    $_WINDOWS_PEEK = $peek;
+    return $peek;
+}
+
+# _windows_pipe_available($peek, $handle)
+# Reports how many bytes are waiting on one Windows pipe, without blocking.
+# Input: imported PeekNamedPipe function object and one real Win32 HANDLE.
+# Output: byte count, or undef when the pipe is broken or the call fails.
+sub _windows_pipe_available {
+    my ( $peek, $handle ) = @_;
+    return undef if !defined $handle;
+    $^E = 0;
+    my $bytes_read  = pack 'L', 0;
+    my $total_avail = pack 'L', 0;
+    my $bytes_left  = pack 'L', 0;
+    my $ok = $peek->Call( $handle, '', 0, $bytes_read, $total_avail, $bytes_left );
+    return undef if !$ok;
+    return unpack 'L', $total_avail;
 }
 
 # last_error()
@@ -234,6 +327,20 @@ sub _linux_backend {
         initialize => sub {
             my $fd = _xs_inotify_init();
             return if !defined $fd || $fd < 0;
+
+            # Validate the descriptor before wrapping it: perlio grows its
+            # fd refcount table to cover the descriptor number before the
+            # open can fail with EBADF, so wrapping a bogus fd such as
+            # 999,999,999 asks for a ~4 GB table and dies out of memory
+            # on a small box (t/669 on ARM64). dup() is a raw syscall
+            # that never touches perlio, so it tests validity safely;
+            # the duplicate is closed at once. A failed dup dies with
+            # the same diagnostic the wrap itself would have produced.
+            my $probe = POSIX::dup($fd);
+            if ( !defined $probe ) {
+                die "Unable to wrap inotify descriptor $fd: $!";
+            }
+            POSIX::close($probe);
             open my $handle, '<&=', $fd
               or die "Unable to wrap inotify descriptor $fd: $!";
             return $handle;
@@ -299,7 +406,7 @@ sub _macos_backend {
             my ($watch) = @_;
             return ( undef, 'FSEvents watch handle is malformed' )
               if ref($watch) ne 'HASH' || !$watch->{stream} || !$watch->{select};
-            return ( 1, undef ) if !$watch->{select}->can_read(0);
+            return ( 1, undef ) if !_handle_readable( $watch->{select}, $watch->{handle} );
             my $read = eval { $watch->{stream}->read_events; 1 };
             return ( undef, "Unable to read macOS FSEvents: $@" ) if !$read;
             return ( 0, undef );
@@ -336,6 +443,11 @@ sub _windows_backend {
                     for my $active_handle (@handles) {
                         if ( !_xs_win32_close_change($active_handle) ) {
                             my $close_code = _xs_win32_last_error();
+                            # ERROR_INVALID_HANDLE (6): the handle is already
+                            # gone (its directory was deleted), so there is
+                            # nothing left to clean up; a dead handle is not
+                            # a cleanup failure.
+                            next if $close_code == 6;
                             $error .= "; cleanup failed (GetLastError=$close_code)";
                         }
                     }
@@ -355,11 +467,19 @@ sub _windows_backend {
                 next if defined $state && $state == 258;
                 if ( !defined $state || $state == 0xffffffff ) {
                     my $code = _xs_win32_last_error();
+                    # ERROR_INVALID_HANDLE (6): the watched directory was
+                    # deleted (tempdir cleanup) and the notification handle
+                    # died with it. That is a change, not a watcher failure:
+                    # report the snapshot invalid and let the caller's
+                    # portable validation see the directory is gone, instead
+                    # of disabling the watcher with a native error.
+                    return ( 0, undef ) if $code == 6;
                     return ( undef, "WaitForSingleObject failed (GetLastError=$code)" );
                 }
                 if ( $state == 0 ) {
                     if ( !_xs_win32_next_change($handle) ) {
                         my $code = _xs_win32_last_error();
+                        return ( 0, undef ) if $code == 6;
                         return ( undef, "FindNextChangeNotification failed (GetLastError=$code)" );
                     }
                     $changed = 1;
@@ -378,6 +498,10 @@ sub _windows_backend {
             for my $handle ( @{ $watch->{handles} } ) {
                 if ( !_xs_win32_close_change($handle) ) {
                     my $code = _xs_win32_last_error();
+                    # ERROR_INVALID_HANDLE (6): the handle is already gone
+                    # (its directory was deleted), so there is nothing left
+                    # to close; a dead handle is not a close failure.
+                    next if $code == 6;
                     $! = $code;
                     push @errors, "FindCloseChangeNotification failed (GetLastError=$code)";
                     $closed = 0;
@@ -398,6 +522,8 @@ sub _native_xs_available {
     return __PACKAGE__->can('_xs_inotify_init')
       && __PACKAGE__->can('_xs_win32_find_first_change') ? 1 : 0;
 }
+
+1;
 
 __END__
 

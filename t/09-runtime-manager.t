@@ -402,6 +402,61 @@ my $pid;
     is( $sleep_calls, 1, 'start_web still sleeps between Windows readiness polls before returning the spawned pid fallback' );
 }
 
+# _start_web_background records the spawned Starman master pid, not a worker.
+# The spawned helper becomes the master in-process, but every worker also
+# holds the listen socket, so ss may list a worker first; recording a worker
+# leaves the master alive after stop_web whenever listener discovery misses
+# it, and the master respawns a replacement worker (t/09 leaked a live
+# master + worker on 7898 after passing, 3/3 solos on amd64).
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_background_web_command = sub { return ('perl') };
+    local *Developer::Dashboard::RuntimeManager::_runtime_stability_polls = sub { return 2 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_poll_interval = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 1 };
+    {
+        local *Developer::Dashboard::GoRoutine::spawn = sub { return 9101 };
+        local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ( 9102, 9101 ) };
+        is(
+            $manager->_start_web_background( host => '127.0.0.1', port => 7931, workers => 2 ),
+            9101,
+            '_start_web_background records the spawned master pid when it is one of the listeners',
+        );
+        my $pidfile = $files->read('web_pid');
+        chomp $pidfile if defined $pidfile;
+        is( $pidfile, '9101', 'the web pid file records the spawned master pid' );
+    }
+    {
+        local *Developer::Dashboard::GoRoutine::spawn = sub { return 9101 };
+        local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ( 9102, 9103 ) };
+        is(
+            $manager->_start_web_background( host => '127.0.0.1', port => 7931, workers => 2 ),
+            9102,
+            '_start_web_background keeps the first listener pid when the spawned pid is not one of the listeners',
+        );
+    }
+    $manager->_cleanup_web_files;
+}
+
+# _start_web_windows_background records the spawned master pid as well: the
+# Windows detached helper becomes the Starman master in-process, and the same
+# worker-first listener order applies.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
+    local *Developer::Dashboard::RuntimeManager::_windows_background_web_command = sub { return ('perl.exe') };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_spawn_windows_background_command = sub { return 7123 };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ( 7301, 7123 ) };
+    is(
+        $manager->_start_web_windows_background( host => '0.0.0.0', port => 7923, workers => 2, ssl => 0 ),
+        7123,
+        '_start_web_windows_background records the spawned master pid when it is one of the listeners',
+    );
+    $manager->_cleanup_web_files;
+}
+
 {
     my $staged = File::Spec->catfile( $paths->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
     my $dist_root = File::Spec->catdir( $home, 'dist-share' );
@@ -943,17 +998,42 @@ my $clean_exit_manager = Developer::Dashboard::RuntimeManager->new(
         sleep 0.1;
     }
     like( $startup_line, qr/^ok\|\d+\|0\.0\.0\.0\|7906\n\z/, '_run_web_child reports startup before waiting for signals' );
-    ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, 'TERM' ),
-        '_run_web_child child receives TERM through GoRoutine' );
-    is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), 0,
-        '_run_web_child exits after TERM triggers the shutdown handler' );
-    my $signal_state;
-    for ( 1 .. 30 ) {
-        $signal_state = $manager->web_state;
-        last if $signal_state && ( $signal_state->{status} || '' ) eq 'stopped';
+    # The startup line is written before _write_web_state, and on Windows
+    # the state write (two icacls spawns plus a rename) takes longer than
+    # the parent's 0.1s poll delay, so TERM usually lands mid-write and
+    # the state file never appears (build #236 test 93 read undef).
+    # Wait until the 'running' state is visible before TERM so the state
+    # the next assertions read exists. Micro t/991 proved the race and
+    # the cure on all four legs (solo #237). No new test: if the state
+    # never settles, test 93 fails with got undef, which says so.
+    my $state_settled = 0;
+    for ( 1 .. 100 ) {
+        my $pre_state = $manager->web_state;
+        if ( ref($pre_state) eq 'HASH' && ( $pre_state->{status} || '' ) eq 'running' ) {
+            $state_settled = 1;
+            last;
+        }
         sleep 0.1;
     }
-    is( state_field( $signal_state, 'status' ), 'stopped', '_run_web_child TERM shutdown records stopped status through the signal handler' );
+    diag 'web state never settled to running before TERM' if !$state_settled;
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, 'TERM' ),
+        '_run_web_child child receives TERM through GoRoutine' );
+    # GoRoutineProcess.xs maps Windows TERM to TerminateProcess(143): an
+    # uncatchable kill, so the shutdown handler never runs there and the
+    # child exits 143 with its state still 'running'. On POSIX the TERM
+    # is a real signal, the handler runs, and the child exits 0 with
+    # 'stopped' state. Micro t/992 proved both branches on all four legs.
+    my $is_windows = $^O eq 'MSWin32';
+    is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), $is_windows ? 143 : 0,
+        '_run_web_child exits after TERM triggers the shutdown handler' );
+    my $signal_state;
+    my $expected_status = $is_windows ? 'running' : 'stopped';
+    for ( 1 .. 30 ) {
+        $signal_state = $manager->web_state;
+        last if $signal_state && ( $signal_state->{status} || '' ) eq $expected_status;
+        sleep 0.1;
+    }
+    is( state_field( $signal_state, 'status' ), $expected_status, '_run_web_child TERM shutdown records stopped status through the signal handler' );
     $manager->_cleanup_web_files;
 }
 
@@ -1165,7 +1245,13 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_follow_log_file = sub {
         my ( $self, %args ) = @_;
-        is( $args{start_pos}, length("follow once\n"), 'web_log follow mode passes the original file byte length into the follow loop so appended lines are not skipped by a seek-to-end race' );
+        # start_pos is the on-disk byte offset tell() reports after the
+        # slurp, which is what the follow loop seeks to. On Windows the
+        # text-mode write translates "\n" to "\r\n", so the file holds 13
+        # bytes for a 12-character string and start_pos is 13, not 12.
+        # Expecting the string length was a Unix-only assumption (build
+        # #238 failed this test on Windows with got 13, expected 12).
+        is( $args{start_pos}, -s $files->resolve_file('dashboard_log'), 'web_log follow mode passes the original file byte length into the follow loop so appended lines are not skipped by a seek-to-end race' );
         return 1;
     };
     $files->write( 'dashboard_log', "follow once\n" );
@@ -1203,13 +1289,22 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
         local $/;
         $follow_output = <$fh>;
         close $fh;
-        last if $follow_output =~ /gamma\n/;
+        # _follow_log_file reads with sysread, which bypasses the :crlf
+        # translation, so on Windows the appended "gamma\r\n" reaches the
+        # output with its \r intact (build #241 failed this test with
+        # got 'beta\ngamma\n\n' not matching gamma\n). Match an optional
+        # \r so the test asserts the line arrived, not the line ending.
+        last if $follow_output =~ /gamma\r?\n/;
         sleep 0.1;
     }
-    like( $follow_output, qr/gamma\n/, 'web_log follow mode streams appended log lines' );
+    like( $follow_output, qr/gamma\r?\n/, 'web_log follow mode streams appended log lines' );
     ok( Developer::Dashboard::GoRoutine::terminate_process( $follow_pid, 'TERM' ),
         'web_log follow process receives TERM through GoRoutine' );
-    is( Developer::Dashboard::GoRoutine::wait_process($follow_pid), 0,
+    # Same TerminateProcess shape as test 92: Windows TERM is an
+    # uncatchable kill, so the follow child exits 143 there and 0 on
+    # POSIX where the installed TERM handler runs.
+    my $is_windows = $^O eq 'MSWin32';
+    is( Developer::Dashboard::GoRoutine::wait_process($follow_pid), $is_windows ? 143 : 0,
         'web_log follow mode exits cleanly on TERM' );
 }
 {
@@ -1235,10 +1330,17 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
     # (1) kill's return value was discarded. A kill that signals no process is
     #     precisely the failure that would make a delivery problem invisible, so
     #     it is checked and reported rather than assumed.
-    ok( Developer::Dashboard::GoRoutine::terminate_process( $missing_pid, 'HUP' ),
+    # Windows supports only TERM and KILL in GoRoutineProcess.xs; HUP
+    # croaks there ("unsupported GoRoutine termination signal 'HUP'",
+    # build #241), so the Windows leg sends TERM and expects the
+    # TerminateProcess code 143. POSIX sends HUP and the installed
+    # handler exits 0.
+    my $is_windows = $^O eq 'MSWin32';
+    my $missing_signal = $is_windows ? 'TERM' : 'HUP';
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $missing_pid, $missing_signal ),
         '_follow_log_file child was actually signalled through GoRoutine' );
     my $missing_exit = Developer::Dashboard::GoRoutine::wait_process($missing_pid);
-    is( $missing_exit, 0, '_follow_log_file exits cleanly on HUP without a signal-derived status' );
+    is( $missing_exit, $is_windows ? 143 : 0, '_follow_log_file exits cleanly on HUP without a signal-derived status' );
 }
 {
     my $race_follow = "$home/signal-handler-install-race.log";
@@ -1283,7 +1385,13 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
         sleep 0.01;
     }
     is( $ready, "permissions-started\n", '_follow_log_file reaches file permission setup before signal handler installation race check' );
-    ok( Developer::Dashboard::GoRoutine::terminate_process( $race_pid, 'HUP' ),
+    # Same Windows rule as the HUP block above: HUP croaks in
+    # GoRoutineProcess.xs, so the Windows leg sends TERM and expects
+    # the TerminateProcess code 143; POSIX sends HUP and the handler
+    # installed before file setup exits 0.
+    my $is_windows = $^O eq 'MSWin32';
+    my $race_signal = $is_windows ? 'TERM' : 'HUP';
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $race_pid, $race_signal ),
         '_follow_log_file child receives HUP through GoRoutine during file setup' );
     open my $release, '>', $release_path or die "Unable to release race fixture $release_path: $!";
     close $release or die "Unable to close race release marker $release_path: $!";
@@ -1295,7 +1403,7 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
     }
     ok( $exited, '_follow_log_file child exits after handling HUP during file setup' );
     my $race_status = Developer::Dashboard::GoRoutine::wait_process($race_pid);
-    is( $race_status, 0, '_follow_log_file installs its HUP handler before file setup begins' );
+    is( $race_status, $is_windows ? 143 : 0, '_follow_log_file installs its HUP handler before file setup begins' );
     ok( !Developer::Dashboard::GoRoutine::process_running($race_pid),
         'GoRoutine reports the signal-race fixture reaped' );
 }
@@ -1355,9 +1463,15 @@ is( $manager->web_log, '', 'web_log returns an empty string when the d2 log file
         sleep 0.01;
     }
     ok( $follow_ready, '_follow_log_file has installed its signal handlers before INT is sent' );
-    ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, 'INT' ),
+    # Same Windows rule: INT croaks in GoRoutineProcess.xs (only TERM
+    # and KILL are supported there), so the Windows leg sends TERM and
+    # expects the TerminateProcess code 143; POSIX sends INT and the
+    # installed handler exits 0.
+    my $is_windows = $^O eq 'MSWin32';
+    my $follow_signal = $is_windows ? 'TERM' : 'INT';
+    ok( Developer::Dashboard::GoRoutine::terminate_process( $signal_pid, $follow_signal ),
         '_follow_log_file child receives INT through GoRoutine' );
-    is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), 0,
+    is( Developer::Dashboard::GoRoutine::wait_process($signal_pid), $is_windows ? 143 : 0,
         '_follow_log_file exits cleanly on INT' );
 }
 
@@ -1833,7 +1947,14 @@ END {
 }
 
 {
-    local $ENV{PATH} = '/definitely-missing';
+    # The hostile PATH simulates pkill being unavailable. On Windows
+    # there is no pkill at all - _pkill_perl always takes the scan path
+    # - but the Windows branch kills through taskkill, which the same
+    # hostile PATH would hide, so the test would die in _send_signal
+    # instead of exercising the fallback (build #249: "Failed to stop
+    # Windows process ids 5452: 'taskkill' is not recognized").
+    # Keep PATH intact on Windows: pkill is absent there regardless.
+    local $ENV{PATH} = '/definitely-missing' if $^O ne 'MSWin32';
     my $fallback_child = _spawn_perl_fixture(
         q{$0 = 'd2 web: fallback:9999'; while (1) { sleep 0.1 }},
     );
@@ -1868,7 +1989,19 @@ END {
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', '', 2 ) };
-    ok( !defined $manager->_pkill_perl('^d2 web:'), '_pkill_perl returns undef for unexpected pkill failures' );
+    # The stubbed capture makes pkill fail unexpectedly (exit 2), so
+    # the POSIX branch returns undef. Windows never calls pkill - its
+    # branch scans and signals directly and always returns 1 - so the
+    # same stub leaves the Windows result at 1 (build #251 failed this
+    # test on Windows expecting undef). Assert each platform's own
+    # contract; the test count is unchanged either way.
+    my $is_windows = $^O eq 'MSWin32';
+    if ($is_windows) {
+        ok( $manager->_pkill_perl('^d2 web:'), '_pkill_perl returns true on Windows where there is no pkill call to fail' );
+    }
+    else {
+        ok( !defined $manager->_pkill_perl('^d2 web:'), '_pkill_perl returns undef for unexpected pkill failures' );
+    }
     ok( !scalar( $manager->_ps_processes ), '_ps_processes returns an empty list when ps fails' );
 }
 
@@ -2136,6 +2269,12 @@ END {
 {
     no warnings 'redefine';
 
+    # _listener_pids_for_port takes the netstat/PowerShell branch on
+    # Windows and never reaches the ss code these tests pin (build
+    # #253 failed all three on Windows with an empty list). Force the
+    # POSIX branch here so the ss/proc parsing is exercised on every
+    # host; the Windows listener paths have their own tests below.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     # DD-1021: _listener_pids_for_port checks command_in_path('ss') BEFORE
     # ever reaching the mocked capture() below - on a host/container with no
     # real ss binary, that check alone routes it to the lsof/proc fallback
@@ -2161,6 +2300,9 @@ END {
 
 {
     no warnings 'redefine';
+    # Same Windows routing as the ss test above: force the POSIX
+    # branch so the /proc fallback is exercised on every host.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', 'ss: not found', 127 ) };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_proc = sub {
         my ( undef, $port ) = @_;
@@ -2175,6 +2317,9 @@ END {
 
 {
     no warnings 'redefine';
+    # Same Windows routing as the ss test above: force the POSIX
+    # branch so the /proc fallback is exercised on every host.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', 'ss command not found', 1 ) };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_proc = sub {
         my ( undef, $port ) = @_;
@@ -2207,6 +2352,43 @@ END {
         [2372, 5868],
         '_listener_pids_for_port discovers unique Windows listener pids through Get-NetTCPConnection output',
     );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    # Solo #351: every pre-bind readiness poll paid the ~5-9s PowerShell
+    # fallback because netstat found no listener yet, so a working Windows
+    # restart took 112-151s. A readiness wait passes the flag, so the
+    # fallback runs only once the port accepts: before the child has bound
+    # there is no listener for it to find. The ungated call above still
+    # finds a netstat-invisible listener, so the build #98 protection is
+    # intact.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
+    my $powershell_calls = 0;
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
+        $powershell_calls++;
+        return (
+            "2372\n5868\n2372\n",
+            '',
+            0,
+        );
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_netstat = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 0 };
+    is_deeply(
+        [ $manager->_listener_pids_for_port( 7890, 1 ) ],
+        [],
+        '_listener_pids_for_port with the readiness flag returns no pids while the port accepts nothing',
+    );
+    is( $powershell_calls, 0, '_listener_pids_for_port with the readiness flag does not run the PowerShell fallback while the port accepts nothing' );
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 1 };
+    is_deeply(
+        [ $manager->_listener_pids_for_port( 7890, 1 ) ],
+        [2372, 5868],
+        '_listener_pids_for_port with the readiness flag runs the PowerShell fallback once the port accepts',
+    );
+    is( $powershell_calls, 1, '_listener_pids_for_port with the readiness flag runs the PowerShell fallback exactly once when the port accepts' );
 }
 
 {
@@ -3456,6 +3638,11 @@ TCP6
 
 {
     no warnings 'redefine';
+    # _read_process_title takes the process-table branch on Windows and
+    # never reaches the ps fallback these stubs pin (build #266 failed
+    # this test on Windows with got undef). Force the POSIX branch so
+    # the ps fallback is exercised on every host.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "ps fallback title\n", undef, 0 ) };
     is( $manager->_read_process_title(999_999_999), 'ps fallback title', '_read_process_title falls back to ps output when /proc cmdline is unavailable' );
@@ -3544,6 +3731,11 @@ ok( !defined $manager->_read_process_state(999_999_998), '_read_process_state re
 
 {
     no warnings 'redefine';
+    # Same Windows routing as the ps-fallback title test above:
+    # _read_process_state returns early on Windows and never reaches
+    # the ps fallback these stubs pin (build #269 failed this test on
+    # Windows with got undef). Force the POSIX branch.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "Z+\n", undef, 0 ) };
     is( $manager->_read_process_state(999_999_999), 'Z', '_read_process_state falls back to ps output when procfs state data is unavailable' );
@@ -3551,7 +3743,13 @@ ok( !defined $manager->_read_process_state(999_999_998), '_read_process_state re
 
 {
     no warnings 'redefine';
+    # Same as above, and ps itself does not exist on Windows, so the
+    # fallback's ps invocation is stubbed too: the real function still
+    # takes the ps path directly and parses its output, which is what
+    # this test pins.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "R\n", undef, 0 ) };
     like( $manager->_read_process_state($$), qr/^[A-Z]$/, '_read_process_state can execute the ps fallback path directly when procfs is disabled' );
 }
 
@@ -3757,26 +3955,42 @@ SKIP: {
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     my $fakebin = tempdir( CLEANUP => 1 );
-    my $taskkill = File::Spec->catfile( $fakebin, 'taskkill' );
+    # The fake taskkill must be executable on the host that runs it: a
+    # shell script on POSIX, a batch file on Windows. A bare 'taskkill'
+    # with no extension is not runnable on Windows and the ':' PATH
+    # join is wrong there too, so on a real Windows host the fake
+    # never ran, its args file was never written, and the read below
+    # died (build #269 exited 2 just after test 395). The Unix legs
+    # only passed because the shell script runs there.
+    my $is_windows_host = $^O eq 'MSWin32';
+    my $taskkill = File::Spec->catfile( $fakebin, $is_windows_host ? 'taskkill.bat' : 'taskkill' );
+    my $args_file = File::Spec->catfile( $fakebin, 'taskkill.args' );
     open my $taskkill_fh, '>', $taskkill or die "Unable to write $taskkill: $!";
-    print {$taskkill_fh} <<"SCRIPT";
+    if ($is_windows_host) {
+        print {$taskkill_fh} "\@echo off\r\n";
+        print {$taskkill_fh} 'echo %* > "' . $args_file . "\"\r\n";
+        print {$taskkill_fh} "exit /b 0\r\n";
+    }
+    else {
+        print {$taskkill_fh} <<"SCRIPT";
 #!/bin/sh
-printf '%s\n' "\$*" > "$fakebin/taskkill.args"
+printf '%s\n' "\$*" > "$args_file"
 exit 0
 SCRIPT
+    }
     close $taskkill_fh or die "Unable to close $taskkill: $!";
     chmod 0755, $taskkill or die "Unable to chmod $taskkill: $!";
-    local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+    local $ENV{PATH} = join( $is_windows_host ? ';' : ':', $fakebin, ( $ENV{PATH} || '' ) );
     is(
         $manager->_send_signal( 'TERM', 2372, 5868 ),
         2,
         '_send_signal returns the number of requested Windows process ids when taskkill succeeds',
     );
-    open my $taskkill_args_fh, '<', File::Spec->catfile( $fakebin, 'taskkill.args' )
-      or die "Unable to read $fakebin/taskkill.args: $!";
+    open my $taskkill_args_fh, '<', $args_file
+      or die "Unable to read $args_file: $!";
     local $/;
     my $taskkill_args = <$taskkill_args_fh>;
-    close $taskkill_args_fh or die "Unable to close $fakebin/taskkill.args: $!";
+    close $taskkill_args_fh or die "Unable to close $args_file: $!";
     like( $taskkill_args, qr{/PID 2372 /PID 5868 /T /F}, '_send_signal shells out to Windows taskkill with every requested pid plus tree and force flags' );
 }
 
@@ -3840,6 +4054,11 @@ SCRIPT
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
         return ( '', 'taskkill hard failure', 5 );
     };
+    # fb4897d5: _send_signal forgives a non-zero taskkill exit when every
+    # target is verifiably gone, so the die only fires when a target is
+    # still alive. Pin the target alive here, or the assertion depends on
+    # whether pid 4002 happens to exist on the test host.
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub { return 1 };
     my $send_ok = eval { $manager->_send_signal( 'TERM', 4002 ); 1 };
     ok( !$send_ok, '_send_signal dies on unexpected Windows taskkill failures for shutdown signals' );
     like( $@, qr/Failed to stop Windows process ids 4002: taskkill hard failure/, '_send_signal surfaces unexpected Windows taskkill failures explicitly' );
@@ -3854,19 +4073,37 @@ SCRIPT
     );
 
     my $fakebin = tempdir( CLEANUP => 1 );
-    my $powershell = File::Spec->catfile( $fakebin, 'powershell' );
+    # The fake powershell must be executable on the host that runs it:
+    # a shell script on POSIX, a batch file on Windows. The product
+    # resolves powershell through _powershell_command (PATHEXT-aware),
+    # so the .bat is found and runs through cmd; a bare 'powershell'
+    # with no extension is not runnable on Windows and the ':' PATH
+    # join is wrong there too (same shape as the taskkill fake, build
+    # #269). The Unix legs only passed because the shell script runs
+    # there.
+    my $is_windows_host = $^O eq 'MSWin32';
+    my $powershell = File::Spec->catfile( $fakebin, $is_windows_host ? 'powershell.bat' : 'powershell' );
+    my $powershell_args = File::Spec->catfile( $fakebin, 'powershell.args' );
     my $stdout_log = $files->dashboard_log;
     my $stderr_log = $stdout_log . '.stderr';
     open my $ps_fh, '>', $powershell or die "Unable to write $powershell: $!";
-    print {$ps_fh} <<"SCRIPT";
+    if ($is_windows_host) {
+        print {$ps_fh} "\@echo off\r\n";
+        print {$ps_fh} 'echo %* > "' . $powershell_args . "\"\r\n";
+        print {$ps_fh} "echo 42424\r\n";
+        print {$ps_fh} "exit /b 0\r\n";
+    }
+    else {
+        print {$ps_fh} <<"SCRIPT";
 #!/bin/sh
-printf '%s\n' "\$*" > "$fakebin/powershell.args"
-printf '%s\n' 42424
+printf '%s\\n' "\$*" > "$powershell_args"
+printf '%s\\n' 42424
 exit 0
 SCRIPT
+    }
     close $ps_fh or die "Unable to close $powershell: $!";
     chmod 0755, $powershell or die "Unable to chmod $powershell: $!";
-    local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+    local $ENV{PATH} = join( $is_windows_host ? ';' : ':', $fakebin, ( $ENV{PATH} || '' ) );
     my $spawned_pid = $manager->_spawn_windows_background_command(
         q{C:\Program Files\Perl\perl.exe},
         'script with space.ps1',
@@ -3886,43 +4123,63 @@ SCRIPT
     like( $args, qr/\Q$stderr_log\E/, '_spawn_windows_background_command redirects stderr to the dashboard error log' );
 
     open my $ps_fail_fh, '>', $powershell or die "Unable to rewrite $powershell: $!";
-    print {$ps_fail_fh} <<"SCRIPT";
+    if ($is_windows_host) {
+        print {$ps_fail_fh} "\@echo off\r\n";
+        print {$ps_fail_fh} "echo launch failed 1>&2\r\n";
+        print {$ps_fail_fh} "exit /b 1\r\n";
+    }
+    else {
+        print {$ps_fail_fh} <<"SCRIPT";
 #!/bin/sh
-printf '%s\n' "launch failed" >&2
+printf '%s\\n' "launch failed" >&2
 exit 1
 SCRIPT
+    }
     close $ps_fail_fh or die "Unable to close $powershell after rewrite: $!";
     chmod 0755, $powershell or die "Unable to chmod $powershell after rewrite: $!";
     my $spawn_ok = eval { $manager->_spawn_windows_background_command('broken.exe'); 1 };
     ok( !$spawn_ok, '_spawn_windows_background_command dies when the detached launcher fails' );
     like( $@, qr/Unable to launch detached Windows web process: launch failed/, '_spawn_windows_background_command surfaces the detached launcher failure text' );
 
-    my $netstat = File::Spec->catfile( $fakebin, 'netstat' );
-    open my $netstat_fh, '>', $netstat or die "Unable to write $netstat: $!";
-    print {$netstat_fh} <<"SCRIPT";
-#!/bin/sh
-cat <<'EOF'
+    # The netstat output is stubbed through capture, not a fake
+    # executable: _listener_pids_for_port_via_netstat shells out to a
+    # bare 'netstat', and on a real Windows host CreateProcess resolves
+    # that to System32 before PATH, so a fake netstat on PATH can never
+    # win there (same family as the taskkill fake, build #269). The
+    # parsing is what this test pins, and the stub feeds it the same
+    # output the fake used to.
+    my $netstat_output = <<'NETSTAT';
   TCP    0.0.0.0:7890           0.0.0.0:0              LISTENING       5100
   TCP    127.0.0.1:7890         0.0.0.0:0              LISTENING       5100
   TCP    127.0.0.1:7890         0.0.0.0:0              LISTENING       6200
-EOF
-SCRIPT
-    close $netstat_fh or die "Unable to close $netstat: $!";
-    chmod 0755, $netstat or die "Unable to chmod $netstat: $!";
-    is_deeply(
-        [ $manager->_listener_pids_for_port_via_netstat(7890) ],
-        [ 5100, 6200 ],
-        '_listener_pids_for_port_via_netstat returns unique listener pids from Windows netstat output',
-    );
+NETSTAT
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( $netstat_output, '', 0 ) };
+        is_deeply(
+            [ $manager->_listener_pids_for_port_via_netstat(7890) ],
+            [ 5100, 6200 ],
+            '_listener_pids_for_port_via_netstat returns unique listener pids from Windows netstat output',
+        );
+    }
 
     open my $ps_listener_fh, '>', $powershell or die "Unable to rewrite $powershell for listener probe: $!";
-    print {$ps_listener_fh} <<"SCRIPT";
+    if ($is_windows_host) {
+        print {$ps_listener_fh} "\@echo off\r\n";
+        print {$ps_listener_fh} "echo 7301\r\n";
+        print {$ps_listener_fh} "echo 7301\r\n";
+        print {$ps_listener_fh} "echo 8402\r\n";
+        print {$ps_listener_fh} "exit /b 0\r\n";
+    }
+    else {
+        print {$ps_listener_fh} <<"SCRIPT";
 #!/bin/sh
-printf '%s\n' 7301
-printf '%s\n' 7301
-printf '%s\n' 8402
+printf '%s\\n' 7301
+printf '%s\\n' 7301
+printf '%s\\n' 8402
 exit 0
 SCRIPT
+    }
     close $ps_listener_fh or die "Unable to close $powershell after listener rewrite: $!";
     chmod 0755, $powershell or die "Unable to chmod $powershell after listener rewrite: $!";
     is_deeply(
@@ -3953,23 +4210,35 @@ SCRIPT
 
     {
         my $fakebin = tempdir( CLEANUP => 1 );
-        my $powershell = File::Spec->catfile( $fakebin, 'powershell' );
+        # Batch file on Windows, shell script on POSIX (same shape as
+        # the taskkill fake, build #269): the product resolves
+        # powershell through _powershell_command, so the .bat is found
+        # and runs through cmd.
+        my $is_windows_host = $^O eq 'MSWin32';
+        my $powershell = File::Spec->catfile( $fakebin, $is_windows_host ? 'powershell.bat' : 'powershell' );
         my $source = $files->web_state . '.pending-ps-move';
         open my $source_fh, '>:raw', $source or die "Unable to write $source: $!";
         print {$source_fh} qq({"pid":5151,"status":"running"});
         close $source_fh or die "Unable to close $source: $!";
         open my $ps_fh, '>', $powershell or die "Unable to write $powershell: $!";
-        print {$ps_fh} <<"SCRIPT";
+        if ($is_windows_host) {
+            print {$ps_fh} "\@echo off\r\n";
+            print {$ps_fh} 'move /Y "' . $source . '" "' . $files->web_state . "\"\r\n";
+            print {$ps_fh} "exit /b 0\r\n";
+        }
+        else {
+            print {$ps_fh} <<"SCRIPT";
 #!/bin/sh
 mv "$source" "@{[$files->web_state]}"
 exit 0
 SCRIPT
+        }
         close $ps_fh or die "Unable to close $powershell: $!";
         chmod 0755, $powershell or die "Unable to chmod $powershell: $!";
 
         no warnings 'redefine';
         local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-        local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+        local $ENV{PATH} = join( $is_windows_host ? ';' : ':', $fakebin, ( $ENV{PATH} || '' ) );
         my ( $ok, $error ) = $manager->_replace_path_via_powershell( $source, $files->web_state );
         ok( $ok, '_replace_path_via_powershell returns success when the Windows Move-Item web fallback succeeds' )
           or diag $error;
@@ -3978,23 +4247,33 @@ SCRIPT
 
     {
         my $fakebin = tempdir( CLEANUP => 1 );
-        my $powershell = File::Spec->catfile( $fakebin, 'powershell' );
+        # Batch file on Windows, shell script on POSIX (same shape as
+        # the taskkill fake, build #269).
+        my $is_windows_host = $^O eq 'MSWin32';
+        my $powershell = File::Spec->catfile( $fakebin, $is_windows_host ? 'powershell.bat' : 'powershell' );
         my $source = $files->web_state . '.pending-ps-fail';
         open my $source_fh, '>:raw', $source or die "Unable to write $source: $!";
         print {$source_fh} qq({"pid":5252,"status":"retry"});
         close $source_fh or die "Unable to close $source: $!";
         open my $ps_fh, '>', $powershell or die "Unable to write $powershell: $!";
-        print {$ps_fh} <<"SCRIPT";
+        if ($is_windows_host) {
+            print {$ps_fh} "\@echo off\r\n";
+            print {$ps_fh} "echo web move failed 1>&2\r\n";
+            print {$ps_fh} "exit /b 7\r\n";
+        }
+        else {
+            print {$ps_fh} <<"SCRIPT";
 #!/bin/sh
-printf '%s\n' 'web move failed' >&2
+printf '%s\\n' 'web move failed' >&2
 exit 7
 SCRIPT
+        }
         close $ps_fh or die "Unable to close $powershell: $!";
         chmod 0755, $powershell or die "Unable to chmod $powershell: $!";
 
         no warnings 'redefine';
         local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-        local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+        local $ENV{PATH} = join( $is_windows_host ? ';' : ':', $fakebin, ( $ENV{PATH} || '' ) );
         my ( $ok, $error ) = $manager->_replace_path_via_powershell( $source, $files->web_state );
         ok( !$ok, '_replace_path_via_powershell returns failure when the Windows web Move-Item fallback exits non-zero' );
         like( $error, qr/web move failed/, '_replace_path_via_powershell returns the native PowerShell failure text for web state replacement' );
@@ -4049,35 +4328,32 @@ SCRIPT
 }
 
 {
-    my $tmp = tempdir( CLEANUP => 1 );
-    my $fakebin = File::Spec->catdir( $tmp, 'bin' );
-    make_path($fakebin);
-    my $ss = File::Spec->catfile( $fakebin, 'ss' );
-    open my $ss_fh, '>', $ss or die "Unable to write $ss: $!";
-    print {$ss_fh} <<"SCRIPT";
-#!/bin/sh
-echo "Can't exec ss: No such file or directory" >&2
-exit 255
-SCRIPT
-    close $ss_fh or die "Unable to close $ss: $!";
-    chmod 0755, $ss or die "Unable to chmod $ss: $!";
-
-    my $lsof = File::Spec->catfile( $fakebin, 'lsof' );
-    open my $lsof_fh, '>', $lsof or die "Unable to write $lsof: $!";
-    print {$lsof_fh} <<"SCRIPT";
-#!/bin/sh
-cat <<'EOF'
-p61530
-f5
-p61616
-f5
-p61617
-EOF
-SCRIPT
-    close $lsof_fh or die "Unable to close $lsof: $!";
-    chmod 0755, $lsof or die "Unable to chmod $lsof: $!";
-
-    local $ENV{PATH} = join( ':', $fakebin, $ENV{PATH} || '' );
+    # The ss exit-255 and lsof outputs are stubbed through capture,
+    # not fake executables: on a real Windows host a bare 'ss' or
+    # 'lsof' in system() can never run a fake (CreateProcess only
+    # appends .exe, and neither tool exists on Windows at all), so the
+    # fake scripts the test used to carry could never be invoked there
+    # (same family as the taskkill fake, build #269). The fallback
+    # chain and the -Fp parsing are what this test pins, and the stub
+    # feeds them the same outputs the fakes used to. is_windows is
+    # forced to 0 so the POSIX ss/lsof branch runs even on a Windows
+    # host; command_in_path('ss') is forced to 1 so the ss call
+    # happens and reports 255 instead of the code skipping straight
+    # to lsof.
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
+        my ($name) = @_;
+        return 1 if $name eq 'ss';
+        return;
+    };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
+    my $capture_calls = 0;
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
+        $capture_calls++;
+        return ( '', "Can't exec ss: No such file or directory\n", 255 ) if $capture_calls == 1;
+        return ( "p61530\nf5\np61616\nf5\np61617\n", '', 0 );
+    };
     is_deeply(
         [ $manager->_listener_pids_for_port(7890) ],
         [ 61530, 61616, 61617 ],
@@ -4087,6 +4363,11 @@ SCRIPT
 
 {
     no warnings 'redefine';
+    # is_windows is forced to 0 so the POSIX ss/lsof branch runs even
+    # on a Windows host: _listener_pids_for_port takes the netstat /
+    # PowerShell branch there and never consults the ss/lsof stubs
+    # below (same shape as tests 219-221, build #253).
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
         my ( $name ) = @_;
         return 0 if $name eq 'ss';
@@ -4104,6 +4385,10 @@ SCRIPT
 
 {
     no warnings 'redefine';
+    # is_windows is forced to 0 for the same reason as the block
+    # above (build #253 shape): the POSIX ss/lsof/proc branch must
+    # run even on a Windows host.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
         my ( $name ) = @_;
         return 0 if $name eq 'ss';
@@ -4233,18 +4518,31 @@ SCRIPT
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     my $fakebin = tempdir( CLEANUP => 1 );
-    my $powershell = File::Spec->catfile( $fakebin, 'powershell' );
+    # Batch file on Windows, shell script on POSIX (same shape as
+    # the taskkill fake, build #269): the product resolves powershell
+    # through _powershell_command, so the .bat is found and runs
+    # through cmd.
+    my $is_windows_host = $^O eq 'MSWin32';
+    my $powershell = File::Spec->catfile( $fakebin, $is_windows_host ? 'powershell.bat' : 'powershell' );
     open my $ps_bad_fh, '>', $powershell or die "Unable to write $powershell for ps scan: $!";
-    print {$ps_bad_fh} <<"SCRIPT";
+    if ($is_windows_host) {
+        print {$ps_bad_fh} "\@echo off\r\n";
+        print {$ps_bad_fh} "echo invalid line\r\n";
+        print {$ps_bad_fh} "echo 9012\tvalid powershell process\r\n";
+        print {$ps_bad_fh} "exit /b 0\r\n";
+    }
+    else {
+        print {$ps_bad_fh} <<"SCRIPT";
 #!/bin/sh
 cat <<'EOF'
 invalid line
 9012	valid powershell process
 EOF
 SCRIPT
+    }
     close $ps_bad_fh or die "Unable to close $powershell after ps scan write: $!";
     chmod 0755, $powershell or die "Unable to chmod $powershell after ps scan write: $!";
-    local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+    local $ENV{PATH} = join( $is_windows_host ? ';' : ':', $fakebin, ( $ENV{PATH} || '' ) );
     is_deeply(
         [ $manager->_ps_processes ],
         [
@@ -4299,11 +4597,15 @@ SCRIPT
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     no warnings 'redefine';
-    local *Capture::Tiny::capture = sub (&) {
-        my ($code) = @_;
-        my $return = $code->();
-        return ( '', "taskkill does not know HUP\n", defined $return ? $return : 1 );
-    };
+    # The stub must target RuntimeManager::capture, the imported copy
+    # _send_signal actually calls - stubbing Capture::Tiny::capture
+    # never engages (RuntimeManager imports capture at line 8), so the
+    # real taskkill ran instead and reported the nonexistent pid 9012
+    # as "not found", which _send_signal returns 1 for. The canned
+    # values simulate a taskkill failure for an unsupported signal
+    # without invoking the real executable, as the other capture
+    # stubs in this file do.
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', "taskkill does not know HUP\n", 1 ) };
     is( $manager->_send_signal( 'HUP', 9012 ), 0, '_send_signal returns zero for unsupported Windows signals after surfacing taskkill failures for TERM and KILL only' );
 }
 

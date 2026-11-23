@@ -123,13 +123,29 @@ if ( my $custom_path = _custom_command_path($cmd) ) {
 }
 
 if ( my ( $skill_name, $skill_command ) = _skill_dotted_command_parts($cmd) ) {
-    my $helper_path = _builtin_helper_path('skills');
-    _exec_switchboard_command( $helper_path, '_exec', $skill_name, $skill_command, @ARGV );
+    # Use _builtin_helper_command, not _builtin_helper_path: on Windows the
+    # skills helper is a dashboard-core helper, so its command returns a
+    # non-empty argv ('skills') and _builtin_helper_path returns '' for it,
+    # which made every dotted skill command fall through to "Unknown d2
+    # command". Passing the helper argv through invokes the core as
+    # `core skills _exec <skill> <command>` on Windows and keeps the
+    # direct-helper call unchanged on Unix (where the argv is empty).
+    my ( $helper_path, @helper_argv ) = _builtin_helper_command('skills');
+    _exec_switchboard_command( $helper_path, @helper_argv, '_exec', $skill_name, $skill_command, @ARGV );
 }
 
 if ( my $skill_name = _skill_bare_init_command_name($cmd) ) {
-    my $helper_path = _builtin_helper_path('skills');
-    _exec_switchboard_command( $helper_path, '_exec', $skill_name, '__init__', @ARGV );
+    # Same Windows dashboard-core shape as the dotted branch above:
+    # _builtin_helper_path('skills') returns '' on Windows because the
+    # skills helper carries a non-empty argv, which made every bare
+    # "d2 <skill>" fall through to "Unknown d2 command" (build #79,
+    # tests 670/671). The micro in build #80 proved the name lookup
+    # itself resolves fine on Windows; only the helper form was wrong.
+    # Passing the helper argv through invokes the core as
+    # `core skills _exec <skill> __init__` on Windows and keeps the
+    # direct-helper call unchanged on Unix (where the argv is empty).
+    my ( $helper_path, @helper_argv ) = _builtin_helper_command('skills');
+    _exec_switchboard_command( $helper_path, @helper_argv, '_exec', $skill_name, '__init__', @ARGV );
 }
 
 if ( $cmd ne '' ) {
@@ -279,31 +295,68 @@ sub _run_command_hook_streaming {
     STDOUT->autoflush(1);
     STDERR->autoflush(1);
 
-    while ( my @ready = $selector->can_read ) {
-        for my $fh (@ready) {
-            my $buffer = '';
-            my $read = sysread( $fh, $buffer, 8192 );
-            if ( !defined $read || $read == 0 ) {
-                $selector->remove($fh);
-                close $fh;
-                next;
-            }
+    # On Windows IO::Select only works for real sockets, so can_read over
+    # the open3 pipes returns at once with nothing ready and the hook's
+    # output is silently lost. Drain both pipes with PeekNamedPipe there
+    # instead; the select loop below stays for every other platform.
+    my $drained = 0;
+    if ( $^O eq 'MSWin32' ) {
+        require Developer::Dashboard::StreamDrain;
+        $drained = Developer::Dashboard::StreamDrain::_drain_child_streams_windows(
+            undef,
+            $stdout,
+            $stderr,
+            sub {
+                my ( $is_stdout, $chunk ) = @_;
+                if ($is_stdout) {
+                    print STDOUT $chunk if $stream;
+                    $stdout_text .= $chunk;
+                }
+                else {
+                    print STDERR $chunk if $stream;
+                    $stderr_text .= $chunk;
+                }
+            },
+        );
+    }
+    if ( !$drained ) {
+        while ( my @ready = $selector->can_read ) {
+            for my $fh (@ready) {
+                my $buffer = '';
+                my $read = sysread( $fh, $buffer, 8192 );
+                if ( !defined $read || $read == 0 ) {
+                    $selector->remove($fh);
+                    close $fh;
+                    next;
+                }
 
-            if ( fileno($fh) == $stdout_fd ) {
-                print STDOUT $buffer if $stream;
-                $stdout_text .= $buffer;
-                next;
-            }
+                if ( fileno($fh) == $stdout_fd ) {
+                    print STDOUT $buffer if $stream;
+                    $stdout_text .= $buffer;
+                    next;
+                }
 
-            if ( fileno($fh) == $stderr_fd ) {
-                print STDERR $buffer if $stream;
-                $stderr_text .= $buffer;
-                next;
+                if ( fileno($fh) == $stderr_fd ) {
+                    print STDERR $buffer if $stream;
+                    $stderr_text .= $buffer;
+                    next;
+                }
             }
         }
     }
 
     waitpid( $pid, 0 );
+    if ( $^O eq 'MSWin32' ) {
+        # The hook child writes through Perl's :crlf layer, so its
+        # captured stdout/stderr carry \r\n; later hooks and commands
+        # read RESULT expecting \n, as on Unix (build #108: tests 782
+        # and 809 saw "hook-one\r\n" / "custom-hook\r\n"). Normalize
+        # the captured text so the RESULT contract is LF-only on every
+        # platform. The streamed display already happened in the drain
+        # callback, so this changes only what RESULT records.
+        $stdout_text =~ s/\r\n/\n/g;
+        $stderr_text =~ s/\r\n/\n/g;
+    }
     return {
         stdout    => $stdout_text,
         stderr    => $stderr_text,

@@ -156,6 +156,12 @@ SKIP: {
 # resolves both fallback chains, proving the eval guard and not only the
 # is_windows() short-circuit protects them. This mirrors the technique the
 # install-bootstrap gate uses for the make staging recipe.
+#
+# The child program runs from a file, not from a multi-line -e argument:
+# win32 system() splits a multi-line -e program at its newlines, so only
+# the first line ever runs (the child then exits 0 having printed
+# nothing). The same program in a file runs whole, as t/654 already
+# proved for its smoke program.
 # ---------------------------------------------------------------------------
 {
     my $profile_home = tempdir( CLEANUP => 1 );
@@ -169,7 +175,13 @@ print "HOME=", $manager->{paths}->home, "\n";
 print "STATE_USER=", $manager->{paths}->_state_root_user, "\n";
 PERL
 
-    my ( $stdout, $stderr, $exit ) = capture {
+    my $child_file = File::Spec->catfile( $profile_home, 'child.pl' );
+    open my $child_fh, '>:raw', $child_file or die "Unable to write $child_file: $!";
+    print {$child_fh} $prelude, $child;
+    close $child_fh or die "Unable to close $child_file: $!";
+
+    my $child_exit;
+    my ( $stdout, $stderr ) = capture {
         local %ENV = %ENV;
         delete $ENV{HOME};
         delete $ENV{DD_STATE_ROOT_USER};
@@ -177,17 +189,28 @@ PERL
         delete $ENV{LOGNAME};
         delete $ENV{USERNAME};
         $ENV{USERPROFILE} = $profile_home;
-        system( $^X, '-I' . $repo_lib, '-e', $prelude . $child );
-        $?;
+        system( $^X, '-I' . $repo_lib, $child_file );
+        $child_exit = $?;
     };
 
-    is( $exit >> 8, 0, 'both fallback chains run to completion under a getpwuid that dies' )
+    # Capture::Tiny returns only stdout and stderr, so the list assignment
+    # above cannot carry the exit code; read it from the lexical the block
+    # filled in instead of trusting an undef $exit.
+    is( $child_exit >> 8, 0, 'both fallback chains run to completion under a getpwuid that dies' )
       or diag $stderr;
     is( $stderr, '', 'the dying passwd lookup leaks no warnings or errors' );
+
+    # On Windows the child writes through a :crlf STDOUT, so each printed
+    # line ends in \r\n. The contract here is about which home and user the
+    # fallbacks resolve, not about the child platform's line ending, so
+    # normalise before matching.
+    $stdout =~ s/\r\n/\n/g;
     like( $stdout, qr/^HOME=\Q$profile_home\E$/m,
-        'the skill manager home falls back to USERPROFILE when getpwuid dies' );
+        'the skill manager home falls back to USERPROFILE when getpwuid dies' )
+      or diag $stdout;
     like( $stdout, qr/^STATE_USER=user$/m,
-        'the state-root user falls back to the literal when getpwuid dies' );
+        'the state-root user falls back to the literal when getpwuid dies' )
+      or diag $stdout;
 }
 
 done_testing();

@@ -28,6 +28,7 @@ use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::PerlEnv;
 use Developer::Dashboard::SessionStore;
 use Developer::Dashboard::SkillManager;
 use Developer::Dashboard::UpdateManager;
@@ -571,9 +572,24 @@ like( $not_found_body, qr/Not found/, 'not found route returns a plain error bod
 {
     my $fake_bin = File::Spec->catdir( $home, 'fake-bin' );
     make_path($fake_bin);
-    my $ifconfig = File::Spec->catfile( $fake_bin, 'ifconfig' );
+    # The stub must be runnable by the platform that runs the product: a
+    # #!/bin/sh script cannot run where there is no sh. On Windows it is a
+    # .cmd file, found by the product's command_in_path through PATHEXT.
+    # The angle brackets in the flags line are escaped (^< ^>) so cmd.exe
+    # prints them instead of treating them as redirections.
+    my $ifconfig = File::Spec->catfile( $fake_bin, $^O eq 'MSWin32' ? 'ifconfig.cmd' : 'ifconfig' );
     open my $ifconfig_fh, '>', $ifconfig or die $!;
-    print {$ifconfig_fh} <<'SH';
+    if ( $^O eq 'MSWin32' ) {
+        print {$ifconfig_fh} <<'CMD';
+@echo off
+echo eth0: flags=4163^<UP,BROADCAST,RUNNING,MULTICAST^>  mtu 1500
+echo     inet 10.0.0.4  netmask 255.255.255.0  broadcast 10.0.0.255
+echo lo: flags=73^<UP,LOOPBACK,RUNNING^>  mtu 65536
+echo     inet 127.0.0.1  netmask 255.0.0.0
+CMD
+    }
+    else {
+        print {$ifconfig_fh} <<'SH';
 #!/bin/sh
 cat <<'EOF'
 eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
@@ -582,11 +598,17 @@ lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
     inet 127.0.0.1  netmask 255.0.0.0
 EOF
 SH
+        chmod 0755, $ifconfig or die $!;
+    }
     close $ifconfig_fh;
-    chmod 0755, $ifconfig or die $!;
     no warnings 'redefine';
-    local $ENV{PATH} = $fake_bin . ':' . $ENV{PATH};
+    local $ENV{PATH} = $fake_bin . Developer::Dashboard::PerlEnv::path_separator() . $ENV{PATH};
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ip = sub { return (); };
+    # _ip_interface_pairs tries ipconfig before ifconfig on Windows, so
+    # the ifconfig path is only reached when ipconfig yields nothing:
+    # stub it out the way the ipconfig test stubs ifconfig, or the real
+    # ipconfig on the box answers first and the fallback never runs.
+    local *Developer::Dashboard::Web::App::_ip_pairs_from_ipconfig = sub { return (); };
     is_deeply(
         [ $app->_ip_interface_pairs ],
         [ { iface => 'eth0', ip => '10.0.0.4' } ],
@@ -597,9 +619,23 @@ SH
 {
     my $fake_bin = File::Spec->catdir( $home, 'fake-win-bin' );
     make_path($fake_bin);
-    my $ipconfig = File::Spec->catfile( $fake_bin, 'ipconfig' );
+    my $ipconfig = File::Spec->catfile( $fake_bin, $^O eq 'MSWin32' ? 'ipconfig.cmd' : 'ipconfig' );
     open my $ipconfig_fh, '>', $ipconfig or die $!;
-    print {$ipconfig_fh} <<'BAT';
+    if ( $^O eq 'MSWin32' ) {
+        print {$ipconfig_fh} <<'BAT';
+@echo off
+echo.
+echo Ethernet adapter Ethernet:
+echo.
+echo    IPv4 Address. . . . . . . . . . . : 10.20.30.40
+echo.
+echo Wireless LAN adapter Loopback:
+echo.
+echo    IPv4 Address. . . . . . . . . . . : 127.0.0.1
+BAT
+    }
+    else {
+        print {$ipconfig_fh} <<'BAT';
 #!/bin/sh
 cat <<'EOF'
 
@@ -612,10 +648,11 @@ Wireless LAN adapter Loopback:
    IPv4 Address. . . . . . . . . . . : 127.0.0.1
 EOF
 BAT
+        chmod 0755, $ipconfig or die $!;
+    }
     close $ipconfig_fh;
-    chmod 0755, $ipconfig or die $!;
     no warnings 'redefine';
-    local $ENV{PATH} = $fake_bin . ':' . $ENV{PATH};
+    local $ENV{PATH} = $fake_bin . Developer::Dashboard::PerlEnv::path_separator() . $ENV{PATH};
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ip = sub { return (); };
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ifconfig = sub { return (); };
     local *Developer::Dashboard::Web::App::is_windows = sub { return 1; };
@@ -644,11 +681,28 @@ BAT
     no warnings 'redefine';
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ip = sub { return (); };
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ifconfig = sub { return (); };
+    # _ip_interface_pairs also tries ipconfig on Windows, so it must be
+    # mocked here too: on the box the real ipconfig answers with the
+    # Tailscale adapter and _machine_ip is no longer undefined.
+    local *Developer::Dashboard::Web::App::_ip_pairs_from_ipconfig = sub { return (); };
     # Earlier route assertions may have populated this worker-local cache with
     # the container's real address; this case specifically exercises empty
     # interface discovery, independent of the machine running the suite.
     delete $app->{_machine_ip_cache};
     ok( !defined $app->_machine_ip, '_machine_ip returns undef when neither ip nor ifconfig yields a usable address' );
+}
+
+# A capture failure inside an IP discovery helper must not kill the
+# caller: when Capture::Tiny cannot duplicate a file descriptor (the
+# t/105 death, after 387 passing subtests), the helper returns no
+# addresses and _machine_ip falls back to the host or loopback address.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::App::capture = sub { die "simulated capture failure\n" };
+    local *Developer::Dashboard::Web::App::command_in_path = sub { return 'fake-helper' };
+    is_deeply( [ Developer::Dashboard::Web::App->_ip_pairs_from_ipconfig() ], [], 'a failing ipconfig capture returns no addresses' );
+    is_deeply( [ Developer::Dashboard::Web::App->_ip_pairs_from_ip() ], [], 'a failing ip capture returns no addresses' );
+    is_deeply( [ Developer::Dashboard::Web::App->_ip_pairs_from_ifconfig() ], [], 'a failing ifconfig capture returns no addresses' );
 }
 
 {
@@ -719,7 +773,7 @@ HTML: <script>var configs = {};</script>
 CODE1: Ajax jvar => 'configs.demo.endpoint', type => 'text', file => 'process-endpoint.json', code => q{
 print "perl-start\n";
 warn "perl-warn\n";
-system 'sh', '-c', 'printf "child-out\n"; printf "child-err\n" >&2';
+if ( $^O eq 'MSWin32' ) { system 'cmd', '/d', '/c', 'echo child-out & echo child-err 1>&2'; } else { system 'sh', '-c', 'printf "child-out\n"; printf "child-err\n" >&2'; }
 die "perl-die\n";
 };
 PAGE
@@ -1262,11 +1316,18 @@ my $missing_route_server = Developer::Dashboard::Web::Server->new( app => $missi
         port => 5999,
     );
     ok( $server->serve_daemon($fake_daemon), 'serve_daemon delegates to the Plack runner successfully' );
-    is_deeply(
-        \@Local::FakeRunner::parse_options,
-        [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 5999, '--env', 'deployment', '--workers', '1' ],
-        'serve_daemon configures Starman through Plack::Runner',
-    );
+    # The product deliberately uses Standalone, not Starman, on Windows
+    # (Starman's Time::HiRes::alarm is unimplemented on Strawberry
+    # Perl), so the Starman form of the runner arguments is asserted
+    # only off Windows; the Windows block below asserts Standalone.
+    SKIP: {
+        skip 'the product uses Standalone, not Starman, on Windows', 1 if $^O eq 'MSWin32';
+        is_deeply(
+            \@Local::FakeRunner::parse_options,
+            [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 5999, '--env', 'deployment', '--workers', '1' ],
+            'serve_daemon configures Starman through Plack::Runner',
+        );
+    }
     ok( ref( $Local::FakeRunner::run_arg ) eq 'CODE', 'serve_daemon hands a PSGI app coderef to the Plack runner' );
 }
 
@@ -1284,11 +1345,14 @@ my $missing_route_server = Developer::Dashboard::Web::Server->new( app => $missi
         port => 5998,
     );
     ok( $worker_server->serve_daemon($fake_daemon), 'serve_daemon accepts an explicit worker count' );
-    is_deeply(
-        \@Local::FakeRunner::parse_options,
-        [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 5998, '--env', 'deployment', '--workers', '4' ],
-        'serve_daemon forwards the configured worker count to Starman',
-    );
+    SKIP: {
+        skip 'the product uses Standalone, not Starman, on Windows', 1 if $^O eq 'MSWin32';
+        is_deeply(
+            \@Local::FakeRunner::parse_options,
+            [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 5998, '--env', 'deployment', '--workers', '4' ],
+            'serve_daemon forwards the configured worker count to Starman',
+        );
+    }
 }
 
 {

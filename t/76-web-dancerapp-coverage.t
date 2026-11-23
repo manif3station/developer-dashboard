@@ -25,6 +25,10 @@ use Local::PSGITest;
 sub _without_private_var_prefix {
     my ($path) = @_;
     $path =~ s{/private(?=/var/folders/)}{}g if defined $path;
+    # The loader reports abs_path spellings, which use forward slashes on
+    # Windows, while the fixture paths are built with File::Spec and carry
+    # backslashes there. Both name the same file, so compare one spelling.
+    $path =~ tr{\\}{/} if defined $path && $^O eq 'MSWin32';
     return $path;
 }
 

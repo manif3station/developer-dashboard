@@ -34,9 +34,14 @@ my ($state_dir) = @ARGV;
 local $/;
 my $json = <STDIN>;
 my $items = JSON::XS->new->utf8->decode($json);
-open my $fh, '>', "$state_dir/entered.json" or die "fake worker cannot record entry: $!";
-print {$fh} JSON::XS->new->utf8->canonical->encode($items);
-close $fh or die "fake worker cannot close entry file: $!";
+# Install the TERM/INT handler BEFORE signalling entry: entered.json is
+# the readiness signal the test waits on, and run_with stops the worker
+# as soon as the callback returns or dies after seeing it. A TERM
+# delivered before the handler exists kills the worker by the default
+# action, so no stopped file is ever written (round 55, t/241 test 15
+# on the loaded Pi - the worker was descheduled between writing
+# entered.json and installing the handler). With the handler first,
+# "entered" means "ready to be stopped".
 $SIG{TERM} = sub {
     open my $sfh, '>', "$state_dir/stopped" or die "fake worker cannot record stop: $!";
     print {$sfh} "stopped\n";
@@ -44,6 +49,9 @@ $SIG{TERM} = sub {
     exit 0;
 };
 $SIG{INT} = $SIG{TERM};
+open my $fh, '>', "$state_dir/entered.json" or die "fake worker cannot record entry: $!";
+print {$fh} JSON::XS->new->utf8->canonical->encode($items);
+close $fh or die "fake worker cannot close entry file: $!";
 while (1) { sleep 1; }
 WORKER
     close $fh or die "Unable to close fake menu worker '$worker': $!";

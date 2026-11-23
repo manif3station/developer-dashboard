@@ -18,6 +18,7 @@ use bytes ();
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 use Developer::Dashboard::PageDocument;
+use Developer::Dashboard::PathIdentity qw(_resolve_symlinks);
 use Developer::Dashboard::Platform qw(is_windows);
 use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
 
@@ -122,6 +123,32 @@ sub _page_is_regular {
     return is_windows() ? -f $file : S_ISREG($mode);
 }
 
+# _nav_fragment_disk_body($file)
+# Reads one nav fragment from disk for a cache comparison only. The bytes are
+# never returned to a caller: a caller compares them with a body it already
+# holds and falls back to the secure read path on any difference, so a swap
+# of the file between the open and the read cannot leak outside content. The
+# open refuses symlinks where the platform provides O_NOFOLLOW; on any open,
+# read or decode failure it returns undef and the caller treats that as a
+# miss. The read is bounded to just over the cache's body limit, so a file
+# that grew past the limit is a mismatch rather than a large allocation.
+# Input: nav fragment file path.
+# Output: decoded normalized body string, or undef on any failure.
+sub _nav_fragment_disk_body {
+    my ( $self, $file ) = @_;
+    return if !defined $file || $file eq '';
+    my $fh;
+    my $opened = eval { sysopen $fh, $file, O_RDONLY | $NOFOLLOW; 1 };
+    return if !$opened || !defined $fh;
+    my $raw = '';
+    my $read = eval { read $fh, $raw, 262145; 1 };
+    close $fh;
+    return if !$read || !defined $raw;
+    return if bytes::length($raw) > 262144;
+    my $text = eval { decode( 'UTF-8', $raw, FB_CROAK ) } || decode( 'UTF-8', $raw, FB_DEFAULT );
+    return $self->_normalize_legacy_icon_markup($text);
+}
+
 # load_nav_fragment($id)
 # Loads a discovered saved nav fragment. Literal HTML returns directly without
 # allocating a page document; TT and structured instructions retain the normal
@@ -176,8 +203,17 @@ sub load_nav_fragment {
           && defined $cached->{fingerprint}
           && $cached->{fingerprint} eq $initial_fingerprint )
         {
-            $self->_assert_page_path_contained( $file, root => $root );
-            return { kind => 'literal', body => $cached->{body} };
+            # The stat fingerprint cannot prove the bytes are unchanged: on
+            # Windows a same-tick same-size rewrite leaves every fingerprinted
+            # field identical, so a stat-only hit serves a stale body. The
+            # disk bytes are only compared, never returned, so a file swapped
+            # between the open and the read cannot leak content; a mismatch
+            # falls through to the secure read path below.
+            my $disk_body = $self->_nav_fragment_disk_body($file);
+            if ( defined $disk_body && $disk_body eq $cached->{body} ) {
+                $self->_assert_page_path_contained( $file, root => $root );
+                return { kind => 'literal', body => $cached->{body} };
+            }
         }
     }
 
@@ -192,10 +228,16 @@ sub load_nav_fragment {
             my $final_fingerprint = @final_stat && $self->_page_is_regular( $file, $final_stat[2] )
               ? join( "\0", @final_stat[ 0, 1, 2, 7, 9, 10 ] )
               : undef;
+            # A matching final fingerprint is not proof the file is unchanged
+            # either: on Windows the file can be rewritten in the same tick
+            # between the secure read and this stat. Only cache when the
+            # bytes now on disk are the bytes just read.
+            my $disk_body = $self->_nav_fragment_disk_body($file);
             $self->_cache_literal_nav_fragment( $file, $final_fingerprint, $instruction )
               if defined $initial_fingerprint && defined $final_fingerprint
               && $initial_fingerprint eq $final_fingerprint
-              && bytes::length($instruction) <= 262144;
+              && bytes::length($instruction) <= 262144
+              && defined $disk_body && $disk_body eq $instruction;
             return { kind => 'literal', body => $instruction };
         }
         my $page = $self->_raw_nav_fragment_page( id => $normalized_id, instruction => $instruction );
@@ -426,6 +468,23 @@ sub _validated_page_id {
     return $normalized;
 }
 
+# _containment_realpath($path)
+# Resolves one path for containment comparison. Cwd::abs_path does not resolve
+# symlink components on Windows, so a save through a symlinked directory would
+# otherwise look contained and write outside its root; _resolve_symlinks
+# follows each component explicitly first, and abs_path then only normalises
+# the resolved spelling. Returns undef when the path cannot be resolved (a
+# missing target, or a link loop), matching the caller's existing undef checks.
+# Input: path string.
+# Output: resolved absolute path or undef.
+sub _containment_realpath {
+    my ($path) = @_;
+    return if !defined $path || $path eq '';
+    my $resolved = _resolve_symlinks($path);
+    return if !defined $resolved;
+    return abs_path($resolved);
+}
+
 # _assert_page_path_contained($file, %args)
 # Ensures a page path's resolved target or nearest existing ancestor remains
 # beneath one configured dashboards root before a read or write follows it.
@@ -444,10 +503,10 @@ sub _assert_page_path_contained {
         my $scope = $self->{_page_containment_root_realpaths};
         my $root_real;
         if ( ref($scope) eq 'HASH' ) {
-            $root_real = exists $scope->{$root} ? $scope->{$root} : ( $scope->{$root} = abs_path($root) );
+            $root_real = exists $scope->{$root} ? $scope->{$root} : ( $scope->{$root} = _containment_realpath($root) );
         }
         else {
-            $root_real = abs_path($root);
+            $root_real = _containment_realpath($root);
         }
         next if !defined $root_real;
 
@@ -457,7 +516,7 @@ sub _assert_page_path_contained {
                 $probe = dirname($probe);
             }
         }
-        my $probe_real = abs_path($probe);
+        my $probe_real = _containment_realpath($probe);
         next if !defined $probe_real;
         my ( $probe_cmp, $root_cmp ) = ( $probe_real, $root_real );
         if ( is_windows() ) {

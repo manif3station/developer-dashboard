@@ -110,6 +110,12 @@ my $runner          = Developer::Dashboard::CollectorRunner->new(
     my $expected_cwd = ( $ENV{HARNESS_PERL_SWITCHES} // q{} ) =~ /Devel::Cover/ ? $repo_root : $home;
     ( my $portable_child_cwd = $child_cwd ) =~ s{/private(?=/var/folders/)}{}g;
     ( my $portable_expected_cwd = "$expected_cwd\n" ) =~ s{/private(?=/var/folders/)}{}g;
+    # Windows spells the same directory two ways: Cwd::cwd() returns
+    # forward slashes while File::Temp::tempdir returns backslashes, so
+    # the raw strings never match there (round 52, test 2). Compare
+    # with one separator; Unix paths carry no backslashes to disturb.
+    $portable_child_cwd =~ s{\\}{/}g;
+    $portable_expected_cwd =~ s{\\}{/}g;
     is( $portable_child_cwd, $portable_expected_cwd, 'coverage-instrumented GoRoutine children start in the checkout while ordinary fixtures retain the temporary HOME cwd' );
 }
 
@@ -424,7 +430,16 @@ SKIP: {
         ],
         {},
     );
-    # Poll on the exec'd argv[0], which only the post-exec process can show.
+    # Poll on the exec'd argv[0] together with the empty environ: neither
+    # alone proves the child has reached the post-exec state. The title is
+    # argv[0] after exec, but it is NOT at offset 0 of the cmdline string
+    # under an emulator - qemu-aarch64 prefixes the exec'd argv with its own
+    # binary path, so the title sits at a later offset - and before exec the
+    # title is already present as an argument to the -e program while the
+    # environ is still the inherited (populated) one. So the title is matched
+    # as a substring, and the match is only accepted once the environ reads
+    # back empty. A zombie's cmdline is empty, so it can never match the
+    # title and the poll cannot mistake a dead child for a live one.
     #
     # BOUND BY WALL-CLOCK, NOT A POLL COUNT (DD-767, closing a gap DD-482
     # specified but never shipped). DD-482 measured 678 polls (~6.8s) needed
@@ -449,11 +464,12 @@ SKIP: {
         $probe_polls++;
         my $cmdline = '';
         if ( open my $cf, '<', "/proc/$child/cmdline" ) { local $/; $cmdline = <$cf>; close $cf; }
-        if ( defined $cmdline && index( $cmdline, $probe_title ) == 0 ) {
+        if ( defined $cmdline && index( $cmdline, $probe_title ) >= 0 ) {
             if ( open my $ef, '<', "/proc/$child/environ" ) { local $/; $probe_environ = <$ef>; close $ef; }
-            diag("probe child did not expose a readable environ after $probe_polls polls: $!")
-              if !defined $probe_environ;
-            last;
+            if ( defined $probe_environ && $probe_environ eq '' ) {
+                last;
+            }
+            $probe_environ = undef;
         }
         select undef, undef, undef, 0.01;
     }
@@ -494,8 +510,47 @@ SKIP: {
 # _read_process_title: proc cmdline path, then the ps fallback under a mocked
 # capture so every exit-code and defined-title branch is exercised.
 {
-    my $title = $runner->_read_process_title($$);
-    ok( defined $title && $title ne '', '_read_process_title reads the current process cmdline' );
+    # On Windows the reader returns the CIM launch command line for a
+    # live process (the t/07 work: a $0 assignment never rewrites the
+    # Windows launch command line, but the process table still lists
+    # the full launch command), so the title is defined there too; on
+    # a Unix host the current process always has a readable cmdline.
+    if ( $^O eq 'MSWin32' ) {
+        my $title = $runner->_read_process_title($$);
+        ok( defined $title && $title ne '', '_read_process_title reads the current process command line on Windows via CIM' );
+    }
+    else {
+        my $title = $runner->_read_process_title($$);
+        ok( defined $title && $title ne '', '_read_process_title reads the current process cmdline' );
+    }
+}
+{
+    # Windows branch: with procfs mocked away the reader takes the CIM
+    # path on a live Windows host, where PowerShell resolves, so the
+    # capture runs once and returns the trimmed title; on a simulated
+    # Windows there is no PowerShell to run, so it returns undef
+    # without spawning anything at all. Proved on Linux by mocking
+    # the procfs read and localizing the platform; on Windows the
+    # branch is live.
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return undef };
+    my $capture_called = 0;
+    local *Developer::Dashboard::CollectorRunner::capture = sub { $capture_called++; return ( 'ps-title   ', '', 0 ) };
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        if ( $^O eq 'MSWin32' ) {
+            is( $runner->_read_process_title($$), 'ps-title', 'on Windows _read_process_title reads the title via CIM when procfs is unavailable' );
+        }
+        else {
+            is( $runner->_read_process_title($$), undef, 'on Windows _read_process_title returns undef without spawning ps' );
+        }
+    }
+    if ( $^O eq 'MSWin32' ) {
+        is( $capture_called, 1, 'on Windows _read_process_title calls capture once for the CIM read' );
+    }
+    else {
+        is( $capture_called, 0, 'on Windows _read_process_title does not spawn ps at all' );
+    }
 }
 {
     no warnings 'redefine';
@@ -524,12 +579,25 @@ SKIP: {
     {
         local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return 'garbage-without-format' };
         local *Developer::Dashboard::CollectorRunner::capture         = sub { return ( ' Ss ', '', 0 ) };
-        is( $runner->_read_process_state($$), 'S', '_read_process_state falls back to ps when procfs stat is unparseable' );
+        if ( $^O eq 'MSWin32' ) {
+            # ps does not exist on Windows, so a state procfs did not
+            # supply is simply unavailable there (the product returns
+            # early) and the callers treat undef as unknown.
+            is( $runner->_read_process_state($$), undef, '_read_process_state returns undef on Windows, where ps does not exist and state is unavailable' );
+        }
+        else {
+            is( $runner->_read_process_state($$), 'S', '_read_process_state falls back to ps when procfs stat is unparseable' );
+        }
     }
     {
         local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return '' };
         local *Developer::Dashboard::CollectorRunner::capture         = sub { return ( 'R', '', 0 ) };
-        is( $runner->_read_process_state($$), 'R', '_read_process_state falls back to ps when procfs stat is empty' );
+        if ( $^O eq 'MSWin32' ) {
+            is( $runner->_read_process_state($$), undef, '_read_process_state returns undef on Windows, where ps does not exist and state is unavailable' );
+        }
+        else {
+            is( $runner->_read_process_state($$), 'R', '_read_process_state falls back to ps when procfs stat is empty' );
+        }
     }
     {
         local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return undef };
@@ -666,7 +734,11 @@ is( $runner->_descriptor_is_inherited_pipe(999999999), 0, '_descriptor_is_inheri
         is( $runner->_current_perl_command, 'x', '_current_perl_command falls through to $^X when no Windows perl is resolvable' );
     }
 }
-{
+SKIP: {
+    # The Linux path is unreachable on Windows: _current_perl_command takes
+    # the Windows branch first there, so the mocked '/usr/bin/perl' is what
+    # a Windows host returns, not $^X.
+    skip 'the Linux _current_perl_command path is unreachable on Windows', 4 if $^O eq 'MSWin32';
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return '/usr/bin/perl' };
     local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
@@ -724,13 +796,21 @@ is( $runner->_helper_file_supports_internal_command( File::Spec->catfile( $home,
 }
 
 # _powershell_command / _powershell_single_quote on Linux.
-is( $runner->_powershell_command, '', '_powershell_command returns empty on a non-Windows host' );
+SKIP: {
+    skip '_powershell_command resolves the real PowerShell on a Windows host', 1 if $^O eq 'MSWin32';
+    is( $runner->_powershell_command, '', '_powershell_command returns empty on a non-Windows host' );
+}
 is( Developer::Dashboard::CollectorRunner::_powershell_single_quote(undef), q{''}, '_powershell_single_quote defaults an undef value to an empty literal' );
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows      = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return undef };
     local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
+    # _powershell_command is compiled in ProcessSupervision, so its
+    # is_windows check must be mirrored there too (the t/07 pattern):
+    # without it this block passes vacuously off Windows and never
+    # exercises the SystemRoot fallback it names.
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     {
         local $ENV{SystemRoot} = '/tmp/win-system-root';
         is( $runner->_powershell_command, '', '_powershell_command falls back through SystemRoot and returns empty when no binary exists' );
@@ -738,13 +818,22 @@ is( Developer::Dashboard::CollectorRunner::_powershell_single_quote(undef), q{''
     {
         local %ENV = %ENV;
         delete $ENV{SystemRoot};
-        is( $runner->_powershell_command, '', '_powershell_command defaults SystemRoot when it is unset' );
+        # With SystemRoot unset the resolver guesses the standard
+        # C:\Windows root (deliberate since the original resolver in
+        # a8a95985, kept by DD-753): on a Windows host that file exists
+        # and is returned, off Windows the guess names nothing.
+        my $default = File::Spec->catfile( 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe' );
+        my $expected = -f $default ? $default : '';
+        is( $runner->_powershell_command, $expected, '_powershell_command defaults SystemRoot when it is unset' );
     }
 }
 
 # _replace_path_via_powershell early return, powershell-missing guards, and the
 # stderr/stdout merge on a non-zero PowerShell exit.
-is_deeply( [ $runner->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_replace_path_via_powershell no-ops on a non-Windows host' );
+SKIP: {
+    skip '_replace_path_via_powershell runs real PowerShell on a Windows host', 1 if $^O eq 'MSWin32';
+    is_deeply( [ $runner->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_replace_path_via_powershell no-ops on a non-Windows host' );
+}
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
@@ -781,7 +870,17 @@ is_deeply( [ $runner->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_r
 }
 
 # _overwrite_state_file_in_place: Linux no-op and Windows failure/success paths.
-is_deeply( [ $runner->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '_overwrite_state_file_in_place no-ops on a non-Windows host' );
+if ( $^O eq 'MSWin32' ) {
+    # On Windows the helper does not no-op: it takes the Windows path and
+    # tries to read the source, so a missing source fails with a read
+    # error instead of the (0, '') no-op (solo #410, test 137). Match
+    # the stable error prefix; the trailing $! text varies by platform.
+    my ( $ok, $err ) = $runner->_overwrite_state_file_in_place( 'a', 'b' );
+    ok( !$ok && $err =~ /\AUnable to read a for in-place overwrite: /, '_overwrite_state_file_in_place fails to read a missing source on Windows' );
+}
+else {
+    is_deeply( [ $runner->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '_overwrite_state_file_in_place no-ops on a non-Windows host' );
+}
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
@@ -862,7 +961,17 @@ is_deeply( [ $runner->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '
     my $existing_src = File::Spec->catfile( $home, 'rs-src' );
     open my $sfh, '>', $existing_src or die $!;
     close $sfh;
-    like( ( eval { $runner->_replace_state_file( $existing_src, File::Spec->catfile( $home, 'no-tgt2' ) ); 1 } ? '' : $@ ), qr/Unable to rename/, '_replace_state_file unlinks an existing source before dying on a non-Windows rename failure' );
+    my $rs_tgt = File::Spec->catfile( $home, 'no-tgt2' );
+    if ( $^O eq 'MSWin32' ) {
+        # On Windows the rename failure is rescued by the retry path:
+        # the PowerShell fallback runs first, and the in-place overwrite
+        # rescues it even when PowerShell fails, so the call succeeds and
+        # the file is moved instead of dying (solo #411, test 148).
+        ok( $runner->_replace_state_file( $existing_src, $rs_tgt ) && !-e $existing_src && -e $rs_tgt, '_replace_state_file succeeds on Windows by moving the file when the rename fails' );
+    }
+    else {
+        like( ( eval { $runner->_replace_state_file( $existing_src, $rs_tgt ); 1 } ? '' : $@ ), qr/Unable to rename/, '_replace_state_file unlinks an existing source before dying on a non-Windows rename failure' );
+    }
 }
 {
     no warnings 'redefine';
@@ -955,9 +1064,19 @@ ok( !$runner->_cron_due( "* * $other_month_day * $other_weekday", 'problem30.day
     'Problem 30: when both day fields are restricted, neither match means the cron job is not due' );
 ok( $runner->_cron_due( "* * $cron_now[3] * *", 'problem30.dom-wild-dow' ),
     'Problem 30: a matching day-of-month applies when day-of-week is a wildcard' );
-my $other_minute = ( $cron_now[1] + 1 ) % 60;
-my $other_hour   = ( $cron_now[2] + 1 ) % 24;
-my $other_month  = ( $cron_now[4] + 1 ) % 12 + 1;
+# The non-matching fields below are picked far from now on purpose, not one
+# step away: @cron_now was captured at the top of this block and the four
+# _cron_due calls above it take about 0.9s on Windows (real state file reads
+# and writes), so a minute one step ahead can tick into "now" before the
+# assertion below evaluates it and the cron then fires - that is what flaked
+# test 168 in round 70. A minute 30 minutes ahead, an hour 12 hours ahead
+# and a month 6 months ahead cannot become current during this test, so the
+# "rejects" assertions below are stable. Proved by probe-t103-cron-boundary
+# on win-ts: the +1 minute expression flipped from not-due to due across a
+# real minute boundary while the +30 expression stayed not-due.
+my $other_minute = ( $cron_now[1] + 30 ) % 60;
+my $other_hour   = ( $cron_now[2] + 12 ) % 24;
+my $other_month  = ( $cron_now[4] + 6 ) % 12 + 1;
 ok( !$runner->_cron_due( "$other_minute * * * *", 'problem30.minute-no-match' ),
     'Problem 30: cron rejects a non-matching minute' );
 ok( !$runner->_cron_due( "* $other_hour * * *", 'problem30.hour-no-match' ),
@@ -1019,6 +1138,22 @@ $cron_config->save_global(
 );
 my ($cron_job) = grep { ( $_->{name} || '' ) eq 'problem30.config-json' } @{ $cron_config->collectors };
 ok( $cron_job && $cron_job->{cron} eq '* * * * *', 'Problem 30: config.json collector cron expression survives configuration loading' );
+# The two _job_is_due calls below must land in the same minute: the
+# de-duplication stamp is minute-granular, so if the clock ticks into a new
+# minute between them the second call is legitimately due again and the
+# "runs only once" assertion fails - that is what flaked test 199 in solo
+# #467. A _job_is_due call takes up to about 1s on Windows (real state file
+# reads and writes), so wait until at least 5 seconds of the current minute
+# remain before starting. The fully qualified Time::HiRes::sleep is
+# deliberate: this file imports only Time::HiRes::time, so a bare sleep would
+# compile to CORE::sleep and truncate the fraction to 0. Proved by micro
+# t/997 on win-ts: due then not-due inside one minute, due then due again
+# across a boundary 2 seconds apart.
+my $waited_for_minute = 0;
+while ( ( localtime() )[0] > 55 && $waited_for_minute < 10 ) {
+    Time::HiRes::sleep(0.5);
+    $waited_for_minute += 0.5;
+}
 ok( $runner->_job_is_due( $cron_job, 'problem30.config-json' ), 'Problem 30: a loaded config.json cron collector is due in its matching minute' );
 ok( !$runner->_job_is_due( $cron_job, 'problem30.config-json' ), 'Problem 30: a config.json cron collector runs only once in the matching minute' );
 
@@ -1073,6 +1208,11 @@ like( ( eval { $runner->_run_command( source => 'true', cwd => File::Spec->catdi
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CommandRunner::shell_command_argv = sub { die "argv boom\n" };
+    # On Windows the command goes through _windows_powershell_argv, not
+    # shell_command_argv, so only mocking the latter leaves the die
+    # unfired there (solo #412, test 228). Mock both builders; each
+    # platform calls exactly one of them.
+    local *Developer::Dashboard::CommandRunner::_windows_powershell_argv = sub { die "argv boom\n" };
     like( ( eval { $runner->_run_command( source => 'true', cwd => $home, timeout_ms => 1000 ); 1 } ? '' : $@ ), qr/argv boom/, '_run_command re-throws a non-timeout error from the command build' );
 }
 {
@@ -1190,7 +1330,13 @@ like( ( eval { $runner->_run_code( source => '1', cwd => File::Spec->catdir( $ho
     my $run_cwd = File::Spec->catdir( $home, 'restore-run-cmd' );
     make_path( $old_cwd, $run_cwd );
     chdir $old_cwd or die $!;
-    my $err = eval { $runner->_run_command( source => qq{rmdir '$old_cwd'}, cwd => $run_cwd, timeout_ms => 2000 ); 1 } ? '' : $@;
+    # A cold powershell.exe spawn on Windows takes about 2.2s (first-use
+    # module preparation), longer than the 2000ms this fixture used to
+    # allow, so the command was killed before rmdir ran, the directory
+    # survived, and the chdir back succeeded instead of dying (solo
+    # #413, test 253). Give it the product's own 30s default budget;
+    # the point of the test is the restore failure, not the timeout.
+    my $err = eval { $runner->_run_command( source => qq{rmdir '$old_cwd'}, cwd => $run_cwd, timeout_ms => 30000 ); 1 } ? '' : $@;
     chdir $home or die $!;
     like( $err, qr/Unable to restore cwd/, '_run_command dies when it cannot chdir back to the original cwd' );
 }
@@ -1748,6 +1894,54 @@ ok( $runner->_terminate_loop_workers(undef), '_terminate_loop_workers tolerates 
     my %active = ( 909090 => 1 );
     ok( $runner->_terminate_loop_workers( \%active ), '_terminate_loop_workers skips process-group kills on the Windows branch' );
     is_deeply( \%active, {}, '_terminate_loop_workers still clears the active set on the Windows branch' );
+}
+{
+    # The Windows branch resolves taskkill through the shared
+    # _taskkill_command helper, the one RuntimeManager's _send_signal uses,
+    # instead of handing a bare name to system(). The helper is replaced
+    # here with a Perl recorder so the check runs the same way on every
+    # platform and never starts a real taskkill: both tree kills (the first
+    # one on the live worker and the escalation one) must go through it.
+    no warnings qw(redefine prototype);
+    my $recorder = File::Spec->catfile( $home, 'r93-taskkill-recorder.pl' );
+    my $recorded = File::Spec->catfile( $home, 'r93-taskkill-args.txt' );
+    open my $recorder_fh, '>', $recorder or die "Unable to write $recorder: $!";
+    print {$recorder_fh} <<'RECORDER';
+open my $fh, '>>', $ENV{R93_TASKKILL_ARGS} or die "Unable to append $ENV{R93_TASKKILL_ARGS}: $!";
+print {$fh} join( ' ', @ARGV ), "\n";
+close $fh or die "Unable to close $ENV{R93_TASKKILL_ARGS}: $!";
+exit 0;
+RECORDER
+    close $recorder_fh or die "Unable to close $recorder: $!";
+    local $ENV{R93_TASKKILL_ARGS} = $recorded;
+    my $helper_calls = 0;
+    my @terminated;
+    local *Developer::Dashboard::CollectorRunner::is_windows          = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_pid_is_running     = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_reap_child_process = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::sleep               = sub { return 0 };
+    local *Developer::Dashboard::CollectorRunner::_taskkill_command   = sub { $helper_calls++; return ( $^X, $recorder ) };
+    local *Developer::Dashboard::GoRoutine::terminate_process         = sub { push @terminated, [@_]; return 1 };
+    my %active = ( 808080 => 1 );
+    ok( $runner->_terminate_loop_workers( \%active ), '_terminate_loop_workers returns true when taskkill is resolved through the helper' );
+    is( $helper_calls, 2, '_terminate_loop_workers asks _taskkill_command for both Windows tree kills' );
+    my @recorded_lines;
+    if ( open my $recorded_fh, '<', $recorded ) {
+        @recorded_lines = <$recorded_fh>;
+        close $recorded_fh;
+        s/\r?\n\z// for @recorded_lines;
+    }
+    is_deeply(
+        \@recorded_lines,
+        [ '/PID 808080 /T /F', '/PID 808080 /T /F' ],
+        '_terminate_loop_workers runs the resolved taskkill with the tree-kill arguments, first on the live worker and again on escalation'
+    );
+    is_deeply(
+        \@terminated,
+        [ [ 808080, 'TERM' ], [ 808080, 'KILL' ] ],
+        '_terminate_loop_workers still terminates a worker the tree kill leaves behind, TERM first and KILL on escalation'
+    );
+    is_deeply( \%active, {}, '_terminate_loop_workers clears the active set after the helper-resolved tree kills' );
 }
 {
     # Real POSIX branch: a stubborn worker child that ignores SIGTERM.

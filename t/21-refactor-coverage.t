@@ -2,7 +2,26 @@ use strict;
 use warnings;
 use utf8;
 
+our $EXIT_FAKE;
+our $EXIT_FAKE_CODE;
+
+BEGIN {
+    # On Windows _exec_replacement runs the command with system() and then
+    # calls exit(), which would end this process before done_testing. While
+    # $EXIT_FAKE is set, record the exit code and die with a marker instead,
+    # so the one direct call below can assert the Windows handoff; otherwise
+    # use the real exit.
+    *CORE::GLOBAL::exit = sub {
+        if ($EXIT_FAKE) {
+            $EXIT_FAKE_CODE = $_[0] // 0;
+            die "EXIT_FAKE\n";
+        }
+        return CORE::exit( $_[0] // 0 );
+    };
+}
+
 use Capture::Tiny qw(capture);
+use Config;
 use Cwd qw(abs_path getcwd);
 use Encode qw(decode_utf8);
 use Errno qw(EACCES);
@@ -46,6 +65,9 @@ sub _portable_path {
     my ($path) = @_;
     return undef if !defined $path;
     $path =~ s{/private(?=/var/folders/)}{}g;
+    # Windows hands back the same directory with either separator depending
+    # on which API produced it; compare one spelling of the same path.
+    $path =~ s{\\}{/}g if $^O eq 'MSWin32';
     return $path;
 }
 
@@ -650,13 +672,16 @@ is( scalar(@$seeded_helpers), scalar(@helper_names), 'ensure_helpers writes ever
 my $seeded_helpers_second = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
 is_deeply( $seeded_helpers_second, [], 'ensure_helpers skips rewriting staged helpers whose md5 already matches the shipped content' );
 ok( -f File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', '_dashboard-core' ), 'ensure_helpers also stages the shared _dashboard-core runtime under the dd namespace' );
-ok( grep( $_ =~ m{/\Qof\E$}, @$seeded_helpers ), 'ensure_helpers writes the private of helper' );
-ok( grep( $_ =~ m{/\Qopen-file\E$}, @$seeded_helpers ), 'ensure_helpers writes the private open-file helper' );
-ok( grep( $_ =~ m{/\Qworkspace\E$}, @$seeded_helpers ), 'ensure_helpers writes the private workspace helper' );
-ok( grep( $_ =~ m{/\Qpath\E$}, @$seeded_helpers ), 'ensure_helpers writes the private path helper' );
-ok( grep( $_ =~ m{/\Qpaths\E$}, @$seeded_helpers ), 'ensure_helpers writes the private paths helper' );
-ok( grep( $_ =~ m{/\Qps1\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ps1 helper' );
-ok( !grep( $_ =~ m{/\Qskill\E$}, @$seeded_helpers ), 'ensure_helpers no longer stages the removed singular skill helper' );
+# The written paths are File::Spec spellings, so the trailing separator is a
+# backslash on Windows: a forward-slash-only match never matches there, and
+# the negative matches below would pass vacuously instead of proving anything.
+ok( grep( $_ =~ m{[\/\\]\Qof\E$}, @$seeded_helpers ), 'ensure_helpers writes the private of helper' );
+ok( grep( $_ =~ m{[\/\\]\Qopen-file\E$}, @$seeded_helpers ), 'ensure_helpers writes the private open-file helper' );
+ok( grep( $_ =~ m{[\/\\]\Qworkspace\E$}, @$seeded_helpers ), 'ensure_helpers writes the private workspace helper' );
+ok( grep( $_ =~ m{[\/\\]\Qpath\E$}, @$seeded_helpers ), 'ensure_helpers writes the private path helper' );
+ok( grep( $_ =~ m{[\/\\]\Qpaths\E$}, @$seeded_helpers ), 'ensure_helpers writes the private paths helper' );
+ok( grep( $_ =~ m{[\/\\]\Qps1\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ps1 helper' );
+ok( !grep( $_ =~ m{[\/\\]\Qskill\E$}, @$seeded_helpers ), 'ensure_helpers no longer stages the removed singular skill helper' );
 ok(
     Developer::Dashboard::SeedSync::file_matches_content_md5(
         File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', 'jq' ),
@@ -859,7 +884,9 @@ ok(
     make_path($preserve_cli_root);
     my $managed_jq = File::Spec->catfile( $preserve_cli_root, 'jq' );
     my $managed_body = Developer::Dashboard::InternalCLI::_managed_helper_content('jq');
-    open my $managed_jq_fh, '>', $managed_jq or die "Unable to write $managed_jq: $!";
+    # Written :raw, as the product writes its helpers; a text-mode handle
+    # would add "\r" to every line on Windows and change the md5.
+    open my $managed_jq_fh, '>:raw', $managed_jq or die "Unable to write $managed_jq: $!";
     print {$managed_jq_fh} $managed_body;
     close $managed_jq_fh;
 
@@ -871,7 +898,7 @@ ok(
         ),
         '_stage_managed_helper skips rewriting an already-managed helper file whose md5 already matches',
     );
-    open my $managed_verify_fh, '<', $managed_jq or die "Unable to read $managed_jq: $!";
+    open my $managed_verify_fh, '<:raw', $managed_jq or die "Unable to read $managed_jq: $!";
     my $managed_verify = do { local $/; <$managed_verify_fh> };
     close $managed_verify_fh;
     is( $managed_verify, $managed_body, '_stage_managed_helper leaves an already-managed matching helper unchanged on disk' );
@@ -986,6 +1013,9 @@ ok(
     close $replace_read_fh or die "Unable to close $replace_target after retry verification: $!";
 }
 {
+    # The running _dashboard-core helper is restaged on Windows when it is
+    # not actually locked: the lock probe renames it aside and back, which
+    # succeeds here, so the refresh proceeds instead of deferring.
     my $defer_home = tempdir( CLEANUP => 1 );
     my $defer_target = File::Spec->catfile( $defer_home, '_dashboard-core' );
     my $stale_core = Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core') . "# stale\n";
@@ -998,16 +1028,45 @@ ok(
     local *Developer::Dashboard::Platform::is_windows = sub { return 1 };
 
     ok(
+        Developer::Dashboard::InternalCLI::_stage_managed_helper(
+            paths  => $paths,
+            name   => '_dashboard-core',
+            target => $defer_target,
+        ),
+        '_stage_managed_helper restages the running _dashboard-core helper on Windows when the lock probe shows it is not locked',
+    );
+    open my $defer_read_fh, '<:raw', $defer_target or die "Unable to read $defer_target: $!";
+    local $/;
+    is( <$defer_read_fh>, Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core'), '_stage_managed_helper leaves the restaged Windows _dashboard-core helper with the current body' );
+    close $defer_read_fh or die "Unable to close $defer_target after verification: $!";
+}
+{
+    # When the lock probe fails the refresh is still deferred: the rename
+    # is stubbed to fail here to simulate the Windows sharing violation a
+    # live helper process causes, and the stale body must survive.
+    my $defer_home = tempdir( CLEANUP => 1 );
+    my $defer_target = File::Spec->catfile( $defer_home, '_dashboard-core' );
+    my $stale_core = Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core') . "# stale\n";
+    open my $defer_fh, '>:raw', $defer_target or die "Unable to write $defer_target: $!";
+    print {$defer_fh} $stale_core;
+    close $defer_fh or die "Unable to close $defer_target: $!";
+
+    local $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER} = $defer_target;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Platform::is_windows = sub { return 1 };
+    local *Developer::Dashboard::InternalCLI::_rename_path = sub { return 0 };
+
+    ok(
         !Developer::Dashboard::InternalCLI::_stage_managed_helper(
             paths  => $paths,
             name   => '_dashboard-core',
             target => $defer_target,
         ),
-        '_stage_managed_helper defers replacing the running _dashboard-core helper on Windows instead of dying',
+        '_stage_managed_helper defers replacing the running _dashboard-core helper on Windows when the lock probe fails instead of dying',
     );
     open my $defer_read_fh, '<:raw', $defer_target or die "Unable to read $defer_target: $!";
     local $/;
-    is( <$defer_read_fh>, $stale_core, '_stage_managed_helper leaves the running Windows _dashboard-core helper unchanged when refresh is deferred' );
+    is( <$defer_read_fh>, $stale_core, '_stage_managed_helper leaves the locked Windows _dashboard-core helper unchanged when refresh is deferred' );
     close $defer_read_fh or die "Unable to close $defer_target after verification: $!";
 }
 {
@@ -1069,7 +1128,7 @@ ok(
         skip_names => ['init'],
     );
     ok(
-        !grep( $_ =~ m{/\Qinit\E$}, @$written ),
+        !grep( $_ =~ m{[\/\\]\Qinit\E$}, @$written ),
         'ensure_helpers can skip staging one named helper while still refreshing the rest of the managed helper set',
     );
     ok(
@@ -1077,7 +1136,7 @@ ok(
         'ensure_helpers leaves the skipped helper target untouched on disk',
     );
     ok(
-        grep( $_ =~ m{/\Qshell\E$}, @$written ),
+        grep( $_ =~ m{[\/\\]\Qshell\E$}, @$written ),
         'ensure_helpers still stages non-skipped helpers when one helper name is excluded',
     );
 }
@@ -1149,7 +1208,7 @@ ok(
 }
 like(
     Developer::Dashboard::InternalCLI::_repo_private_cli_root(),
-    qr/share\/private-cli\z/,
+    qr/share[\\\/]private-cli\z/,
     'internal CLI resolves helper assets from share/private-cli in the repo tree',
 );
 {
@@ -1742,16 +1801,23 @@ like(
     'resolve_ticket_request rejects non-array argv containers',
 );
 my $isolated_ticket_env_cwd = tempdir( CLEANUP => 1 );
-is_deeply(
-    Developer::Dashboard::CLI::Ticket::ticket_environment( 'DD-123', cwd => $isolated_ticket_env_cwd ),
-    {
-        TICKET_REF                      => 'DD-123',
-        B                               => 'DD-123',
-        OB                              => 'origin/DD-123',
-        DEVELOPER_DASHBOARD_TMUX_STATUS => 1,
-    },
-    'ticket_environment builds the expected tmux environment values',
-);
+{
+    # The .env walk stops at the home directory, so point the home at
+    # the fixture root: a stray .env in a real ancestor must not leak
+    # into this comparison.
+    local $ENV{HOME}        = $isolated_ticket_env_cwd;
+    local $ENV{USERPROFILE} = $isolated_ticket_env_cwd;
+    is_deeply(
+        Developer::Dashboard::CLI::Ticket::ticket_environment( 'DD-123', cwd => $isolated_ticket_env_cwd ),
+        {
+            TICKET_REF                      => 'DD-123',
+            B                               => 'DD-123',
+            OB                              => 'origin/DD-123',
+            DEVELOPER_DASHBOARD_TMUX_STATUS => 1,
+        },
+        'ticket_environment builds the expected tmux environment values',
+    );
+}
 like(
     _dies( sub { Developer::Dashboard::CLI::Ticket::ticket_environment('') } ),
     qr/Ticket name is required/,
@@ -1759,6 +1825,11 @@ like(
 );
 {
     my $workspace_root = tempdir( CLEANUP => 1 );
+    # The .env walk stops at the home directory, so point the home at
+    # the fixture root: a stray .env in a real ancestor must not leak
+    # into this layered comparison.
+    local $ENV{HOME}        = $workspace_root;
+    local $ENV{USERPROFILE} = $workspace_root;
     my $workspace_parent = File::Spec->catdir( $workspace_root, 'parent' );
     my $workspace_child  = File::Spec->catdir( $workspace_parent, 'child' );
     make_path($workspace_child);
@@ -1778,6 +1849,25 @@ like(
         'CHILD_ONLY:PARENT_ONLY:ROOT_ONLY:SHARED',
         'workspace_environment records the layered .env keys for later tmux session refresh',
     );
+}
+{
+    # The .env walk stops at the home directory: a stray .env above the
+    # home must not leak into the workspace, while the home's own .env
+    # still loads as the topmost layer.
+    my $outer = tempdir( CLEANUP => 1 );
+    my $home  = File::Spec->catdir( $outer, 'home' );
+    my $child = File::Spec->catdir( $home, 'workspace', 'child' );
+    make_path($child);
+    local $ENV{HOME}        = $home;
+    local $ENV{USERPROFILE} = $home;
+    _write_file( File::Spec->catfile( $outer, '.env' ), "LEAKED=yes\n" );
+    _write_file( File::Spec->catfile( $home, '.env' ), "HOME_ONLY=home\n" );
+    _write_file( File::Spec->catfile( $child, '.env' ), "CHILD_ONLY=child\n" );
+
+    my $bounded_env = Developer::Dashboard::CLI::Ticket::workspace_environment( 'DD-123', cwd => $child );
+    is( $bounded_env->{HOME_ONLY}, 'home', 'workspace_environment still loads the home .env as the topmost layer' );
+    is( $bounded_env->{CHILD_ONLY}, 'child', 'workspace_environment still loads the current directory .env under a bounded walk' );
+    ok( !defined $bounded_env->{LEAKED}, 'workspace_environment does not load a .env above the home directory' );
 }
 is(
     Developer::Dashboard::CLI::Ticket::session_exists(
@@ -1911,6 +2001,11 @@ ok( !$existing_ticket_plan->{create}, 'build_ticket_plan skips creation for exis
 }
 {
     my $workspace_root = tempdir( CLEANUP => 1 );
+    # The .env walk stops at the home directory, so point the home at
+    # the fixture root: a stray .env in a real ancestor must not leak
+    # into the refreshed session.
+    local $ENV{HOME}        = $workspace_root;
+    local $ENV{USERPROFILE} = $workspace_root;
     my $workspace_parent = File::Spec->catdir( $workspace_root, 'parent' );
     my $workspace_child  = File::Spec->catdir( $workspace_parent, 'child' );
     make_path($workspace_child);
@@ -2289,7 +2384,7 @@ exit 0
 SH
     );
     chmod 0755, $fake_tmux or die "Unable to chmod $fake_tmux: $!";
-    local $ENV{PATH} = join ':', $fake_bin, ( $ENV{PATH} || '' );
+    local $ENV{PATH} = join $Config{path_sep}, $fake_bin, ( $ENV{PATH} || '' );
     my $tmux_result = Developer::Dashboard::CLI::Ticket::tmux_command(
         args => [ 'attach-session', '-t', 'DD-800' ],
     );
@@ -2765,7 +2860,7 @@ exit 0
 SH
     0755,
 );
-local $ENV{PATH} = join ':', $fake_bin, ( $ENV{PATH} || () );
+local $ENV{PATH} = join $Config{path_sep}, $fake_bin, ( $ENV{PATH} || () );
 
 my $skill_paths = Developer::Dashboard::PathRegistry->new( home => File::Spec->catdir( $ENV{HOME}, 'skills-home' ) );
 my $manager = Developer::Dashboard::SkillManager->new( paths => $skill_paths );
@@ -3061,7 +3156,7 @@ like( $manager->install('https://example.invalid/not-a-repo.git')->{error}, qr/F
         0755,
     );
 
-    local $ENV{PATH} = $rsync_fail_bin . ':' . ( $ENV{PATH} || '' );
+    local $ENV{PATH} = $rsync_fail_bin . $Config{path_sep} . ( $ENV{PATH} || '' );
     local *Developer::Dashboard::SkillManager::_rsync_available = sub { 1 };
 
     like(
@@ -3163,19 +3258,23 @@ ok(
     -d File::Spec->catdir( $dep_skill_root, 'skills', 'shared-local-skill' ),
     'skill ddfile.local dependencies are installed into the owning skill private skills tree',
 );
+# Path fragments for the log assertions below, in the single separator
+# spelling _portable_path() gives both sides on Windows.
+my $portable_home           = _portable_path( $ENV{HOME} );
+my $portable_dep_skill_root = _portable_path($dep_skill_root);
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
 close $cpanm_log_fh;
 is( $cpanm_steps[-4], 'PERL_MM_USE_DEFAULT=1 NONINTERACTIVE_TESTING=1 PERL_CANARY_STABILITY_NOPROMPT=1', '_install_skill_dependencies forces non-interactive CPAN environment defaults for cpanfile installs' );
-like( $cpanm_steps[-3], qr/^--notest -L \Q$ENV{HOME}\/skills-home\/perl5\E --cpanfile .*\/cpanfile --installdeps \.$/, '_install_skill_dependencies installs cpanfile dependencies into HOME perl5 with cpanm --notest from the skill root itself' );
+like( _portable_path( $cpanm_steps[-3] ), qr/^--notest -L \Q$portable_home\E\/skills-home\/perl5 --cpanfile .*\/cpanfile --installdeps \.$/, '_install_skill_dependencies installs cpanfile dependencies into HOME perl5 with cpanm --notest from the skill root itself' );
 is( $cpanm_steps[-2], 'PERL_MM_USE_DEFAULT=1 NONINTERACTIVE_TESTING=1 PERL_CANARY_STABILITY_NOPROMPT=1', '_install_skill_dependencies forces non-interactive CPAN environment defaults for cpanfile.local installs' );
-like( $cpanm_steps[-1], qr/^--notest -L .*\/perl5 --cpanfile .*\/cpanfile\.local --installdeps \.$/, '_install_skill_dependencies installs cpanfile.local dependencies into the skill-local perl5 root with cpanm --notest from the skill root itself' );
+like( _portable_path( $cpanm_steps[-1] ), qr/^--notest -L .*\/perl5 --cpanfile .*\/cpanfile\.local --installdeps \.$/, '_install_skill_dependencies installs cpanfile.local dependencies into the skill-local perl5 root with cpanm --notest from the skill root itself' );
 open my $npm_log_fh, '<', $npx_log or die "Unable to read $npx_log: $!";
 my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npm_log_fh>;
 close $npm_log_fh;
 like(
     _portable_path($npm_steps[-1]),
-    qr/^--yes npm install dep-skill-runtime\@\^1\.2\.3 dep-skill-dev\@\^4\.5\.6\|cwd=\Q$ENV{HOME}\E\/skills-home\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
+    qr/^--yes npm install dep-skill-runtime\@\^1\.2\.3 dep-skill-dev\@\^4\.5\.6\|cwd=\Q$portable_home\E\/skills-home\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
     '_install_skill_dependencies stages package.json work under the dashboard runtime cache through npx instead of using bare HOME as the npm project root',
 );
 open my $python_log_fh, '<', $python_log or die "Unable to read $python_log: $!";
@@ -3206,7 +3305,7 @@ my @docker_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$docker_log_f
 close $docker_log_fh;
 like(
     _portable_path($docker_steps[-1]),
-    qr/^build -t dep-skill -f \Q$dep_skill_root\E\/dockerfile \Q$dep_skill_root\E\|cwd=\Q$dep_skill_root\E$/,
+    qr/^build -t dep-skill -f \Q$portable_dep_skill_root\E\/dockerfile \Q$portable_dep_skill_root\E\|cwd=\Q$portable_dep_skill_root\E$/,
     '_install_skill_dependencies builds dockerfile-based skill images from the installed skill root',
 );
 {
@@ -3292,7 +3391,10 @@ ok( !$home_manifest_result->{error}, '_install_skill_package_json ignores an npm
   or diag $home_manifest_result->{error};
 ok( -d File::Spec->catdir( $ENV{HOME}, 'skills-home', 'node_modules', 'left-pad' ), '_install_skill_package_json still lands packages in the manager HOME node_modules tree when HOME/package.json is npm-invalid' );
 {
-    local $ENV{PATH} = $fake_bin;
+    # Windows keeps its own system directory on PATH: the product secures
+    # the runtime tree with icacls there, and Windows has no cp either way.
+    local $ENV{PATH} = join $Config{path_sep}, $fake_bin,
+      ( $^O eq 'MSWin32' ? File::Spec->catdir( $ENV{SystemRoot} || 'C:\\Windows', 'System32' ) : () );
     my $portable_copy_result = $manager->_install_skill_package_json($home_manifest_skill);
     ok( !$portable_copy_result->{error}, '_install_skill_package_json merges staged Node dependencies without requiring a Unix cp command on PATH' )
       or diag $portable_copy_result->{error};
@@ -4311,6 +4413,9 @@ is_deeply(
 use strict;
 use warnings;
 $| = 1;
+# Raw handles: a Windows text-mode handle would add "\r" to every line.
+binmode STDOUT;
+binmode STDERR;
 print "stream-out:$ENV{SKILL_COMMAND}\n";
 print STDERR "stream-err\n";
 exit 7;
@@ -4343,6 +4448,9 @@ PERL
 #!/usr/bin/env perl
 use strict;
 use warnings;
+# Raw handles: a Windows text-mode handle would add "\r" to every line.
+binmode STDOUT;
+binmode STDERR;
 print "stream-last-result\n";
 exit 0;
 PERL
@@ -4384,6 +4492,9 @@ PERL
 use strict;
 use warnings;
 $| = 1;
+# Raw handles: a Windows text-mode handle would add "\r" to every line.
+binmode STDOUT;
+binmode STDERR;
 my $line = <STDIN>;
 $line = '' if !defined $line;
 print "stdin:$line";
@@ -4440,6 +4551,9 @@ PERL
 use strict;
 use warnings;
 $| = 1;
+# Raw handles: a Windows text-mode handle would add "\r" to every line.
+binmode STDOUT;
+binmode STDERR;
 print "hook-stream-out\n";
 print STDERR "hook-stream-err\n";
 exit 4;
@@ -4576,7 +4690,27 @@ PERL
     ok( $exec_result->{success}, 'exec_command still reaches the final command runner when hooks return no last_result payload' );
     ok( !defined $exec_result->{last_result}, 'exec_command clears the previous RESULT payload when hooks return no last_result data' );
 }
-{
+if ( $^O eq 'MSWin32' ) {
+
+    # Windows has no process-replacing exec: _exec_replacement runs the
+    # command with system() and exits with its status, so the failure shows
+    # as the command processor's own error text and a non-zero exit code.
+    local $EXIT_FAKE      = 1;
+    local $EXIT_FAKE_CODE = undef;
+    my ( undef, $stderr, $died ) = capture {
+        return eval { $dispatcher->_exec_replacement( ['/definitely/missing-skill-command'], [] ); 1 } ? '' : "$@";
+    };
+    like(
+        $stderr,
+        qr/not recognized|cannot find/i,
+        '_exec_replacement leaves the underlying command failure visible on stderr',
+    );
+    ok(
+        $died eq "EXIT_FAKE\n" && defined $EXIT_FAKE_CODE && $EXIT_FAKE_CODE != 0,
+        '_exec_replacement exits with the failed command status when the replacement command cannot be executed',
+    ) or diag "died=[$died] exit=[" . ( $EXIT_FAKE_CODE // 'undef' ) . ']';
+}
+else {
     my ( undef, $stderr, $exec_error ) = capture {
         return $dispatcher->_exec_replacement( ['/definitely/missing-skill-command'], [] );
     };
@@ -4940,11 +5074,83 @@ sub _run_or_die {
 
 sub _write_file {
     my ( $path, $content, $mode ) = @_;
+    my $windows_sh_stub = $^O eq 'MSWin32' && $content =~ m{\A#!/bin/sh\b} ? 1 : 0;
     open my $fh, '>', $path or die "Unable to write $path: $!";
+
+    # sh rejects the "\r" a Windows text-mode handle adds to every line.
+    # The Git for Windows shell also reports $PWD in its own /tmp or /c form;
+    # "pwd -W" gives the Windows spelling the product and the assertions use.
+    if ($windows_sh_stub) {
+        binmode $fh;
+        $content =~ s/"\$PWD"/"\$(pwd -W)"/g;
+    }
     print {$fh} $content;
     close $fh;
     chmod( $mode || 0644, $path ) or die "Unable to chmod $path: $!";
+
+    # Windows program search cannot run an extensionless sh script, so each
+    # fake command gets a batch twin that hands the same script and argv to
+    # the POSIX shell that ships with Git for Windows.
+    if ($windows_sh_stub) {
+        my $twin = "$path.bat";
+        open my $twin_fh, '>', $twin or die "Unable to write $twin: $!";
+        my $shell = _posix_shell_binary('sh');
+        my ( $shell_volume, $shell_dir ) = File::Spec->splitpath($shell);
+
+        # The shell is not started as a login shell, so its own tool
+        # directory (mkdir and friends) goes on PATH for the script.
+        print {$twin_fh} sprintf qq{\@set "PATH=%s;%%PATH%%"\n\@"%s" "%s" %%*\n},
+          File::Spec->catpath( $shell_volume, $shell_dir, '' ), $shell, _msys_path($path);
+        close $twin_fh;
+    }
     return 1;
+}
+
+# _posix_shell_binary($preferred)
+# Resolves a POSIX shell for the fake command stubs. Windows has no sh on
+# PATH, so the shell that ships with Git for Windows is located from git.exe
+# on PATH or the Program Files Git install; elsewhere the name is returned
+# unchanged.
+# Input: preferred shell name such as sh.
+# Output: shell path on Windows, or the preferred name unchanged.
+sub _posix_shell_binary {
+    my ($preferred) = @_;
+    return $preferred if $^O ne 'MSWin32';
+
+    my @roots;
+    my %seen;
+    for my $dir ( split /;/, $ENV{PATH} // '' ) {
+        my $git = File::Spec->catfile( $dir, 'git.exe' );
+        next if !-f $git;
+        my ( $volume, $dirs ) = File::Spec->splitpath($git);
+        my @parts = grep { $_ ne '' } File::Spec->splitdir($dirs);
+        pop @parts while @parts && $parts[-1] =~ /\A(?:cmd|bin|mingw64|mingw32)\z/i;
+        my $root = File::Spec->catdir( $volume . File::Spec->rootdir(), @parts );
+        push @roots, $root if !$seen{$root}++;
+        last;
+    }
+    for my $program_files ( grep { defined && $_ ne '' } $ENV{ProgramFiles}, $ENV{'ProgramFiles(x86)'} ) {
+        my $root = File::Spec->catdir( $program_files, 'Git' );
+        push @roots, $root if !$seen{$root}++;
+    }
+    for my $root (@roots) {
+        my $shell = File::Spec->catfile( $root, 'usr', 'bin', "$preferred.exe" );
+        return $shell if -f $shell;
+    }
+    return $preferred;
+}
+
+# _msys_path($path)
+# Rewrites a Windows path into the form the Git for Windows shell accepts as
+# a script argument.
+# Input: file path.
+# Output: /c/dir/file style path on Windows, or the path unchanged.
+sub _msys_path {
+    my ($path) = @_;
+    return $path if $^O ne 'MSWin32';
+    $path =~ s{\\}{/}g;
+    $path =~ s{\A([A-Za-z]):}{'/' . lc($1)}e;
+    return $path;
 }
 
 # _read_file($path)

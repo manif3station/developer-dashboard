@@ -494,9 +494,12 @@ SKIP: {
     like( $full, qr/\[stdout\]\nout-without-newline\n/, 'stdout is rendered with a normalized trailing newline' );
     like( $full, qr/\[stderr\]\nerr\n/, 'stderr is rendered in its own section' );
     like( $full, qr/\[error\]\nboom\n/, 'an error is rendered in its own section' );
-    is( sprintf( '%04o', ( stat $collector->collector_paths($name)->{log} )[2] & 07777 ), '0600', 'serialized log appends keep the collector log owner-only' );
-    my $lock = File::Spec->catfile( $collector->collector_paths($name)->{dir}, '.log.lock' );
-    is( sprintf( '%04o', ( stat $lock )[2] & 07777 ), '0600', 'the collector log lock is owner-only' );
+  SKIP: {
+        skip 'Unix permission modes are not a Windows security control', 2 if $^O eq 'MSWin32';
+        is( sprintf( '%04o', ( stat $collector->collector_paths($name)->{log} )[2] & 07777 ), '0600', 'serialized log appends keep the collector log owner-only' );
+        my $lock = File::Spec->catfile( $collector->collector_paths($name)->{dir}, '.log.lock' );
+        is( sprintf( '%04o', ( stat $lock )[2] & 07777 ), '0600', 'the collector log lock is owner-only' );
+    }
 }
 
 {

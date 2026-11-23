@@ -650,7 +650,11 @@ sub _config_snapshot_watch_paths {
             return if $parent eq $directory;
             $directory = $parent;
         }
-        $watch{$directory} = 1;
+        # Canonicalise so the root is in native form: File::Basename::dirname
+        # yields '/' for a forward-slash path even on Windows, but
+        # File::Spec->rootdir is '\' there, and watch paths must match the
+        # native form the rest of the code (and the tests) expect.
+        $watch{ File::Spec->canonpath($directory) } = 1;
     };
 
     my @runtime_roots = $paths->runtime_roots;
@@ -3138,7 +3142,7 @@ sub _saved_nav_items_handle_watch_error {
 # _nav_ids_for_roots($dashboards_roots)
 # Returns the ordered, de-duplicated saved navigation ids for dashboard layers.
 # It reuses only the filename inventory while each nav directory's high-resolution
-# identity and timestamps are unchanged; page contents are still loaded fresh.
+# identity, timestamps and child entry names are unchanged; page contents are still loaded fresh.
 # Input: array reference of dashboard roots in lookup order.
 # Output: array reference of sorted nav/*.tt ids.
 sub _nav_ids_for_roots {
@@ -3156,6 +3160,26 @@ sub _nav_ids_for_roots {
         my @stat = Time::HiRes::stat($nav_root);
         die "Unable to inspect saved navigation directory '$nav_root': $!\n" if !@stat;
         push @signature, $nav_root, @stat[ 0, 1, 2, 4, 5, 7, 9, 10 ];
+        # Directory timestamps move coarsely on Windows: a file added in the
+        # same tick leaves the stat identity unchanged, so the cached ids
+        # went stale. Fold the sorted child entry names into the signature
+        # so an add, removal or rename invalidates it even when the
+        # directory timestamp does not move. This reads the directory
+        # directly rather than through the scan helpers below: the helpers
+        # are the scan's own path and their test doubles count attempts, so
+        # going through them here would double-count an unopenable
+        # directory. A read or close failure is reported here with the
+        # same message the scan uses, rather than silently producing an
+        # empty child list. An unreadable directory keeps its stat-only
+        # signature; the scan below handles it as before. As in the scan:
+        # readdir does not clear $! on success, so $! is zeroed first.
+        if ( opendir my $dh, $nav_root ) {
+            $! = 0;
+            my @children = sort grep { $_ ne '.' && $_ ne '..' } readdir $dh;
+            die "Unable to read saved navigation directory '$nav_root': $!\n" if $!;
+            closedir $dh or die "Unable to close saved navigation directory '$nav_root': $!\n";
+            push @signature, @children;
+        }
     }
     my $signature = join "\0", @signature;
     my $cached = $self->{_nav_ids_cache};
@@ -4132,11 +4156,28 @@ sub _ip_pairs_from_ip {
     # after this sub returns - a query function must not decide its
     # caller's exit status.
     local $?;
-    return () if !command_in_path('ip');
-    my ( $stdout, undef, $exit_code ) = capture {
-        system 'ip', '-o', '-4', 'addr', 'show', 'up', 'scope', 'global';
-        return $? >> 8;
+    # Resolve first, then execute the resolved absolute path: a bare name
+    # handed to system() is resolved by CreateProcess on Windows, which
+    # only appends .exe, so a .cmd on PATH is invisible to it - the t/08
+    # fake ipconfig.cmd never ran and the real System32 ipconfig.exe
+    # answered instead (micro t/997 proved it). Resolving through
+    # command_in_path, which expands PATHEXT, finds the .cmd, and the
+    # absolute path runs it through cmd (the t/09 _taskkill_command
+    # pattern). No fallback: when the command is absent the helper
+    # returns no addresses, as the t/101/t/105 absence tests pin.
+    my $command = command_in_path('ip');
+    return () if !defined $command || $command eq '';
+    # IP discovery is best effort: a capture failure (for example a bad
+    # file descriptor being duplicated while the caller renders a page)
+    # must not kill the render, so fall back to no addresses and let the
+    # caller use the host or loopback address instead.
+    my ( $stdout, undef, $exit_code ) = eval {
+        capture {
+            system $command, '-o', '-4', 'addr', 'show', 'up', 'scope', 'global';
+            return $? >> 8;
+        };
     };
+    return () if $@;
     return () if $exit_code != 0 || !defined $stdout || $stdout eq '';
     my @pairs;
     for my $line ( split /\n/, $stdout ) {
@@ -4158,11 +4199,21 @@ sub _ip_pairs_from_ipconfig {
     # after this sub returns - a query function must not decide its
     # caller's exit status.
     local $?;
-    return () if !command_in_path('ipconfig');
-    my ( $stdout, undef, $exit_code ) = capture {
-        system 'ipconfig';
-        return $? >> 8;
+    # Resolve first, then execute the resolved absolute path - same
+    # CreateProcess/PATHEXT split as _ip_pairs_from_ip (t/08, micro
+    # t/997); no fallback when the command is absent.
+    my $command = command_in_path('ipconfig');
+    return () if !defined $command || $command eq '';
+    # Same best-effort guard as _ip_pairs_from_ip: a capture failure
+    # must not kill the caller (this is the call that killed t/105
+    # after 387 passing subtests when the descriptor was unusable).
+    my ( $stdout, undef, $exit_code ) = eval {
+        capture {
+            system $command;
+            return $? >> 8;
+        };
     };
+    return () if $@;
     return () if $exit_code != 0 || !defined $stdout || $stdout eq '';
     my @pairs;
     my $iface = '';
@@ -4192,11 +4243,20 @@ sub _ip_pairs_from_ifconfig {
     # after this sub returns - a query function must not decide its
     # caller's exit status.
     local $?;
-    return () if !command_in_path('ifconfig');
-    my ( $stdout, undef, $exit_code ) = capture {
-        system 'ifconfig';
-        return $? >> 8;
+    # Resolve first, then execute the resolved absolute path - same
+    # CreateProcess/PATHEXT split as _ip_pairs_from_ip (t/08, micro
+    # t/997); no fallback when the command is absent.
+    my $command = command_in_path('ifconfig');
+    return () if !defined $command || $command eq '';
+    # Same best-effort guard as _ip_pairs_from_ip: a capture failure
+    # must not kill the caller.
+    my ( $stdout, undef, $exit_code ) = eval {
+        capture {
+            system $command;
+            return $? >> 8;
+        };
     };
+    return () if $@;
     return () if $exit_code != 0 || !defined $stdout || $stdout eq '';
     my @pairs;
     my $iface = '';

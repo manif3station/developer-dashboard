@@ -109,8 +109,11 @@ sub _paths_obj {
     return if $home eq '';
     $PATHS = Developer::Dashboard::PathRegistry->new(
         home            => $home,
-        workspace_roots => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
-        project_roots   => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
+        # catdir, not "$home/$_": string interpolation spells the separator
+        # with a forward slash on every platform, while the registry is
+        # compared against File::Spec spellings.
+        workspace_roots => [ grep { -d } map { File::Spec->catdir( $home, $_ ) } qw(projects src work) ],
+        project_roots   => [ grep { -d } map { File::Spec->catdir( $home, $_ ) } qw(projects src work) ],
     );
     _load_configured_aliases();
     return $PATHS;
@@ -219,7 +222,7 @@ sub locate {
                 no_chdir => 1,
                 wanted   => sub {
                     return if !-d $_;
-                    my $path = $File::Find::name;
+                    my $path = File::Spec->canonpath($File::Find::name);
                     for my $part (@parts) {
                         return if $path !~ /\Q$part\E/i;
                     }
@@ -278,7 +281,10 @@ sub AUTOLOAD {
     return if $name eq 'DESTROY';
     my $path = $class->_resolve_path($name);
     die "Unknown folder '$name'" if !defined $path;
-    make_path($path) if $path ne '' && $path =~ m{^/} && !-e $path;
+    # file_name_is_absolute, not m{^/}: a Windows drive-letter path never
+    # starts with a forward slash, so the old guard never created the
+    # directory there (solo #423, t/112 test 60).
+    make_path($path) if $path ne '' && File::Spec->file_name_is_absolute($path) && !-e $path;
     return $path;
 }
 

@@ -9,6 +9,7 @@ use File::Temp qw(tempdir);
 use File::Spec;
 use File::Path qw(make_path);
 use Cwd ();
+use Capture::Tiny qw(capture_stdout);
 
 use lib 'lib';
 
@@ -23,6 +24,18 @@ sub _without_private_var_prefix {
     my ($path) = @_;
     $path =~ s{\A/private(?=/var/folders/)}{} if defined $path;
     return $path;
+}
+
+# _portable_separators($text)
+# Windows hands back the same path with either separator depending on which
+# API produced it; give both sides of a comparison one spelling.
+# Input: path or output text.
+# Output: the text with backslashes turned into forward slashes on Windows,
+# unchanged elsewhere.
+sub _portable_separators {
+    my ($text) = @_;
+    $text =~ s{\\}{/}g if defined $text && $^O eq 'MSWin32';
+    return $text;
 }
 
 # AC-1: ~/.d2 alone is recognised as the home runtime layer.
@@ -146,27 +159,30 @@ sub _without_private_var_prefix {
         chmod 0755, $cli or die "Unable to make $cli executable: $!";
     }
 
+    # Captured at the file-descriptor level, not through an in-memory handle
+    # aliased over STDOUT: on Windows the path registry secures runtime paths
+    # by launching icacls with the real standard handles saved, redirected and
+    # restored, and that reopen detaches an in-memory STDOUT alias, so the
+    # report printed afterwards would be lost.
     my $which_output = sub {
         my ($name) = @_;
-        my $output = '';
-        open my $output_fh, '>', \$output or die "Unable to capture which output: $!";
-        {
-            local *STDOUT = $output_fh;
+        my $output = capture_stdout {
+            no warnings 'redefine';
             local *Developer::Dashboard::CLI::Which::build_paths = sub { $paths };
             Developer::Dashboard::CLI::Which::run_which_command(
                 command => 'which',
                 args    => [$name],
             );
-        }
-        close $output_fh or die "Unable to close captured output: $!";
-        return $output;
+        };
+        $output =~ s/\r\n/\n/g;
+        return _portable_separators($output);
     };
 
-    my $short_cli = _without_private_var_prefix( "$runtime_roots[0]/cli/in-short-name-folder" );
+    my $short_cli = _portable_separators( _without_private_var_prefix( "$runtime_roots[0]/cli/in-short-name-folder" ) );
     like( $which_output->('in-short-name-folder'),
         qr/^COMMAND \Q$short_cli\E$/m,
         'which resolves a custom command stored only under .d2' );
-    my $long_cli = _without_private_var_prefix( "$runtime_roots[1]/cli/in-long-name-folder" );
+    my $long_cli = _portable_separators( _without_private_var_prefix( "$runtime_roots[1]/cli/in-long-name-folder" ) );
     like( $which_output->('in-long-name-folder'),
         qr/^COMMAND \Q$long_cli\E$/m,
         'which resolves a custom command stored only under .developer-dashboard' );

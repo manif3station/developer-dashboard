@@ -12,7 +12,7 @@ use File::Spec;
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 use Developer::Dashboard::JSON qw(json_encode);
-use Developer::Dashboard::Platform qw(shell_command_argv);
+use Developer::Dashboard::Platform qw(is_windows shell_command_argv);
 use Developer::Dashboard::TimeUtils qw(_now_iso8601);
 
 # new(%args)
@@ -230,6 +230,34 @@ sub _spawn_background_action {
     };
 }
 
+# _terminate_background_child($pid)
+# Ends one supervisor command child, including every descendant it spawned.
+# On Windows the command runs through PowerShell, so the real command is a
+# grandchild: terminating only the direct child orphans it, and the orphan
+# inherits the harness stdio pipe handles (CreateProcess bInheritHandles),
+# so prove never sees EOF and the run stalls after the test prints its plan
+# (round 58: t/121 printed 1..13, then the Windows leg sat silent until the
+# 180s watchdog killed it). CommandRunner::terminate_command_process
+# kills the whole tree (taskkill /T) - the discipline CollectorRunner already
+# follows - so the supervisor uses it on Windows. POSIX commands exec the
+# script directly, so there is no grandchild and the single-pid TERM, grace
+# wait, then KILL sequence stands.
+# Input: direct command child pid integer.
+# Output: true value.
+sub _terminate_background_child {
+    my ($pid) = @_;
+    if ( is_windows() ) {
+        require Developer::Dashboard::CommandRunner;
+        Developer::Dashboard::CommandRunner::terminate_command_process($pid);
+        return 1;
+    }
+    Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
+    _wait_background_child_exit($pid, 0.2);
+    Developer::Dashboard::GoRoutine::terminate_process( $pid, 'KILL' )
+      if !Developer::Dashboard::GoRoutine::process_exited($pid);
+    return 1;
+}
+
 # run_background_supervisor($payload_json)
 # Runs the detached command child, enforcing its timeout and forwarding stop signals.
 # Input: JSON scalar containing the trusted command, cwd, timeout, and log path; environment is inherited.
@@ -244,6 +272,15 @@ sub run_background_supervisor {
     }
     require Developer::Dashboard::GoRoutine;
     my @argv = shell_command_argv( $payload->{command} );
+    # Install the stop handlers BEFORE spawning the child, so a stop signal
+    # arriving while the supervisor is starting is handled instead of lost.
+    # Previously the child was spawned first and the handlers installed
+    # after, so a signal sent immediately after launch (as t/11 does) could
+    # arrive before the handler existed and be discarded, leaving the
+    # supervisor to run until its child finished or its timeout expired.
+    my $stop_signal;
+    local $SIG{TERM} = sub { $stop_signal = 'TERM' };
+    local $SIG{INT}  = sub { $stop_signal = 'INT' };
     my $child_pid = Developer::Dashboard::GoRoutine::spawn(
         \@argv,
         {
@@ -254,15 +291,9 @@ sub run_background_supervisor {
     );
     my $timeout_ms = $payload->{timeout_ms};
     my $deadline = $timeout_ms > 0 ? time() + ( $timeout_ms / 1000 ) : undef;
-    my $stop_signal;
-    local $SIG{TERM} = sub { $stop_signal = 'TERM' };
-    local $SIG{INT}  = sub { $stop_signal = 'INT' };
     while (1) {
         if ($stop_signal) {
-            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'TERM' );
-            _wait_background_child_exit($child_pid, 0.2);
-            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'KILL' )
-              if !Developer::Dashboard::GoRoutine::process_exited($child_pid);
+            _terminate_background_child($child_pid);
             Developer::Dashboard::GoRoutine::wait_process($child_pid);
             return 0;
         }
@@ -270,10 +301,7 @@ sub run_background_supervisor {
             return Developer::Dashboard::GoRoutine::wait_process($child_pid);
         }
         if ( defined $deadline && time() >= $deadline ) {
-            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'TERM' );
-            _wait_background_child_exit($child_pid, 0.2);
-            Developer::Dashboard::GoRoutine::terminate_process( $child_pid, 'KILL' )
-              if !Developer::Dashboard::GoRoutine::process_exited($child_pid);
+            _terminate_background_child($child_pid);
             Developer::Dashboard::GoRoutine::wait_process($child_pid);
             return 124;
         }
@@ -343,6 +371,15 @@ sub _read_process_state {
         local $/;
         my $stat = scalar <$fh>;
         return $1 if $stat =~ /^\d+\s+\(.*\)\s+(\S)/s;
+    }
+
+    if ( is_windows() ) {
+        # ps does not exist on Windows, so a state that procfs did not
+        # supply is simply unavailable. Callers already treat undef as
+        # unknown; spawning cmd.exe for a ps that can never exist would
+        # only waste a process and surface its "not recognized" text
+        # through the capture.
+        return;
     }
 
     my ( $stdout, undef, $exit_code ) = capture {

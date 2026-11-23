@@ -170,6 +170,13 @@ sub _run_log_command {
     my $output = _render_log_sources( $sources, $scope, $name );
     $output = _timestamp_log_text($output) if $timestamps;
     $output = _tail_log_text( $output, $lines ) if defined $lines;
+
+    # On Windows, STDOUT starts in text (:crlf) mode when it is a pipe, so
+    # every "\n" the command prints becomes "\r\n" in the streamed log
+    # lines. The log content must be passed through unchanged, so switch
+    # STDOUT to binary mode before the initial print as well as the follow
+    # loop, as PageRuntime does for streamed ajax output.
+    binmode STDOUT if $^O eq 'MSWin32';
     print $output;
     _follow_log_sources(
         sources     => $sources,
@@ -258,6 +265,7 @@ sub _follow_log_sources {
     my $old_stdout = select STDOUT;
     $| = 1;
     select $old_stdout;
+
     while (1) {
         sleep 0.1;
         my $current = _read_log_sources(
@@ -274,6 +282,13 @@ sub _follow_log_sources {
             my $new_text = substr( $text, $old_offset );
             if ( $new_text ne '' ) {
                 $new_text = _timestamp_log_text($new_text) if $args{timestamps};
+                # On Windows, the poll's source read re-enables :crlf
+                # translation on STDOUT, so the single binmode in
+                # _run_log_command does not survive the first poll and
+                # each followed chunk would gain a \r. Re-assert binary
+                # mode here so the followed lines keep the snapshot's
+                # \n endings.
+                binmode STDOUT if $^O eq 'MSWin32';
                 print $new_text;
             }
             $offset{$source} = length $text;

@@ -28,11 +28,13 @@ use Developer::Dashboard::ProcessSupervision qw(
     _pid_namespace_id
     _powershell_command
     _powershell_single_quote
+    _taskkill_command
     _process_exists
     _read_process_env_marker
     _reap_child_process
     _rename_path
     _replace_state_file
+    _source_is_movable
     _unlink_path
     _helper_file_supports_internal_command
     _same_pid_namespace
@@ -195,6 +197,16 @@ sub _start_web_background {
         if (@listener_pids && $self->_port_accepting_connections($port)) {
             my $listener_pid = $listener_pids[0];
             $listener_pid = $pid if !$listener_pid;
+            # The spawned helper becomes the Starman master in-process, but
+            # every worker also holds the listen socket, so the ss order may
+            # list a worker first. Recording a worker means stop_web only
+            # ever signals that worker directly: the master survives a stop
+            # whenever listener discovery misses it (for example when the
+            # persisted port is stale) and respawns a replacement worker.
+            # Prefer the spawned pid whenever it is one of the listeners:
+            # it is the master, and also our direct child, so it is the pid
+            # stop_web can terminate and reap.
+            $listener_pid = $pid if grep { $_ == $pid } @listener_pids;
             my $state = {
                 host         => $host,
                 pid          => $listener_pid,
@@ -242,9 +254,23 @@ sub _start_web_windows_background {
 
     my $running;
     for ( 1 .. $self->_runtime_stability_polls ) {
-        my @listener_pids = $self->_listener_pids_for_port($port);
+        # The pid query runs on every poll, as the tests pin: a listener
+        # is adopted as soon as the query reports it, even before the
+        # port accepts connections. But the query's PowerShell fallback
+        # costs ~5-9s per call on Windows (solo #351), and before the
+        # child has bound there is no listener for it to find - every
+        # pre-bind poll paid it. So the query is asked to run its
+        # fallback only once the port accepts: the listener is then up,
+        # netstat finds it directly in the normal case, and the fallback
+        # runs at most once, for a live listener netstat cannot see
+        # (build #98). The flag changes nothing when the port already
+        # accepts, and nothing when netstat sees the listener.
+        my @listener_pids = $self->_listener_pids_for_port( $port, 1 );
         if (@listener_pids) {
             my $listener_pid = $listener_pids[0];
+            # See _start_web_background: prefer the spawned master pid over
+            # a worker that ss happens to list first.
+            $listener_pid = $pid if grep { $_ == $pid } @listener_pids;
             $running = {
                 host         => $host,
                 pid          => $listener_pid,
@@ -456,6 +482,25 @@ sub stop_web {
     if (is_windows()) {
         $self->_send_signal( 'TERM', $pid ) if $pid;
         $self->_send_signal( 'TERM', @listener_pids );
+        # The POSIX branch below stops the saved ajax singleton workers
+        # with the web service; the Windows branch never did, so stop_all
+        # left them running (build #243 failed t/09 test 170 on Windows
+        # with the ajax child still alive after stop_all). Mirror it:
+        # TERM the managed ajax workers, then KILL the ones still alive
+        # after the web shutdown wait. The ajax and legacy sweeps run
+        # back to back over the same process table, so share one scan:
+        # each full enumeration costs a PowerShell Get-CimInstance
+        # Win32_Process (seconds on Windows, solo #351).
+        my @stop_scan = $self->_ps_processes;
+        my @ajax_workers = $self->_managed_ajax_processes( \@stop_scan );
+        my @ajax_worker_pids = map { $_->{pid} } @ajax_workers;
+        $self->_send_signal( 'TERM', @ajax_worker_pids ) if @ajax_worker_pids;
+        # Same gap as the ajax workers above: the POSIX branch also
+        # stops legacy d2 serve processes, the Windows branch never
+        # did, so a stubborn legacy child survived stop_web (build
+        # #246 failed t/09 test 186 on Windows). Mirror it the same way.
+        my @legacy_web_pids = map { $_->{pid} } $self->_find_legacy_web_processes( \@stop_scan );
+        $self->_send_signal( 'TERM', @legacy_web_pids ) if @legacy_web_pids;
         for ( 1 .. 30 ) {
             last if !$self->_wait_for_windows_web_shutdown( $pid, $port, \@listener_pids );
             sleep 0.1;
@@ -463,11 +508,24 @@ sub stop_web {
         my @still_listening = grep { kill 0, $_ } @listener_pids;
         $self->_send_signal( 'KILL', $pid ) if $pid && kill 0, $pid;
         $self->_send_signal( 'KILL', @still_listening );
+        my @lingering_ajax = grep { $self->_pid_is_running($_) } @ajax_worker_pids;
+        $self->_send_signal( 'KILL', @lingering_ajax ) if @lingering_ajax;
+        my @lingering_legacy = grep { $self->_pid_is_running($_) } @legacy_web_pids;
+        $self->_send_signal( 'KILL', @lingering_legacy ) if @lingering_legacy;
         if ( $port && !$self->_wait_for_port_release($port) ) {
             my @late_listeners = grep { kill 0, $_ } $self->_listener_pids_for_port($port);
             $self->_send_signal( 'KILL', @late_listeners );
             $self->_wait_for_port_release($port);
         }
+        # The POSIX branch below reaps the stopped children so a later
+        # liveness check sees them gone; the Windows branch never did.
+        # On Windows an exited GoRoutine child stays in the spawn
+        # registry until it is reaped, and process_running reports
+        # registry membership, so an unreaped listener still read as
+        # running after stop_web (build #261 failed t/09 test 348 on
+        # Windows; micro t/989 proved the child was dead and only the
+        # registry entry survived). Mirror the reap here.
+        $self->_reap_child_processes( $pid, @listener_pids, @legacy_web_pids, @ajax_worker_pids );
         $self->_cleanup_web_files;
         $self->_progress_emit(
             $progress,
@@ -552,22 +610,60 @@ sub _wait_for_unix_web_shutdown {
     return 0;
 }
 
-# _managed_ajax_processes()
+# _managed_ajax_processes($rows)
 # Returns dashboard Ajax singleton workers that belong to the current runtime so
 # web stop and restart actions do not interfere with unrelated dashboard Ajax
 # processes owned by the same user.
-# Input: none.
+# Input: optional process-table rows (array reference as returned by
+# _ps_processes) to search instead of scanning the table again; callers
+# that already hold a scan pass its rows in.
 # Output: list of ajax process hash references for the active runtime root.
+#
+# A real Ajax worker is found two ways. By its adopted title, `d2 ajax:
+# <singleton>`, which _find_processes_by_prefix matches - on a host where
+# the title is observable. And, where procfs exists, by its pre-exec
+# environment marker DEVELOPER_DASHBOARD_AJAX_SINGLETON, which the worker
+# is spawned with (see PageRuntime::_saved_ajax_env). The marker scan is
+# what finds a real worker under qemu user-mode emulation: the worker's
+# literal argv never contains 'd2 ajax:' (only the env var holds the
+# singleton name, and the $0 assignment that would show it is invisible
+# there), so the prefix scan alone can never see it. The scan is a no-op
+# where there is no procfs (Windows, macOS): _read_process_env_marker
+# reads nothing there, so nothing extra is ever matched. A worker's own
+# children inherit its environ, so the scan can also match a descendant of
+# a worker - that descendant belongs to the worker's subtree, and stopping
+# it with the web runtime is the intended outcome, not a false positive.
 sub _managed_ajax_processes {
-    my ($self) = @_;
+    my ( $self, $rows ) = @_;
     my $runtime_root = $self->{paths} ? $self->{paths}->state_root : '';
     my @matches;
-    for my $proc ( $self->_find_processes_by_prefix('d2 ajax:') ) {
+    my %seen_pid;
+    for my $proc ( $self->_find_processes_by_prefix( 'd2 ajax:', $rows ) ) {
         my $marker = $self->_read_process_env_marker( $proc->{pid}, 'DEVELOPER_DASHBOARD_RUNTIME_ROOT' );
         next if defined $marker && $marker ne '' && $marker ne $runtime_root;
         next if defined $marker && $marker eq '' && $runtime_root ne '';
         next if !defined $marker && $self->_procfs_available && $runtime_root ne '';
         push @matches, $proc;
+        $seen_pid{ $proc->{pid} } = 1;
+    }
+    if ( $self->_procfs_available ) {
+        my @table = ref($rows) eq 'ARRAY' ? @{$rows} : $self->_ps_processes;
+        for my $proc ( @table ) {
+            next if $seen_pid{ $proc->{pid} };
+            next if !$self->_proc_owned_by_current_user($proc);
+            my $singleton = $self->_read_process_env_marker( $proc->{pid}, 'DEVELOPER_DASHBOARD_AJAX_SINGLETON' );
+            next if !defined $singleton || $singleton eq '';
+            my $marker = $self->_read_process_env_marker( $proc->{pid}, 'DEVELOPER_DASHBOARD_RUNTIME_ROOT' );
+            next if defined $marker && $marker ne '' && $marker ne $runtime_root;
+            next if defined $marker && $marker eq '' && $runtime_root ne '';
+            next if !defined $marker && $runtime_root ne '';
+            my $title = $self->_read_process_title( $proc->{pid} );
+            push @matches, {
+                %{$proc},
+                args => ( defined $title && $title ne '' ? $title : $proc->{args} ),
+            };
+            $seen_pid{ $proc->{pid} } = 1;
+        }
     }
     return @matches;
 }
@@ -618,6 +714,14 @@ sub _wait_for_any_child_process {
 # Output: number of child processes reaped.
 sub _reap_any_child_processes {
     my ($self) = @_;
+    if ( is_windows() ) {
+        # waitpid(-1) cannot see GoRoutine (CreateProcess) children, so
+        # there is no wait-any equivalent on Windows. The spawn registry
+        # knows every GoRoutine child this process started; reap the ones
+        # that have already exited from there instead.
+        require Developer::Dashboard::GoRoutine;
+        return Developer::Dashboard::GoRoutine::reap_any_exited();
+    }
     my $count = 0;
     while (1) {
         my $reaped = $self->_wait_for_any_child_process(1);
@@ -1485,6 +1589,19 @@ sub _collector_stalled_for_watchdog {
     return 0 if !$latest_epoch;
     my $stale_after = $self->_collector_watchdog_stale_seconds($job);
     return 0 if $stale_after < 1;
+    # A loop that started less than one stale window ago cannot be stalled.
+    # Its first run has not had a full window in which to happen yet, and
+    # the collector status still carries the pre-start last-run timestamp,
+    # so judging the fresh loop on that timestamp restarts a healthy loop
+    # (t/05 test 319, round 78: the supervisor's first poll landed before
+    # the fresh loop's first run and restarted it on the stale timestamp).
+    if ( ref($running_entry) eq 'HASH' && ref( $running_entry->{state} ) eq 'HASH' ) {
+        my $started_at = $running_entry->{state}->{started_at};
+        if ( defined $started_at && $started_at ne '' ) {
+            my $started_epoch = eval { $self->{collectors}->_iso8601_to_epoch($started_at) } || 0;
+            return 0 if $started_epoch && time - $started_epoch < $stale_after;
+        }
+    }
     return time - $latest_epoch > $stale_after ? 1 : 0;
 }
 
@@ -1664,12 +1781,19 @@ sub _start_collector_supervisor {
     require Developer::Dashboard::GoRoutine;
     my @command = $self->_background_collector_supervisor_command;
     my $log = $self->{files}->collector_log;
+    # The supervisor marker travels in the INITIAL environ, exactly like
+    # the web marker: the kernel environ block is fixed at exec, so the
+    # post-exec $ENV assignment in _run_collector_supervisor_child was
+    # invisible to /proc readers on every platform. The child deletes it
+    # from %ENV on entry, so a collector loop it restarts cannot inherit
+    # it and be mistaken for a supervisor.
     my $pid = Developer::Dashboard::GoRoutine::spawn(
         \@command,
         {
             stdin  => File::Spec->devnull(),
             stdout => $log,
             stderr => $log . '.stderr',
+            env    => { DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR => 1 },
         },
     );
     die "Unable to launch detached collector supervisor process\n" if !$pid;
@@ -1715,7 +1839,18 @@ sub _run_collector_supervisor_child {
         $self->_close_inherited_fds( close_ipc => 1 );
     }
 
-    $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR} = 1;
+    # The supervisor marker is NOT assigned here any more. It arrives in
+    # the child's INITIAL environ (see _start_collector_supervisor): the
+    # kernel environ block is fixed at exec, so a post-exec $ENV assignment
+    # is invisible to /proc readers and the marker was a dead recognition
+    # path. It is deleted from %ENV instead, before any collector is
+    # supervised, so a loop this supervisor restarts cannot inherit it and
+    # be mistaken for a supervisor itself. The delete also removes the
+    # marker from the supervisor's own /proc environ block (Perl's delete
+    # calls unsetenv, which rewrites that block), so after the first ~0.2s
+    # of boot no recognition path sees the marker; only the process title
+    # and the helper-command shape can identify the supervisor.
+    delete $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR};
     local $0 = $self->_collector_supervisor_process_title;
     local $COLLECTOR_SUPERVISOR_MANAGER = $self;
     my $shutdown = sub { $self->_shutdown_collector_supervisor('stopped') };
@@ -1727,6 +1862,18 @@ sub _run_collector_supervisor_child {
     local $SIG{INT}  = $shutdown;
     local $SIG{HUP}  = $shutdown;
 
+    # The adopted serve (web) parent the supervisor follows, kept across
+    # loop iterations: pid once a live web pid has been seen, and the
+    # epoch the adopted parent was first seen dead. Empty until the
+    # first live web pid is adopted, so a supervisor started before its
+    # web (restart) or with no web at all (standalone collectors) never
+    # exits on a parent it never had.
+    my $serve_parent = {};
+
+    # Epoch since which no watched loop has been running, for the
+    # quiesce check below. Undef while any watched loop is alive.
+    my $no_live_work_since;
+
     while (1) {
         $self->_reap_any_child_processes;
         my $state = $self->_collector_supervisor_state || {};
@@ -1734,6 +1881,7 @@ sub _run_collector_supervisor_child {
         if ( !@targets ) {
             $self->_shutdown_collector_supervisor('stopped');
         }
+        $self->_check_collector_supervisor_parent( \@targets, $serve_parent );
         $self->_write_collector_supervisor_state(
             {
                 %{$state},
@@ -1759,8 +1907,128 @@ sub _run_collector_supervisor_child {
                 }
             );
         }
+        # Quiesce: a supervisor with no adopted parent (no web at all,
+        # for example a standalone collector start) and no live watched
+        # loop for a continuous period has nothing left to watch, so it
+        # exits instead of idling forever over dead loops. The timer
+        # resets whenever any watched loop is running, so a healthy
+        # supervisor never quiesces. A clean `d2 stop` already stops
+        # the supervisor, so this only covers the killed-run case,
+        # where no stop ever runs; _start_collector_supervisor
+        # respawns on the next collector start. When the loop scan
+        # itself fails, stay alive rather than quiescing blind.
+        if ( !defined $serve_parent->{pid} ) {
+            my @live = eval { $self->{runner}->running_loops };
+            my $scan_failed = $@ ? 1 : 0;
+            my %watched = map { $_ => 1 } @targets;
+            my $any_live = $scan_failed
+              || scalar grep { $watched{ $_->{name} } } @live;
+            if ($any_live) {
+                $no_live_work_since = undef;
+            }
+            else {
+                $no_live_work_since = time if !defined $no_live_work_since;
+                if ( time - $no_live_work_since >= $self->_collector_supervisor_quiesce_seconds ) {
+                    $self->_shutdown_collector_supervisor('quiesced');
+                }
+            }
+        }
         sleep $self->_collector_supervisor_poll_interval;
     }
+}
+
+# _is_starman_worker($pid)
+# Reports whether a pid is a Starman worker process. Workers hold the
+# listen socket like the master, so listener discovery can record one
+# in web.json, but a worker never dies on its own, so it must never be
+# adopted as a supervisor parent. Starman sets a worker's title to
+# "starman worker ..." and the master's to "starman master ...". An
+# unreadable title is not a worker: adoption keeps its previous
+# behaviour when the title cannot be read.
+# Input: process id integer.
+# Output: boolean true when the process title starts with "starman worker".
+sub _is_starman_worker {
+    my ( $self, $pid ) = @_;
+    return 0 if !defined $pid || $pid !~ /\A\d+\z/ || $pid <= 0;
+    my $title = $self->_read_process_title($pid);
+    return 0 if !defined $title;
+    return $title =~ /\Astarman worker\b/ ? 1 : 0;
+}
+
+# _check_collector_supervisor_parent($targets, $parent)
+# Adopts the serve (web) pid as the supervisor's parent and exits
+# once that parent has been dead longer than the grace period, stopping
+# the watched loops on the way out. The spawner pid is deliberately NOT
+# followed: restart and collector-start flows spawn the supervisor from
+# short-lived CLI processes, so spawner-following would kill a healthy
+# supervisor seconds after every restart. Adoption takes a dead pid as
+# well as a live one, with dead_since starting at adoption, so a
+# supervisor that starts after its web has already died still exits
+# once the grace expires instead of idling forever; a new live web
+# re-adopts on the next poll before the grace expires. A live Starman
+# worker is never adopted: workers hold the listen socket like the
+# master, so listener discovery can record one in web.json, but a
+# worker never dies on its own, so a supervisor that adopts it stays
+# alive forever. When web.json names a live worker and no parent is
+# adopted, no adoption happens and the quiesce check applies; when an
+# adopted parent is still alive, it still decides. A supervisor
+# with no web at all (standalone collectors) never adopts here and
+# keeps running while its loops are alive; once all its watched loops
+# have been dead for the quiesce period it exits via the quiesce check
+# in _run_collector_supervisor_child. Parent liveness is _pid_is_running,
+# which is already platform-aware, so the identical code path runs on
+# Windows; no getppid() anywhere (unimplemented on Strawberry Perl).
+# Input: watched collector names array reference, and the parent-state
+# hash reference the caller keeps across loop iterations.
+# Output: never returns once the adopted parent has been dead past the
+# grace period; otherwise undef.
+sub _check_collector_supervisor_parent {
+    my ( $self, $targets, $parent ) = @_;
+    my $web = eval { $self->web_state };
+    my $web_pid;
+    if ( !$@ && $web && defined $web->{pid} && $web->{pid} =~ /\A\d+\z/ && $web->{pid} > 0 ) {
+        $web_pid = $web->{pid} + 0;
+    }
+    my $web_running = defined $web_pid && $self->_pid_is_running($web_pid);
+    if ($web_running) {
+        if ( defined $parent->{pid} && $parent->{pid} == $web_pid ) {
+            # Same pid as already adopted: refresh the grace and stay.
+            # The title was checked at adoption, so there is no
+            # per-poll title read here; on Windows a title read costs
+            # a full process-table enumeration.
+            $parent->{dead_since} = undef;
+            return;
+        }
+        if ( $self->_is_starman_worker($web_pid) ) {
+            # A live worker is not a parent. A live adopted parent
+            # still decides (web.json can name a worker after a
+            # restart that recorded one); otherwise no adoption
+            # happens and the quiesce check applies.
+            return if defined $parent->{pid} && $self->_pid_is_running( $parent->{pid} );
+        }
+        else {
+            $parent->{pid}        = $web_pid;
+            $parent->{dead_since} = undef;
+            return;
+        }
+    }
+    if ( defined $web_pid && !defined $parent->{pid} && !$web_running ) {
+        # Adopt a dead web pid as well. A supervisor that starts after
+        # its web has already died (or whose web.json names a pid from
+        # an earlier run) would otherwise never adopt and never exit.
+        # dead_since starts now, so the grace period still covers a
+        # restart handover, and a new live web re-adopts on the next
+        # poll before the grace expires.
+        $parent->{pid}        = $web_pid;
+        $parent->{dead_since} = time;
+    }
+    return if !defined $parent->{pid};
+    $parent->{dead_since} = time if !defined $parent->{dead_since};
+    return if time - $parent->{dead_since} < $self->_collector_supervisor_parent_grace_seconds;
+    for my $name ( @{$targets} ) {
+        eval { $self->{runner}->stop_loop($name); 1 };
+    }
+    $self->_shutdown_collector_supervisor('parent-gone');
 }
 
 # _shutdown_collector_supervisor($status)
@@ -1820,6 +2088,10 @@ sub _collector_supervisor_running {
     return if !-f $pidfile;
     open my $fh, '<', $pidfile or die "Unable to read $pidfile: $!";
     my $pid = <$fh>;
+    # Close before any cleanup: Windows refuses to unlink a file that is
+    # still open, which left a stale pidfile behind there. CORE::close,
+    # because close in this file is POSIX::close.
+    CORE::close($fh);
     chomp $pid if defined $pid;
     if ( $pid && $pid =~ /^\d+$/ && kill( 0, $pid ) && $self->_same_pid_namespace($pid) && $self->_is_collector_supervisor($pid) ) {
         return $pid + 0;
@@ -1850,12 +2122,32 @@ sub _is_collector_supervisor {
 # process title.
 # Input: process hash reference with args text.
 # Output: boolean match flag.
+#
+# The helper-command shapes also allow one leading emulator token (a
+# whitespace-separated token whose name contains `qemu-`): under qemu
+# user-mode emulation every process shows as
+# `/usr/bin/qemu-aarch64 <real-binary> <args>`, so the supervisor's spawn
+# argv is prefixed by the emulator binary and the anchored patterns below
+# would otherwise never match. Only the emulator token is skipped - the
+# rest of the shape must still match in full, so an unrelated process can
+# never match by sharing a prefix.
 sub _looks_like_collector_supervisor_process {
     my ( $self, $proc ) = @_;
     return 0 if !$proc || !$proc->{args};
     return 1 if $proc->{args} =~ /^d2 collector supervisor$/;
-    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$};
-    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$}i;
+    # The helper's own title between spawn and the supervisor's own $0
+    # assignment: _dashboard-core sets $0 to 'developer-dashboard <command>'
+    # before dispatching, so a booting supervisor carries
+    # 'developer-dashboard collector-supervisor-foreground' for ~2.5s on the
+    # Pi. By then the child has already deleted the environ marker from %ENV
+    # (which removes it from /proc environ too) and the spawn-argv
+    # shape below is gone, so without this pattern the supervisor is
+    # unrecognisable to _is_collector_supervisor for the whole window. A
+    # stop landing in it then sends no signal and the supervisor survives
+    # to respawn the collector (t/05 test 319, round 71).
+    return 1 if $proc->{args} =~ /^developer-dashboard collector-supervisor-foreground(?:\s+.*)?$/;
+    return 1 if $proc->{args} =~ m{^(?:\S*qemu-\S*\s+)?(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$};
+    return 1 if $proc->{args} =~ m{^(?:\S*qemu-\S*\s+)?(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$}i;
     return 0;
 }
 
@@ -1918,7 +2210,8 @@ sub _write_collector_supervisor_state {
     my $tmp = $self->_pending_collector_supervisor_state_file($file);
     open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode( $data || {} );
-    close $fh;
+    # CORE::close: plain close is POSIX::close in this file (raw, no flush).
+    CORE::close $fh;
     $self->{paths}->secure_file_permissions($tmp);
     $self->_replace_state_file( $tmp, $file );
     $self->{paths}->secure_file_permissions($file);
@@ -2012,6 +2305,34 @@ sub _collector_supervisor_poll_interval {
     my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR_POLL_INTERVAL};
     return $value if defined $value && $value =~ /^(?:\d+|\d*\.\d+)$/ && $value > 0;
     return 5;
+}
+
+# _collector_supervisor_parent_grace_seconds()
+# Returns how long the adopted serve parent may be dead before the
+# supervisor exits, in seconds. Covers the restart handover, where the
+# old web is dead and the new one is not up yet.
+# Input: none.
+# Output: positive fractional second grace period.
+sub _collector_supervisor_parent_grace_seconds {
+    my ($self) = @_;
+    my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR_PARENT_GRACE_SECONDS};
+    return $value if defined $value && $value =~ /^(?:\d+|\d*\.\d+)$/ && $value > 0;
+    return 30;
+}
+
+# _collector_supervisor_quiesce_seconds()
+# Returns how long a supervisor with no adopted serve parent may have no
+# live watched loop before it exits, in seconds. Covers the killed-run
+# case, where no stop ever runs and the supervisor would otherwise idle
+# forever over dead loops. A healthy supervisor resets the timer on
+# every pass, so only a sustained dead state quiesces.
+# Input: none.
+# Output: positive fractional second quiesce period.
+sub _collector_supervisor_quiesce_seconds {
+    my ($self) = @_;
+    my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR_QUIESCE_SECONDS};
+    return $value if defined $value && $value =~ /^(?:\d+|\d*\.\d+)$/ && $value > 0;
+    return 600;
 }
 
 # stop_progress_tasks()
@@ -2412,7 +2733,8 @@ sub _write_web_state {
     my $tmp = $self->_pending_web_state_file($file);
     open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode($payload);
-    close $fh;
+    # CORE::close: plain close is POSIX::close in this file (raw, no flush).
+    CORE::close $fh;
     $self->{paths}->secure_file_permissions($tmp);
     $self->_replace_state_file( $tmp, $file );
     $self->{paths}->secure_file_permissions($file);
@@ -2513,7 +2835,7 @@ sub _send_signal {
     return 0 if !@targets;
     if (is_windows()) {
         my $joined = join ',', @targets;
-        my @taskkill = ('taskkill');
+        my @taskkill = (_taskkill_command);
         for my $target (@targets) {
             push @taskkill, '/PID', $target;
         }
@@ -2528,6 +2850,26 @@ sub _send_signal {
         }
         if ( defined $stdout && $stdout =~ /not found/i ) {
             return scalar @targets;
+        }
+        if ( $signal =~ /^(?:TERM|KILL)$/i ) {
+            # taskkill exits non-zero when ANY process in the tree fails,
+            # even when the target itself was terminated: solo #220 saw the
+            # target 9000 and one child terminated, but a just-exited worker
+            # child refused with "The operation attempted is not
+            # supported", so the restart died while the web was already
+            # down and printed plain text instead of JSON. The stop's goal
+            # is the target being gone: verify that directly, with the same
+            # bounded wait the other stop paths use, and only die when a
+            # target is still alive afterwards. Callers re-verify liveness
+            # themselves (stop_web escalates, _ensure_collector_pid_stopped
+            # dies on a survivor), so a target that is verifiably gone can
+            # never be masked by this.
+            for ( 1 .. 20 ) {
+                last if !grep { $self->_pid_is_running($_) } @targets;
+                sleep 0.1;
+            }
+            my @still_running = grep { $self->_pid_is_running($_) } @targets;
+            return scalar @targets if !@still_running;
         }
         die "Failed to stop Windows process ids $joined: $stderr$stdout"
           if $signal =~ /^(?:TERM|KILL)$/i;
@@ -2547,23 +2889,40 @@ sub _is_managed_web {
     return 0 if !$self->_same_pid_namespace($pid);
     my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_WEB_SERVICE' );
     return 1 if defined $marker && $marker eq '1';
+
+    # The persisted-state proof goes before the title read. The title
+    # read costs a full process-table enumeration on Windows (one
+    # PowerShell Get-CimInstance Win32_Process per call, solo #351), and
+    # the readiness waits call this on every poll - while on Windows the
+    # title read almost never proves anything anyway, because $0 never
+    # rewrites the Windows launch command line. When persisted running
+    # state already names this pid and the live socket table confirms it
+    # owns that exact saved listener port, that is the same proof the old
+    # order used for the otherwise-opaque Starman master, so there is
+    # nothing left for the title read to add. When state does not name
+    # this pid, or the socket table does not list it as the owner, fall
+    # through to the title read unchanged: the order changes, the answer
+    # does not. The state check
+    # never returns 0 on its own - a socket that has not appeared yet is
+    # not proof the process is foreign, and the title is the proof the
+    # original order consulted first.
+    my ( $state ) = $self->_read_settled_web_state;
+    if ( ref($state) eq 'HASH'
+        && ( $state->{status} || '' ) eq 'running'
+        && $state->{pid}
+        && $state->{pid} =~ /^\d+$/
+        && $state->{pid} == $pid
+        && defined $state->{port}
+        && $state->{port} =~ /^\d+$/
+        && $state->{port} >= 1 )
+    {
+        return 1
+          if scalar( grep { $_ == $pid } $self->_listener_pids_for_port( $state->{port} ) );
+    }
+
     my $title = $self->_read_process_title($pid);
     return 1 if defined $title && $title =~ /^d2 web:/;
-
-    # Starman replaces the helper's process title with "starman master" and
-    # may re-exec its listener without the helper's runtime marker. Trust that
-    # otherwise opaque process only when persisted running state names this pid
-    # and the live socket table confirms it owns that exact saved listener port.
-    my ( $state ) = $self->_read_settled_web_state;
-    return 0 if ref($state) ne 'HASH'
-      || ( $state->{status} || '' ) ne 'running'
-      || !$state->{pid}
-      || $state->{pid} !~ /^\d+$/
-      || $state->{pid} != $pid
-      || !defined $state->{port}
-      || $state->{port} !~ /^\d+$/
-      || $state->{port} < 1;
-    return scalar( grep { $_ == $pid } $self->_listener_pids_for_port( $state->{port} ) ) ? 1 : 0;
+    return 0;
 }
 
 # _background_web_command(%args)
@@ -2693,21 +3052,47 @@ sub _pkill_perl {
     return;
 }
 
-# _find_processes_by_prefix($prefix)
+# _find_processes_by_prefix($prefix, $rows)
 # Returns running processes whose command lines start with a prefix.
-# Input: prefix string.
+# Input: prefix string and optional process-table rows (array reference
+# as returned by _ps_processes) to search instead of scanning the table
+# again; callers that already hold a scan pass its rows in.
 # Output: list of process hash references.
+#
+# A process also matches when its command line shows it ADOPTING the prefix
+# as its title - a `$0 = "<prefix>..."` (or '$0 = ...') assignment in the
+# program text. Under qemu user-mode emulation the guest's $0 write never
+# reaches the host's /proc, so the adopted title itself is invisible, but
+# the assignment that sets it is still visible in the spawn argv: a fixture
+# child spawned as `perl -e '$0 = "d2 ajax: NAME"; ...'` shows
+# `/usr/bin/qemu-aarch64 /usr/bin/perl -e $0 = "d2 ajax: NAME"; ...`.
+# This is deliberately NOT a plain substring match: the assignment form is
+# precise, and a plain substring would newly match unrelated processes whose
+# own argv merely mentions the pattern - a `pkill -f '^d2 ajax: NAME$'`
+# command line, for example, contains the pattern text but never a $0
+# assignment.
 sub _find_processes_by_prefix {
-    my ( $self, $prefix ) = @_;
+    my ( $self, $prefix, $rows ) = @_;
     my @matches;
-    for my $proc ( $self->_ps_processes ) {
+    my @procs = ref($rows) eq 'ARRAY' ? @{$rows} : $self->_ps_processes;
+    for my $proc ( @procs ) {
         next if !$self->_proc_owned_by_current_user($proc);
         if ( defined $proc->{args} && $proc->{args} =~ /^\Q$prefix\E/ ) {
             push @matches, $proc;
             next;
         }
-        my $title = $self->_read_process_title( $proc->{pid} );
-        next if !defined $title || $title !~ /^\Q$prefix\E/;
+        if ( defined $proc->{args} && $proc->{args} =~ /\$0\s*=\s*\\?["']\Q$prefix\E/ ) {
+            push @matches, $proc;
+            next;
+        }
+        # The title can differ from the scanned arguments (the qemu case
+        # in the header comment), so fall back to a title read. Hand this
+        # scan's rows in: on Windows the title is read out of those very
+        # rows, and a fresh table scan per process would cost one full
+        # PowerShell enumeration each.
+        my $title = $self->_read_process_title( $proc->{pid}, \@procs );
+        next if !defined $title;
+        next if $title !~ /^\Q$prefix\E/ && $title !~ /\$0\s*=\s*\\?["']\Q$prefix\E/;
         push @matches, {
             %{$proc},
             args => $title,
@@ -2716,19 +3101,25 @@ sub _find_processes_by_prefix {
     return @matches;
 }
 
-# _find_web_processes()
+# _find_web_processes($rows)
 # Returns managed or older-compatible dashboard web processes.
-# Input: none.
+# Input: optional process-table rows (array reference as returned by
+# _ps_processes) to search instead of scanning the table again; callers
+# that already hold a scan pass its rows in.
 # Output: list of process hash references.
 sub _find_web_processes {
-    my ($self) = @_;
+    my ( $self, $rows ) = @_;
     my @seen;
     my %seen_pid;
-    for my $proc ( $self->_ps_processes ) {
+    for my $proc ( ref($rows) eq 'ARRAY' ? @{$rows} : $self->_ps_processes ) {
         next if $proc->{pid} == $$;
         next if $seen_pid{ $proc->{pid} }++;
         next if !$self->_proc_owned_by_current_user($proc);
         next if !$self->_looks_like_web_process($proc);
+        my $adopted = $self->_adopted_process_title( $proc->{args} );
+        if ( defined $adopted && $adopted =~ /^d2 web:\s+\S+:\d+$/ ) {
+            $proc = { %{$proc}, args => $adopted };
+        }
         push @seen, $proc;
     }
     return @seen;
@@ -2759,13 +3150,15 @@ sub _proc_owned_by_current_user {
     return ( $proc->{uid} + 0 ) == ( $< + 0 ) ? 1 : 0;
 }
 
-# _find_legacy_web_processes()
+# _find_legacy_web_processes($rows)
 # Returns older-style d2 serve processes.
-# Input: none.
+# Input: optional process-table rows (array reference as returned by
+# _ps_processes) to search instead of scanning the table again; callers
+# that already hold a scan pass its rows in.
 # Output: list of process hash references.
 sub _find_legacy_web_processes {
-    my ($self) = @_;
-    return grep { $_->{args} !~ /^d2 web:/ } $self->_find_web_processes;
+    my ( $self, $rows ) = @_;
+    return grep { $_->{args} !~ /^d2 web:/ } $self->_find_web_processes($rows);
 }
 
 # _looks_like_web_process($proc)
@@ -2776,6 +3169,7 @@ sub _looks_like_web_process {
     my ( $self, $proc ) = @_;
     return 0 if !$proc || !$proc->{pid} || !$proc->{args};
     return 1 if $proc->{args} =~ /^d2 web:\s+\S+:\d+$/;
+    return 1 if $proc->{args} =~ /\$0\s*=\s*\\?["']d2 web:\s+\S+:\d+\\?["']/;
     return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground|web-ssl-backend-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
     return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground|web-ssl-backend-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$}i;
     return 1 if $proc->{args} =~ m{^(?:\S+/env\s+)?perl(?:\s+-\S+)*\s+(?:\S+/)?d2\s+serve(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
@@ -2796,6 +3190,15 @@ sub _ps_processes {
     # status.
     local $?;
     if (is_windows()) {
+        # The emitter uses [char]9, not a double-quoted format string:
+        # double quotes do not survive the argv-to-CommandLine round
+        # trip to powershell -Command (they arrive stripped, and the
+        # -f format then fails to parse), while single quotes leave a
+        # literal backtick-t in the output instead of a tab. Command
+        # lines are flattened to one line first: a child spawned with a
+        # multi-line -e script would otherwise split across output
+        # lines and lose everything after the first newline, including
+        # any $0 assignment it carries.
         my $powershell = _powershell_command;
         return () if !length $powershell;
         my ( $stdout, undef, $exit_code ) = capture {
@@ -2804,14 +3207,15 @@ sub _ps_processes {
                 '-NoLogo',
                 '-NoProfile',
                 '-Command',
-                q{$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | ForEach-Object { $cmd = $_.CommandLine; if ($null -eq $cmd) { $cmd = '' }; [Console]::Out.WriteLine(('{0}`t{1}' -f $_.ProcessId, $cmd)) }},
+                q{$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | ForEach-Object { $cmd = $_.CommandLine; if ($null -eq $cmd) { $cmd = '' }; $cmd = $cmd -replace '\s+', ' '; [Console]::Out.WriteLine($_.ProcessId.ToString() + [char]9 + $cmd) }},
             );
             return $? >> 8;
         };
         return if $exit_code != 0;
+        return () if !defined $stdout;
         my @procs;
         for my $line ( split /\n/, $stdout ) {
-            next if $line !~ /^\s*(\d+)\t?(.*)$/;
+            next if $line !~ /^\s*(\d+)\t(.*)$/;
             push @procs, {
                 pid  => $1 + 0,
                 args => $2,
@@ -2845,12 +3249,15 @@ sub _managed_listener_pids_for_port {
     return grep { $self->_is_managed_web($_) } $self->_listener_pids_for_port($port);
 }
 
-# _listener_pids_for_port($port)
+# _listener_pids_for_port($port, $fallback_when_accepting)
 # Returns TCP listener process ids bound to one port.
-# Input: TCP port integer.
+# Input: TCP port integer and optional flag: when true, the Windows
+# PowerShell fallback runs only while the port accepts connections (a
+# readiness wait passes this, so the fallback is not paid on every
+# pre-bind poll for a listener that cannot exist yet).
 # Output: list of process ids.
 sub _listener_pids_for_port {
-    my ( $self, $port ) = @_;
+    my ( $self, $port, $fallback_when_accepting ) = @_;
 
     # DD-597: system() below mutates the caller's global $? as a side effect;
     # without this guard that stays set in the caller's process after this
@@ -2859,6 +3266,28 @@ sub _listener_pids_for_port {
     local $?;
     return () if !$port;
     if (is_windows()) {
+        # Netstat is ~100x faster than the PowerShell Get-NetTCPConnection
+        # lookup on Windows (~0.03s vs ~4s per call, Jenkins build #98),
+        # and every readiness wait polls this on each iteration
+        # (_start_web_windows_background, _web_runtime_ready,
+        # _wait_for_port_release). At PowerShell prices a stop whose
+        # port-release wait runs its full 50-poll budget burns ~200s and
+        # trips the 3-minute fail-safe (build #98 stop-cleanup). Try the
+        # fast netstat path first; fall back to PowerShell only when
+        # netstat finds no listener.
+        my @netstat_pids = $self->_listener_pids_for_port_via_netstat($port);
+        return @netstat_pids if @netstat_pids;
+        # A readiness wait asks for the fallback only once the port
+        # accepts: before the child has bound there is no listener for
+        # the fallback to find, and each pre-bind poll paid ~5-9s for it
+        # (solo #351: Windows restarts took 112-151s). The fallback still
+        # runs when the port accepts, so a live listener netstat cannot
+        # see (build #98) is still found. Callers that must be sure the
+        # port is free - the shutdown and port-release waits - do not pass
+        # the flag, so their fallback is ungated as before.
+        if ( $fallback_when_accepting && !$self->_port_accepting_connections($port) ) {
+            return ();
+        }
         my $powershell = _powershell_command;
         return () if !length $powershell;
         my ( $stdout, undef, $exit_code ) = capture {
@@ -2875,7 +3304,7 @@ sub _listener_pids_for_port {
             my %seen;
             return grep { !$seen{$_}++ } map { /^\s*(\d+)\s*$/ ? ($1 + 0) : () } split /\n/, $stdout;
         }
-        return $self->_listener_pids_for_port_via_netstat($port);
+        return ();
     }
     if ( !command_in_path('ss') ) {
         my @pids = $self->_listener_pids_for_port_via_lsof($port);
@@ -3154,7 +3583,48 @@ sub _web_runtime_ready {
     if ( is_windows() && $port ) {
         my $ready_polls = 0;
         for ( 1 .. $self->_runtime_stability_polls ) {
-            my @listener_pids = $self->_listener_pids_for_port($port);
+            # Consult running_web BEFORE the listener check, as the
+            # POSIX branch does: the listener stubs in the tests count
+            # running_web calls, so a listener that disappears after a
+            # few running_web polls must be re-checked after them
+            # (build #258 failed t/09 test 237 on Windows because the
+            # listener was checked first and never saw the disappearance).
+            my $running = $self->running_web;
+            # Gate the PowerShell fallback on the port accepting, as
+            # _start_web_windows_background already does: without the flag
+            # every poll while the listener is absent pays the ~5s
+            # Get-NetTCPConnection fallback (solo #351), so this 300-poll
+            # budget burns ~25 minutes of silence and trips the 3-minute
+            # fail-safe (round 51 stalled here inside d2 restart, after
+            # test 202, with zero test failures). With it, an absent
+            # listener costs one fast netstat probe per poll and the budget
+            # is the ~45s it was designed to be; a live listener netstat
+            # cannot see is still found once the port accepts, and the
+            # _port_accepting_connections check below covers the rest.
+            my @listener_pids = $self->_listener_pids_for_port( $port, 1 );
+            # The POSIX branch below adopts the real listener pid once
+            # Starman replaces the startup wrapper; the Windows branch
+            # never did, so the adopted pid was never persisted and the
+            # namespace fallback tests never saw running_web consulted
+            # (build #255 failed t/09 tests 229-231, 237 and 241-242 on
+            # Windows). Mirror the matching and adoption here, keeping
+            # the Windows listening and confirmation shape unchanged.
+            if (@listener_pids) {
+                my $matches_runtime = $running ? $self->_web_runtime_matches_pid( $running, $pid, $port ) : 0;
+                if ( !$matches_runtime && !$self->_same_pid_namespace($pid) ) {
+                    $matches_runtime = 0;
+                }
+                elsif ( !$matches_runtime && $running ) {
+                    $matches_runtime = 1;
+                }
+                if ($matches_runtime) {
+                    $self->_adopt_web_listener_pid(
+                        listener_pid => $listener_pids[0],
+                        state        => $running,
+                    );
+                    $running->{pid} = $listener_pids[0];
+                }
+            }
             my $listening = @listener_pids ? 1 : 0;
             $listening = 1 if !$listening && $self->_port_accepting_connections($port);
             if ($listening) {
@@ -3275,6 +3745,12 @@ sub _web_runtime_matches_pid {
 # _collector_runtime_ready($name, $pid)
 # Confirms that a newly started collector loop became visible and stayed alive
 # long enough to catch an immediate post-ready crash.
+# A single un-ready poll while the loop process is still alive is not
+# evidence the loop died: the loop state file is metadata the child itself
+# rewrites, and a poll can land while a state replace is in flight (the file
+# transiently absent, or briefly holding a stale pid). Only a gone process
+# fails fast; otherwise the confirmation count resets and polling continues
+# until the stability budget is spent.
 # Input: collector name string and process id integer.
 # Output: boolean true when the collector loop became visible and survived the
 # short confirmation window afterwards.
@@ -3297,8 +3773,16 @@ sub _collector_runtime_ready {
             $ready_polls++;
             return 1 if $ready_polls >= $self->_runtime_confirmation_polls;
         }
-        elsif ($ready_polls) {
+        elsif ( !kill( 0, $pid ) ) {
+            # The loop process itself is gone: fail fast instead of burning
+            # the rest of the stability budget waiting on a dead child.
             return 0;
+        }
+        else {
+            # The process is alive but its loop state is transiently
+            # un-ready. Reset the confirmation so it must be consecutive,
+            # and keep polling until the budget is spent.
+            $ready_polls = 0;
         }
         sleep $self->_runtime_poll_interval;
     }
@@ -3362,12 +3846,34 @@ sub _port_accepting_connections {
 
 
 
-# _read_process_title($pid)
+# _adopted_process_title($args)
+# Extracts a $0-assigned process title from a command line. A $0 assignment
+# never rewrites the Windows launch command line, but a child spawned with
+# the assignment in its arguments still carries the assignment text there,
+# so the title is recoverable from the command line even though the live
+# title itself is invisible to another process. The same shape is already
+# what _find_processes_by_prefix matches against. The quotes around the
+# assignment may be backslash-escaped: the Windows spawn layer quotes an
+# argument that contains spaces, so a -e script reaches the process table
+# with its inner double quotes as \" rather than ".
+# Input: command line string.
+# Output: assigned title string or undef when the command line carries no
+# $0 assignment.
+sub _adopted_process_title {
+    my ( $self, $args ) = @_;
+    return if !defined $args || $args eq '';
+    return $2 if $args =~ /\$0\s*=\s*\\?(["'])([^"']+?)\\?\1/;
+    return;
+}
+
+# _read_process_title($pid, $rows)
 # Reads a process command line for matching and diagnostics.
-# Input: process id integer.
+# Input: process id integer and optional process-table rows (array reference
+# as returned by _ps_processes) to search instead of scanning the table
+# again; callers that already hold a scan pass its rows in.
 # Output: command line string or undef.
 sub _read_process_title {
-    my ( $self, $pid ) = @_;
+    my ( $self, $pid, $rows ) = @_;
     # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-590, same shape as
     # DD-585's fix in CollectorRunner.pm and DD-589's fix in IndicatorStore.pm).
     # The ps fallback below runs whenever /proc is unavailable and reads $?
@@ -3384,6 +3890,31 @@ sub _read_process_title {
             $cmdline =~ s/\0/ /g;
             $cmdline =~ s/\s+$//;
             return $cmdline;
+        }
+        return;
+    }
+
+    if ( is_windows() ) {
+        # ps does not exist on Windows, so read the command line from the
+        # process table instead: a $0 assignment never rewrites the
+        # Windows launch command line, but a child spawned with the
+        # assignment in its arguments still carries it there, so the
+        # adopted title is what callers match against. Without an
+        # assignment the command line itself is the title, the same shape
+        # ps args gives on POSIX. A pid the table no longer lists is
+        # simply unknown. Callers already treat undef as unknown;
+        # spawning cmd.exe for a ps that can never exist would only waste
+        # a process and surface its "not recognized" text through the
+        # capture. Callers that already hold a table scan pass its rows
+        # in so this read costs no fresh scan.
+        return if !defined $pid || $pid !~ /^\d+$/;
+        my @table = ref($rows) eq 'ARRAY' ? @{$rows} : $self->_ps_processes;
+        for my $row ( @table ) {
+            next if $row->{pid} != $pid;
+            my $adopted = $self->_adopted_process_title( $row->{args} );
+            return $adopted if defined $adopted;
+            return $row->{args} if defined $row->{args} && $row->{args} ne '';
+            return;
         }
         return;
     }
@@ -3419,6 +3950,13 @@ sub _read_process_state {
         if ( $stat =~ /^\d+\s+\(.*\)\s+(\S)/s ) {
             return $1;
         }
+        return;
+    }
+
+    if ( is_windows() ) {
+        # As _read_process_title above: ps does not exist on Windows, so
+        # a state that procfs did not supply is simply unavailable and
+        # the callers treat undef as unknown.
         return;
     }
 

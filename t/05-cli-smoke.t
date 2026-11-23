@@ -2,6 +2,19 @@ use strict;
 use warnings;
 use utf8;
 
+use FindBin;
+use File::Spec;
+
+# Load the fresh checkout lib first, ahead of the node's blib build, so this
+# process runs the tip's Perl modules exactly like the CLI subprocesses
+# already do (prove's -I only names the blib). Without this the test process
+# runs stale-blib code: the 6.30 PathIdentity hashed the collector state
+# root from the raw abs_path spelling (forward slashes on Windows) while the
+# housekeeper subprocess used the tip's canonpath spelling, so the
+# housekeeper looked in a different state root and silently found no log to
+# rotate (line 1111). Verified by the 1111 micro (builds #67/#68).
+use lib File::Spec->catdir( $FindBin::Bin, '..', 'lib' );
+
 use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::PerlEnv;
@@ -17,6 +30,7 @@ use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::InternalCLI;
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::Platform qw(effective_mode_octal);
 use Encode qw(decode encode);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
@@ -87,9 +101,22 @@ my $built_dashboard_xs = File::Spec->catfile(
     $repo, 'blib', 'arch', 'auto', 'Developer', 'Dashboard', 'Dashboard.' . $Config::Config{dlext},
 );
 if ( -f $built_dashboard_xs ) {
-    my $goroutine_xs_probe = _run(
-        "$perl -I'$lib' -MDeveloper::Dashboard::GoRoutine -e 'print defined(&Developer::Dashboard::GoRoutine::spawn) ? \"spawn\\n\" : \"missing\\n\"'"
-    );
+    # The probe used to run as a -e one-liner, but on Windows the list-form
+    # system() call rebuilds the command line and re-splits an argument that
+    # holds both spaces and double quotes, so the child perl only saw
+    # "print" as its program and exited 0 having printed nothing. Running
+    # the probe from a file keeps the program intact on every platform, the
+    # same approach the PSGI smoke program already takes.
+    my $goroutine_xs_probe_file = File::Spec->catfile( $ENV{HOME}, 'goroutine-xs-probe.pl' );
+    open my $goroutine_xs_probe_fh, '>', $goroutine_xs_probe_file or die "Unable to write $goroutine_xs_probe_file: $!";
+    print {$goroutine_xs_probe_fh} <<'PERL';
+use strict;
+use warnings;
+use Developer::Dashboard::GoRoutine;
+print defined(&Developer::Dashboard::GoRoutine::spawn) ? "spawn\n" : "missing\n";
+PERL
+    close $goroutine_xs_probe_fh or die "Unable to close $goroutine_xs_probe_file: $!";
+    my $goroutine_xs_probe = _run("$perl -I'$lib' -MDeveloper::Dashboard::GoRoutine '$goroutine_xs_probe_file'");
     is( $goroutine_xs_probe, "spawn\n", 'child Perl processes load GoRoutine XSUBs from the current build before an installed older XS copy' );
 }
 # Regression: an existing executable d2 entrypoint must not be
@@ -371,6 +398,10 @@ close $doctor_hook_fh;
 chmod 0700, $doctor_hook or die "Unable to chmod $doctor_hook: $!";
 
 my $doctor_report = json_decode( _run("$perl -I'$lib' '$dashboard' doctor") );
+
+# The doctor audits owner-only permission modes on every platform now
+# (Windows via icacls since the ACL work): the loose bookmark modes are
+# findings everywhere, so the report is not clean before repair.
 ok( !$doctor_report->{ok}, 'd2 doctor reports insecure legacy permissions before repair' );
 ok(
     grep(
@@ -388,7 +419,7 @@ ok(
 );
 ok(
     grep(
-        { ref($_) eq 'HASH' && $_->{stdout} && $_->{stdout} eq "doctor-hook-ok\n" }
+        { ref($_) eq 'HASH' && $_->{stdout} && $_->{stdout} =~ /^doctor-hook-ok\r?\n$/ }
         values %{ $doctor_report->{hooks} || {} }
     ),
     'd2 doctor includes hook stdout in RESULT-backed output',
@@ -396,13 +427,30 @@ ok(
 
 my $doctor_fixed = json_decode( _run("$perl -I'$lib' '$dashboard' doctor --fix") );
 ok( !$doctor_fixed->{ok}, 'd2 doctor --fix still reports the findings it repaired in that run' );
-is( sprintf( '%04o', ( stat($legacy_bookmarks_root) )[2] & 07777 ), '0700', 'd2 doctor --fix tightens legacy bookmark directory permissions' );
-is( sprintf( '%04o', ( stat($legacy_bookmark_file) )[2] & 07777 ), '0600', 'd2 doctor --fix tightens legacy bookmark file permissions' );
+# stat() cannot see the ACL repair on Windows (the mode bits stay 0777/0666
+# after icacls), so read the DACL-derived mode there instead - the same
+# judgement the doctor itself makes.
+if ( $^O eq 'MSWin32' ) {
+    is( effective_mode_octal($legacy_bookmarks_root), '0700', 'd2 doctor --fix tightens legacy bookmark directory permissions' );
+    is( effective_mode_octal($legacy_bookmark_file), '0600', 'd2 doctor --fix tightens legacy bookmark file permissions' );
+}
+else {
+    is( sprintf( '%04o', ( stat($legacy_bookmarks_root) )[2] & 07777 ), '0700', 'd2 doctor --fix tightens legacy bookmark directory permissions' );
+    is( sprintf( '%04o', ( stat($legacy_bookmark_file) )[2] & 07777 ), '0600', 'd2 doctor --fix tightens legacy bookmark file permissions' );
+}
 my $doctor_clean = json_decode( _run("$perl -I'$lib' '$dashboard' doctor") );
 ok( $doctor_clean->{ok}, 'd2 doctor reports success after repair' );
 
-my $managed_core_expected = Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core');
-my $managed_core_stale = $managed_core_expected;
+# Save the staged core's bytes before clobbering them: the test process
+# loads InternalCLI from the node's stale blib tree, so
+# _managed_helper_content() returns the OLD core while the doctor
+# subprocess (fresh dd-source) expects the NEW one. The staged file is
+# provably the expected content (the doctor run above reported ok=1), so
+# build the drift from the saved bytes.
+open my $managed_core_saved_fh, '<:raw', $runtime_dashboard_core or die "Unable to read $runtime_dashboard_core: $!";
+my $managed_core_saved = do { local $/; <$managed_core_saved_fh> };
+close $managed_core_saved_fh or die "Unable to close $runtime_dashboard_core: $!";
+my $managed_core_stale = $managed_core_saved;
 $managed_core_stale .= "\n# stale helper drift\n";
 open my $managed_core_stale_fh, '>:raw', $runtime_dashboard_core or die "Unable to write $runtime_dashboard_core: $!";
 print {$managed_core_stale_fh} $managed_core_stale;
@@ -423,6 +471,9 @@ ok(
 
 my $doctor_helper_fixed = json_decode( _run("$perl -I'$lib' '$runtime_doctor' --fix") );
 ok( !$doctor_helper_fixed->{ok}, 'd2 doctor --fix reports the helper drift it repaired in that run' );
+# The _dashboard-core restage is no longer blanket-deferred on Windows:
+# the lock probe finds the staged helper unlocked here, so --fix repairs
+# the drift on every platform.
 ok(
     grep(
         {
@@ -481,10 +532,32 @@ like($indicator_refresh, qr/docker|project|git/, 'indicator refresh-core works')
 
 my $fake_tmux_dir = File::Spec->catdir( $ENV{HOME}, 'fake-bin' );
 make_path($fake_tmux_dir);
-my $fake_tmux = File::Spec->catfile( $fake_tmux_dir, 'tmux' );
 my $fake_tmux_log = File::Spec->catfile( $ENV{HOME}, 'fake-tmux.log' );
-open my $fake_tmux_fh, '>', $fake_tmux or die "Unable to write $fake_tmux: $!";
-print {$fake_tmux_fh} <<"SH";
+
+# The fake tmux must be runnable by the platform that runs the product:
+# a #!/bin/sh script cannot run where there is no sh. On Windows it is a
+# .cmd file instead, which the product's direct system() call finds through
+# PATHEXT. The PATH joins below use the platform separator for the same
+# reason: joining with ':' mangles the drive-letter entries of a Windows
+# PATH, so the fake bin directory would never be reached.
+my $path_sep = Developer::Dashboard::PerlEnv::path_separator();
+my $fake_tmux;
+if ( $^O eq 'MSWin32' ) {
+    $fake_tmux = File::Spec->catfile( $fake_tmux_dir, 'tmux.cmd' );
+    open my $fake_tmux_fh, '>', $fake_tmux or die "Unable to write $fake_tmux: $!";
+    print {$fake_tmux_fh} <<"CMD";
+\@echo off
+echo %* >> "$fake_tmux_log"
+if "%1"=="show-environment" if "%2"=="TICKET_REF" echo TICKET_REF=DD-123
+if "%1"=="show-environment" if "%2"=="TICKET_REF" exit /b 0
+exit /b 1
+CMD
+    close $fake_tmux_fh or die "Unable to close $fake_tmux: $!";
+}
+else {
+    $fake_tmux = File::Spec->catfile( $fake_tmux_dir, 'tmux' );
+    open my $fake_tmux_fh, '>', $fake_tmux or die "Unable to write $fake_tmux: $!";
+    print {$fake_tmux_fh} <<"SH";
 #!/bin/sh
 printf '%s\n' "\$*" >> '$fake_tmux_log'
 if [ "\$1" = "show-environment" ] && [ "\$2" = "TICKET_REF" ]; then
@@ -493,9 +566,10 @@ if [ "\$1" = "show-environment" ] && [ "\$2" = "TICKET_REF" ]; then
 fi
 exit 1
 SH
-close $fake_tmux_fh;
-chmod 0755, $fake_tmux or die "Unable to chmod $fake_tmux: $!";
-local $ENV{PATH} = join ':', $fake_tmux_dir, ( $ENV{PATH} || () );
+    close $fake_tmux_fh or die "Unable to close $fake_tmux: $!";
+    chmod 0755, $fake_tmux or die "Unable to chmod $fake_tmux: $!";
+}
+local $ENV{PATH} = join $path_sep, $fake_tmux_dir, ( $ENV{PATH} || () );
 local $ENV{TICKET_REF};
 local $ENV{WORKSPACE_REF};
 local $ENV{TMUX} = '';
@@ -533,7 +607,7 @@ SH
     close $fake_git_fh;
     chmod 0755, $fake_git or die "Unable to chmod $fake_git: $!";
 
-    local $ENV{PATH} = join ':', $fake_git_bin_dir, $fake_tmux_dir, grep { defined && $_ ne '' } split /:/, ( $ENV{PATH} || '' );
+    local $ENV{PATH} = join $path_sep, $fake_git_bin_dir, $fake_tmux_dir, grep { defined && $_ ne '' } split /\Q$path_sep\E/, ( $ENV{PATH} || '' );
     local $ENV{TMUX} = '';
     unlink $fake_git_log if -e $fake_git_log;
     my $head_only_ps1 = _run("$perl -I'$lib' '$dashboard' ps1 --jobs 0 --cwd '$fake_git_repo'");
@@ -638,7 +712,14 @@ if ( !$UNDER_COVER ) {
     like( decode( 'UTF-8', $status_response->content ), qr/"alias"\s*:\s*"🔑"/, 'live foreground runtime syncs configured collector indicator icons into system status' );
     ok( Developer::Dashboard::GoRoutine::terminate_process( $live_status_pid, 'TERM' ),
         'live foreground status process stops through the GoRoutine process API' );
-    is( Developer::Dashboard::GoRoutine::wait_process($live_status_pid), 0,
+
+    # On Windows there is no signal delivery to another process, so
+    # terminate_process ends it with TerminateProcess and the exit code is
+    # the XS's 128+signal convention (143 for TERM, as on Unix when a
+    # process dies by SIGTERM). A clean 0 is only possible where the
+    # process can catch SIGTERM and exit itself.
+    my $expected_reap = $^O eq 'MSWin32' ? 143 : 0;
+    is( Developer::Dashboard::GoRoutine::wait_process($live_status_pid), $expected_reap,
         'live foreground status process shuts down cleanly and is reaped through the GoRoutine process API' );
 }
 my $dashboard_log_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'logs', 'dashboard.log' );
@@ -888,7 +969,14 @@ if ( !$UNDER_COVER ) {
             collectors => [
                 {
                     name    => 'cli.collector',
-                    command => q{printf 'cli stdout\n'; printf 'cli stderr\n' >&2},
+                    # printf does not exist on the Windows job PATH and
+                    # collector commands run through PowerShell there, so
+                    # use a portable perl -e with byte-identical output
+                    # (stdout and stderr) instead. The old printf shape
+                    # passed on Windows only vacuously: the PowerShell
+                    # error text echoed the command line, so the log
+                    # assertions below matched without any real output.
+                    command => q{perl -e "print qq(cli stdout\n); print STDERR qq(cli stderr\n)"},
                     cwd     => 'home',
                 },
                 {
@@ -898,7 +986,11 @@ if ( !$UNDER_COVER ) {
                 },
                 {
                     name    => 'templated.collector',
-                    command => q{printf '{"a":123}'},
+                    # printf does not exist on the Windows job PATH and
+                    # collector commands run through PowerShell there, so
+                    # use a portable perl -e with byte-identical output
+                    # instead (same shape as the t/07 TT JSON fixture).
+                    command => q{perl -e "print qq({\"a\":123})"},
                     cwd     => 'home',
                     indicator => {
                         name  => 'templated.indicator',
@@ -1322,9 +1414,12 @@ PL
 
     my ( $bad_stdout, $bad_stderr, $bad_exit ) = _sh_capture("cd '$bad_env_project' && HOME='$bad_env_home' $perl -I'$lib' '$dashboard' show-env");
     ok( $bad_exit != 0, 'dashboard exits non-zero when a participating .env file is malformed' );
+    # The path separator in the reported .env path is a backslash on
+    # Windows and a forward slash everywhere else; match either so the
+    # assertion checks the message, not the platform's separator.
     like(
         decode( 'UTF-8', $bad_stdout . $bad_stderr ),
-        qr/Invalid env line .*bad-env-project\/\.env line 1/,
+        qr/Invalid env line .*bad-env-project[\/\\]\.env line 1/,
         'dashboard reports malformed .env files explicitly instead of hiding the load failure',
     );
 }
@@ -1341,6 +1436,17 @@ my $cwd_search_unique = File::Spec->catdir( $cwd_search_root, 'nested', 'team-al
 make_path( $cwd_search_multi_one, $cwd_search_multi_two, $cwd_search_unique );
 
 my $shell_bootstrap = _run("$perl -I'$lib' '$dashboard' shell bash");
+# The bootstrap spells the entrypoint with forward slashes on Windows
+# (abs_path) while this file's $dashboard uses backslashes (File::Spec),
+# and the perl path is backslashed in both. Compare separator-normalized
+# copies in the assertions below so they check the paths, not the spelling
+# of the separator.
+my $shell_bootstrap_forward = $shell_bootstrap;
+$shell_bootstrap_forward =~ s/\\/\//g;
+my $perl_forward = $perl;
+$perl_forward =~ s/\\/\//g;
+my $dashboard_forward = $dashboard;
+$dashboard_forward =~ s/\\/\//g;
 like( $shell_bootstrap, qr/path cdr/, 'd2 shell bootstrap delegates cdr target selection through the Perl path helper' );
 unlike( $shell_bootstrap, qr/\bperl\s+-MJSON::XS\b/, 'd2 shell bootstrap does not decode helper JSON through a bare perl command that can drift to an incompatible interpreter' );
 like( $shell_bootstrap, qr/\Q$perl\E.*-MJSON::XS/s, 'd2 shell bootstrap decodes helper JSON through the same perl interpreter that generated the bootstrap' );
@@ -1348,15 +1454,17 @@ unlike( $shell_bootstrap, qr/\bd2\(\)\s*\{/, 'd2 shell bash bootstrap no longer 
 like( $shell_bootstrap, qr/complete -F _dashboard_complete d2/, 'd2 shell bash bootstrap wires tab completion for d2' );
 like( $shell_bootstrap, qr/complete -F _dashboard_complete_cdr cdr dd_cdr which_dir/, 'd2 shell bash bootstrap wires cdr-family tab completion' );
 unlike( $shell_bootstrap, qr/done\s+<\s+</, 'd2 shell bash bootstrap avoids process substitution in completion helpers for macOS compatibility' );
-like( $shell_bootstrap, qr/completion_output="\$\('\Q$perl\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard\E' complete /, 'd2 shell bash bootstrap captures dashboard completions through command substitution' );
-like( $shell_bootstrap, qr/\Q$perl\E.*\Q$dashboard\E/s, 'd2 shell bootstrap uses the current Perl runtime for the checkout entrypoint' );
-like( $shell_bootstrap, qr/completion_output="\$\('\Q$perl\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard\E' path complete-cdr /, 'd2 shell bash bootstrap captures cdr completions through command substitution' );
+like( $shell_bootstrap_forward, qr/completion_output="\$\('\Q$perl_forward\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard_forward\E' complete /, 'd2 shell bash bootstrap captures dashboard completions through command substitution' );
+like( $shell_bootstrap_forward, qr/\Q$perl_forward\E.*\Q$dashboard_forward\E/s, 'd2 shell bootstrap uses the current Perl runtime for the checkout entrypoint' );
+like( $shell_bootstrap_forward, qr/completion_output="\$\('\Q$perl_forward\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard_forward\E' path complete-cdr /, 'd2 shell bash bootstrap captures cdr completions through command substitution' );
 {
     local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = '/tmp/stale-dashboard-entrypoint';
     my $stale_entrypoint_bootstrap = _run("$perl -I'$lib' '$dashboard' shell bash");
+    my $stale_entrypoint_forward = $stale_entrypoint_bootstrap;
+    $stale_entrypoint_forward =~ s/\\/\//g;
     like(
-        $stale_entrypoint_bootstrap,
-        qr/completion_output="\$\('\Q$perl\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard\E' complete /,
+        $stale_entrypoint_forward,
+        qr/completion_output="\$\('\Q$perl_forward\E'(?:\s+'-I[^']+')?\s+'\Q$dashboard_forward\E' complete /,
         'd2 shell bash bootstrap ignores a stale inherited d2 entrypoint path',
     );
     unlike(
@@ -1450,7 +1558,7 @@ like( $shell_bootstrap, qr/tmux set-option -q status-position bottom/, 'd2 shell
 like( $shell_bootstrap, qr/tmux set-option -q status 2/, 'd2 shell bash bootstrap enables a two-line tmux status block for ticket sessions' );
 like( $shell_bootstrap, qr/tmux set-option -q status-interval 15/, 'd2 shell bash bootstrap refreshes the tmux status block automatically for ticket sessions without hot-looping' );
 like( $shell_bootstrap, qr/tmux set-option -q 'status-format\[0\]'.*tmux-status-top --width #\{client_width\}/s, 'd2 shell bash bootstrap renders the indicator strip into the first tmux status row' );
-like( $shell_bootstrap, qr/status-format\[0\]' "#\((?:'[^']+'\s+)*'\Q$dashboard\E' ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'd2 shell bash bootstrap renders the tmux ticket indicator row through the explicit d2 entrypoint path' );
+like( $shell_bootstrap_forward, qr/status-format\[0\]' "#\((?:'[^']+'\s+)*'\Q$dashboard_forward\E' ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'd2 shell bash bootstrap renders the tmux ticket indicator row through the explicit d2 entrypoint path' );
 unlike( $shell_bootstrap, qr/status-format\[0\]'? "#\(d2 ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'd2 shell bash bootstrap does not depend on a bare dashboard PATH lookup for tmux ticket status rendering' );
 like( $shell_bootstrap, qr/tmux set-option -q 'status-format\[1\]' "\$_dd_default_status"/, 'd2 shell bash bootstrap restores the normal tmux status row beneath the indicators' );
 like( $shell_bootstrap, qr/_dd_update_prompt\(\)/, 'd2 shell bash bootstrap centralizes prompt refresh through one helper so later distro PS1 assignments cannot permanently override it' );
@@ -1488,7 +1596,7 @@ like( $sh_bootstrap, qr/tmux set-option -q status-interval 15/, 'd2 shell sh boo
 like( $sh_bootstrap, qr/tmux set-option -q 'status-format\[0\]'.*tmux-status-top --width #\{client_width\}/s, 'd2 shell sh bootstrap renders the indicator strip into the first tmux status row' );
 like( $sh_bootstrap, qr/tmux set-option -q 'status-format\[1\]' "\$_dd_default_status"/, 'd2 shell sh bootstrap restores the normal tmux status row beneath the indicators' );
 like( $sh_bootstrap, qr/ps1 --mode compact --no-indicators/, 'd2 shell sh bootstrap suppresses prompt indicators when tmux owns the status line' );
-unlike( $sh_bootstrap, qr/\\j/, 'd2 shell sh bootstrap does not rely on bash-specific job expansion' );
+unlike( $sh_bootstrap, qr/ps1 --jobs \\j/, 'd2 shell sh bootstrap does not rely on bash-specific job expansion' );
 unlike( $sh_bootstrap, qr/\bperl\s+-MJSON::XS\b/, 'd2 shell sh bootstrap does not decode helper JSON through a bare perl command either' );
 like( $sh_bootstrap, qr/\Q$perl\E.*-MJSON::XS/s, 'd2 shell sh bootstrap decodes helper JSON through the same perl interpreter that generated the bootstrap' );
 unlike( $sh_bootstrap, qr/\bd2\(\)\s*\{/, 'd2 shell sh bootstrap no longer defines a d2 shell function because d2 is now a real installed command' );
@@ -1652,14 +1760,16 @@ my $docker_dry_run_data = json_decode($docker_dry_run);
 ok( grep( { $_ eq '-d' } @{ $docker_dry_run_data->{command} } ), 'd2 docker compose leaves short docker passthrough flags such as -d untouched' );
 ok( grep( { $_ eq '--build' } @{ $docker_dry_run_data->{command} } ), 'd2 docker compose leaves docker passthrough flags such as --build untouched' );
 ok( grep( { $_ eq 'green' } @{ $docker_dry_run_data->{services} } ), 'd2 docker compose still infers service names from passthrough args when docker flags are present' );
-ok( grep( { /\/green\/compose\.yml\z/ } @{ $docker_dry_run_data->{files} } ), 'd2 docker compose always includes the green base compose file' );
-ok( !grep( { /\/green\/development\.compose\.yml\z/ } @{ $docker_dry_run_data->{files} } ), 'd2 docker compose omits green development compose until enabled' );
+# The dry-run JSON carries native paths, so on Windows the compose files
+# arrive with backslashes: match either separator in the path regexes below.
+ok( grep( { /[\/\\]green[\/\\]compose\.yml\z/ } @{ $docker_dry_run_data->{files} } ), 'd2 docker compose always includes the green base compose file' );
+ok( !grep( { /[\/\\]green[\/\\]development\.compose\.yml\z/ } @{ $docker_dry_run_data->{files} } ), 'd2 docker compose omits green development compose until enabled' );
 my $docker_development_enable = _run("$perl -I'$lib' '$dashboard' docker development enable green");
 like( $docker_development_enable, qr/"development"\s*:\s*1/, 'd2 docker development enable reports development mode enabled' );
 ok( -f File::Spec->catfile( $docker_green_root, 'develop.yml' ), 'd2 docker development enable creates the develop.yml marker' );
 my $docker_dev_dry_run = json_decode( _run("$perl -I'$lib' '$dashboard' docker compose --dry-run up green") );
-my ($green_base_pos) = grep { $docker_dev_dry_run->{files}[$_] =~ /\/green\/compose\.yml\z/ } 0 .. $#{ $docker_dev_dry_run->{files} };
-my ($green_dev_pos)  = grep { $docker_dev_dry_run->{files}[$_] =~ /\/green\/development\.compose\.yml\z/ } 0 .. $#{ $docker_dev_dry_run->{files} };
+my ($green_base_pos) = grep { $docker_dev_dry_run->{files}[$_] =~ /[\/\\]green[\/\\]compose\.yml\z/ } 0 .. $#{ $docker_dev_dry_run->{files} };
+my ($green_dev_pos)  = grep { $docker_dev_dry_run->{files}[$_] =~ /[\/\\]green[\/\\]development\.compose\.yml\z/ } 0 .. $#{ $docker_dev_dry_run->{files} };
 ok( defined $green_base_pos && defined $green_dev_pos, 'd2 docker compose includes both files after development enable' );
 ok( defined $green_base_pos && defined $green_dev_pos && $green_base_pos < $green_dev_pos, 'd2 docker compose orders the development file after its base file' );
 my $docker_development_disable = _run("$perl -I'$lib' '$dashboard' docker development disable green");
@@ -1669,7 +1779,7 @@ unlink File::Spec->catfile( $docker_green_root, 'development.compose.yml' ) or d
 _run("$perl -I'$lib' '$dashboard' docker development enable green");
 my $docker_missing_dev_dry_run = _run("$perl -I'$lib' '$dashboard' docker compose --dry-run config green");
 like( $docker_missing_dev_dry_run, qr/"files"/, 'd2 docker compose succeeds when develop.yml exists but development.compose.yml is missing' );
-ok( grep( { /\/green\/compose\.yml\z/ } @{ json_decode($docker_missing_dev_dry_run)->{files} } ), 'd2 docker compose retains the base file when the opted-in development file is missing' );
+ok( grep( { /[\/\\]green[\/\\]compose\.yml\z/ } @{ json_decode($docker_missing_dev_dry_run)->{files} } ), 'd2 docker compose retains the base file when the opted-in development file is missing' );
 _run("$perl -I'$lib' '$dashboard' docker development disable green");
 my $fake_bin = File::Spec->catdir( $ENV{HOME}, 'fake-bin' );
 make_path($fake_bin);
@@ -1687,6 +1797,30 @@ fi
 SH
 close $fake_docker_fh;
 chmod 0755, $fake_docker or die "Unable to chmod $fake_docker: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the cpanm/npx/make fakes: the sh fake above is
+    # invisible to Windows program search (PATHEXT needs .exe/.bat/.cmd),
+    # so the product's list-form system('docker', ...) died with
+    # "'docker' is not recognized" (build #76, test 585). The micro in
+    # build #77 proved the extensionless fake is never found even with a
+    # correct ';' PATH, and that a docker.bat twin is found and runs.
+    # Mirrors the sh fake: print a fake compose config when the last arg
+    # is 'config', else echo the invocation.
+    my $fake_docker_bat = File::Spec->catfile( $fake_bin, 'docker.bat' );
+    open my $fake_docker_bat_fh, '>', $fake_docker_bat or die "Unable to write $fake_docker_bat: $!";
+    print {$fake_docker_bat_fh} <<"BAT";
+\@echo off
+set "last="
+for %%A in (%*) do set "last=%%A"
+if "%last%"=="config" (
+    echo services:
+    echo   green: {}
+) else (
+    echo DOCKER:%*
+)
+BAT
+    close $fake_docker_bat_fh;
+}
 my $docker_exec_output = _run("PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' docker compose up -d --build green");
 like( $docker_exec_output, qr/^DOCKER:compose /m, 'd2 docker compose execs the real docker command for non-dry-run invocations' );
 unlike( $docker_exec_output, qr/\"command\"\s*:/, 'd2 docker compose no longer prints JSON envelopes for non-dry-run invocations' );
@@ -1766,6 +1900,22 @@ exit 0
 SH
 close $fake_cpanm_fh;
 chmod 0755, $fake_cpanm or die "Unable to chmod $fake_cpanm: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Windows cannot execute the extensionless sh fake above: CreateProcess
+    # skips it, and Strawberry's cpanm.bat then runs `perl -x -S`, which
+    # finds the fake by plain name and dies "No Perl script found in input"
+    # on its #!/bin/sh line (build #50). A .bat twin with the same logging
+    # behaviour is what Windows actually runs; the micro in build #51
+    # proved the twin runs while the sh fake never does.
+    my $fake_cpanm_bat = File::Spec->catfile( $fake_bin, 'cpanm.bat' );
+    open my $fake_cpanm_bat_fh, '>', $fake_cpanm_bat or die "Unable to write $fake_cpanm_bat: $!";
+    print {$fake_cpanm_bat_fh} <<"BAT";
+\@echo off
+echo %*>>"$fake_cpanm_log"
+exit /b 0
+BAT
+    close $fake_cpanm_bat_fh;
+}
 my $fake_npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
 my $fake_npx = File::Spec->catfile( $fake_bin, 'npx' );
 open my $fake_npx_fh, '>', $fake_npx or die "Unable to write $fake_npx: $!";
@@ -1783,6 +1933,28 @@ exit 0
 SH
 close $fake_npx_fh;
 chmod 0755, $fake_npx or die "Unable to chmod $fake_npx: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the cpanm fake above: the sh fake is invisible
+    # to CreateProcess, so the real Node npx ran instead and npx.log was
+    # never created (build #50 died reading it at line 1974).
+    my $fake_npx_bat = File::Spec->catfile( $fake_bin, 'npx.bat' );
+    open my $fake_npx_bat_fh, '>', $fake_npx_bat or die "Unable to write $fake_npx_bat: $!";
+    print {$fake_npx_bat_fh} <<"BAT";
+\@echo off
+echo %*^|cwd=%CD%>>"$fake_npx_log"
+shift
+shift
+shift
+:loop
+if "%~1"=="" goto done
+for /f "delims=@ tokens=1" %%a in ("%~1") do mkdir "%CD%\\node_modules\\%%a" 2>nul
+shift
+goto loop
+:done
+exit /b 0
+BAT
+    close $fake_npx_bat_fh;
+}
 my $fake_make_log = File::Spec->catfile( $fake_bin, 'make.log' );
 my $fake_make = File::Spec->catfile( $fake_bin, 'make' );
 open my $fake_make_fh, '>', $fake_make or die "Unable to write $fake_make: $!";
@@ -1793,6 +1965,18 @@ exit 0
 SH
 close $fake_make_fh;
 chmod 0755, $fake_make or die "Unable to chmod $fake_make: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the cpanm fake above: no `make` exists on the
+    # Windows node, so without this the Makefile step cannot run at all.
+    my $fake_make_bat = File::Spec->catfile( $fake_bin, 'make.bat' );
+    open my $fake_make_bat_fh, '>', $fake_make_bat or die "Unable to write $fake_make_bat: $!";
+    print {$fake_make_bat_fh} <<"BAT";
+\@echo off
+echo %*^|cwd=%CD%>>"$fake_make_log"
+exit /b 0
+BAT
+    close $fake_make_bat_fh;
+}
 my $fake_sudo = File::Spec->catfile( $fake_bin, 'sudo' );
 open my $fake_sudo_fh, '>', $fake_sudo or die "Unable to write $fake_sudo: $!";
 print {$fake_sudo_fh} <<"SH";
@@ -1882,7 +2066,7 @@ my $portable_npm_stage_root = _portable_path(
 );
 like(
     _portable_output_text($fake_npx_steps[0]),
-    qr/^--yes npm install left-pad\@1\.3\.0\|cwd=\Q$portable_npm_stage_root\E\/npm-install-/,
+    qr/^--yes npm install left-pad\@1\.3\.0\|cwd=\Q$portable_npm_stage_root\E[\/\\]npm-install-/,
     'd2 skills install stages npx-wrapped npm work under the dashboard runtime cache instead of using bare HOME as the npm project root',
 );
 ok(
@@ -1892,13 +2076,14 @@ ok(
 open my $fake_make_log_fh, '<', $fake_make_log or die "Unable to read $fake_make_log: $!";
 my @fake_make_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$fake_make_log_fh>;
 close $fake_make_log_fh;
+my $demo_skill_dir = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'skills', 'demo-skill' );
 is_deeply(
     [ map { _portable_output_text($_) } @fake_make_steps[ -4 .. -1 ] ],
     [ map { _portable_output_text($_) } (
-        "|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-        "test|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-        "install|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-        "clean|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
+        "|cwd=$demo_skill_dir",
+        "test|cwd=$demo_skill_dir",
+        "install|cwd=$demo_skill_dir",
+        "clean|cwd=$demo_skill_dir",
     ) ],
     'd2 skills install runs the default Makefile command chain for skills that ship a Makefile',
 );
@@ -1911,9 +2096,9 @@ close $fake_make_notest_fh;
 is_deeply(
     [ map { _portable_output_text($_) } @fake_make_notest_steps[ -3 .. -1 ] ],
     [ map { _portable_output_text($_) } (
-        "|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-        "install|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
-        "clean|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
+        "|cwd=$demo_skill_dir",
+        "install|cwd=$demo_skill_dir",
+        "clean|cwd=$demo_skill_dir",
     ) ],
     'd2 skills install --notest skips the Makefile test target while still running make, make install, and make clean',
 );
@@ -2284,6 +2469,26 @@ printf '%s\\n' "\$*" > '$fake_editor_log'
 SH
 close $fake_vim_fh;
 chmod 0755, $fake_vim or die "Unable to chmod $fake_vim: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the docker fake: the sh fake above is
+    # invisible to Windows program search, and the product's block-form
+    # system() performs no PATH search or extension probing, so 'vim'
+    # was never found even with a correct ';' PATH (build #81, tests
+    # 694/696, exit 2, log left at the previous test's content). The
+    # micros in builds #82/#83 proved the extensionless fake never runs
+    # and the twin alone does not fix the run either - the product also
+    # needed to resolve the bare editor name to a runnable file first
+    # (OpenFile::_exec_raw). The twin supplies the runnable file the
+    # resolver looks for: it skips the extensionless script and returns
+    # this .bat. Mirrors the sh fake: echo the invocation to the log.
+    my $fake_vim_bat = File::Spec->catfile( $fake_editor_bin, 'vim.bat' );
+    open my $fake_vim_bat_fh, '>', $fake_vim_bat or die "Unable to write $fake_vim_bat: $!";
+    print {$fake_vim_bat_fh} <<"BAT";
+\@echo off
+echo %*>"$fake_editor_log"
+BAT
+    close $fake_vim_bat_fh;
+}
 my $blank_open_all = _run(qq{printf '\\n' | PATH='$fake_editor_bin':"\$PATH" $perl -I'$lib' '$dashboard' of '$open_root' alpha});
 like($blank_open_all, qr/> /, 'd2 of blank-enter chooser still renders the prompt before opening all matches');
 open $fake_editor_log_fh, '<', $fake_editor_log or die "Unable to read $fake_editor_log after blank open-all: $!";
@@ -2412,6 +2617,33 @@ exit 0
 SH
 close $fake_ticket_tmux_fh;
 chmod 0755, $fake_ticket_tmux or die "Unable to chmod $fake_ticket_tmux: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the docker/vim fakes: the sh fake above is
+    # invisible to Windows program search, so 'tmux' was never found
+    # and d2 workspace died with 'Unable to create tmux ticket session'
+    # (build #86, tests 725/726). The micro in build #87 proved the
+    # twin alone fixes the session-creation calls (tmux_command is
+    # list-form system, which finds .bat files), but two details
+    # matter. First, the log line must use the redirect-first form:
+    # 'echo %*>>log' drops a trailing digit, because cmd parses '2>>'
+    # as a stderr redirect - the 'set-option -gq status 2' line was
+    # lost that way on win-ts, while '>>log echo %*' keeps it. Second,
+    # the attach step is a bare exec, which on Windows returns before
+    # the batch completes, so the attach-session line raced the log
+    # read; Ticket::_exec_tmux now runs it synchronously with system.
+    # Mirrors the sh fake: log the invocation, exit 1 when the session
+    # is missing, answer the status-format snapshot, else exit 0.
+    my $fake_ticket_tmux_bat = File::Spec->catfile( $fake_ticket_bin, 'tmux.bat' );
+    open my $fake_ticket_tmux_bat_fh, '>', $fake_ticket_tmux_bat or die "Unable to write $fake_ticket_tmux_bat: $!";
+    print {$fake_ticket_tmux_bat_fh} <<"BAT";
+\@echo off
+>>"$fake_ticket_log" echo %*
+if "%~1"=="has-session" if "%~3"=="DD-NEW" exit /b 1
+if "%~1"=="show-options" if "%~3"=="status-format[0]" echo #[default]DEFAULT-ROW
+exit /b 0
+BAT
+    close $fake_ticket_tmux_bat_fh;
+}
 my $ticket_output = _run("PATH='$fake_ticket_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' workspace DD-NEW");
 is( $ticket_output, '', 'd2 workspace stays quiet on success while tmux handles the terminal attach' );
 open my $fake_ticket_log_fh, '<', $fake_ticket_log or die "Unable to read $fake_ticket_log: $!";
@@ -2424,7 +2656,7 @@ like( $fake_ticket_log_text, qr/^show-options -gqv status-format\[0\]$/m, 'd2 wo
 like( $fake_ticket_log_text, qr/^set-option -gq status-position bottom$/m, 'd2 workspace keeps the tmux status block anchored at the bottom' );
 like( $fake_ticket_log_text, qr/^set-option -gq status 2$/m, 'd2 workspace enables a two-line tmux status block for dashboard-managed workspace sessions' );
 like( $fake_ticket_log_text, qr/^set-option -gq status-interval 15$/m, 'd2 workspace refreshes the tmux status block automatically for dashboard-managed workspace sessions without hot-looping' );
-like( $fake_ticket_log_text, qr/^set-option -gq status-format\[0\] #\('.*d2' ps1 --mode tmux-status-top --width #\{client_width\}\)$/m, 'd2 workspace configures the first tmux status row to render dashboard indicators through the explicit d2 entrypoint path' );
+like( $fake_ticket_log_text, qr/^set-option -gq status-format\[0\] "?#\('.*d2' ps1 --mode tmux-status-top --width #\{client_width\}\)"?$/m, 'd2 workspace configures the first tmux status row to render dashboard indicators through the explicit d2 entrypoint path' );
 like( $fake_ticket_log_text, qr/^set-option -gq status-format\[1\] /m, 'd2 workspace restores the normal tmux bottom-row status beneath the indicator strip' );
 like( $fake_ticket_log_text, qr/^set-option -guq status-format\[2\]$/m, 'd2 workspace clears any stale third tmux status row after configuring the workspace status block' );
 like( $fake_ticket_log_text, qr/^attach-session -t DD-NEW$/m, 'd2 workspace attaches to the requested tmux session' );
@@ -2440,7 +2672,7 @@ my $runtime_ticket_log_text = do { local $/; <$runtime_ticket_log_fh> };
 close $runtime_ticket_log_fh;
 like( $runtime_ticket_log_text, qr/^has-session -t DD-EXISTING$/m, 'private runtime workspace helper checks the requested session' );
 unlike( $runtime_ticket_log_text, qr/^new-session /m, 'private runtime workspace helper skips session creation when tmux reports it already exists' );
-like( $runtime_ticket_log_text, qr/^set-option -gq status-format\[0\] #\('.*d2' ps1 --mode tmux-status-top --width #\{client_width\}\)$/m, 'private runtime workspace helper also reapplies the indicator tmux status row for existing workspace sessions' );
+like( $runtime_ticket_log_text, qr/^set-option -gq status-format\[0\] "?#\('.*d2' ps1 --mode tmux-status-top --width #\{client_width\}\)"?$/m, 'private runtime workspace helper also reapplies the indicator tmux status row for existing workspace sessions' );
 like( $runtime_ticket_log_text, qr/^attach-session -t DD-EXISTING$/m, 'private runtime workspace helper attaches to existing sessions' );
 
 my $json_value = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
@@ -2510,10 +2742,10 @@ close $jq_hook_skipped_fh;
 chmod 0600, $jq_hook_skipped or die "Unable to chmod $jq_hook_skipped: $!";
 my ( $jq_hooked_stdout, $jq_hooked_stderr, $jq_hooked_exit ) = _sh_capture(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
 is( $jq_hooked_exit, 0, 'd2 jq succeeds when command hook files exist' );
-like( $jq_hooked_stdout, qr/^hook-one\n/s, 'd2 jq streams hook stdout before the main command output' );
-like( $jq_hooked_stdout, qr/hook-two\n2\n\z/s, 'd2 jq keeps the main command output after streamed hook stdout' );
-like( $jq_hooked_stderr, qr/hook-one-err\n/, 'd2 jq streams hook stderr live' );
-like( $jq_hooked_stderr, qr/hook-two-err\n/, 'd2 jq keeps later hook stderr visible' );
+like( $jq_hooked_stdout, qr/^hook-one\r?\n/s, 'd2 jq streams hook stdout before the main command output' );
+like( $jq_hooked_stdout, qr/hook-two\r?\n2\r?\n\z/s, 'd2 jq keeps the main command output after streamed hook stdout' );
+like( $jq_hooked_stderr, qr/hook-one-err\r?\n/, 'd2 jq streams hook stderr live' );
+like( $jq_hooked_stderr, qr/hook-two-err\r?\n/, 'd2 jq keeps later hook stderr visible' );
 my $jq_which = _run("$perl -I'$lib' '$dashboard' which jq");
 like( $jq_which, qr/^COMMAND \Q$runtime_jq\E$/m, 'd2 which jq reports the staged built-in helper path' );
 like( $jq_which, qr/^HOOK \Q$jq_hook_one\E$/m, 'd2 which jq lists the first participating hook file' );
@@ -2527,6 +2759,23 @@ printf '%s\\n' "\$@" > '$which_editor_log'
 SH
 close $which_editor_fh;
 chmod 0755, $which_editor or die "Unable to chmod $which_editor: $!";
+if ( $^O eq 'MSWin32' ) {
+    # Same Windows twin as the vim fake above (build #81): the sh fake
+    # is invisible to Windows program search, and the shebang route
+    # through Git sh silently never writes the log (build #99, test
+    # 781, exit 2 at the log read). Point EDITOR at the .bat twin
+    # instead; the product runs .bat files by full path
+    # (OpenFile::_exec_raw) and the twin echoes the invocation to the
+    # same log. Mirrors the sh fake: echo the invocation to the log.
+    my $which_editor_bat = File::Spec->catfile( $ENV{HOME}, 'fake-editor.bat' );
+    open my $which_editor_bat_fh, '>', $which_editor_bat or die "Unable to write $which_editor_bat: $!";
+    print {$which_editor_bat_fh} <<"BAT";
+\@echo off
+echo %*>"$which_editor_log"
+BAT
+    close $which_editor_bat_fh;
+    $which_editor = $which_editor_bat;
+}
 my ( $jq_which_edit_stdout, $jq_which_edit_stderr, $jq_which_edit_exit ) = capture {
     local $ENV{EDITOR} = $which_editor;
     system $perl, '-I' . $lib, $dashboard, 'which', '--edit', 'jq';
@@ -2568,7 +2817,7 @@ GO
     is( $jq_go_exit, 0, 'd2 jq succeeds when an executable Go hook file exists' );
     like( $jq_go_stdout, qr/hook-go\n2\n\z/s, 'd2 jq runs the Go hook before the main command output' );
     like( $jq_go_stderr, qr/hook-go-err\n/, 'd2 jq keeps Go hook stderr visible' );
-    like( $jq_go_stdout, qr/^hook-one\nhook-two\nhook-go\n/s, 'd2 jq keeps Go hook ordering with earlier hook files' );
+    like( $jq_go_stdout, qr/^hook-one\r?\nhook-two\r?\nhook-go\r?\n/s, 'd2 jq keeps Go hook ordering with earlier hook files' );
 }
 
 SKIP: {
@@ -2591,7 +2840,7 @@ JAVA
     is( $jq_java_exit, 0, 'd2 jq succeeds when an executable Java hook file exists' );
     like( $jq_java_stdout, qr/hook-java\n2\n\z/s, 'd2 jq runs the Java hook before the main command output' );
     like( $jq_java_stderr, qr/hook-java-err\n/, 'd2 jq keeps Java hook stderr visible' );
-    like( $jq_java_stdout, qr/^hook-one\nhook-two\n(?:hook-go\n)?hook-java\n/s, 'd2 jq keeps Java hook ordering with the earlier hook files' );
+    like( $jq_java_stdout, qr/^hook-one\r?\nhook-two\r?\n(?:hook-go\r?\n)?hook-java\r?\n/s, 'd2 jq keeps Java hook ordering with the earlier hook files' );
 }
 
 local $ENV{RESULT} = json_encode(
@@ -2671,8 +2920,8 @@ close $custom_run_fh;
 chmod 0755, $custom_run or die "Unable to chmod $custom_run: $!";
 my ( $custom_stdout, $custom_stderr, $custom_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' inspect-result");
 is( $custom_exit, 0, 'directory-backed custom command succeeds after hook streaming' );
-like( $custom_stdout, qr/^custom-hook\n/s, 'directory-backed custom command streams hook stdout before the final RESULT json' );
-like( $custom_stderr, qr/custom-hook-err\n/, 'directory-backed custom command streams hook stderr live' );
+like( $custom_stdout, qr/^custom-hook\r?\n/s, 'directory-backed custom command streams hook stdout before the final RESULT json' );
+like( $custom_stderr, qr/custom-hook-err\r?\n/, 'directory-backed custom command streams hook stderr live' );
 my ($custom_json) = $custom_stdout =~ /(\{[\s\S]*\})\s*\z/;
 ok( defined $custom_json, 'directory-backed custom command leaves trailing RESULT json after streamed hook output' );
 my $custom_result_data = json_decode($custom_json);
@@ -2713,7 +2962,7 @@ my ( $report_stdout, $report_stderr, $report_exit ) = _sh_capture("$perl -I'$lib
 $report_stdout = decode( 'UTF-8', $report_stdout );
 $report_stderr = decode( 'UTF-8', $report_stderr );
 is( $report_exit, 0, 'directory-backed custom commands can print Runtime::Result reports after hook execution' );
-like( $report_stdout, qr/^report-hook\n/s, 'Runtime::Result report command still streams hook stdout before the final report' );
+like( $report_stdout, qr/^report-hook\r?\n/s, 'Runtime::Result report command still streams hook stdout before the final report' );
 like( $report_stdout, qr/report-result Run Report/, 'Runtime::Result report titles the report with the current command name' );
 like( $report_stdout, qr/✅ 00-first\.pl/, 'Runtime::Result report marks successful hooks with a success glyph' );
 like( $report_stdout, qr/🚨 01-second\.pl/, 'Runtime::Result report marks failing hooks with an error glyph' );
@@ -2800,7 +3049,7 @@ chmod 0755, $huge_probe or die "Unable to chmod $huge_probe: $!";
 
 my ( $huge_stdout, $huge_stderr, $huge_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' huge-result");
 is( $huge_exit, 0, 'dashboard custom commands still succeed when RESULT grows beyond the inline exec-safe environment size' );
-like( $huge_stdout, qr/probe-stderr=1800000\n/s, 'later hook files can still read oversized RESULT state through the fallback channel' );
+like( $huge_stdout, qr/probe-stderr=1800000\r?\n/s, 'later hook files can still read oversized RESULT state through the fallback channel' );
 like( $huge_stdout, qr/stdout=32\n/s, 'final command still receives the oversized hook stdout length through Runtime::Result' );
 like( $huge_stdout, qr/stderr=1800000\n/s, 'final command still receives the oversized hook stderr length through Runtime::Result' );
 like( $huge_stdout, qr/result_file=1\n/s, 'final command sees the explicit RESULT_FILE fallback when hook output would otherwise overflow exec' );
@@ -2864,8 +3113,8 @@ chmod 0755, $stop_third or die "Unable to chmod $stop_third: $!";
 
 my ( $stop_stdout, $stop_stderr, $stop_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' hook-stop-check");
 is( $stop_exit, 0, 'dashboard returns to the main command after a hook emits the explicit stop marker' );
-like( $stop_stdout, qr/^ABC\n/s, 'dashboard still streams stdout from hooks that ran before the stop marker' );
-like( $stop_stdout, qr/stop-hook\n/s, 'dashboard still streams stdout from the hook that requested stop' );
+like( $stop_stdout, qr/^ABC\r?\n/s, 'dashboard still streams stdout from hooks that ran before the stop marker' );
+like( $stop_stdout, qr/stop-hook\r?\n/s, 'dashboard still streams stdout from the hook that requested stop' );
 unlike( $stop_stdout, qr/third-hook\n/s, 'dashboard skips later hook scripts after a stop marker appears on stderr' );
 like( $stop_stderr, qr/\[\[STOP\]\] stop requested by 01-stop\.pl/, 'dashboard keeps the explicit stop marker visible on stderr' );
 ok( !-e $stop_sentinel, 'dashboard does not execute later hook files once the stop marker is seen' );
@@ -2976,7 +3225,10 @@ my $ext = File::Spec->catfile( $cli_root, 'foobar' );
 open my $ext_fh, '>', $ext or die "Unable to write $ext: $!";
 print {$ext_fh} <<'SH';
 #!/bin/sh
-input="$(cat)"
+# cat is an external binary in Git usr/bin, which is not on the Windows
+# job PATH, so slurp stdin with perl instead (byte-identical output:
+# command substitution strips trailing newlines either way).
+input="$(perl -e 'local $/; print <STDIN>')"
 printf 'argv:%s|stdin:%s\n' "$*" "$input"
 SH
 close $ext_fh;
@@ -3297,13 +3549,29 @@ like( $layered_which, qr/^HOOK \Q$leaf_hook\E$/m, 'd2 which includes the leaf-la
 my $project_local_bookmarks = File::Spec->catdir( $project_root, '.developer-dashboard', 'dashboards' );
 make_path($project_local_bookmarks);
 my $project_local_paths = _run("cd '$project_root' && $perl -I'$repo/lib' '$repo/bin/d2' paths");
-like( $project_local_paths, qr/runtime_root\s+\Q$project_root\/.developer-dashboard\E/, 'd2 paths reports the project-local runtime root when present' );
-like( $project_local_paths, qr/dashboards_root\s+\Q$project_local_bookmarks\E/, 'd2 paths reports the project-local dashboards root when present' );
+# The paths output spells separators natively (backslashes on Windows,
+# forward slashes everywhere else), and $project_root is built with
+# File::Spec. Compare separator-normalized copies so the assertions
+# check the paths, not the spelling of the separator.
+my $project_root_forward = $project_root;
+$project_root_forward =~ s/\\/\//g;
+my $project_local_bookmarks_forward = $project_local_bookmarks;
+$project_local_bookmarks_forward =~ s/\\/\//g;
+my $project_local_paths_forward = $project_local_paths;
+$project_local_paths_forward =~ s/\\/\//g;
+like( $project_local_paths_forward, qr/runtime_root\s+\Q$project_root_forward\/.developer-dashboard\E/, 'd2 paths reports the project-local runtime root when present' );
+like( $project_local_paths_forward, qr/dashboards_root\s+\Q$project_local_bookmarks_forward\E/, 'd2 paths reports the project-local dashboards root when present' );
 my $project_cpan_output = _run("cd '$project_root' && PATH='$fake_bin':\"\$PATH\" $perl -I'$repo/lib' '$repo/bin/d2' cpan DBD::Mock");
-like( $project_cpan_output, qr/"ok"\s*:\s*1/, 'd2 cpan reports success' );
-like( $project_cpan_output, qr/"runtime_root"\s*:\s*"\Q$project_root\/.developer-dashboard\E"/, 'd2 cpan reports the project-local runtime root' );
-like( $project_cpan_output, qr/"cpanfile"\s*:\s*"\Q$project_root\/.developer-dashboard\/cpanfile\E"/, 'd2 cpan reports the runtime cpanfile path' );
-like( $project_cpan_output, qr/"local_root"\s*:\s*"\Q$project_root\/.developer-dashboard\/local\E"/, 'd2 cpan reports the runtime local library root' );
+# The cpan output is JSON, so each Windows backslash arrives escaped as
+# a pair: normalize each PAIR to one slash, not each backslash (that
+# doubled every separator in build 117). Plain-text outputs below still
+# use the single-backslash form.
+my $project_cpan_output_forward = $project_cpan_output;
+$project_cpan_output_forward =~ s/\\\\/\//g;
+like( $project_cpan_output_forward, qr/"ok"\s*:\s*1/, 'd2 cpan reports success' );
+like( $project_cpan_output_forward, qr/"runtime_root"\s*:\s*"\Q$project_root_forward\/.developer-dashboard\E"/, 'd2 cpan reports the project-local runtime root' );
+like( $project_cpan_output_forward, qr/"cpanfile"\s*:\s*"\Q$project_root_forward\/.developer-dashboard\/cpanfile\E"/, 'd2 cpan reports the runtime cpanfile path' );
+like( $project_cpan_output_forward, qr/"local_root"\s*:\s*"\Q$project_root_forward\/.developer-dashboard\/local\E"/, 'd2 cpan reports the runtime local library root' );
 open my $project_cpanfile_fh, '<', File::Spec->catfile( $project_root, '.developer-dashboard', 'cpanfile' )
   or die "Unable to read project runtime cpanfile: $!";
 my $project_cpanfile = do { local $/; <$project_cpanfile_fh> };
@@ -3313,7 +3581,11 @@ like( $project_cpanfile, qr/requires 'DBD::Mock';/, 'd2 cpan records the request
 open my $fake_cpanm_log_fh, '<', $fake_cpanm_log or die "Unable to read $fake_cpanm_log: $!";
 my $fake_cpanm_args = do { local $/; <$fake_cpanm_log_fh> };
 close $fake_cpanm_log_fh;
-like( $fake_cpanm_args, qr/-L \Q$project_root\/.developer-dashboard\/local\E/, 'd2 cpan installs into the project-local runtime local library' );
+# The fake-cpanm log is plain text with single backslashes on Windows,
+# so it takes the single-backslash normalization, like the paths output.
+my $fake_cpanm_args_forward = $fake_cpanm_args;
+$fake_cpanm_args_forward =~ s/\\/\//g;
+like( $fake_cpanm_args_forward, qr/-L \Q$project_root_forward\/.developer-dashboard\/local\E/, 'd2 cpan installs into the project-local runtime local library' );
 like( $fake_cpanm_args, qr/\bDBI\b/, 'd2 cpan installs DBI automatically for DBD drivers' );
 like( $fake_cpanm_args, qr/\bDBD::Mock\b/, 'd2 cpan installs the requested DBD driver' );
 
@@ -3465,7 +3737,15 @@ sub _gate_lines {
     _gate_file( File::Spec->catfile( $home_hooks, 'foo.pl' ), "#!$perl\nprint \"foo.pl\\n\";\n", 0755 );
     _gate_file( File::Spec->catfile( $proj_hooks, 'bar.pl' ), "#!$perl\nprint \"bar.pl\\n\";\n", 0755 );
     my ( $stdout, $stderr, $exit ) = _gate_run( $home, $proj, $d2_entrypoint, 'version' );
-    is( $stdout, "bar.pl\nfoo.pl\n$expected_version\n",
+    # Hook stdout is streamed through live, so on Windows each hook line
+    # arrives with CRLF (the hook child's :crlf layer) while the version
+    # line is bare LF: normalize the line endings in a copy so the
+    # comparison checks the order and the content, not the platform's
+    # line endings. The streamed display itself stays untouched (bare LF
+    # would stair-step in cmd.exe).
+    my $stdout_lf = $stdout;
+    $stdout_lf =~ s/\r\n/\n/g;
+    is( $stdout_lf, "bar.pl\nfoo.pl\n$expected_version\n",
         'AC-11: project hook (deepest) runs first, HOME hook last, then the command' );
     is( $stderr, '', 'AC-11: ordering scenario writes nothing to stderr' );
     is( $exit,   0,  'AC-11: ordering scenario exits 0' );
@@ -3578,7 +3858,15 @@ sub _gate_lines {
     }
     my ( $stdout, $stderr, $exit ) = _gate_run( $home, $proj, $dashboard, 'version' );
     is( $exit, 0, 'AC-3: discovery scenario exits 0' );
-    is_deeply( [ _gate_lines($marker) ], [ '10-a.sh', '20-b.sh' ],
+    # On Windows there are no Unix mode bits: chmod 0644 and 0755 leave
+    # identical filesystem state (both stat 0666, verified live on win-ts),
+    # so a 0644 .sh file is runnable there by the platform's own rule
+    # (extension + interpreter + shebang) and runs. This is not a skip:
+    # the expectation still asserts the full discovery behavior on every
+    # platform, and the sub/ and run skips below hold everywhere - only
+    # the mode-bit part of the expectation is platform-conditional.
+    my @ac3_expected = $^O eq 'MSWin32' ? ( '10-a.sh', '20-b.sh', '30-c.sh' ) : ( '10-a.sh', '20-b.sh' );
+    is_deeply( [ _gate_lines($marker) ], \@ac3_expected,
         'AC-3: only executable regular files directly under hooks/ run, in lexical order; 0644, sub/ and run are skipped' );
     is( $stderr, '', 'AC-3: skipped entries produce no warning' );
 }
@@ -3608,24 +3896,32 @@ sub _gate_lines {
         [ map { _portable_output_text($_) } (
             'HOOK ' . File::Spec->catfile( $proj_hooks, '10-a.sh' ),
             'HOOK ' . File::Spec->catfile( $proj_hooks, '20-b.sh' ),
+            # Same Windows mode-bit rule as AC-3 above: 30-c.sh is
+            # runnable there, so which lists it too.
+            ( $^O eq 'MSWin32' ? ( 'HOOK ' . File::Spec->catfile( $proj_hooks, '30-c.sh' ) ) : () ),
             "HOOK $cmd_hook",
         ) ],
         'AC-6: which jq lists the main-gate hooks in run order before the per-command hook, skipping 0644, sub/ and run'
     );
-    is_deeply( [ _gate_lines($hook_marker) ], [ '10-a.sh', '20-b.sh' ],
+    is_deeply( [ _gate_lines($hook_marker) ],
+        $^O eq 'MSWin32' ? [ '10-a.sh', '20-b.sh', '30-c.sh' ] : [ '10-a.sh', '20-b.sh' ],
         'AC-6: which jq itself passed through the main gate exactly once' );
 }
 
 # AC-7: a hook that invokes dashboard itself must not recurse. The fixture
 # caps its own depth at three markers so a missing guard fails the assertion
-# instead of forking without bound on a shared host.
+# instead of forking without bound on a shared host. The depth is counted
+# with perl, not wc -l | tr: both live in Git usr/bin, which is not on the
+# Windows job PATH, so with them missing the depth came back empty, the -lt
+# test errored, and the nested invocation never ran - the guard passed
+# vacuously there.
 {
     my ( $home, $proj, $home_hooks ) = _gate_fixture();
     my $marker = File::Spec->catfile( $home, 'nested-marker' );
     _gate_file(
         File::Spec->catfile( $home_hooks, '10-nested.sh' ),
         "#!/bin/sh\necho nested >> '$marker'\n"
-          . "depth=\$(wc -l < '$marker' | tr -d ' ')\n"
+          . "depth=\$('$perl' -ne 'END { print \$.\+0 }' '$marker')\n"
           . "if [ \"\$depth\" -lt 3 ]; then HOME='$home' '$perl' -I'$lib' '$dashboard' version >/dev/null 2>&1; fi\n",
         0755
     );

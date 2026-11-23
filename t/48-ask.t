@@ -319,13 +319,20 @@ subtest '_execute_grep_repo: real search, no matches, bad pattern, subdirectory 
 
 subtest '_scoped_tool_path: normalization and refusal edge cases' => sub {
     my $root = '/tmp/dd-fake-root';
+    # On Windows the product resolves the root against the current drive
+    # and returns forward-slash, drive-letter paths (C:/tmp/dd-fake-root).
+    my $root_abs = $root;
+    if ( $^O eq 'MSWin32' ) {
+        ( $root_abs = File::Spec->rel2abs($root) ) =~ tr{\\}{/};
+        $root_abs =~ s{\A([a-z]):}{\U$1:};
+    }
     my ( $abs1, $err1 ) = $M->can('_scoped_tool_path')->( $root, 'a/./b/../c' );
     is( $err1, undef,        'a mixed ./.. path that stays inside the root resolves cleanly' );
-    is( $abs1, "$root/a/c",  'normalized to the collapsed absolute path' );
+    is( $abs1, "$root_abs/a/c",  'normalized to the collapsed absolute path' );
 
     my ( $abs2, $err2 ) = $M->can('_scoped_tool_path')->( $root, undef );
     is( $err2, undef, 'an undef relative path means "the root itself"' );
-    is( $abs2, $root, 'resolves to the root' );
+    is( $abs2, $root_abs, 'resolves to the root' );
 
     my ( undef, $err3 ) = $M->can('_scoped_tool_path')->( $root, '../escape' );
     like( $err3, qr/Refused/, 'a leading .. that climbs above the root is refused' );
@@ -1002,7 +1009,10 @@ subtest 'transcript load resilience' => sub {
 };
 
 subtest 'unit seams: _run_cli, _default_ua, slurp_file, _emit' => sub {
-    my ( $so, $se, $ex ) = $M->can('_run_cli')->( [ $^X, '-e', 'print "hi"; warn "werr\n"; exit 0' ] );
+    # The child scripts use q{}/qq{} rather than double quotes: Windows
+    # list-form system() does not carry embedded double quotes through to
+    # the child's command line intact.
+    my ( $so, $se, $ex ) = $M->can('_run_cli')->( [ $^X, '-e', 'print q{hi}; warn qq{werr\n}; exit 0' ] );
     is( $so, 'hi',    '_run_cli captures stdout' );
     like( $se, qr/werr/, '_run_cli captures stderr' );
     is( $ex, 0, '_run_cli exit 0' );
@@ -1029,7 +1039,7 @@ subtest 'unit seams: _run_cli, _default_ua, slurp_file, _emit' => sub {
 
         my $during_run_content;
         my ( $stdout, undef, $exit ) = $M->can('_run_cli')->(
-            [ $^X, '-e', '$| = 1; print "DD948-LIVE\n"; select( undef, undef, undef, 0.3 );' ] );
+            [ $^X, '-e', '$| = 1; print qq{DD948-LIVE\n}; select( undef, undef, undef, 0.3 );' ] );
 
         # _run_cli has already returned above; re-open our own STDOUT back to
         # normal BEFORE reading the tee file, so the read itself is honest.

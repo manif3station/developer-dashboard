@@ -10,6 +10,8 @@ use Cwd qw(abs_path);
 use File::Basename qw(dirname);
 use File::Spec;
 
+use Developer::Dashboard::Platform qw(command_in_path is_windows native_shell_name);
+
 # path_separator()
 # Returns the platform-specific Perl library path separator.
 # Input: none.
@@ -31,23 +33,39 @@ sub current_perl_bin_dir {
     my $resolved = abs_path($perl);
     $resolved = $perl if !$resolved;
     my $dir = dirname($resolved);
-    return -d $dir ? $dir : '';
+    # abs_path spells with forward slashes on Windows; callers compare this
+    # against File::Spec spellings, so canonicalise at the boundary.
+    return -d $dir ? File::Spec->canonpath($dir) : '';
 }
 
 # current_shell_bin_dir()
 # Returns the directory that contains the shell used for dashboard-managed
 # shell command execution so PATH repair can keep shell-based collector
-# commands runnable even when the inherited PATH is broken.
+# commands runnable even when the inherited PATH is broken. On Windows
+# $Config{sh} names a Unix shell that never exists there, so the platform
+# shell (powershell/pwsh) is the configured shell instead.
 # Input: none.
 # Output: absolute or original shell directory path string, or empty string
 # when unavailable.
 sub current_shell_bin_dir {
     my $shell = $Config::Config{sh} || '';
-    return '' if $shell eq '';
-    my $resolved = abs_path($shell);
-    $resolved = $shell if !$resolved;
-    my $dir = dirname($resolved);
-    return -d $dir ? $dir : '';
+    if ( $shell ne '' ) {
+        my $resolved = abs_path($shell);
+        $resolved = $shell if !$resolved;
+        my $dir = dirname($resolved);
+        return File::Spec->canonpath($dir) if -d $dir;
+    }
+    return '' if !is_windows();
+    my $native = native_shell_name();
+    my $bin = command_in_path($native) || command_in_path('powershell');
+    if ( !$bin ) {
+        my $root = $ENV{SystemRoot} || 'C:\Windows';
+        my $candidate = File::Spec->catfile( $root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe' );
+        $bin = $candidate if -f $candidate;
+    }
+    return '' if !$bin;
+    my $dir = dirname($bin);
+    return -d $dir ? File::Spec->canonpath($dir) : '';
 }
 
 # core_inc_paths()

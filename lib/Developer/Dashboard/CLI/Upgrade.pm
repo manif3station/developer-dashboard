@@ -6,6 +6,7 @@ use warnings;
 our $VERSION = '6.31';
 
 use Developer::Dashboard::Platform ();
+use Errno qw(ENOENT);
 use File::Temp qw(tempfile);
 use LWP::UserAgent;
 
@@ -141,10 +142,30 @@ sub _run_command {
     # after this sub returns, regardless of the exit code already captured
     # in this sub's own return value.
     local $?;
+    if ( !_program_is_startable( $argv->[0] ) ) {
+        $! = ENOENT;
+        die "Unable to start Developer Dashboard installer: $!\n";
+    }
     system @{$argv};
     die "Unable to start Developer Dashboard installer: $!\n" if $? == -1;
     return 128 + ( $? & 127 ) if $? & 127;
     return $? >> 8;
+}
+
+# _program_is_startable($program)
+# Pre-flight check for process creation: on Windows system() routes a
+# missing program through cmd.exe, which exits 1 instead of failing the
+# spawn, so the $? == -1 check below never fires and the failure surfaces
+# only as cmd.exe's own message (round 62, t/136 test 27, proven live on
+# win-ts). Resolve the program the way the native spawn can execute it
+# first, and report a missing program clearly instead.
+# Input: program name or path from the command argv.
+# Output: boolean true when the program can be started.
+sub _program_is_startable {
+    my ($program) = @_;
+    return 0 if !defined $program || $program eq '';
+    return ( -f $program && -x $program ) ? 1 : 0 if $program =~ m{[\\/]};
+    return defined Developer::Dashboard::Platform::command_in_path_direct($program) ? 1 : 0;
 }
 
 # _usage()
