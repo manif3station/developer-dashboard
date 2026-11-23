@@ -2112,6 +2112,11 @@ sub Local::CompletedRoutine::kill { return 1 }
 # DEVELOPER_DASHBOARD_LIFETIME_PID starts one watcher for itself before
 # it listens. Mocked: no real process is started.
 {
+    is( Developer::Dashboard::Web::Server::_web_lifetime_owner_watcher_log_path('junk'), undef,
+        'no watcher log path for a malformed web pid' );
+    like( Developer::Dashboard::Web::Server::_web_lifetime_owner_watcher_log_path(5151),
+        qr/web-lifetime-owner-watcher-5151\.log$/,
+        'the watcher log path names the web pid it watches' );
     my @spawned;
     no warnings 'redefine';
     local *Developer::Dashboard::GoRoutine::spawn = sub { push @spawned, [@_]; return 7171 };
@@ -2134,8 +2139,11 @@ sub Local::CompletedRoutine::kill { return 1 }
         is( scalar @spawned, 1, 'exactly one watcher is spawned' );
         my ( $command, $options ) = @{ $spawned[0] };
         is( $command->[0], $^X, 'the watcher runs under the current perl' );
-        is( $command->[-1], $$, 'the watcher is told the pid of the web process that started it' );
-        like( $command->[-2], qr/RuntimeManager->_run_web_lifetime_owner_watcher\(\@ARGV\)/,
+        is( $command->[-2], $$, 'the watcher is told the pid of the web process that started it' );
+        my ( undef, undef, $watcher_log_name ) = File::Spec->splitpath( $command->[-1] );
+        is( $watcher_log_name, "web-lifetime-owner-watcher-$$.log",
+            'the watcher is told the log file it writes its stop line to' );
+        like( $command->[-3], qr/RuntimeManager->_run_web_lifetime_owner_watcher\(\@ARGV\)/,
             'the watcher runs the shared owner-watch body' );
         is_deeply(
             $options,

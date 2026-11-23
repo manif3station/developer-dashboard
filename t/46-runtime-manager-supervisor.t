@@ -823,6 +823,8 @@ ok(
     my %alive;
     my @probed;
     my @stopped;
+    my $stop_dies = 1;
+    my $watcher_log = File::Spec->catfile( $home, 'web-lifetime-owner-watcher.log' );
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_lifetime_owner_poll_seconds = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub {
@@ -834,7 +836,8 @@ ok(
     local *Developer::Dashboard::RuntimeManager::_stop_web_pid_for_lifetime_owner = sub {
         my ( undef, $pid ) = @_;
         push @stopped, $pid;
-        die "web stop failed\n";
+        die "web stop failed\n" if $stop_dies;
+        return $pid;
     };
 
     local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = 4242;
@@ -845,19 +848,21 @@ ok(
     {
         local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
         delete $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
-        is( $class->_run_web_lifetime_owner_watcher(5151), 0, 'the web owner watcher ends at once when the starter did not opt in' );
+        is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0, 'the web owner watcher ends at once when the starter did not opt in' );
+        ok( !-e $watcher_log, 'no stop line is written when the starter did not opt in' );
     }
     is_deeply( \@probed, [], 'nothing is probed in any of the cases with nothing to watch' );
 
     # The web process ends first: the watcher just ends.
     %alive = ( 5151 => [ 1, 1, 0 ], 4242 => [1] );
-    is( $class->_run_web_lifetime_owner_watcher(5151), 0, 'the web owner watcher ends once the web process is gone' );
+    is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0, 'the web owner watcher ends once the web process is gone' );
     is_deeply( \@stopped, [], 'nothing is stopped when the web process ends by itself' );
+    ok( !-e $watcher_log, 'no stop line is written when the web process ends by itself' );
 
     # The owner dies: one dead poll is not enough, the second stops the web.
     @probed = ();
     %alive  = ( 5151 => [1], 4242 => [ 1, 0, 1, 0, 0 ] );
-    is( $class->_run_web_lifetime_owner_watcher(5151), 0,
+    is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0,
         'the web owner watcher ends after stopping the web process, even when that stop fails' );
     is_deeply( \@stopped, [5151], 'only the one web process the watcher was started for is stopped, once' );
     is_deeply(
@@ -865,6 +870,27 @@ ok(
         [ 5151, 4242, 5151, 4242, 5151, 4242, 5151, 4242, 5151, 4242 ],
         'a single dead poll of the owner is forgiven; two in a row stop the web process, each time straight after seeing it alive',
     );
+    ok( !-e $watcher_log, 'no stop line is written when the stop itself fails' );
+
+    # The owner dies and the stop succeeds: the watcher writes one line
+    # naming both pids, so a later reader has positive evidence.
+    $stop_dies = 0;
+    @probed  = ();
+    @stopped = ();
+    %alive   = ( 5151 => [1], 4242 => [ 1, 0, 1, 0, 0 ] );
+    is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0,
+        'the web owner watcher ends after stopping the web process when its owner is gone' );
+    is_deeply( \@stopped, [5151], 'the web process is stopped once when its owner is gone' );
+    ok( -f $watcher_log, 'the watcher writes its stop line when it stops the web process' );
+    my $watcher_log_text;
+    {
+        open my $fh, '<', $watcher_log or die "cannot read $watcher_log: $!";
+        local $/;
+        $watcher_log_text = <$fh>;
+    }
+    like( $watcher_log_text, qr/web stopped: lifetime owner gone/, 'the stop line says why the web process was stopped' );
+    like( $watcher_log_text, qr/lifetime owner pid 4242 is gone/, 'the stop line names the dead owner pid' );
+    like( $watcher_log_text, qr/web pid 5151 is stopping/, 'the stop line names the stopped web pid' );
 }
 
 END {

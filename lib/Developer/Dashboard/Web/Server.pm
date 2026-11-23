@@ -79,6 +79,22 @@ sub run {
     return $self->serve_daemon($daemon);
 }
 
+# _web_lifetime_owner_watcher_log_path($web_pid)
+# Path of the log file the lifetime-owner watcher for one web process
+# writes its stop line to when it ends that web process because its
+# lifetime owner is gone. One file per web pid, under the logs root, so
+# a later reader can find the line for a web process it started without
+# knowing anything else about it. The file is only ever created by the
+# watcher writing its stop line; nothing reads it in normal use.
+# Input: web process id integer.
+# Output: log file path string, or undef for a malformed web pid.
+sub _web_lifetime_owner_watcher_log_path {
+    my ($web_pid) = @_;
+    return if !defined $web_pid || $web_pid !~ /\A\d+\z/ || $web_pid < 1;
+    my $paths = Developer::Dashboard::PathRegistry->new;
+    return File::Spec->catfile( $paths->logs_root, "web-lifetime-owner-watcher-$web_pid.log" );
+}
+
 # _start_lifetime_owner_watcher()
 # Starts a separate watcher process that ends this web process once the
 # opted-in lifetime owner is dead. A starter opts in by exporting
@@ -91,11 +107,17 @@ sub run {
 # listen socket exists, so it never holds the port, and with its
 # standard streams on the null device, so it never holds a test
 # harness pipe open. It ends by itself as soon as this web process is
-# gone, however that happened.
+# gone, however that happened. The watcher is told the path of its log
+# file, so it has somewhere to write the one line that says it stopped
+# this web process because its owner is gone; a watcher that cannot
+# work out its log path still starts, it just keeps no log.
 # Input: none.
 # Output: watcher pid integer, or 0 when the starter did not opt in.
 sub _start_lifetime_owner_watcher {
     return 0 if !defined Developer::Dashboard::ProcessSupervision::_lifetime_owner_pid();
+    my $log_path = eval { _web_lifetime_owner_watcher_log_path($$) };
+    my @watcher_args = ($$);
+    push @watcher_args, $log_path if defined $log_path;
     my $watcher_program = <<'WATCHER_PERL';
 use strict;
 use warnings;
@@ -105,7 +127,7 @@ WATCHER_PERL
     my @library_args = map { ( '-I', $_ ) } grep { defined && !ref && -d $_ } @INC;
     my $null = File::Spec->devnull();
     return Developer::Dashboard::GoRoutine::spawn(
-        [ $^X, @library_args, '-e', $watcher_program, $$ ],
+        [ $^X, @library_args, '-e', $watcher_program, @watcher_args ],
         { stdin => $null, stdout => $null, stderr => $null },
     ) || 0;
 }

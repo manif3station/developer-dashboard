@@ -2113,7 +2113,27 @@ sub _stop_web_pid_for_lifetime_owner {
     return $pid;
 }
 
-# _run_web_lifetime_owner_watcher($web_pid)
+# _log_web_lifetime_owner_stop($log_path, $owner_pid, $web_pid)
+# Writes the one line that says a web process was stopped because its
+# lifetime owner is gone, naming both pids, so a later reader has
+# positive evidence the stop happened. A failed write is silent: the
+# watcher has already stopped the web process, and a missing log must
+# never keep it alive or change its exit status.
+# Input: log file path string (undef means no log is kept), owner pid
+# integer, web pid integer.
+# Output: 1 when the line was written, otherwise undef.
+sub _log_web_lifetime_owner_stop {
+    my ( $self, $log_path, $owner_pid, $web_pid ) = @_;
+    return if !defined $log_path || !length $log_path;
+    return if !defined $owner_pid || !defined $web_pid;
+    open my $fh, '>>', $log_path or return;
+    print {$fh} _now_iso8601( tz => 'utc' )
+      . " web stopped: lifetime owner gone; lifetime owner pid $owner_pid is gone; web pid $web_pid is stopping\n";
+    close $fh;
+    return 1;
+}
+
+# _run_web_lifetime_owner_watcher($web_pid, $log_path)
 # Body of the watcher process a web process starts for itself when its
 # starter opted in to a lifetime owner (see _start_lifetime_owner_watcher
 # in Developer::Dashboard::Web::Server). It polls two pids: when the web
@@ -2124,17 +2144,22 @@ sub _stop_web_pid_for_lifetime_owner {
 # runtime state, only the liveness, signal and owner helpers. The
 # watcher's own pid is refused as the web pid, and an owner that is the
 # web process itself is refused, so nothing can be tied to itself.
-# Input: web process id integer.
+# The log path is optional: when given, the watcher writes its stop line
+# to it once the stop has actually signalled the web pid, so the line
+# never claims a stop that did not happen; when it is not given, the
+# watcher still stops the web process and just keeps no log.
+# Input: web process id integer, log file path string or undef.
 # Output: 0, the watcher's exit status, once there is nothing to watch.
 sub _run_web_lifetime_owner_watcher {
-    my ( $self, $web_pid ) = @_;
+    my ( $self, $web_pid, $log_path ) = @_;
     return 0 if !defined $web_pid || $web_pid !~ /\A\d+\z/ || $web_pid < 1 || $web_pid == $$;
     my $owner = { pid => $self->_lifetime_owner_pid, dead_polls => 0 };
     return 0 if !defined $owner->{pid} || $owner->{pid} == $web_pid;
     while (1) {
         return 0 if !$self->_pid_is_running($web_pid);
         if ( $self->_lifetime_owner_is_gone($owner) ) {
-            eval { $self->_stop_web_pid_for_lifetime_owner($web_pid); 1 };
+            my $stopped = eval { $self->_stop_web_pid_for_lifetime_owner($web_pid); };
+            eval { $self->_log_web_lifetime_owner_stop( $log_path, $owner->{pid}, $web_pid ) if $stopped; 1 };
             return 0;
         }
         sleep $self->_lifetime_owner_poll_seconds;
