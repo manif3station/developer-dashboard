@@ -42,6 +42,7 @@ use Developer::Dashboard::ProcessSupervision qw(
     _same_pid_namespace
     _close_inherited_fds
     _dashboard_core_helper_path
+    _taskkill_command
 );
 
 our $SIGNAL_RUNNER;
@@ -923,8 +924,12 @@ sub _terminate_loop_workers {
             # (probe643 part C). Perl kill TERM never reaches a
             # CreateProcess child (it has no console to deliver the event
             # to); terminate through the native process API instead, for
-            # any worker the tree kill leaves behind.
-            capture { system 'taskkill', '/PID', $pid, '/T', '/F' };
+            # any worker the tree kill leaves behind. taskkill is resolved
+            # through _taskkill_command, the same helper RuntimeManager's
+            # _send_signal uses, so both kill paths find the same program
+            # (a bare name handed to system() only ever finds a .exe).
+            my @taskkill = ( _taskkill_command(), '/PID', $pid, '/T', '/F' );
+            capture { system @taskkill };
             if ( $self->_pid_is_running($pid) ) {
                 require Developer::Dashboard::GoRoutine;
                 Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
@@ -954,7 +959,8 @@ sub _terminate_loop_workers {
                 # child left in a dead worker's subtree does not survive.
                 # Terminate the worker itself directly if the tree kill
                 # leaves it behind.
-                capture { system 'taskkill', '/PID', $pid, '/T', '/F' };
+                my @taskkill = ( _taskkill_command(), '/PID', $pid, '/T', '/F' );
+                capture { system @taskkill };
                 if ( $self->_pid_is_running($pid) ) {
                     require Developer::Dashboard::GoRoutine;
                     Developer::Dashboard::GoRoutine::terminate_process( $pid, 'KILL' );
