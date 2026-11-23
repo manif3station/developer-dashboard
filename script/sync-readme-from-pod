@@ -60,10 +60,23 @@ sub _command_on_path {
     my ($name) = @_;
     return 0 if !defined $name || $name eq '';
 
-    for my $dir ( split /:/, $ENV{PATH} || q{} ) {
+    # File::Spec->path splits PATH on the platform's own separator. Splitting
+    # on a colon can never find a command on Windows, where PATH is joined
+    # with semicolons, so the README sync checks skipped there even with
+    # pod2markdown installed. On Windows the name is also tried with each
+    # PATHEXT extension, because a command there is a file such as
+    # pod2markdown.bat and Perl's -x goes by that extension.
+    my $is_windows = $^O eq 'MSWin32';
+    my @extensions = $is_windows
+      ? grep { length } split /;/, ( $ENV{PATHEXT} || '.COM;.EXE;.BAT;.CMD' )
+      : (q{});
+    for my $dir ( File::Spec->path ) {
         next if !defined $dir || $dir eq '';
-        my $candidate = File::Spec->catfile( $dir, $name );
-        return 1 if -x $candidate;
+        for my $extension (@extensions) {
+            my $candidate = File::Spec->catfile( $dir, $name . $extension );
+            next if !-f $candidate;
+            return 1 if $is_windows || -x $candidate;
+        }
     }
 
     return 0;
