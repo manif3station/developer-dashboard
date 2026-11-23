@@ -233,9 +233,9 @@ sub _etime_seconds {
 # Returns an array reference of live process rows, each with pid, ppid,
 # age (seconds since start), args (command line or title, trailing
 # padding removed), uid (Unix only) and parentless (true when the process
-# has no live parent: ppid 1 on Unix; on Windows a parent pid that is not
-# in the table, or one that started after the child and so is a reused
-# pid). Returns undef when the table cannot be read. The product's own
+# has no live parent: on Unix ppid 1, or a parent pid that is not in the
+# table, or one that started after the child and so is a reused pid; on
+# Windows the last two only, as Windows never re-parents). Returns undef when the table cannot be read. The product's own
 # _ps_processes carries no parent pid and no start time, so this reads
 # the table itself, the same way the product does: one ps call on Unix,
 # one PowerShell Win32_Process enumeration on Windows, both through
@@ -277,9 +277,33 @@ sub _process_table {
         next if $line !~ /\A\s*(\d+)\s+(\d+)\s+(\d+)\s+([\d:-]+)\s+(.*?)\s*\z/;
         my $age = _etime_seconds($4);
         next if !defined $age;
-        push @rows, { pid => $1 + 0, ppid => $2 + 0, uid => $3 + 0, age => $age, args => $5, parentless => ( $2 == 1 ? 1 : 0 ) };
+        push @rows, { pid => $1 + 0, ppid => $2 + 0, uid => $3 + 0, age => $age, args => $5 };
     }
-    return \@rows;
+    return _mark_unix_parentless( \@rows );
+}
+
+# _mark_unix_parentless($rows)
+# Sets parentless on each Unix process row and returns the same array
+# reference. A row is parentless when its parent pid is 1 (the ordinary
+# orphan: the kernel hands it to pid 1), or its parent pid is not in the
+# table, or its parent started after it did (a reused pid). The last two
+# are in addition to the first, never instead of it: pid 1 is in the
+# table and older than every child, so on their own they would stop
+# flagging the ordinary orphan. Ages are whole seconds since start, so a
+# parent that is younger has the smaller age. This only reads the rows.
+sub _mark_unix_parentless {
+    my ($rows) = @_;
+    my %age_of = map { $_->{pid} => $_->{age} } grep { defined $_->{pid} } @{ $rows || [] };
+    for my $row ( @{ $rows || [] } ) {
+        my $ppid       = defined $row->{ppid} ? $row->{ppid} : -1;
+        my $parent_age = $age_of{$ppid};
+        $row->{parentless} =
+            $ppid == 1                                                              ? 1
+          : !exists $age_of{$ppid}                                                  ? 1
+          : ( defined $parent_age && defined $row->{age} && $parent_age < $row->{age} ) ? 1
+          :                                                                          0;
+    }
+    return $rows;
 }
 
 # _leftover_kind($manager, $row)
@@ -657,6 +681,25 @@ ok( $plain_row && !defined _leftover_kind( $manager, $plain_row ), 'detector: th
     ( $found, $unresolved ) = _leftovers_in_rows( [ { %{ $orphaned[0] }, parentless => 0 } ], $manager, $min_age, $from_temp );
     is( scalar( @{$found} ) + scalar( @{$unresolved} ), 0, 'detector: process scan ignores a supervisor whose parent is alive' );
 
+    {
+        my $marked = _mark_unix_parentless(
+            [
+                { pid => 1,   ppid => 0,   age => 90000, args => 'init' },
+                { pid => 500, ppid => 1,   age => 9000,  args => 'adopter' },
+                { pid => 601, ppid => 1,   age => $old,  args => 'handed to pid 1' },
+                { pid => 602, ppid => 777, age => $old,  args => 'parent not in the table' },
+                { pid => 603, ppid => 604, age => $old,  args => 'parent started after it' },
+                { pid => 604, ppid => 500, age => 5,     args => 'young reused pid' },
+                { pid => 605, ppid => 500, age => 60,    args => 'live child of a live older parent' },
+            ]
+        );
+        my %mark = map { $_->{pid} => $_->{parentless} } @{$marked};
+        is( $mark{601}, 1, 'detector: Unix rule calls a process whose parent is pid 1 parentless' );
+        is( $mark{602}, 1, 'detector: Unix rule calls a process whose parent is not in the table parentless' );
+        is( $mark{603}, 1, 'detector: Unix rule calls a process whose parent started after it parentless' );
+        is( $mark{605}, 0, 'detector: Unix rule leaves a live child of a live older parent alone' );
+    }
+
     ( $found, $unresolved ) = _leftovers_in_rows( [ { %{ $orphaned[0] }, age => $min_age } ], $manager, $min_age, $from_temp );
     is( scalar( @{$found} ) + scalar( @{$unresolved} ), 0, 'detector: process scan ignores a supervisor that is not old enough' );
 
@@ -757,7 +800,10 @@ the fake supervisor and loop as what they are and the plain child as
 nothing, that this run's own young children are never flagged, and, on
 copies of those rows, that an old parentless supervisor, loop and web
 master from temp space are flagged while one with a live parent, one
-that is too young, and one from outside temp space are not.
+that is too young, and one from outside temp space are not. Four more
+check the Unix parentless rule on made-up rows: parent pid 1, parent not
+in the table and parent started after the child are parentless, a live
+child of a live older parent is not.
 When a real scan finds orphans, the test fails and diags each one
 (kind, name, pid, state root, heartbeat age, and STUCK when a
 supervisor heartbeat is stale; for the process-list scan kind, pid,
