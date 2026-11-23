@@ -108,11 +108,15 @@ sub _web_lifetime_owner_watcher_log_path {
 # standard streams on the null device, so it never holds a test
 # harness pipe open. It ends by itself as soon as this web process is
 # gone, however that happened. The watcher is told the path of its log
-# file, so it has somewhere to write the one line that says it stopped
-# this web process because its owner is gone; a watcher that cannot
-# work out its log path still starts, it just keeps no log.
+# file, so it has somewhere to write what it did once the owner is
+# gone; a watcher that cannot work out its log path still starts, it
+# just keeps no log. This web process writes the first line of that
+# log itself: that a watcher was started, with its pid, or that it
+# could not be started and why. A spawn that dies is caught and logged
+# the same way, and never stops the web process starting.
 # Input: none.
-# Output: watcher pid integer, or 0 when the starter did not opt in.
+# Output: watcher pid integer, or 0 when the starter did not opt in or
+# the watcher could not be started.
 sub _start_lifetime_owner_watcher {
     return 0 if !defined Developer::Dashboard::ProcessSupervision::_lifetime_owner_pid();
     my $log_path = eval { _web_lifetime_owner_watcher_log_path($$) };
@@ -126,10 +130,48 @@ exit Developer::Dashboard::RuntimeManager->_run_web_lifetime_owner_watcher(@ARGV
 WATCHER_PERL
     my @library_args = map { ( '-I', $_ ) } grep { defined && !ref && -d $_ } @INC;
     my $null = File::Spec->devnull();
-    return Developer::Dashboard::GoRoutine::spawn(
-        [ $^X, @library_args, '-e', $watcher_program, @watcher_args ],
-        { stdin => $null, stdout => $null, stderr => $null },
-    ) || 0;
+    my $owner_pid   = Developer::Dashboard::ProcessSupervision::_lifetime_owner_pid();
+    my $watcher_pid = eval {
+        Developer::Dashboard::GoRoutine::spawn(
+            [ $^X, @library_args, '-e', $watcher_program, @watcher_args ],
+            { stdin => $null, stdout => $null, stderr => $null },
+        );
+    };
+    my $error = $@;
+    if ($watcher_pid) {
+        _log_lifetime_owner_watcher_start( $log_path,
+            "watcher started: watcher pid $watcher_pid was started by web pid $$ for lifetime owner pid $owner_pid" );
+        return $watcher_pid;
+    }
+    $error = 'the spawn returned no pid' if !defined $error || !length $error;
+    _log_lifetime_owner_watcher_start( $log_path,
+        "watcher not started: web pid $$ could not start its watcher for lifetime owner pid $owner_pid: $error" );
+    return 0;
+}
+
+# _log_lifetime_owner_watcher_start($log_path, $text)
+# Appends one time-stamped line to the watcher log from the web process
+# side, saying that a watcher was started or could not be. The watcher
+# runs with its standard streams on the null device, so without this
+# line a watcher that never started, or died while loading, would leave
+# nothing behind: with it, a started line with no watching line after it
+# from the watcher itself means the watcher died early. A failed write
+# is silent and never stops the web process starting.
+# Input: log file path string (undef means no log is kept) and the line
+# text without its time stamp or line ending.
+# Output: 1 when the line was written, otherwise undef.
+sub _log_lifetime_owner_watcher_start {
+    my ( $log_path, $text ) = @_;
+    return if !defined $log_path || !length $log_path;
+    return if !defined $text     || !length $text;
+    $text =~ s/\s+/ /g;
+    $text =~ s/\A | \z//g;
+    my @now = gmtime;
+    my $stamp = sprintf '%04d-%02d-%02dT%02d:%02d:%02dZ', $now[5] + 1900, $now[4] + 1, @now[ 3, 2, 1, 0 ];
+    open my $fh, '>>', $log_path or return;
+    print {$fh} "$stamp $text\n";
+    close $fh;
+    return 1;
 }
 
 # start_daemon()

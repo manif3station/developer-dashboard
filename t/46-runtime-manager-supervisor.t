@@ -825,6 +825,10 @@ ok(
     my @stopped;
     my @stop_proofs;
     my $stop_dies = 1;
+    my $stop_mode = 'stop';
+    my $confirm_pauses = 0;
+    my $real_confirm_looks = \&Developer::Dashboard::RuntimeManager::_web_stop_confirm_looks;
+    my $real_confirm_pause = \&Developer::Dashboard::RuntimeManager::_web_stop_confirm_pause_seconds;
     my $watcher_log = File::Spec->catfile( $home, 'web-lifetime-owner-watcher.log' );
     my $read_watcher_log = sub {
         open my $fh, '<', $watcher_log or return '';
@@ -834,6 +838,10 @@ ok(
     };
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_lifetime_owner_poll_seconds = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_web_stop_confirm_pause_seconds = sub {
+        $confirm_pauses++;
+        return 0;
+    };
     local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub {
         my ( undef, $pid ) = @_;
         push @probed, $pid;
@@ -845,6 +853,13 @@ ok(
         push @stopped, $pid;
         push @stop_proofs, [@proof];
         die "web stop failed\n" if $stop_dies;
+        return if $stop_mode eq 'refuse';
+        if ( $stop_mode eq 'refuse-web-gone' ) {
+            $alive{$pid} = [0];
+            return;
+        }
+        $alive{$pid} = [0] if $stop_mode eq 'stop';
+        $alive{$pid} = [ 1, 1, 0 ] if $stop_mode eq 'signal-then-gone';
         return $pid;
     };
 
@@ -865,7 +880,9 @@ ok(
     %alive = ( 5151 => [ 1, 1, 0 ], 4242 => [1] );
     is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0, 'the web owner watcher ends once the web process is gone' );
     is_deeply( \@stopped, [], 'nothing is stopped when the web process ends by itself' );
-    ok( !-e $watcher_log, 'no stop line is written when the web process ends by itself' );
+    like( $read_watcher_log->(), qr/\A\S+ watcher pid \Q$$\E is watching web pid 5151 for lifetime owner pid 4242\n\z/,
+        'a watcher with something to watch says so first, and writes nothing more when the web process ends by itself' );
+    unlink $watcher_log;
 
     # The owner dies: one dead poll is not enough, the second stops the web.
     @probed = ();
@@ -880,7 +897,13 @@ ok(
         [ 5151, 4242, 5151, 4242, 5151, 4242, 5151, 4242, 5151, 4242 ],
         'a single dead poll of the owner is forgiven; two in a row stop the web process, each time straight after seeing it alive',
     );
-    ok( !-e $watcher_log, 'no stop line is written when the stop itself fails' );
+    like(
+        $read_watcher_log->(),
+        qr/ web not stopped: lifetime owner gone; lifetime owner pid 4242 is gone; the stop attempt on web pid 5151 died: web stop failed\n\z/,
+        'a stop attempt that dies is not silent: the watcher log says it died, names both pids and carries the error',
+    );
+    unlike( $read_watcher_log->(), qr/web stopped:/, 'no stop line is written when the stop itself fails' );
+    unlink $watcher_log;
 
     # The owner dies and the stop succeeds: the watcher writes one line
     # naming both pids, so a later reader has positive evidence.
@@ -901,26 +924,111 @@ ok(
     like( $watcher_log_text, qr/web stopped: lifetime owner gone/, 'the stop line says why the web process was stopped' );
     like( $watcher_log_text, qr/lifetime owner pid 4242 is gone/, 'the stop line names the dead owner pid' );
     like( $watcher_log_text, qr/web pid 5151 is stopping/, 'the stop line names the stopped web pid' );
+    is( scalar( () = $watcher_log_text =~ /\n/g ), 2, 'a stop that is confirmed writes the watching line, the stop line and nothing else' );
+    is( $confirm_pauses, 0, 'a web process that is gone at the first look after the stop is not waited for' );
+
+    # The stop signalled the web process, and it is still there after
+    # every look of the bounded wait: only then is the stop reported as
+    # not confirmed. The pause between looks is stood in for, so nothing
+    # here really waits.
+    unlink $watcher_log;
+    $stop_mode      = 'signal-only';
+    $confirm_pauses = 0;
+    @probed         = ();
+    %alive          = ( 5151 => [1], 4242 => [0] );
+    is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0,
+        'the web owner watcher ends after a stop that left the web process running' );
+    like( $read_watcher_log->(), qr/ web stopped: lifetime owner gone; lifetime owner pid 4242 is gone; web pid 5151 is stopping\n/,
+        'a stop that signalled the web process still writes the stop line' );
+    like(
+        $read_watcher_log->(),
+        qr/ web stop not confirmed: lifetime owner gone; lifetime owner pid 4242 is gone; web pid 5151 was signalled and is still running\n\z/,
+        'a signalled web process that is still running after the whole wait is reported on a second line',
+    );
+    is_deeply(
+        \@probed,
+        [ 5151, 4242, 5151, 4242, (5151) x 10 ],
+        'the wait is bounded: the signalled web pid is looked at ten times after the stop and no more',
+    );
+    is( $confirm_pauses, 9, 'the wait pauses between looks only, nine times for ten looks' );
+
+    # The stop signalled the web process and it was still to be seen for
+    # an instant, then gone: that is a confirmed stop, and the line that
+    # would have been false is never written.
+    unlink $watcher_log;
+    $stop_mode      = 'signal-then-gone';
+    $confirm_pauses = 0;
+    @probed         = ();
+    %alive          = ( 5151 => [1], 4242 => [0] );
+    is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0,
+        'the web owner watcher ends after a stop the web process took a moment to obey' );
+    like( $read_watcher_log->(), qr/ web stopped: lifetime owner gone; lifetime owner pid 4242 is gone; web pid 5151 is stopping\n\z/,
+        'a web process that goes within the wait leaves the stop line as the last line' );
+    unlike( $read_watcher_log->(), qr/web stop not confirmed:/,
+        'a web process that goes within the wait is never reported as still running' );
+    is_deeply(
+        \@probed,
+        [ 5151, 4242, 5151, 4242, 5151, 5151, 5151 ],
+        'the wait ends at the first look that finds the web process gone',
+    );
+    is( $confirm_pauses, 2, 'the wait pauses only until the web process is gone' );
+
+    # The real bounds of that wait: ten looks, a fifth of a second apart,
+    # so about two seconds in all and never longer.
+    is( $real_confirm_looks->($class), 10, 'the real wait looks at the signalled web pid ten times at most' );
+    is( $real_confirm_pause->($class), 0.2, 'the real wait pauses a fifth of a second between looks' );
+
+    # The stop refused: the pid is running but is not recognised as a
+    # managed dashboard web process, so it was left alone.
+    unlink $watcher_log;
+    $stop_mode = 'refuse';
+    %alive     = ( 5151 => [1], 4242 => [0] );
+    is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0,
+        'the web owner watcher ends after a stop that refused the web pid' );
+    like(
+        $read_watcher_log->(),
+        qr/ web not stopped: lifetime owner gone; lifetime owner pid 4242 is gone; web pid 5151 is not recognised as a managed dashboard web process and is left alone\n\z/,
+        'a web pid that is left alone is not silent: the watcher log says it was not recognised',
+    );
+    unlike( $read_watcher_log->(), qr/web stopped:/, 'no stop line is written for a web pid that was left alone' );
+
+    # The web process ended by itself between the poll and the stop:
+    # nothing was stopped and nothing needs saying.
+    unlink $watcher_log;
+    $stop_mode = 'refuse-web-gone';
+    %alive     = ( 5151 => [1], 4242 => [0] );
+    is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0,
+        'the web owner watcher ends when the web process went away just before the stop' );
+    unlike( $read_watcher_log->(), qr/web stopped:|web not stopped:|web stop not confirmed:/,
+        'no stop line of any kind is written when the web process ended by itself before the stop' );
     unlink $watcher_log;
 
     # The watcher cannot build its object: it says at once, in plain
     # words, that it CANNOT stop the web process in that state, and it
-    # carries on with the class name, so the stop attempt is still made
-    # (and dies, as the real one does without an object).
+    # carries on with the class name only so the stop attempt that then
+    # dies (as the real one does without an object) is logged as well.
     {
         local *Developer::Dashboard::RuntimeManager::_web_lifetime_owner_watcher_object = sub { die "no home directory\n" };
+        $stop_mode = 'stop';
         $stop_dies = 1;
         @stopped   = ();
         %alive     = ( 5151 => [1], 4242 => [0] );
         is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0,
             'the web owner watcher still ends normally when it could not build its object' );
-        is_deeply( \@stopped, [5151], 'a watcher without its object still makes the stop attempt' );
+        is_deeply( \@stopped, [5151], 'a watcher without its object still makes the stop attempt, so its failure is logged' );
         like(
             $read_watcher_log->(),
-            qr/\A\S+ watcher for web pid 5151 could not build its runtime object: it CANNOT stop web pid 5151 when the lifetime owner goes, and carries on only to say so in this log: no home directory\n\z/,
+            qr/\A\S+ watcher for web pid 5151 could not build its runtime object: it CANNOT stop web pid 5151 when the lifetime owner goes, and carries on only to say so in this log: no home directory\n/,
             'a watcher that could not build its object says plainly that it cannot stop the web process',
         );
+        like(
+            $read_watcher_log->(),
+            qr/ web not stopped: lifetime owner gone; lifetime owner pid 4242 is gone; the stop attempt on web pid 5151 died: web stop failed\n\z/,
+            'the stop attempt that dies without the object is logged after it',
+        );
         unlike( $read_watcher_log->(), qr/web stopped:/, 'a watcher without its object never claims a stop' );
+        unlike( $read_watcher_log->(), qr/is watching/,
+            'a watcher that could not build its object does not write the watching line' );
         $stop_dies = 0;
     }
 
@@ -934,9 +1042,11 @@ ok(
             'the web owner watcher still ends normally when its builder returned no object' );
         like(
             $read_watcher_log->(),
-            qr/\A\S+ watcher for web pid 5151 could not build its runtime object: it CANNOT stop web pid 5151 when the lifetime owner goes, and carries on only to say so in this log: no object was returned\n\z/,
+            qr/\A\S+ watcher for web pid 5151 could not build its runtime object: it CANNOT stop web pid 5151 when the lifetime owner goes, and carries on only to say so in this log: no object was returned\n/,
             'a builder that returned no object is reported with that reason',
         );
+        unlike( $read_watcher_log->(), qr/is watching/,
+            'a watcher whose builder returned no object does not write the watching line either' );
         $stop_dies = 0;
     }
     unlink $watcher_log;
@@ -1021,7 +1131,7 @@ ok(
         return scalar @pids;
     };
     my $stop_line = qr/ web stopped: lifetime owner gone; lifetime owner pid \Q$owner_pid\E is gone; web pid \Q$web_pid\E is stopping\n\z/;
-    my $before_stop = qr/\A\S+/;
+    my $before_stop = qr/\A\S+ watcher pid \Q$$\E is watching web pid \Q$web_pid\E for lifetime owner pid \Q$owner_pid\E\n\S+/;
 
     ok( $web_pid && $web_pid != $$ && kill( 0, $web_pid ), 'real route: the stand-in web process is a real live pid' );
     is( scalar( $class->_read_process_env_marker( $web_pid, 'DEVELOPER_DASHBOARD_WEB_SERVICE' ) ), undef,
@@ -1040,7 +1150,7 @@ ok(
     is_deeply( \@listener_ports, [$port], 'real route: the socket table was asked about the port the persisted state names' );
     is_deeply( \@titles_read, [], 'real route: the process title is not needed once the persisted state proves the web' );
     like( $read_watcher_log->(), qr/$before_stop$stop_line/,
-        'real route: the stop line is the only line, and it names the owner pid and the web pid' );
+        'real route: the watching line and the stop line are the only lines, and the stop line names the owner pid and the web pid' );
     is_deeply( [ grep { $_ ne $class } @objects ], [],
         'real route: every liveness probe ran on a real runtime manager object, never on the class name' );
 
@@ -1058,14 +1168,19 @@ ok(
     is_deeply( \@titles_read, [$web_pid], 'real route: the process title of the web pid was read' );
     like( $read_watcher_log->(), qr/$before_stop$stop_line/, 'real route: the stop line is written for the web proved by its title' );
 
-    # Nothing proves the pid is a dashboard web: it is left alone.
+    # Nothing proves the pid is a dashboard web: it is left alone, and
+    # the watcher says so.
     unlink $watcher_log;
     ( $web_alive, @signals ) = (1);
     $title = 'starman master --listen 127.0.0.1:1';
     is( $class->_run_web_lifetime_owner_watcher( $web_pid, $watcher_log ), 0,
         'real route: the watcher ends normally when nothing proves the pid is a dashboard web' );
     is_deeply( \@signals, [], 'real route: a pid nothing proves to be a dashboard web is never signalled' );
-    is( $read_watcher_log->(), '', 'real route: no stop line is written for a pid that was left alone' );
+    like(
+        $read_watcher_log->(),
+        qr/$before_stop web not stopped: lifetime owner gone; lifetime owner pid \Q$owner_pid\E is gone; web pid \Q$web_pid\E is not recognised as a managed dashboard web process and is left alone\n\z/,
+        'real route: the watcher log says the pid was not recognised and left alone',
+    );
 
     # Linux with procfs present: the environment marker of a live web is
     # not there to be read (Jenkins run-tests #46, amd64 and the Pi: the
@@ -1196,6 +1311,125 @@ ok(
     );
 
     chdir $before_cwd or die "Unable to chdir back to $before_cwd: $!";
+}
+
+{
+    # The supervisor's own web stop when its lifetime owner is gone is
+    # not silent either: what it did goes to the global collector log,
+    # the one log a supervisor always has. Mocked: nothing is read from
+    # disk for the recorded pid, nothing is probed or signalled, and the
+    # shutdown is replaced by a die so the test process carries on.
+    my $recorded;
+    my $stop_result;
+    my $stop_error;
+    my $recorded_running = 0;
+    my $shutdowns        = 0;
+    my $collector_log    = $manager->{files}->collector_log;
+    my $real_recorded_reader = \&Developer::Dashboard::RuntimeManager::_recorded_web_pid_for_lifetime_owner;
+    my $read_collector_log = sub {
+        open my $fh, '<', $collector_log or return '';
+        local $/;
+        my $text = <$fh>;
+        return defined $text ? $text : '';
+    };
+    my $run_check = sub {
+        unlink $collector_log;
+        my $error = eval {
+            $manager->_check_collector_supervisor_lifetime_owner( [], { pid => 4242, dead_polls => 1 } );
+            return '';
+        } || $@;
+        return $error;
+    };
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_lifetime_owner_is_gone              = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_recorded_web_pid_for_lifetime_owner = sub { return $recorded };
+    local *Developer::Dashboard::RuntimeManager::_stop_recorded_web_for_lifetime_owner = sub {
+        die $stop_error if defined $stop_error;
+        return $stop_result;
+    };
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub { return $recorded_running };
+    local *Developer::Dashboard::RuntimeManager::_shutdown_collector_supervisor = sub {
+        my ( undef, $status ) = @_;
+        $shutdowns++;
+        die "shutdown-$status\n";
+    };
+    my $prefix   = qr/\[supervisor\]\[lifetime-owner\]/;
+    my $gone     = qr/lifetime owner gone; lifetime owner pid 4242 is gone;/;
+
+    # The recorded web is stopped: a positive line naming owner and web.
+    ( $recorded, $stop_result ) = ( 5151, 5151 );
+    like( $run_check->(), qr/shutdown-lifetime-owner-gone/, 'the supervisor shuts down after stopping its recorded web' );
+    like( $read_collector_log->(), qr/\A\[[^\]]+\]$prefix web stopped: $gone web pid 5151 is stopping\n\z/,
+        'a supervisor that stopped its recorded web says so in the collector log on one line, naming the owner pid and the web pid' );
+
+    # The stop died: the line says so and carries the error.
+    ( $stop_result, $stop_error ) = ( undef, "web state unreadable\nsecond line\n" );
+    like( $run_check->(), qr/shutdown-lifetime-owner-gone/, 'a web stop that dies does not keep the supervisor alive' );
+    like(
+        $read_collector_log->(),
+        qr/\A\[[^\]]+\]$prefix web not stopped: $gone the stop attempt on recorded web pid 5151 died: web state unreadable second line\n\z/,
+        'a web stop that dies is not silent: the collector log says it died and carries the error on one line',
+    );
+    unlike( $read_collector_log->(), qr/web stopped:/, 'no stop line is written when the supervisor web stop died' );
+
+    # The recorded pid could not even be read: the die is still told.
+    {
+        local *Developer::Dashboard::RuntimeManager::_recorded_web_pid_for_lifetime_owner = sub { die "pid file unreadable\n" };
+        like( $run_check->(), qr/shutdown-lifetime-owner-gone/, 'a recorded web pid that cannot be read does not keep the supervisor alive' );
+        like(
+            $read_collector_log->(),
+            qr/\A\[[^\]]+\]$prefix web not stopped: $gone the stop attempt on the recorded web process died: pid file unreadable\n\z/,
+            'a recorded web pid that cannot be read is reported with its error',
+        );
+    }
+
+    # The recorded pid is running but was not recognised: left alone, and said.
+    ( $stop_error, $recorded_running ) = ( undef, 1 );
+    like( $run_check->(), qr/shutdown-lifetime-owner-gone/, 'a recorded web that is left alone does not keep the supervisor alive' );
+    like(
+        $read_collector_log->(),
+        qr/\A\[[^\]]+\]$prefix web not stopped: $gone recorded web pid 5151 is not recognised as a managed dashboard web process and is left alone\n\z/,
+        'a recorded web pid that is running but not recognised is not silent: the collector log says it was left alone',
+    );
+
+    # The recorded web is already gone, or none was recorded: no web line.
+    $recorded_running = 0;
+    like( $run_check->(), qr/shutdown-lifetime-owner-gone/, 'a recorded web that is already gone does not keep the supervisor alive' );
+    is( $read_collector_log->(), '', 'nothing is written when the recorded web is already gone' );
+    $recorded = undef;
+    like( $run_check->(), qr/shutdown-lifetime-owner-gone/, 'a runtime with no recorded web shuts its supervisor down as before' );
+    is( $read_collector_log->(), '', 'nothing is written when no web is recorded' );
+
+    # A log that cannot be written never keeps the supervisor alive.
+    {
+        my $files_class = ref $manager->{files};
+        no strict 'refs';
+        local *{ $files_class . '::append' } = sub { die "disk full\n" };
+        use strict 'refs';
+        ( $recorded, $stop_result ) = ( 5151, 5151 );
+        $shutdowns = 0;
+        like( $run_check->(), qr/shutdown-lifetime-owner-gone/, 'a collector log that cannot be written does not keep the supervisor alive' );
+        is( $shutdowns, 1, 'the supervisor shuts down exactly once when its log cannot be written' );
+        is( scalar( $manager->_log_collector_supervisor_lifetime_event('text') ), undef, 'a failed supervisor log write is reported as undef, not as an error' );
+    }
+    is( scalar( $manager->_log_collector_supervisor_lifetime_event('') ), undef, 'no supervisor line is written without text' );
+    unlink $collector_log;
+
+    # The recorded pid reader on its own.
+    {
+        my $files_class = ref $manager->{files};
+        my $raw;
+        no strict 'refs';
+        local *{ $files_class . '::read' } = sub { return $raw };
+        use strict 'refs';
+        no warnings 'redefine';
+        local *Developer::Dashboard::RuntimeManager::_recorded_web_pid_for_lifetime_owner = $real_recorded_reader;
+        is( scalar( $manager->_recorded_web_pid_for_lifetime_owner ), undef, 'no recorded web pid reads as undef' );
+        $raw = "junk\n";
+        is( scalar( $manager->_recorded_web_pid_for_lifetime_owner ), undef, 'a malformed recorded web pid reads as undef' );
+        $raw = "5151\n";
+        is( scalar( $manager->_recorded_web_pid_for_lifetime_owner ), 5151, 'a recorded web pid is read as a number' );
+    }
 }
 
 END {

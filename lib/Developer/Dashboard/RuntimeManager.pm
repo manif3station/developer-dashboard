@@ -2048,7 +2048,12 @@ sub _check_collector_supervisor_parent {
 # liveness probe cannot end a healthy runtime. Liveness is
 # _pid_is_running, the same platform-aware check the serve-parent guard
 # uses, so the identical path runs on Windows. A stop that fails is not
-# allowed to keep the supervisor alive.
+# allowed to keep the supervisor alive, and it is not silent either: the
+# supervisor writes to the global collector log whether it stopped its
+# recorded web process (naming owner pid and web pid), whether that
+# stop died (with the error), or whether the recorded pid was running
+# but not recognised as a managed web and so left alone. No recorded
+# web, or one already gone, needs no line.
 # Input: watched collector names array reference, and the owner-state
 # hash reference the caller keeps across loop iterations (pid,
 # dead_polls).
@@ -2060,8 +2065,68 @@ sub _check_collector_supervisor_lifetime_owner {
     for my $name ( @{$targets} ) {
         eval { $self->{runner}->stop_loop($name); 1 };
     }
-    eval { $self->_stop_recorded_web_for_lifetime_owner; 1 };
+    my $prefix = "lifetime owner gone; lifetime owner pid $owner->{pid} is gone;";
+    my ( $recorded, $stopped );
+    my $finished = eval {
+        $recorded = $self->_recorded_web_pid_for_lifetime_owner;
+        $stopped  = $self->_stop_recorded_web_for_lifetime_owner;
+        1;
+    };
+    my $error = $@;
+    eval {
+        my $named = defined $recorded ? "recorded web pid $recorded" : 'the recorded web process';
+        if ( !$finished ) {
+            $error = 'unknown error' if !defined $error || !length $error;
+            $self->_log_collector_supervisor_lifetime_event(
+                "web not stopped: $prefix the stop attempt on $named died: $error");
+        }
+        elsif ($stopped) {
+            $self->_log_collector_supervisor_lifetime_event("web stopped: $prefix web pid $stopped is stopping");
+        }
+        elsif ( defined $recorded && $self->_pid_is_running($recorded) ) {
+            $self->_log_collector_supervisor_lifetime_event(
+                "web not stopped: $prefix recorded web pid $recorded is not recognised as a managed dashboard web process and is left alone"
+            );
+        }
+        1;
+    };
     $self->_shutdown_collector_supervisor('lifetime-owner-gone');
+}
+
+# _log_collector_supervisor_lifetime_event($message)
+# Appends one line to the global collector log saying what the collector
+# supervisor did because its lifetime owner is gone. That is the one log
+# a supervisor can always write to: it is the file its own watchdog
+# events already go to, it lives under this runtime's logs root, and it
+# belongs to no single collector, where the web owner watcher's log is
+# named after a web pid the supervisor may not even have. A failed write
+# is silent: a missing log line must never keep the supervisor alive.
+# Input: message text without time stamp or line ending.
+# Output: 1 when the line was written, otherwise undef.
+sub _log_collector_supervisor_lifetime_event {
+    my ( $self, $message ) = @_;
+    return if !defined $message || !length $message;
+    $message =~ s/\s+/ /g;
+    $message =~ s/\A | \z//g;
+    my $written = eval {
+        $self->{files}->append( 'collector_log',
+            sprintf "[%s][supervisor][lifetime-owner] %s\n", _now_iso8601( tz => 'utc' ), $message );
+        1;
+    };
+    return $written ? 1 : undef;
+}
+
+# _recorded_web_pid_for_lifetime_owner()
+# Reads the web pid this runtime itself recorded.
+# Input: none.
+# Output: pid integer, or undef when none is recorded or it is malformed.
+sub _recorded_web_pid_for_lifetime_owner {
+    my ($self) = @_;
+    my $pid = $self->{files}->read('web_pid');
+    return undef if !defined $pid;
+    chomp $pid;
+    return undef if $pid !~ /\A\d+\z/ || $pid < 1;
+    return $pid + 0;
 }
 
 # _stop_recorded_web_for_lifetime_owner()
@@ -2079,11 +2144,8 @@ sub _check_collector_supervisor_lifetime_owner {
 # this runtime's to stop.
 sub _stop_recorded_web_for_lifetime_owner {
     my ($self) = @_;
-    my $pid = $self->{files}->read('web_pid');
+    my $pid = $self->_recorded_web_pid_for_lifetime_owner;
     return if !defined $pid;
-    chomp $pid;
-    return if $pid !~ /\A\d+\z/ || $pid < 1;
-    $pid += 0;
     return if !$self->_pid_is_running($pid) || !$self->_is_managed_web($pid);
     return $self->_stop_web_pid_for_lifetime_owner($pid);
 }
@@ -2220,6 +2282,46 @@ sub _web_lifetime_owner_watcher_paths {
     );
 }
 
+# _web_pid_outlives_stop_confirm($pid)
+# Says whether a web pid the watcher has just signalled is still running
+# after a short bounded wait. The stop returns straight after its last
+# signal, and a process that has just been signalled can still be seen
+# for an instant, so one look straight away could report a web process
+# as still running when it is already on its way out. This looks up to
+# _web_stop_confirm_looks times, _web_stop_confirm_pause_seconds apart,
+# and gives up waiting as soon as the pid is gone, so the "not
+# confirmed" line is only written for a web process that really is
+# still there about two seconds later.
+# Input: web process id integer.
+# Output: 1 when the pid is still running after every look, otherwise 0.
+sub _web_pid_outlives_stop_confirm {
+    my ( $self, $pid ) = @_;
+    my $looks = $self->_web_stop_confirm_looks;
+    for my $look ( 1 .. $looks ) {
+        return 0 if !$self->_pid_is_running($pid);
+        sleep $self->_web_stop_confirm_pause_seconds if $look < $looks;
+    }
+    return 1;
+}
+
+# _web_stop_confirm_looks()
+# Returns how many times the watcher looks at a signalled web pid before
+# it says the stop is not confirmed.
+# Input: none.
+# Output: integer number of looks.
+sub _web_stop_confirm_looks {
+    return 10;
+}
+
+# _web_stop_confirm_pause_seconds()
+# Returns the pause between two of those looks, so ten looks take about
+# two seconds in all.
+# Input: none.
+# Output: number of seconds.
+sub _web_stop_confirm_pause_seconds {
+    return 0.2;
+}
+
 # _run_web_lifetime_owner_watcher($web_pid, $log_path)
 # Body of the watcher process a web process starts for itself when its
 # starter opted in to a lifetime owner (see _start_lifetime_owner_watcher
@@ -2241,8 +2343,23 @@ sub _web_lifetime_owner_watcher_paths {
 # on with the class name. The stop line is written once the stop has
 # actually signalled the web pid, so the line never claims a stop that
 # did not happen.
+# The watcher never fails silently. Its first act once it has its
+# object and something to watch is a line saying which web pid it
+# watches for which owner, so a watcher that was started and then died
+# before it could watch is told apart from one that is watching (the
+# web process itself writes the line that says a watcher was started,
+# or could not be). That line is not written by a watcher that could
+# not build its object: it would read as a working watcher straight
+# after the line that says it cannot work. Whatever it does once the
+# owner is gone, it says in its log as well: a second line after the
+# stop line when the signalled web pid is still running after a short
+# bounded wait (see _web_pid_outlives_stop_confirm), a line when the web
+# pid is running but does not prove to be a managed dashboard web
+# process and so is left alone, and a line with the error when the stop
+# attempt died, which is what happens to a watcher without its object.
 # The log path is optional: with none the watcher does the same work
-# and keeps no log.
+# and keeps no log. A web process that ended by itself before the stop
+# needs no line.
 # Input: web process id integer, log file path string or undef.
 # Output: 0, the watcher's exit status, once there is nothing to watch.
 sub _run_web_lifetime_owner_watcher {
@@ -2250,8 +2367,9 @@ sub _run_web_lifetime_owner_watcher {
     return 0 if !defined $web_pid || $web_pid !~ /\A\d+\z/ || $web_pid < 1 || $web_pid == $$;
     my $owner = { pid => $invocant->_lifetime_owner_pid, dead_polls => 0 };
     return 0 if !defined $owner->{pid} || $owner->{pid} == $web_pid;
-    my $self = eval { $invocant->_web_lifetime_owner_watcher_object };
-    if ( !ref $self ) {
+    my $self  = eval { $invocant->_web_lifetime_owner_watcher_object };
+    my $built = ref $self ? 1 : 0;
+    if ( !$built ) {
         my $error = defined $@ && length $@ ? $@ : 'no object was returned';
         $self = $invocant;
         eval {
@@ -2261,11 +2379,37 @@ sub _run_web_lifetime_owner_watcher {
             1;
         };
     }
+    eval {
+        $self->_log_web_lifetime_owner_event( $log_path,
+            "watcher pid $$ is watching web pid $web_pid for lifetime owner pid $owner->{pid}" )
+          if $built;
+        1;
+    };
     while (1) {
         return 0 if !$self->_pid_is_running($web_pid);
         if ( $self->_lifetime_owner_is_gone($owner) ) {
-            my $stopped = eval { $self->_stop_web_pid_for_lifetime_owner($web_pid); };
-            eval { $self->_log_web_lifetime_owner_stop( $log_path, $owner->{pid}, $web_pid ) if $stopped; 1 };
+            my $prefix = "lifetime owner gone; lifetime owner pid $owner->{pid} is gone;";
+            my $stopped;
+            my $finished = eval { $stopped = $self->_stop_web_pid_for_lifetime_owner($web_pid); 1 };
+            my $error    = $@;
+            eval {
+                if ( !$finished ) {
+                    $error = 'unknown error' if !defined $error || !length $error;
+                    $self->_log_web_lifetime_owner_event( $log_path,
+                        "web not stopped: $prefix the stop attempt on web pid $web_pid died: $error" );
+                }
+                elsif ($stopped) {
+                    $self->_log_web_lifetime_owner_stop( $log_path, $owner->{pid}, $web_pid );
+                    $self->_log_web_lifetime_owner_event( $log_path,
+                        "web stop not confirmed: $prefix web pid $web_pid was signalled and is still running" )
+                      if $self->_web_pid_outlives_stop_confirm($web_pid);
+                }
+                elsif ( $self->_pid_is_running($web_pid) ) {
+                    $self->_log_web_lifetime_owner_event( $log_path,
+                        "web not stopped: $prefix web pid $web_pid is not recognised as a managed dashboard web process and is left alone" );
+                }
+                1;
+            };
             return 0;
         }
         sleep $self->_lifetime_owner_poll_seconds;

@@ -2151,9 +2151,57 @@ sub Local::CompletedRoutine::kill { return 1 }
             'the watcher holds none of the web process standard streams',
         );
 
+        # The web process itself writes the first line of the watcher log,
+        # so a watcher that never started, or died while loading with its
+        # streams on the null device, is not silent.
+        my $watcher_log = $command->[-1];
+        my $read_watcher_log = sub {
+            open my $fh, '<', $watcher_log or return '';
+            local $/;
+            my $text = <$fh>;
+            return defined $text ? $text : '';
+        };
+        like(
+            $read_watcher_log->(),
+            qr/\A\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ watcher started: watcher pid 7171 was started by web pid \Q$$\E for lifetime owner pid 4242\n\z/,
+            'the web process writes one time-stamped line saying its watcher was started, naming the watcher, web and owner pids',
+        );
+        unlink $watcher_log;
+
         local *Developer::Dashboard::GoRoutine::spawn = sub { return };
         is( Developer::Dashboard::Web::Server::_start_lifetime_owner_watcher(), 0,
             'a watcher that could not be spawned is reported as 0 and does not stop the web process starting' );
+        like(
+            $read_watcher_log->(),
+            qr/\A\S+ watcher not started: web pid \Q$$\E could not start its watcher for lifetime owner pid 4242: the spawn returned no pid\n\z/,
+            'a spawn that returns no pid is not silent: the watcher log says the watcher was not started',
+        );
+        unlink $watcher_log;
+
+        local *Developer::Dashboard::GoRoutine::spawn = sub { die "no such program\nsecond line\n" };
+        is( Developer::Dashboard::Web::Server::_start_lifetime_owner_watcher(), 0,
+            'a watcher spawn that dies is reported as 0 and does not stop the web process starting' );
+        like(
+            $read_watcher_log->(),
+            qr/\A\S+ watcher not started: web pid \Q$$\E could not start its watcher for lifetime owner pid 4242: no such program second line\n\z/,
+            'a spawn that dies is not silent: the watcher log carries the error on one line',
+        );
+        unlink $watcher_log;
+
+        is( scalar( Developer::Dashboard::Web::Server::_log_lifetime_owner_watcher_start( undef, 'text' ) ), undef,
+            'no start line is written without a log path' );
+        is( scalar( Developer::Dashboard::Web::Server::_log_lifetime_owner_watcher_start( $watcher_log, '' ) ), undef,
+            'no start line is written without text' );
+        is(
+            scalar(
+                Developer::Dashboard::Web::Server::_log_lifetime_owner_watcher_start(
+                    File::Spec->catfile( $home, 'no-such-dir', 'watcher.log' ), 'text'
+                )
+            ),
+            undef,
+            'a watcher log that cannot be opened is not an error',
+        );
+        ok( !-e $watcher_log, 'none of the refused start lines created the watcher log' );
     }
 }
 
