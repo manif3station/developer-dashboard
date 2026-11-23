@@ -823,8 +823,15 @@ ok(
     my %alive;
     my @probed;
     my @stopped;
+    my @stop_proofs;
     my $stop_dies = 1;
     my $watcher_log = File::Spec->catfile( $home, 'web-lifetime-owner-watcher.log' );
+    my $read_watcher_log = sub {
+        open my $fh, '<', $watcher_log or return '';
+        local $/;
+        my $text = <$fh>;
+        return defined $text ? $text : '';
+    };
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_lifetime_owner_poll_seconds = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub {
@@ -834,8 +841,9 @@ ok(
         return @{$answers} > 1 ? shift @{$answers} : $answers->[0];
     };
     local *Developer::Dashboard::RuntimeManager::_stop_web_pid_for_lifetime_owner = sub {
-        my ( undef, $pid ) = @_;
+        my ( undef, $pid, @proof ) = @_;
         push @stopped, $pid;
+        push @stop_proofs, [@proof];
         die "web stop failed\n" if $stop_dies;
         return $pid;
     };
@@ -865,6 +873,8 @@ ok(
     is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0,
         'the web owner watcher ends after stopping the web process, even when that stop fails' );
     is_deeply( \@stopped, [5151], 'only the one web process the watcher was started for is stopped, once' );
+    is_deeply( \@stop_proofs, [ [] ],
+        'the watcher asks for the stop with the web pid alone and changes nothing about the managed-web proof' );
     is_deeply(
         \@probed,
         [ 5151, 4242, 5151, 4242, 5151, 4242, 5151, 4242, 5151, 4242 ],
@@ -891,6 +901,301 @@ ok(
     like( $watcher_log_text, qr/web stopped: lifetime owner gone/, 'the stop line says why the web process was stopped' );
     like( $watcher_log_text, qr/lifetime owner pid 4242 is gone/, 'the stop line names the dead owner pid' );
     like( $watcher_log_text, qr/web pid 5151 is stopping/, 'the stop line names the stopped web pid' );
+    unlink $watcher_log;
+
+    # The watcher cannot build its object: it says at once, in plain
+    # words, that it CANNOT stop the web process in that state, and it
+    # carries on with the class name, so the stop attempt is still made
+    # (and dies, as the real one does without an object).
+    {
+        local *Developer::Dashboard::RuntimeManager::_web_lifetime_owner_watcher_object = sub { die "no home directory\n" };
+        $stop_dies = 1;
+        @stopped   = ();
+        %alive     = ( 5151 => [1], 4242 => [0] );
+        is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0,
+            'the web owner watcher still ends normally when it could not build its object' );
+        is_deeply( \@stopped, [5151], 'a watcher without its object still makes the stop attempt' );
+        like(
+            $read_watcher_log->(),
+            qr/\A\S+ watcher for web pid 5151 could not build its runtime object: it CANNOT stop web pid 5151 when the lifetime owner goes, and carries on only to say so in this log: no home directory\n\z/,
+            'a watcher that could not build its object says plainly that it cannot stop the web process',
+        );
+        unlike( $read_watcher_log->(), qr/web stopped:/, 'a watcher without its object never claims a stop' );
+        $stop_dies = 0;
+    }
+
+    # A builder that returns no object at all is treated the same way.
+    {
+        local *Developer::Dashboard::RuntimeManager::_web_lifetime_owner_watcher_object = sub { return };
+        unlink $watcher_log;
+        $stop_dies = 1;
+        %alive     = ( 5151 => [1], 4242 => [0] );
+        is( $class->_run_web_lifetime_owner_watcher(5151, $watcher_log), 0,
+            'the web owner watcher still ends normally when its builder returned no object' );
+        like(
+            $read_watcher_log->(),
+            qr/\A\S+ watcher for web pid 5151 could not build its runtime object: it CANNOT stop web pid 5151 when the lifetime owner goes, and carries on only to say so in this log: no object was returned\n\z/,
+            'a builder that returned no object is reported with that reason',
+        );
+        $stop_dies = 0;
+    }
+    unlink $watcher_log;
+
+    # The log helper itself: no path, no text, or an unwritable path is
+    # never an error, and white space in the text is folded to one line.
+    is( scalar( $manager->_log_web_lifetime_owner_event( undef, 'text' ) ), undef, 'no line is written without a log path' );
+    is( scalar( $manager->_log_web_lifetime_owner_event( $watcher_log, '' ) ), undef, 'no line is written without text' );
+    is(
+        scalar( $manager->_log_web_lifetime_owner_event( File::Spec->catfile( $home, 'no-such-dir', 'watcher.log' ), 'text' ) ),
+        undef,
+        'a log file that cannot be opened is not an error',
+    );
+    is( $manager->_log_web_lifetime_owner_event( $watcher_log, "first\n  second\n" ), 1, 'a written line is reported' );
+    like( $read_watcher_log->(), qr/\A\S+ first second\n\z/, 'the text is written as one time-stamped line' );
+    unlink $watcher_log;
+}
+
+{
+    # The watcher's own route, end to end, the way the watcher process
+    # runs it: called on the class name, with the real stop and the REAL
+    # managed-web proof behind it, on a host where the process
+    # environment cannot be read (procfs pointed at a directory that does
+    # not exist, which is how macOS and Windows always are). There the
+    # proof has to go on to the persisted web state, which needs a real
+    # object with a file registry. Called on a bare class name that read
+    # dies, the stop never happens and, before the watcher logged its
+    # failures, nothing said so. Only the outermost system facts are
+    # stood in for: which pids are alive, what the socket table and the
+    # process title say, and the signal itself. The web pid is a real
+    # live child, because the proof starts with a real signal-0 probe;
+    # it holds no harness pipe and ends by itself after two minutes, so
+    # a test that dies part way leaves nothing behind.
+    my $class = 'Developer::Dashboard::RuntimeManager';
+    my $null    = File::Spec->devnull;
+    my $web_pid = _spawn_perl_fixture(
+        q{for ( 1 .. 1200 ) { select undef, undef, undef, 0.1 }},
+        { stdin => $null, stdout => $null, stderr => $null },
+    );
+    my $owner_pid   = 4242;
+    my $port        = 45991;
+    my $watcher_log = File::Spec->catfile( $home, 'web-lifetime-owner-watcher-real-route.log' );
+    my $read_watcher_log = sub {
+        open my $fh, '<', $watcher_log or return '';
+        local $/;
+        my $text = <$fh>;
+        return defined $text ? $text : '';
+    };
+    my $web_alive = 1;
+    my @signals;
+    my @listener_ports;
+    my @titles_read;
+    my $title;
+    my @listeners;
+    my @objects;
+    my $no_procfs = File::Spec->catdir( $home, 'no-procfs-here' );
+    no warnings 'redefine';
+    local $Developer::Dashboard::ProcessSupervision::PROCFS_ROOT = $no_procfs;
+    local $Developer::Dashboard::RuntimeManager::PROCFS_ROOT     = $no_procfs;
+    local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = $owner_pid;
+    local *Developer::Dashboard::RuntimeManager::_lifetime_owner_poll_seconds = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_poll_interval       = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub {
+        my ( $self, $pid ) = @_;
+        push @objects, ref($self) || 'class name';
+        return $pid == $web_pid ? $web_alive : 0;
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        my ( undef, $asked ) = @_;
+        push @listener_ports, $asked;
+        return @listeners;
+    };
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub {
+        my ( undef, $pid ) = @_;
+        push @titles_read, $pid;
+        return $title;
+    };
+    local *Developer::Dashboard::RuntimeManager::_send_signal = sub {
+        my ( undef, $signal, @pids ) = @_;
+        push @signals, join ' ', $signal, @pids;
+        $web_alive = 0;
+        return scalar @pids;
+    };
+    my $stop_line = qr/ web stopped: lifetime owner gone; lifetime owner pid \Q$owner_pid\E is gone; web pid \Q$web_pid\E is stopping\n\z/;
+    my $before_stop = qr/\A\S+/;
+
+    ok( $web_pid && $web_pid != $$ && kill( 0, $web_pid ), 'real route: the stand-in web process is a real live pid' );
+    is( scalar( $class->_read_process_env_marker( $web_pid, 'DEVELOPER_DASHBOARD_WEB_SERVICE' ) ), undef,
+        'real route: the process environment cannot be read, as on a host with no procfs' );
+
+    # A background web: the persisted state names the pid and its port,
+    # and the socket table confirms that pid is listening there.
+    $manager->_cleanup_web_files;
+    $manager->_write_web_state( { host => '127.0.0.1', pid => $web_pid + 0, port => $port, status => 'running', workers => 1 } );
+    @listeners = ( $web_pid );
+    $title     = undef;
+    is( $class->_run_web_lifetime_owner_watcher( $web_pid, $watcher_log ), 0,
+        'real route: the watcher called on the class name ends normally for a background web' );
+    is_deeply( \@signals, ["TERM $web_pid"],
+        'real route: with no procfs the background web is proved through the persisted state and stopped with TERM' );
+    is_deeply( \@listener_ports, [$port], 'real route: the socket table was asked about the port the persisted state names' );
+    is_deeply( \@titles_read, [], 'real route: the process title is not needed once the persisted state proves the web' );
+    like( $read_watcher_log->(), qr/$before_stop$stop_line/,
+        'real route: the stop line is the only line, and it names the owner pid and the web pid' );
+    is_deeply( [ grep { $_ ne $class } @objects ], [],
+        'real route: every liveness probe ran on a real runtime manager object, never on the class name' );
+
+    # A foreground web: no persisted state names it, so the proof falls
+    # through to the process title.
+    unlink $watcher_log;
+    $manager->_cleanup_web_files;
+    ( $web_alive, @signals ) = (1);
+    @listener_ports = ();
+    @listeners      = ();
+    $title          = "d2 web: 127.0.0.1:$port";
+    is( $class->_run_web_lifetime_owner_watcher( $web_pid, $watcher_log ), 0,
+        'real route: the watcher ends normally for a web with no persisted state' );
+    is_deeply( \@signals, ["TERM $web_pid"], 'real route: a web with no persisted state is proved by its process title and stopped' );
+    is_deeply( \@titles_read, [$web_pid], 'real route: the process title of the web pid was read' );
+    like( $read_watcher_log->(), qr/$before_stop$stop_line/, 'real route: the stop line is written for the web proved by its title' );
+
+    # Nothing proves the pid is a dashboard web: it is left alone.
+    unlink $watcher_log;
+    ( $web_alive, @signals ) = (1);
+    $title = 'starman master --listen 127.0.0.1:1';
+    is( $class->_run_web_lifetime_owner_watcher( $web_pid, $watcher_log ), 0,
+        'real route: the watcher ends normally when nothing proves the pid is a dashboard web' );
+    is_deeply( \@signals, [], 'real route: a pid nothing proves to be a dashboard web is never signalled' );
+    is( $read_watcher_log->(), '', 'real route: no stop line is written for a pid that was left alone' );
+
+    # Linux with procfs present: the environment marker of a live web is
+    # not there to be read (Jenkins run-tests #46, amd64 and the Pi: the
+    # environment block of the web pid reads blank). The watcher's proof
+    # is the ordinary one, unchanged: it reads the marker, gets nothing,
+    # and goes on to the persisted state, which only a real object can
+    # read. Here procfs is back at its real root and the marker reader
+    # is counted.
+    {
+        my $real_procfs  = '/proc';
+        my $marker_reads = 0;
+        my $marker_value;
+        local $Developer::Dashboard::ProcessSupervision::PROCFS_ROOT = $real_procfs;
+        local $Developer::Dashboard::RuntimeManager::PROCFS_ROOT     = $real_procfs;
+        local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub {
+            $marker_reads++;
+            return $marker_value;
+        };
+        unlink $watcher_log;
+        $manager->_cleanup_web_files;
+        $manager->_write_web_state( { host => '127.0.0.1', pid => $web_pid + 0, port => $port, status => 'running', workers => 1 } );
+        ( $web_alive, @signals ) = (1);
+        @listener_ports = ();
+        @titles_read    = ();
+        @listeners      = ($web_pid);
+        $title          = 'starman master';
+        is( $class->_run_web_lifetime_owner_watcher( $web_pid, $watcher_log ), 0,
+            'real route: the watcher ends normally for a web whose environment marker is not readable although procfs is there' );
+        is_deeply( \@signals, ["TERM $web_pid"],
+            'real route: a web with no readable marker and a Starman master title is still proved through the persisted state and stopped' );
+        like( $read_watcher_log->(), qr/$before_stop$stop_line/,
+            'real route: the stop line is written for the web whose marker is not readable' );
+        is( $marker_reads, 1, 'real route: the watcher uses the ordinary proof, which reads the marker once before the persisted state' );
+        is_deeply( \@titles_read, [], 'real route: the Starman master title is never needed once the persisted state proves the web' );
+
+        # The same proof asked directly, as every other caller asks it.
+        $web_alive = 1;
+        ok( $manager->_is_managed_web($web_pid), 'the managed-web proof succeeds through the persisted state when the marker is absent' );
+        is( $marker_reads, 2, 'the managed-web proof reads the marker once each time it is asked' );
+        $manager->_cleanup_web_files;
+        $marker_value = '1';
+        ok( $manager->_is_managed_web($web_pid), 'the managed-web proof still accepts the marker where it can be read' );
+    }
+
+    unlink $watcher_log;
+    $manager->_cleanup_web_files;
+    Developer::Dashboard::GoRoutine::terminate_process( $web_pid, 'KILL' );
+    Developer::Dashboard::GoRoutine::wait_process($web_pid);
+}
+
+{
+    # The watcher's object must look in the same state folder as the web
+    # process that started it, or it would look for web.json where its
+    # own web never wrote it. The web's own process is the private
+    # helper share/private-cli/_dashboard-core, which builds its path
+    # registry with the existing projects, src and work folders under
+    # the home directory as workspace and project roots. Here the same
+    # registry is built by hand, the way that helper builds it, and
+    # compared with the watcher's, from inside a project that has its
+    # own runtime layer, so the state folder is the project's and not
+    # the home one. The helper's own source is read as well, so the
+    # comparison fails if the helper ever builds its registry another
+    # way without the watcher following.
+    my $class = 'Developer::Dashboard::RuntimeManager';
+    make_path( File::Spec->catdir( $home, 'projects' ), File::Spec->catdir( $home, 'src' ) );
+    my $project = File::Spec->catdir( $home, 'projects', 'watcher-paths-demo' );
+    make_path( File::Spec->catdir( $project, '.git' ), File::Spec->catdir( $project, '.developer-dashboard' ) );
+    my $before_cwd = getcwd();
+    chdir $project or die "Unable to chdir to $project: $!";
+    local $ENV{PWD} = $project;
+
+    my @helper_roots = grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work);
+    my $web_paths    = Developer::Dashboard::PathRegistry->new(
+        workspace_roots => [@helper_roots],
+        project_roots   => [@helper_roots],
+    );
+    my $web_files = Developer::Dashboard::FileRegistry->new( paths => $web_paths );
+    my $watcher   = $class->_web_lifetime_owner_watcher_object;
+    my $home_only = Developer::Dashboard::PathRegistry->new( home => $home, cwd => $home );
+
+    isa_ok( $watcher, $class, 'watcher paths: the watcher builds a real runtime manager object' );
+    is( scalar(@helper_roots), 2, 'watcher paths: the fixture has project folders set (projects and src exist, work does not)' );
+    is_deeply( [ $watcher->{paths}->workspace_roots ], [ $web_paths->workspace_roots ],
+        'watcher paths: the watcher has the same workspace roots as the web process' );
+    is_deeply( [ $watcher->{paths}->project_roots ], [ $web_paths->project_roots ],
+        'watcher paths: the watcher has the same project roots as the web process' );
+    is( $watcher->{paths}->home, $web_paths->home, 'watcher paths: the watcher resolves the same home directory as the web process' );
+    is( $watcher->{paths}->runtime_root, $web_paths->runtime_root, 'watcher paths: the watcher resolves the same runtime root as the web process' );
+    is( $watcher->{paths}->state_root, $web_paths->state_root, 'watcher paths: the watcher resolves the same state folder as the web process' );
+    isnt( $web_paths->state_root, $home_only->state_root,
+        'watcher paths: inside the project the state folder is the project one, so the comparison is not the home default' );
+    is( $watcher->{files}->web_state, $web_files->web_state, 'watcher paths: the watcher reads the same web.json as the web process' );
+    is( $watcher->{files}->web_pid, $web_files->web_pid, 'watcher paths: the watcher reads the same web.pid as the web process' );
+    is( $watcher->{files}->resolve_file('web_pid'), $web_files->resolve_file('web_pid'),
+        'watcher paths: the recorded web pid file resolves to the same path by name' );
+    is( $watcher->{files}->collector_log, $web_files->collector_log, 'watcher paths: the watcher resolves the same collector log as the web process' );
+    is( $class->_web_lifetime_owner_watcher_object->{paths}->state_root, $watcher->{paths}->state_root,
+        'watcher paths: a second watcher object resolves the same state folder again' );
+    is( $watcher->_web_lifetime_owner_watcher_object, $watcher, 'watcher paths: an object invocant is returned as it is' );
+    like( ( eval { $watcher->{app_builder}->(); 1 } ? '' : $@ ), qr/never serves/, 'watcher paths: the watcher object refuses to build a web application' );
+
+    # With no home variable of any kind the registry cannot be built,
+    # and the roots are simply empty first: no warning, no half-built path.
+    {
+        local $ENV{HOME};
+        local $ENV{USERPROFILE};
+        local $ENV{HOMEDRIVE};
+        local $ENV{HOMEPATH};
+        my @warnings;
+        local $SIG{__WARN__} = sub { push @warnings, @_ };
+        my $built = eval { $class->_web_lifetime_owner_watcher_paths; 1 };
+        ok( !$built, 'watcher paths: with no home directory the path registry is refused, as the web process itself is' );
+        is_deeply( \@warnings, [], 'watcher paths: a missing home directory raises no warning on the way' );
+    }
+
+    # The helper's own source, so a change there cannot pass unnoticed.
+    my $helper_file = File::Spec->catfile( $original_cwd, 'share', 'private-cli', '_dashboard-core' );
+    my $helper_text = do {
+        open my $fh, '<', $helper_file or die "Unable to read $helper_file: $!";
+        local $/;
+        <$fh>;
+    };
+    my $roots_line = quotemeta q{[ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],};
+    like(
+        $helper_text,
+        qr/my \$paths = Developer::Dashboard::PathRegistry->new\(\s+workspace_roots => $roots_line\s+project_roots   => $roots_line\s+\);/,
+        'watcher paths: the web helper still builds its path registry with exactly the roots the watcher mirrors',
+    );
+
+    chdir $before_cwd or die "Unable to chdir back to $before_cwd: $!";
 }
 
 END {

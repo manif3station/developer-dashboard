@@ -2097,7 +2097,9 @@ sub _stop_recorded_web_for_lifetime_owner {
 # The proof is the env-marker read first, so a real web process passes
 # it without touching runtime state; the state read behind it is only
 # reached when the marker is absent, which is the case the guard exists
-# for. Nothing is looked up by name here, for the reason given at
+# for. That state read needs this object's file registry, so this must
+# be called on a real object, never on the class name. Nothing is looked
+# up by name here, for the reason given at
 # _stop_recorded_web_for_lifetime_owner.
 # Input: web process id integer.
 # Output: the pid that was signalled, or undef when it is not stopped.
@@ -2113,6 +2115,26 @@ sub _stop_web_pid_for_lifetime_owner {
     return $pid;
 }
 
+# _log_web_lifetime_owner_event($log_path, $text)
+# Appends one time-stamped line to the web owner watcher's log. Every
+# line the watcher writes goes through here. A failed write is silent:
+# a missing log must never keep the watcher alive or change its exit
+# status.
+# Input: log file path string (undef means no log is kept) and the line
+# text without its time stamp or line ending.
+# Output: 1 when the line was written, otherwise undef.
+sub _log_web_lifetime_owner_event {
+    my ( $self, $log_path, $text ) = @_;
+    return if !defined $log_path || !length $log_path;
+    return if !defined $text     || !length $text;
+    $text =~ s/\s+/ /g;
+    $text =~ s/\A | \z//g;
+    open my $fh, '>>', $log_path or return;
+    print {$fh} _now_iso8601( tz => 'utc' ) . " $text\n";
+    CORE::close $fh;
+    return 1;
+}
+
 # _log_web_lifetime_owner_stop($log_path, $owner_pid, $web_pid)
 # Writes the one line that says a web process was stopped because its
 # lifetime owner is gone, naming both pids, so a later reader has
@@ -2124,13 +2146,78 @@ sub _stop_web_pid_for_lifetime_owner {
 # Output: 1 when the line was written, otherwise undef.
 sub _log_web_lifetime_owner_stop {
     my ( $self, $log_path, $owner_pid, $web_pid ) = @_;
-    return if !defined $log_path || !length $log_path;
     return if !defined $owner_pid || !defined $web_pid;
-    open my $fh, '>>', $log_path or return;
-    print {$fh} _now_iso8601( tz => 'utc' )
-      . " web stopped: lifetime owner gone; lifetime owner pid $owner_pid is gone; web pid $web_pid is stopping\n";
-    close $fh;
-    return 1;
+    return $self->_log_web_lifetime_owner_event( $log_path,
+        "web stopped: lifetime owner gone; lifetime owner pid $owner_pid is gone; web pid $web_pid is stopping" );
+}
+
+# _web_lifetime_owner_watcher_object()
+# Builds the runtime manager object the web owner watcher process works
+# on. The watcher is started as a bare perl that calls
+# _run_web_lifetime_owner_watcher on the class name, but the proof that
+# a pid is a managed dashboard web process reads the persisted web state
+# whenever the env-marker read gives nothing, and that read needs a file
+# registry. The object must resolve the same state folder as the web
+# process that started the watcher, or the watcher would look for
+# web.json where its own web never wrote it. So the path registry is
+# built exactly the way the private helper that serves the web builds
+# its own (see _web_lifetime_owner_watcher_paths), and the file registry
+# on those paths. The state folder itself is resolved from the home
+# directory, the environment and the working directory, all of which
+# the watcher inherits unchanged from the web process at the moment it
+# is started. The configured file aliases that helper also registers
+# are deliberately not read here: the web state file is always reached
+# through the file registry's own web_state accessor, which no alias
+# can redirect, and reading the whole configuration would give the
+# watcher a way to fail that its web does not have once it is serving.
+# The app builder refuses to run, because a watcher never serves.
+# Input: none; called on the class name or on an object.
+# Output: Developer::Dashboard::RuntimeManager object (an object
+# invocant is returned as it is).
+sub _web_lifetime_owner_watcher_object {
+    my ($class) = @_;
+    return $class if ref $class;
+    require Developer::Dashboard::Config;
+    require Developer::Dashboard::FileRegistry;
+    require Developer::Dashboard::IndicatorStore;
+    require Developer::Dashboard::PathRegistry;
+    my $paths      = $class->_web_lifetime_owner_watcher_paths;
+    my $files      = Developer::Dashboard::FileRegistry->new( paths => $paths );
+    my $collectors = Developer::Dashboard::Collector->new( paths => $paths );
+    return $class->new(
+        app_builder => sub { die "the web lifetime owner watcher never serves\n" },
+        collectors  => $collectors,
+        config      => Developer::Dashboard::Config->new( files => $files, paths => $paths ),
+        files       => $files,
+        paths       => $paths,
+        runner      => Developer::Dashboard::CollectorRunner->new(
+            collectors => $collectors,
+            files      => $files,
+            indicators => Developer::Dashboard::IndicatorStore->new( paths => $paths ),
+            paths      => $paths,
+        ),
+    );
+}
+
+# _web_lifetime_owner_watcher_paths()
+# Builds the path registry for the web owner watcher with the same
+# arguments the private helper that serves the web gives its own
+# (share/private-cli/_dashboard-core): the existing projects, src and
+# work folders under the home directory as both workspace roots and
+# project roots, and nothing else, so home, working directory and
+# environment are read the same way in both processes. The home
+# directory is the one the path registry itself resolves, which is the
+# value that helper has already put in HOME before it starts anything.
+# Input: none; called on the class name or on an object.
+# Output: Developer::Dashboard::PathRegistry object.
+sub _web_lifetime_owner_watcher_paths {
+    require Developer::Dashboard::PathRegistry;
+    my $home = Developer::Dashboard::PathRegistry::_resolved_home_from_env();
+    my @roots = defined $home && $home ne '' ? grep { -d } map { "$home/$_" } qw(projects src work) : ();
+    return Developer::Dashboard::PathRegistry->new(
+        workspace_roots => [@roots],
+        project_roots   => [@roots],
+    );
 }
 
 # _run_web_lifetime_owner_watcher($web_pid, $log_path)
@@ -2140,21 +2227,40 @@ sub _log_web_lifetime_owner_stop {
 # process is gone the watcher has nothing left to do and ends; when the
 # owner has been dead on two polls in a row it stops that one web
 # process and ends. The web pid is only signalled straight after a poll
-# that saw it alive. Called on the class, not on an object: it needs no
-# runtime state, only the liveness, signal and owner helpers. The
-# watcher's own pid is refused as the web pid, and an owner that is the
-# web process itself is refused, so nothing can be tied to itself.
-# The log path is optional: when given, the watcher writes its stop line
-# to it once the stop has actually signalled the web pid, so the line
-# never claims a stop that did not happen; when it is not given, the
-# watcher still stops the web process and just keeps no log.
+# that saw it alive. The watcher process calls this on the class name;
+# once there is something to watch it builds a real object (see
+# _web_lifetime_owner_watcher_object) and works on that, because the
+# managed-web proof behind the stop reads the persisted web state
+# whenever the env-marker read gives nothing. The watcher's own pid is
+# refused as the web pid, and an owner that is the web process itself
+# is refused, so nothing can be tied to itself.
+# The proof behind the stop is _is_managed_web exactly as every other
+# caller uses it; the watcher changes nothing about it. When the watcher
+# could not build its object it says so at once in its log, in words
+# that state it CANNOT stop the web process in that state, and carries
+# on with the class name. The stop line is written once the stop has
+# actually signalled the web pid, so the line never claims a stop that
+# did not happen.
+# The log path is optional: with none the watcher does the same work
+# and keeps no log.
 # Input: web process id integer, log file path string or undef.
 # Output: 0, the watcher's exit status, once there is nothing to watch.
 sub _run_web_lifetime_owner_watcher {
-    my ( $self, $web_pid, $log_path ) = @_;
+    my ( $invocant, $web_pid, $log_path ) = @_;
     return 0 if !defined $web_pid || $web_pid !~ /\A\d+\z/ || $web_pid < 1 || $web_pid == $$;
-    my $owner = { pid => $self->_lifetime_owner_pid, dead_polls => 0 };
+    my $owner = { pid => $invocant->_lifetime_owner_pid, dead_polls => 0 };
     return 0 if !defined $owner->{pid} || $owner->{pid} == $web_pid;
+    my $self = eval { $invocant->_web_lifetime_owner_watcher_object };
+    if ( !ref $self ) {
+        my $error = defined $@ && length $@ ? $@ : 'no object was returned';
+        $self = $invocant;
+        eval {
+            $self->_log_web_lifetime_owner_event( $log_path,
+                "watcher for web pid $web_pid could not build its runtime object: it CANNOT stop web pid $web_pid when the lifetime owner goes, and carries on only to say so in this log: $error"
+            );
+            1;
+        };
+    }
     while (1) {
         return 0 if !$self->_pid_is_running($web_pid);
         if ( $self->_lifetime_owner_is_gone($owner) ) {
