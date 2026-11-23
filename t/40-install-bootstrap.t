@@ -1473,6 +1473,102 @@ for my $case (
     is_deeply( \@home_paths, [], 'install.sh and the Jenkins lists hold no /Users/<name> or /home/<name> path' );
 }
 
+# install.ps1 -Jenkins: the Jenkins test-node route for Windows. These are
+# text reads of install.ps1, the same way the rest of install.ps1 is
+# checked in this file, so they run the same on every platform and start
+# no PowerShell anywhere.
+{
+    my $install_ps_raw = _raw_text($install_ps);
+    my ( $before_route, $route, $after_route ) =
+      $install_ps_raw =~ /\A(.*)^# >>> Jenkins test-node route >>>\r?\n(.*)^# <<< Jenkins test-node route <<<\r?\n(.*)\z/ms;
+    ok( defined $route, 'install.ps1 keeps the Jenkins test-node route between its two marker lines' );
+    $_ = defined $_ ? $_ : '' for $before_route, $route, $after_route;
+    my $normal_path = $before_route . $after_route;
+
+    like( $route, qr/\[string\]\$argument -ieq '-Jenkins'/, 'install.ps1 takes a -Jenkins switch' );
+    like( $route, qr/\$flag = \$env:DD_INSTALL_JENKINS\b.*?\$flag\.Trim\(\) -eq '1'/s, 'install.ps1 takes DD_INSTALL_JENKINS=1 for the piped form' );
+    like(
+        $route,
+        qr/throw "install\.ps1: DD_INSTALL_JENKINS must be 1 or unset, not '\$flag'\. Nothing was installed or changed\."/,
+        'install.ps1 refuses any other value of DD_INSTALL_JENKINS before anything is installed',
+    );
+    unlike( $normal_path, qr/Jenkins/i, 'install.ps1 names Jenkins nowhere outside the Jenkins test-node route' );
+    like(
+        $route . $after_route,
+        qr/^if \(Test-JenkinsRequested -Arguments \$args\) \{\s+Invoke-JenkinsNodeSetup\s+return\s+\}\s+Show-ProgressBoard\s+Set-StepStatus -Id 'detect_profile' -Status 'running'/m,
+        'install.ps1 leaves through the Jenkins route before the first step of the normal install',
+    );
+
+    like( $route, qr/^\$JenkinsStrawberryRoot = 'C:\\Strawberry'\r?$/m, 'install.ps1 -Jenkins pins Strawberry Perl to C:\\Strawberry' );
+    like( $route, qr/^\$JenkinsPerlNumber = '5\.038002'\r?$/m, 'install.ps1 -Jenkins pins Perl to exactly 5.38.2' );
+    like(
+        $route,
+        qr/\$versionCode = 'exit\(\$\] == ' \+ \$JenkinsPerlNumber \+ ' \? 0 : 1\)'.*?throw "\$JenkinsPerlPath is not Perl \$JenkinsPerlShort; refusing to go on"/s,
+        'install.ps1 -Jenkins refuses to go on unless the Perl reports exactly the pinned version',
+    );
+    like( $route, qr/^\$JenkinsStrawberryBuild = '5\.38\.2\.2'\r?$/m, 'install.ps1 -Jenkins pins the Strawberry Perl build' );
+    like( $route, qr/^\$JenkinsStrawberryMsiName = 'strawberry-perl-5\.38\.2\.2-64bit\.msi'\r?$/m, 'install.ps1 -Jenkins names the one pinned Strawberry Perl installer' );
+    unlike( $route, qr/Resolve-StrawberryPerlMsiUrl|Ensure-WingetPackage|winget/, 'install.ps1 -Jenkins never takes the latest Strawberry Perl and never calls winget' );
+    like( $route, qr/refusing to install over it/, 'install.ps1 -Jenkins refuses to install over a folder that is already at the pinned root' );
+
+    like( $route, qr/\$JenkinsJavaMajor = '21'/, 'install.ps1 -Jenkins pins Java to major version 21' );
+    like( $route, qr/-match \('version "' \+ \$JenkinsJavaMajor \+ '\\\.'\)/, 'install.ps1 -Jenkins checks what the Java itself reports' );
+
+    like( $route, qr/Join-Path \$PSScriptRoot 'share\\jenkins'/, 'install.ps1 -Jenkins reads its lists from share\\jenkins beside the script' );
+    like( $route, qr/\$pinnedList = \@\(Get-JenkinsListLines -Path \(Join-Path \$listFolder 'modules-windows\.txt'\)\)/, 'install.ps1 -Jenkins reads the pinned list from modules-windows.txt' );
+    like( $route, qr/\$compiledList = \@\(Get-JenkinsListLines -Path \(Join-Path \$listFolder 'modules-compiled-windows\.txt'\)\)/, 'install.ps1 -Jenkins reads the compiled list from modules-compiled-windows.txt' );
+    ok( -f File::Spec->catfile( $root, 'share', 'jenkins', 'modules-windows.txt' ), 'the Windows pinned list install.ps1 -Jenkins reads is in the repository' );
+    ok( -f File::Spec->catfile( $root, 'share', 'jenkins', 'modules-compiled-windows.txt' ), 'the Windows compiled list install.ps1 -Jenkins reads is in the repository' );
+    my ($list_pattern) = $route =~ /^\$JenkinsDistributionPattern = '([^']+)'\r?$/m;
+    ok( defined $list_pattern, 'install.ps1 -Jenkins holds the shape every list line must have' );
+    $list_pattern = '\A(?!)' if !defined $list_pattern;
+    is_deeply(
+        [
+            grep { $_ !~ /$list_pattern/ } map { _plain_lines( File::Spec->catfile( $root, 'share', 'jenkins', $_ ) ) }
+              qw(modules-windows.txt modules-compiled-windows.txt)
+        ],
+        [],
+        'every line of the two Windows lists has the shape install.ps1 -Jenkins accepts',
+    );
+    like( $route, qr/foreach \(\$distribution in \$Distributions\) \{.*?-Arguments \@\('--notest', \$distribution\)/s, 'install.ps1 -Jenkins installs the pinned list one line at a time, in list order, with --notest' );
+    like( $route, qr/-Arguments \@\('--test-only', \$distribution\)/, 'install.ps1 -Jenkins runs the own tests of the compiled distributions' );
+    like( $route, qr/\$JenkinsCpanmPath = Join-Path \$JenkinsStrawberryRoot 'perl\\bin\\cpanm'/, q{install.ps1 -Jenkins uses Strawberry's own cpanm} );
+    like( $route, qr/'\{0\} \{1\} \{2\} < NUL' -f \$JenkinsPerlPath, \$JenkinsCpanmPath/, 'install.ps1 -Jenkins runs cpanm with standard input closed' );
+    unlike( $route, qr/cpanmin\.us|Download-CpanmScript|local-lib/, 'install.ps1 -Jenkins downloads no other cpanm and uses no private install root' );
+
+    is( scalar( () = $route =~ /-Message \("DONE\. This machine is ready to be a Jenkins test node: /g ), 1, 'install.ps1 -Jenkins has one DONE line' );
+    is( scalar( () = $route =~ /"install\.ps1 -Jenkins: FAILED \(\{0\}\)\. This machine is not ready to be a Jenkins test node\."/g ), 1, 'install.ps1 -Jenkins has one FAILED line' );
+    like( $route, qr/catch \{\s+Write-Host \("install\.ps1 -Jenkins: FAILED .*?\s+throw\s+\}/s, 'install.ps1 -Jenkins fails the run after its FAILED line' );
+    like( $route, qr/Assert-JenkinsNodeReady -JavaPath \$javaPath -Distributions \$pinnedList -AgentRoot \$agentRoot\s+\$agentRootText = .*?DONE\./s, 'install.ps1 -Jenkins prints DONE only after the final check' );
+    like( $route, qr/These pinned distributions are not recorded as installed/, 'install.ps1 -Jenkins checks the installed distributions against the pinned list at the end' );
+
+    unlike(
+        $route,
+        qr/Resolve-DefaultDashboardCheckout|DefaultBootstrapRepository|CpanTarget|git\s+clone|d2 init|\bshell\s+ps\b|dashboardCommand|d2\.bat/,
+        'install.ps1 -Jenkins does not install or initialise the dashboard',
+    );
+    unlike(
+        $route,
+        qr/Ensure-ProfileContains|ProfilePath|\$PROFILE|profileBlock|ExecutionPolicy|Developer Dashboard bootstrap/,
+        'install.ps1 -Jenkins edits no PowerShell profile and no execution policy',
+    );
+
+    my ( @ps_addresses, @ps_user_paths, @ps_user_names );
+    my $number = 0;
+    for my $line ( split /\n/, $install_ps_raw ) {
+        $number++;
+        # The pinned Strawberry Perl build has four numbers; it is a
+        # version, not an address, so it is taken out before the check.
+        ( my $checked = $line ) =~ s/(?<![\d.])5\.38\.2\.2(?![\d.])//g;
+        push @ps_addresses,  "line $number" if $checked =~ /(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?![\d.])/;
+        push @ps_user_paths, "line $number" if $line =~ m{[\\/](?:Users|home)[\\/][A-Za-z0-9_]}i;
+        push @ps_user_names, "line $number" if $line =~ /WDAGUtilityAccount|\$env:USERNAME\b|\$env:COMPUTERNAME\b/i;
+    }
+    is_deeply( \@ps_addresses,  [], 'install.ps1 holds no IP address' );
+    is_deeply( \@ps_user_paths, [], 'install.ps1 holds no path into one user profile' );
+    is_deeply( \@ps_user_names, [], 'install.ps1 names no user and no machine' );
+}
+
 done_testing;
 
 # Purpose: build a PATH string in which `command -v $command` genuinely
@@ -2316,6 +2412,12 @@ macOS-only settings step runs only on macOS, that a wrong Perl, a failed
 build or an unsupported platform stops with one FAILED line, that a second
 run changes nothing, and that neither the dashboard nor a shell rc file is
 touched.
+For F<install.ps1> it reads the script text: the C<-Jenkins> switch and the
+C<DD_INSTALL_JENKINS> variable exist, the Perl is pinned to exactly 5.38.2 at
+the Strawberry root, the Windows lists under F<share/jenkins> are the ones
+read, the dashboard install and the profile edits are not on that route, and
+the script holds no address and no path into one user profile. No PowerShell
+is started by this file on any platform.
 
 =head1 WHY IT EXISTS
 
