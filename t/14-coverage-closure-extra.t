@@ -1037,6 +1037,51 @@ SKIP: {
     is_deeply( \%active, {}, '_reap_finished_loop_workers removes reaped worker children from the active set' );
 }
 
+# A loop reap must leave the exit status and errno as it found them. The
+# loop reaps from its CHLD handler, and a handler can run straight after a
+# system() the loop made itself, before the next statement reads the exit
+# status. First with the wait replaced by one that does what a wait on a
+# worker that is still running does to the exit status (-1) and what a wait
+# on a pid that is not a child does to errno (ECHILD), so nothing here
+# depends on signal timing or on the platform.
+{
+    my %active = ( 424242 => 1 );
+    no warnings 'redefine';
+    local $?;
+    local $!;
+    my $asked = 0;
+    local *Developer::Dashboard::CollectorRunner::_waitpid_nonblocking = sub {
+        $asked++;
+        $? = -1;
+        $! = POSIX::ECHILD();
+        return 0;
+    };
+    $? = 3 << 8;
+    $! = POSIX::ENOENT();
+    my $reaped       = $runner->_reap_finished_loop_workers( \%active );
+    my $status_after = $?;
+    my $errno_after  = $! + 0;
+    is( $reaped, 0, '_reap_finished_loop_workers reaps nothing while the worker is still running' );
+    is( $asked,  1, '_reap_finished_loop_workers asked the wait once for its one active worker' );
+    is( $status_after, 3 << 8, '_reap_finished_loop_workers leaves the exit status as it found it when the wait set it to -1' );
+    is( $errno_after, POSIX::ENOENT(), '_reap_finished_loop_workers leaves errno as it found it when the wait set it to ECHILD' );
+}
+
+# The same through the real wait, on a pid that is not a child of this
+# process.
+{
+    my %active = ( 999999 => 1 );
+    local $?;
+    local $!;
+    $? = 3 << 8;
+    $! = POSIX::ENOENT();
+    $runner->_reap_finished_loop_workers( \%active );
+    my $status_after = $?;
+    my $errno_after  = $! + 0;
+    is( $status_after, 3 << 8, '_reap_finished_loop_workers leaves the exit status as it found it through the real wait' );
+    is( $errno_after, POSIX::ENOENT(), '_reap_finished_loop_workers leaves errno as it found it through the real wait' );
+}
+
 {
     my $child = Developer::Dashboard::GoRoutine::spawn(
         [ $^X, '-e', q{$SIG{TERM} = 'IGNORE'; sleep 30;} ],

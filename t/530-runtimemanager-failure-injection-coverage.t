@@ -95,6 +95,19 @@ BEGIN {
     sub CLOSE { return 1 }
 }
 
+# A Perl-made full device: a PerlIO::via layer whose every write fails
+# with ENOSPC, the way a write to Linux /dev/full does. Opened as
+# '>:via(Local::FullDevice):perlio' it gives the code under test a real,
+# untied filehandle with a buffer layer on top, so with autoflush on the
+# print itself fails and CORE::close reports the failure quietly, on
+# every platform, with no /dev/full needed.
+{
+    package Local::FullDevice;
+    sub PUSHED { my ($class) = @_; return bless {}, $class }
+    sub WRITE  { $! = 28; return -1 }
+    sub FLUSH  { return 0 }
+}
+
 use Cwd qw(getcwd);
 use File::Path qw(make_path);
 use File::Spec;
@@ -187,13 +200,13 @@ sub capture_failure {
         eval { $manager->_start_collector_supervisor };
         like( $@, qr/Unable to write \Q$pidfile\E/, 'the supervisor start dies when its pidfile cannot be written' );
     }
-    SKIP: {
+    {
         my $full = File::Spec->catfile( $work, 'collector-supervisor-full-device' );
-        skip '/dev/full is unavailable for deterministic pidfile write failures', 2 if !-e '/dev/full';
+        my $sink = File::Spec->catfile( $work, 'collector-supervisor-full-device-sink' );
         local *Developer::Dashboard::RuntimeManager::_collector_supervisor_pidfile = sub { return $full };
         local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
         local *Developer::Dashboard::GoRoutine::spawn = sub { return 5152 };
-        local $OPEN_REDIRECT{$full} = [ '>', '/dev/full' ];
+        local $OPEN_REDIRECT{$full} = [ '>:via(Local::FullDevice):perlio', $sink ];
         local $OPEN_AUTOFLUSH{$full} = 1;
         my ( $write_error, $write_stderr );
         ( undef, $write_stderr ) = capture {
@@ -214,7 +227,7 @@ sub capture_failure {
     }
 }
 
-# Portable replacements for the Linux /dev/full-only pidfile checks.
+# The same two failures again through tied handles, on all hosts.
 # The test callback supplies a real tied handle to the unmodified production
 # print and CORE::close operations, with the watched loop process stubbed.
 {
@@ -372,8 +385,9 @@ It exists because the lib/ coverage gate requires every branch to be genuinely e
 
 Use this file when you change start_web, the collector supervisor start, the child stdio redirection, the state-file writers, the log follower, or the procfs readers in RuntimeManager.
 
-On Unix test hosts exposing C</dev/full>, the registered open redirect also
-checks immediate and buffered supervisor pidfile write failures.
+On every host, the registered open redirect also checks immediate and
+buffered supervisor pidfile write failures, through a Perl-made full
+device (a PerlIO::via layer whose writes fail) in place of C</dev/full>.
 
 =head1 HOW TO USE
 

@@ -75,6 +75,13 @@ sub is_same_path_output {
 }
 
 local $ENV{HOME} = tempdir(CLEANUP => 1);
+# Every runtime this file starts through the CLI (web, collector supervisor,
+# collector loops) is detached, and only the matching `d2 stop` further down
+# ends it. A run that is killed part-way never reaches that stop, and the
+# runtimes then live on for days. Tie them to this test process: the
+# supervisor of each runtime ends its loops, its web service and itself once
+# this pid is gone.
+local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = $$;
 # DD-800: this used to prepend a literal '/home/mv/perl5/lib/perl5'. Do not put
 # a machine-specific path back. The line above localises HOME to a tempdir,
 # which destroys any $HOME-relative resolution of the module path, and the

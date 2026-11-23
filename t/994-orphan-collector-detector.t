@@ -10,6 +10,7 @@ use File::Spec;
 # already do (prove's -I only names the blib). Same pattern as t/05.
 use lib File::Spec->catdir( $FindBin::Bin, '..', 'lib' );
 
+use Capture::Tiny qw(capture);
 use Cwd qw(getcwd);
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CollectorRunner;
@@ -18,6 +19,7 @@ use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::GoRoutine ();
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::ProcessSupervision ();
 use Developer::Dashboard::RuntimeManager;
 use File::Path qw(make_path remove_tree);
 use File::Temp qw(tempdir);
@@ -217,6 +219,181 @@ sub _scan_state_base {
     return @orphans;
 }
 
+# _etime_seconds($etime)
+# Converts a ps etime value ([[dd-]hh:]mm:ss) into seconds, or undef when
+# the text is not in that shape.
+sub _etime_seconds {
+    my ($etime) = @_;
+    return undef if !defined $etime;
+    my ( $d, $h, $m, $s ) = $etime =~ /\A(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)\z/ or return undef;
+    return ( $d || 0 ) * 86400 + ( $h || 0 ) * 3600 + $m * 60 + $s;
+}
+
+# _process_table()
+# Returns an array reference of live process rows, each with pid, ppid,
+# age (seconds since start), args (command line or title, trailing
+# padding removed), uid (Unix only) and parentless (true when the process
+# has no live parent: ppid 1 on Unix; on Windows a parent pid that is not
+# in the table, or one that started after the child and so is a reused
+# pid). Returns undef when the table cannot be read. The product's own
+# _ps_processes carries no parent pid and no start time, so this reads
+# the table itself, the same way the product does: one ps call on Unix,
+# one PowerShell Win32_Process enumeration on Windows, both through
+# system inside capture.
+sub _process_table {
+    local $?;
+    my @rows;
+    if ($IS_WINDOWS) {
+        my $powershell = Developer::Dashboard::ProcessSupervision::_powershell_command();
+        return undef if !defined $powershell || $powershell eq '';
+        my ( $stdout, undef, $exit_code ) = capture {
+            system(
+                $powershell,
+                '-NoLogo',
+                '-NoProfile',
+                '-Command',
+                q{$ErrorActionPreference = 'Stop'; $now = Get-Date; Get-CimInstance Win32_Process | ForEach-Object { $cmd = $_.CommandLine; if ($null -eq $cmd) { $cmd = '' }; $cmd = $cmd -replace '\s+', ' '; $age = -1; if ($null -ne $_.CreationDate) { $age = [int](($now - $_.CreationDate).TotalSeconds) }; [Console]::Out.WriteLine($_.ProcessId.ToString() + [char]9 + $_.ParentProcessId.ToString() + [char]9 + $age.ToString() + [char]9 + $cmd) }},
+            );
+            return $? >> 8;
+        };
+        return undef if $exit_code != 0 || !defined $stdout;
+        for my $line ( split /\r?\n/, $stdout ) {
+            next if $line !~ /\A\s*(\d+)\t(\d+)\t(-?\d+)\t(.*?)\s*\z/;
+            push @rows, { pid => $1 + 0, ppid => $2 + 0, age => $3 + 0, args => $4 };
+        }
+        my %age_of = map { $_->{pid} => $_->{age} } @rows;
+        for my $row (@rows) {
+            my $parent_age = $age_of{ $row->{ppid} };
+            $row->{parentless} = ( !defined $parent_age || ( $parent_age >= 0 && $row->{age} >= 0 && $parent_age < $row->{age} ) ) ? 1 : 0;
+        }
+        return \@rows;
+    }
+    my ( $stdout, undef, $exit_code ) = capture {
+        system 'ps', '-eww', '-o', 'pid=,ppid=,uid=,etime=,args=';
+        return $? >> 8;
+    };
+    return undef if $exit_code != 0 || !defined $stdout;
+    for my $line ( split /\n/, $stdout ) {
+        next if $line !~ /\A\s*(\d+)\s+(\d+)\s+(\d+)\s+([\d:-]+)\s+(.*?)\s*\z/;
+        my $age = _etime_seconds($4);
+        next if !defined $age;
+        push @rows, { pid => $1 + 0, ppid => $2 + 0, uid => $3 + 0, age => $age, args => $5, parentless => ( $2 == 1 ? 1 : 0 ) };
+    }
+    return \@rows;
+}
+
+# _leftover_kind($manager, $row)
+# Names what kind of dashboard runtime process one table row is, or
+# returns undef for anything else. The supervisor and web shapes are the
+# product's own matchers; the loop shape is the product's loop title
+# ('d2 collector: <name>') or the loop helper's argv, which is all a
+# Windows or emulated process shows; a Starman master is the web server
+# a detached serve leaves behind.
+sub _leftover_kind {
+    my ( $manager, $row ) = @_;
+    return undef if !$row || !defined $row->{args} || $row->{args} eq '';
+    return 'supervisor' if $manager->_looks_like_collector_supervisor_process($row);
+    return 'loop'       if $row->{args} =~ /\Ad2 collector: \S/;
+    return 'loop'       if $row->{args} =~ /\bcollector-loop-foreground\b.*--name\s+\S/;
+    return 'web'        if $manager->_looks_like_web_process($row);
+    return 'web'        if $row->{args} =~ /\Astarman master\b/;
+    return undef;
+}
+
+# _temp_roots()
+# Returns the normalised directory prefixes that count as temporary
+# space: the platform temp dir plus the usual fixed ones.
+sub _temp_roots {
+    my @roots = ( File::Spec->tmpdir );
+    push @roots, $IS_WINDOWS ? ( grep { defined && length } @ENV{qw(TEMP TMP)} ) : ( '/tmp', '/var/tmp', '/var/folders' );
+    my %seen;
+    return grep { length($_) > 1 && !$seen{$_}++ } map { _normalise_origin($_) } @roots;
+}
+
+# _normalise_origin($text)
+# Puts a path or command line into one comparable spelling: forward
+# slashes, no trailing slash, no macOS /private prefix, no Linux
+# ' (deleted)' suffix, lower case on Windows.
+sub _normalise_origin {
+    my ($text) = @_;
+    return '' if !defined $text;
+    $text =~ s{\\}{/}g;
+    $text =~ s{ \(deleted\)\z}{};
+    $text =~ s{\A/private(?=/(?:var|tmp)\b)}{};
+    $text =~ s{/+\z}{};
+    $text = lc $text if $IS_WINDOWS;
+    return $text;
+}
+
+# _origin_is_temp($origin)
+# True when a process origin lies in temporary space. On Unix the origin
+# is the process's working directory and must sit under a temp root. On
+# Windows the working directory of another process cannot be read, so
+# the origin is its command line and must mention a temp root.
+sub _origin_is_temp {
+    my ($origin) = @_;
+    my $text = _normalise_origin($origin);
+    return 0 if $text eq '';
+    for my $root ( _temp_roots() ) {
+        return 1 if $IS_WINDOWS ? index( $text, "$root/" ) >= 0 : ( $text eq $root || index( $text, "$root/" ) == 0 );
+    }
+    return 0;
+}
+
+# _process_origin($row)
+# Returns where one live process comes from, or undef when that cannot
+# be read: its working directory on Unix (procfs where there is one,
+# lsof otherwise, as on macOS), its command line on Windows.
+sub _process_origin {
+    my ($row) = @_;
+    return $row->{args} if $IS_WINDOWS;
+    my $link = "/proc/$row->{pid}/cwd";
+    if ( -d '/proc' && -l $link ) {
+        my $cwd = readlink $link;
+        return $cwd if defined $cwd && $cwd ne '';
+        return undef;
+    }
+    local $?;
+    my ( $stdout, undef, $exit_code ) = capture {
+        my $ok = system 'lsof', '-a', '-p', $row->{pid}, '-d', 'cwd', '-Fn';
+        return $ok == -1 ? -1 : $? >> 8;
+    };
+    return undef if !defined $stdout;
+    return $1 if $stdout =~ /^n(\/.*)$/m;
+    return undef;
+}
+
+# _leftovers_in_rows($rows, $manager, $min_age, $origin_of)
+# Picks the leftover runtime processes out of process-table rows and
+# returns two array references: the leftovers, and the candidates whose
+# origin could not be read. A leftover is a supervisor, loop or web
+# process of this user that has no live parent, started more than
+# $min_age seconds ago (so nothing started by this test, and nothing
+# still being stopped by the test file before it, qualifies), and comes
+# from temporary space (so a person's real runtime is never flagged:
+# tests run with a throwaway home under the temp dir, people do not).
+# This routine only reads: it never kills, stops, or removes anything.
+sub _leftovers_in_rows {
+    my ( $rows, $manager, $min_age, $origin_of ) = @_;
+    my ( @found, @unresolved );
+    for my $row ( @{ $rows || [] } ) {
+        next if $row->{pid} == $$;
+        next if !$row->{parentless};
+        next if !defined $row->{age} || $row->{age} <= $min_age;
+        next if defined $row->{uid} && ( $row->{uid} + 0 ) != ( $< + 0 );
+        my $kind = _leftover_kind( $manager, $row ) or next;
+        my $origin = $origin_of->($row);
+        my $record = { %{$row}, kind => $kind, origin => $origin };
+        if ( !defined $origin || $origin eq '' ) {
+            push @unresolved, $record;
+            next;
+        }
+        next if !_origin_is_temp($origin);
+        push @found, $record;
+    }
+    return ( \@found, \@unresolved );
+}
+
 # _spawn_fake_child($command, $env, $label, $log_dir)
 # Starts one fake collector-shaped child with the product's own spawn and
 # returns its pid. The child sleeps a bounded time and exits on its own;
@@ -295,6 +472,12 @@ my $loop_pid = _spawn_fake_child( [ $^X, $loop_script, 'collector-loop-foregroun
     { DEVELOPER_DASHBOARD_LOOP_NAME => 'micro-tick' }, 'loop', $script_dir );
 my $plain_pid = _spawn_fake_child( [ $^X, '-e', 'sleep 30' ], {}, 'plain', $script_dir );
 ok( kill( 0, $sup_pid ) && kill( 0, $loop_pid ) && kill( 0, $plain_pid ), 'detector: fake collector children are alive for the controls' );
+
+# One process-table snapshot while the fake children are certainly alive,
+# for the process-list controls further down. Taken here because the
+# controls in between can be slow on Windows and the children only live
+# for their bounded sleep.
+my $control_rows = _process_table();
 
 # The loop control also needs the fabricated state the macOS path reads
 # and the pidfile the Windows fallback reads, both in the checker's own
@@ -437,6 +620,71 @@ for my $orphan (@orphans) {
 }
 is( scalar @orphans, 0, 'detector: no orphaned collector processes left behind after the run' );
 
+# The process-list scan. The state-root scan above can only find a
+# process through a pid file, and skips every root whose home directory
+# exists. Both missed real leftovers (22 Nov 2026): 39 order-probe loops
+# on the Linux box had no pid file at all, and every leftover supervisor
+# had put its own home back by writing its log. This scan looks at the
+# live process table instead.
+my $LEFTOVER_MIN_AGE_MARGIN = 120;
+my $min_age = ( time - $^T ) + $LEFTOVER_MIN_AGE_MARGIN;
+
+# Controls for the process-list scan, on the snapshot taken while the
+# fake children were alive.
+ok( ref($control_rows) eq 'ARRAY' && scalar @{$control_rows}, 'detector: the process table is readable' );
+my %control_row = map { $_->{pid} => $_ } @{ $control_rows || [] };
+my ( $sup_row, $loop_row, $plain_row ) = @control_row{ $sup_pid, $loop_pid, $plain_pid };
+is( _leftover_kind( $manager, $sup_row ),  'supervisor', 'detector: the process table shows the fake supervisor as a supervisor' );
+is( _leftover_kind( $manager, $loop_row ), 'loop',       'detector: the process table shows the fake loop as a loop' );
+ok( $plain_row && !defined _leftover_kind( $manager, $plain_row ), 'detector: the process table shows the plain child as nothing of ours' );
+{
+    my $temp_origin = File::Spec->catdir( File::Spec->tmpdir, 't994-origin' );
+    my $from_temp   = sub { $temp_origin };
+    my $old         = $min_age + 3600;
+    my @live = grep { defined } ( $sup_row, $loop_row, $plain_row );
+    my ( $found, $unresolved ) = _leftovers_in_rows( \@live, $manager, $min_age, $from_temp );
+    is( scalar( @{$found} ) + scalar( @{$unresolved} ), 0, 'detector: process scan ignores this run\'s own young children' );
+
+    my @orphaned = map { +{ %{ $_ || { pid => 1, args => '' } }, parentless => 1, age => $old } } ( $sup_row, $loop_row, $plain_row );
+    ( $found, $unresolved ) = _leftovers_in_rows( \@orphaned, $manager, $min_age, $from_temp );
+    is_deeply( [ sort map { $_->{kind} } @{$found} ], [ 'loop', 'supervisor' ], 'detector: process scan flags an old parentless supervisor and loop from temp space, not the plain process' );
+
+    my @web = ( { pid => $sup_pid, uid => $<, parentless => 1, age => $old, args => 'starman master' } );
+    delete $web[0]{uid} if $IS_WINDOWS;
+    ( $found, $unresolved ) = _leftovers_in_rows( \@web, $manager, $min_age, $from_temp );
+    is( scalar @{$found}, 1, 'detector: process scan flags an old parentless web master from temp space' );
+
+    ( $found, $unresolved ) = _leftovers_in_rows( [ { %{ $orphaned[0] }, parentless => 0 } ], $manager, $min_age, $from_temp );
+    is( scalar( @{$found} ) + scalar( @{$unresolved} ), 0, 'detector: process scan ignores a supervisor whose parent is alive' );
+
+    ( $found, $unresolved ) = _leftovers_in_rows( [ { %{ $orphaned[0] }, age => $min_age } ], $manager, $min_age, $from_temp );
+    is( scalar( @{$found} ) + scalar( @{$unresolved} ), 0, 'detector: process scan ignores a supervisor that is not old enough' );
+
+    my $real_home = $IS_WINDOWS ? 'C:\\Users\\someone\\project' : '/home/someone/project';
+    ( $found, $unresolved ) = _leftovers_in_rows( [ $orphaned[0] ], $manager, $min_age, sub { $real_home } );
+    is( scalar( @{$found} ) + scalar( @{$unresolved} ), 0, 'detector: process scan ignores a supervisor that does not come from temp space' );
+
+    ( $found, $unresolved ) = _leftovers_in_rows( [ $orphaned[0] ], $manager, $min_age, sub { undef } );
+    ok( scalar( @{$found} ) == 0 && scalar( @{$unresolved} ) == 1, 'detector: process scan reports, but does not flag, a supervisor whose origin cannot be read' );
+
+    ok( _origin_is_temp($temp_origin) && !_origin_is_temp($real_home), 'detector: the temp-space rule tells the temp dir from a home directory' );
+}
+
+# The real process-list scan. Any leftover found fails the test, exactly
+# like the state-root scan. Nothing found is killed, stopped, or removed.
+my $scan_rows = _process_table();
+ok( ref($scan_rows) eq 'ARRAY' && scalar @{$scan_rows}, 'detector: the process table is readable for the real scan' );
+my ( $leftovers, $unreadable ) = _leftovers_in_rows( $scan_rows, $manager, $min_age, \&_process_origin );
+for my $leftover ( @{$leftovers} ) {
+    diag( sprintf 'detector: LEFTOVER %s pid %s parent %s started %ss ago from %s title [%s]',
+        $leftover->{kind}, $leftover->{pid}, $leftover->{ppid}, $leftover->{age}, $leftover->{origin}, $leftover->{args} );
+}
+for my $candidate ( @{$unreadable} ) {
+    diag( sprintf 'detector: NOTE %s pid %s started %ss ago title [%s] has no live parent but its origin could not be read, so it is not counted',
+        $candidate->{kind}, $candidate->{pid}, $candidate->{age}, $candidate->{args} );
+}
+is( scalar @{$leftovers}, 0, 'detector: no parentless supervisor, loop or web process from an earlier test run is alive on this machine' );
+
 done_testing();
 
 __END__
@@ -460,6 +708,15 @@ exists, the same rule the Housekeeper's own stale-root check uses, and
 a root whose home still exists is skipped outright, so a live run, a
 concurrent build, or a test that keeps its home can never be flagged.
 
+That state-root scan alone proved blind to the leftovers that actually
+formed, so a second scan reads the live process table. It flags every
+supervisor, loop ("d2 collector: <name>") or web process (a managed web
+process or a Starman master) of this user that has no live parent,
+started more than two minutes before this test file did, and comes from
+temporary space - its working directory on Unix, its command line on
+Windows. Tests run with a throwaway home under the temp dir and people
+do not, so a person's own running dashboard is never flagged.
+
 =head1 WHY IT EXISTS
 
 Round 25 failed on ARM64 t/05 test 360 because 19 orphaned "d2
@@ -470,6 +727,13 @@ until a timing test broke, and the orphans were only found by hand
 afterwards. A detector in the suite itself turns that silent pile-up
 into a loud failure at the point it happens, with the orphan's pid,
 state root and heartbeat age in the output for the investigation.
+
+On 22 Nov 2026 the first version passed on three machines that held 49,
+73 and 11 leftovers. It found a process only through a pid file, and 39
+leftover order-probe loops had none; and it skipped every state root
+whose home directory existed, while every leftover supervisor had put
+its home back by writing its own log. The process-list scan closes both
+holes: it needs no pid file and no state root.
 
 =head1 WHEN TO USE
 
@@ -488,9 +752,17 @@ time and exit on their own, and runs five controls against fake state
 roots before the real scan. The controls prove the detection logic in
 both directions - live supervisor and live loop in a dead run are
 flagged, a dead pid, a live home, and a live foreign process are not.
-When the real scan finds orphans, the test fails and diags each one
+The process-list controls then check that the live process table shows
+the fake supervisor and loop as what they are and the plain child as
+nothing, that this run's own young children are never flagged, and, on
+copies of those rows, that an old parentless supervisor, loop and web
+master from temp space are flagged while one with a live parent, one
+that is too young, and one from outside temp space are not.
+When a real scan finds orphans, the test fails and diags each one
 (kind, name, pid, state root, heartbeat age, and STUCK when a
-supervisor heartbeat is stale). Do not delete the orphans it reports:
+supervisor heartbeat is stale; for the process-list scan kind, pid,
+parent, age, origin and title). A candidate whose origin cannot be read
+is reported as a NOTE and not counted. Do not delete what it reports:
 they are the evidence, and are only cleaned up once the mechanism is
 proven and the fix is in.
 
@@ -503,11 +775,15 @@ watches for orphans.
 
 =head1 EXAMPLES
 
-On a clean machine the test passes with eleven assertions: the fake
-children are alive, the five controls agree, and the real scan finds
-no orphans. On a machine with leftovers it fails on the last assertion
-with diag lines like "ORPHAN supervisor - pid 3010488 root
+On a clean machine the test passes with twenty-five assertions: the
+fake children are alive, the state-root controls agree and that scan
+finds no orphans, the process-list controls agree and that scan finds
+no leftovers. On a machine with leftovers it fails with diag lines like
+"ORPHAN supervisor - pid 3010488 root
 /tmp/tester/developer-dashboard/state/728eaf... heartbeat age 642s
-STUCK (heartbeat stale)", naming exactly what to investigate.
+STUCK (heartbeat stale)" from the state-root scan, or "LEFTOVER loop
+pid 167522 parent 1 started 290000s ago from /tmp/JRlybSMOB0 title
+[d2 collector: order-probe]" from the process-list scan, naming exactly
+what to investigate.
 
 =cut

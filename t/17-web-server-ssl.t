@@ -27,6 +27,11 @@ use Time::HiRes qw(sleep);
 use lib 'lib';
 use lib 't/lib';
 
+# Every web process this file starts is detached or outlives a killed
+# run, and only the matching stop further down ends it. Tie them to
+# this test process: each web process is ended once this pid is gone.
+local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = $$;
+
 sub _command_available {
     my ($name) = @_;
     my @extensions = $^O eq 'MSWin32'

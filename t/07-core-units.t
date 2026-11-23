@@ -255,6 +255,11 @@ is(
 
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
+# Every collector loop this file starts is detached, and only the matching
+# stop further down ends it. A run that is killed part-way never reaches
+# that stop, and the loops then live on for days. Tie them to this test
+# process: each loop ends itself once this pid is gone.
+local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = $$;
 my $state_root_base = tempdir(CLEANUP => 1);
 local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = $state_root_base;
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};

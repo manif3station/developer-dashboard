@@ -47,6 +47,9 @@ our @EXPORT_OK = qw(
     _open_file_descriptors
     _overwrite_state_file_in_place
     _pid_is_running
+    _lifetime_owner_pid
+    _lifetime_owner_is_gone
+    _lifetime_owner_poll_seconds
     _pid_namespace_id
     _powershell_command
     _powershell_single_quote
@@ -102,6 +105,65 @@ sub _pid_is_running {
     return 0 if $self->_reap_child_process($pid);
     return 0 if ( $self->_read_process_state($pid) || '' ) eq 'Z';
     return $self->_process_exists($pid) ? 1 : 0;
+}
+
+# _lifetime_owner_pid()
+# Returns the pid this runtime's lifetime is tied to. A starter opts in
+# by exporting DEVELOPER_DASHBOARD_LIFETIME_PID before it starts the
+# runtime; every process the runtime starts inherits it. It exists for
+# starters that can be killed without ever running a stop, such as a
+# test run ended by a CI stop-all: the web, the supervisor and the loops
+# are all detached, so nothing else would ever end them. An ordinary
+# user never sets it, so a runtime started from a shell still outlives
+# that shell exactly as before. The calling process's own pid is
+# refused, so a process cannot be tied to itself. This is the one
+# reader of the variable: the collector supervisor, each collector loop
+# and the web owner watcher all go through it.
+# Input: none.
+# Output: pid integer, or undef when no usable owner pid is set.
+sub _lifetime_owner_pid {
+    my ($self) = @_;
+    my $value = $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
+    # An explicit undef, never a bare return: callers build a hash with
+    # this value in list context, and an empty list there would shift
+    # the next key into the pid slot and make an ordinary user look
+    # opted in to an owner that can never be alive.
+    return undef if !defined $value || $value !~ /\A\d+\z/ || $value < 1;    ## no critic (ProhibitExplicitReturnUndef)
+    return undef if $value == $$;                                             ## no critic (ProhibitExplicitReturnUndef)
+    return $value + 0;
+}
+
+# _lifetime_owner_is_gone($owner)
+# Counts one liveness poll of the opted-in lifetime owner and reports
+# whether it is now confirmed dead. The owner must be seen dead on two
+# polls in a row, so one failed liveness probe cannot end a healthy
+# process; a live poll resets the count. Liveness is the consumer's own
+# _pid_is_running, reached by method dispatch like every other helper
+# here, so the identical platform-aware path runs on Windows.
+# Input: owner-state hash reference the caller keeps across polls (pid,
+# dead_polls). An undef pid means the starter did not opt in.
+# Output: boolean true once the owner has been dead on two polls in a
+# row, false otherwise.
+sub _lifetime_owner_is_gone {
+    my ( $self, $owner ) = @_;
+    return 0 if ref($owner) ne 'HASH' || !defined $owner->{pid};
+    if ( $self->_pid_is_running( $owner->{pid} ) ) {
+        $owner->{dead_polls} = 0;
+        return 0;
+    }
+    $owner->{dead_polls}++;
+    return $owner->{dead_polls} >= 2 ? 1 : 0;
+}
+
+# _lifetime_owner_poll_seconds()
+# Returns how many seconds pass between two polls of the opted-in
+# lifetime owner in a process that has no faster loop of its own to
+# poll from. Two dead polls in a row are needed, so such a process ends
+# about twice this long after its owner dies.
+# Input: none.
+# Output: seconds number.
+sub _lifetime_owner_poll_seconds {
+    return 5;
 }
 
 # _replace_state_file($source, $target)

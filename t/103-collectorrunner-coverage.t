@@ -2319,6 +2319,121 @@ ok( !defined $runner->stop_loop('stop.missing'), 'stop_loop returns undef with n
         'Problem 28: an unknown qualified alias remains an explicit invalid-cwd error' );
 }
 
+# ===========================================================================
+# Lifetime owner: a starter that can be killed without ever running a stop
+# ties each loop it starts to its own pid through
+# DEVELOPER_DASHBOARD_LIFETIME_PID. Mocked throughout: no real process is
+# started, stopped or probed.
+# ===========================================================================
+{
+    # The loop reads the owner through the one shared reader.
+    {
+        local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
+        delete $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
+        is( scalar( $runner->_lifetime_owner_pid ), undef, 'a loop has no lifetime owner when the starter did not opt in' );
+        $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = 'abc';
+        is( scalar( $runner->_lifetime_owner_pid ), undef, 'a loop ignores a malformed lifetime owner value' );
+        $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = 0;
+        is( scalar( $runner->_lifetime_owner_pid ), undef, 'a loop ignores a zero lifetime owner value' );
+        $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = $$;
+        is( scalar( $runner->_lifetime_owner_pid ), undef, 'a loop is never tied to its own pid' );
+        $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = 4242;
+        is( scalar( $runner->_lifetime_owner_pid ), 4242, 'a loop takes a numeric lifetime owner value as its owner pid' );
+    }
+    is(
+        \&Developer::Dashboard::CollectorRunner::_lifetime_owner_pid,
+        \&Developer::Dashboard::ProcessSupervision::_lifetime_owner_pid,
+        'the loop and the supervisor share one owner-pid reader',
+    );
+    ok( $runner->_lifetime_owner_poll_seconds > 0, 'the lifetime owner poll period is a positive number of seconds' );
+
+    my $owner_running = 1;
+    my @probed;
+    my @logged;
+    my @shutdown;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_pid_is_running = sub {
+        my ( undef, $pid ) = @_;
+        push @probed, $pid;
+        return $owner_running;
+    };
+    local *Developer::Dashboard::Collector::append_log_entry = sub {
+        my ( $store, $name, %entry ) = @_;
+        push @logged, [ $name, \%entry ];
+        die "log write failed\n";
+    };
+    local *Developer::Dashboard::CollectorRunner::_shutdown_loop = sub {
+        my ( $instance, @args ) = @_;
+        push @shutdown, \@args;
+        die "shutdown-$args[1]\n";
+    };
+
+    # The two-dead-polls rule itself.
+    is( $runner->_lifetime_owner_is_gone(undef), 0, 'no owner state is never a dead owner' );
+    is( $runner->_lifetime_owner_is_gone( { pid => undef, dead_polls => 0 } ), 0, 'an owner state with no pid is never a dead owner' );
+    is_deeply( \@probed, [], 'no liveness probe is made when there is no owner' );
+    my $owner = { pid => 4242, dead_polls => 1, slept => 0 };
+    is( $runner->_lifetime_owner_is_gone($owner), 0, 'a live owner is not gone' );
+    is( $owner->{dead_polls}, 0, 'a live poll resets the dead-poll count' );
+    $owner_running = 0;
+    is( $runner->_lifetime_owner_is_gone($owner), 0, 'one dead poll alone is not enough' );
+    is( $runner->_lifetime_owner_is_gone($owner), 1, 'two dead polls in a row confirm the owner is gone' );
+    is_deeply( \@probed, [ 4242, 4242, 4242 ], 'each poll probes the owner pid through the liveness helper' );
+
+    # The loop's own reaction.
+    $owner = { pid => 4242, dead_polls => 0, slept => 0 };
+    my $workers = { 77 => 1 };
+    $owner_running = 1;
+    is( scalar( $runner->_check_loop_lifetime_owner( 'coverage.owner', $owner, $workers ) ),
+        undef, 'the loop carries on while its owner is alive' );
+    $owner_running = 0;
+    is( scalar( $runner->_check_loop_lifetime_owner( 'coverage.owner', $owner, $workers ) ),
+        undef, 'the loop carries on after one dead poll' );
+    is( scalar @shutdown, 0, 'nothing is shut down before the second dead poll' );
+    my $error = eval {
+        $runner->_check_loop_lifetime_owner( 'coverage.owner', $owner, $workers );
+        return '';
+    } || $@;
+    like( $error, qr/shutdown-lifetime-owner-gone/, 'a second dead poll in a row shuts the loop down' );
+    is_deeply( $shutdown[-1], [ 'coverage.owner', 'lifetime-owner-gone', $workers ],
+        'the shutdown names the loop, records that the lifetime owner is gone, and is handed the workers to end' );
+    is( $logged[-1][0], 'coverage.owner', 'the reason is written to the collector log of that loop' );
+    like( $logged[-1][1]{error}, qr/^lifetime owner pid 4242 is gone; loop pid \d+ is stopping$/,
+        'the log entry names the dead owner and the stopping loop, and a failed log write does not keep the loop alive' );
+
+    # The sleep polls the owner only when one is set, and only once per
+    # poll period of slept time.
+    my @checks;
+    my $period = 5;
+    local *Developer::Dashboard::CollectorRunner::sleep = sub { return 0 };
+    local *Developer::Dashboard::CollectorRunner::_reap_finished_loop_workers = sub { return 0 };
+    local *Developer::Dashboard::CollectorRunner::_lifetime_owner_poll_seconds = sub { return $period };
+    local *Developer::Dashboard::CollectorRunner::_check_loop_lifetime_owner = sub {
+        my ( undef, @args ) = @_;
+        push @checks, \@args;
+        return;
+    };
+    $runner->_sleep_until_next_tick( interval => 12, active_workers => $workers, name => 'coverage.owner' );
+    $runner->_sleep_until_next_tick(
+        interval       => 12,
+        active_workers => $workers,
+        name           => 'coverage.owner',
+        lifetime_owner => { pid => undef, dead_polls => 0, slept => 0 },
+    );
+    is( scalar @checks, 0, 'a loop with no lifetime owner never polls for one while it sleeps' );
+    $owner = { pid => 4242, dead_polls => 0, slept => 0 };
+    $period = 0.25;
+    $runner->_sleep_until_next_tick(
+        interval       => 1,
+        active_workers => $workers,
+        name           => 'coverage.owner',
+        lifetime_owner => $owner,
+    );
+    ok( @checks >= 2 && @checks <= 4, 'a loop with a lifetime owner polls it once per poll period of slept time, not on every slice' );
+    is_deeply( $checks[0], [ 'coverage.owner', $owner, $workers ],
+        'the sleep hands the loop name, the owner state and the workers to the owner check' );
+}
+
 done_testing;
 
 __END__

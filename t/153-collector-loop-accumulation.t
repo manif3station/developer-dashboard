@@ -25,6 +25,11 @@ use Local::CollectorFixture qw(wait_for_managed_loop);
 # chdirs before constructing anything.
 my $home = tempdir( CLEANUP => $ENV{DD_KEEP_PROBE_HOME} ? 0 : 1 );
 local $ENV{HOME} = $home;
+# Every collector loop this file starts is detached, and only the matching
+# stop further down ends it. A run that is killed part-way never reaches
+# that stop, and the loops then live on for days. Tie them to this test
+# process: each loop ends itself once this pid is gone.
+local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = $$;
 
 # A state root of this test's own. Without this the runner resolves state to a
 # shared /tmp/mv/developer-dashboard/state/<hash-of-home> tree, and the other
