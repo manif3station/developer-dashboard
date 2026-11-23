@@ -74,29 +74,27 @@ sub _keep_spawn_handle {
     # a child spawned anywhere else is never recorded.
     return if $^O ne 'MSWin32';
     my $handle = 1;
-    if ( $^O eq 'MSWin32' ) {
-        my $opened = eval {
-            require Win32::Process;
-            # Win32::Process objects must never be cloned into a go()
-            # worker interpreter: perl_clone copies the object with the
-            # same raw process HANDLE, and the worker's destruction runs
-            # DESTROY, which CloseHandle()s the PARENT's handle. The
-            # first worker only invalidates the registry handle; the
-            # second worker closes whatever handle value the OS has
-            # reused for the slot by then, which kills the process
-            # silently (this is what killed the t/17 SSL frontend after
-            # exactly two handled clients). CLONE_SKIP makes the clone
-            # hold undef instead, so no worker ever closes the handle.
-            if ( !defined &Win32::Process::CLONE_SKIP ) {
-                *Win32::Process::CLONE_SKIP = sub { 1 };
-            }
-            my $object;
-            Win32::Process::Open( $object, $pid, 0 )
-              or die "unable to open GoRoutine child process $pid\n";
-            $object;
-        };
-        $handle = $opened if $opened && !$@;
-    }
+    my $opened = eval {
+        require Win32::Process;
+        # Win32::Process objects must never be cloned into a go()
+        # worker interpreter: perl_clone copies the object with the
+        # same raw process HANDLE, and the worker's destruction runs
+        # DESTROY, which CloseHandle()s the PARENT's handle. The
+        # first worker only invalidates the registry handle; the
+        # second worker closes whatever handle value the OS has
+        # reused for the slot by then, which kills the process
+        # silently (this is what killed the t/17 SSL frontend after
+        # exactly two handled clients). CLONE_SKIP makes the clone
+        # hold undef instead, so no worker ever closes the handle.
+        if ( !defined &Win32::Process::CLONE_SKIP ) {
+            *Win32::Process::CLONE_SKIP = sub { 1 };
+        }
+        my $object;
+        Win32::Process::Open( $object, $pid, 0 )
+          or die "unable to open GoRoutine child process $pid\n";
+        $object;
+    };
+    $handle = $opened if $opened && !$@;
     $_SPAWN_CHILDREN{$pid} = $handle;
     return;
 }
