@@ -1188,9 +1188,10 @@ SH
 }
 
 # install.sh arguments. No argument is the existing path, covered by every
-# scenario above. Anything else must be settled before a single tool runs,
-# so each scenario here seeds the full set of fake tools and then checks
-# that none of them was called and no shell rc file was written.
+# scenario above. An unknown argument must be settled before a single tool
+# runs, so each scenario here seeds the full set of fake tools and then
+# checks that none of them was called and no shell rc file was written.
+# --jenkins alone is the test-node route, covered further down.
 for my $case (
     {
         label  => 'an unknown argument',
@@ -1203,12 +1204,6 @@ for my $case (
         args   => q{'--jenkins' 'extra'},
         exit   => 2,
         stderr => qr/install\.sh: unknown argument: --jenkins extra\n.*Usage: install\.sh \[--jenkins\]/s,
-    },
-    {
-        label  => '--jenkins',
-        args   => q{'--jenkins'},
-        exit   => 1,
-        stderr => qr/\Ainstall\.sh --jenkins: the Jenkins test-node setup is not implemented yet\. Nothing was installed or changed\.\n\z/,
     },
   )
 {
@@ -1238,6 +1233,244 @@ for my $case (
     is_deeply( [ _log_lines($log) ], [], "install.sh given $case->{label} calls no package manager, perlbrew, cpanm or d2" );
     my @written = grep { -e File::Spec->catfile( $home, $_ ) } qw(.bashrc .profile .bash_profile .zshrc .zprofile perl5 .developer-dashboard);
     is_deeply( \@written, [], "install.sh given $case->{label} writes no shell rc file and creates nothing under the home directory" );
+}
+
+# install.sh --jenkins: the Jenkins test-node route. Every scenario runs
+# against fake tools only (see _seed_fake_jenkins_commands), so nothing is
+# downloaded, built or installed for real.
+my @jenkins_list     = _plain_lines( File::Spec->catfile( $root, 'share', 'jenkins', 'modules-unix.txt' ) );
+my @jenkins_compiled = _plain_lines( File::Spec->catfile( $root, 'share', 'jenkins', 'modules-compiled.txt' ) );
+my @jenkins_rc_names = qw(.bashrc .profile .bash_profile .zshrc .zprofile .developer-dashboard);
+my $jenkins_install_prefix = 'cpanm --no-wget --notest --mirror https://cpan.metacpan.org --mirror https://backpan.perl.org ';
+
+{
+    my $home     = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log      = File::Spec->catfile( $fake_bin, 'install.log' );
+    _seed_fake_install_commands( fake_bin => $fake_bin, log => $log );
+    _seed_fake_jenkins_commands( fake_bin => $fake_bin, log => $log, perlbrew_on_path => 1 );
+    my $env_prefix = _jenkins_env_prefix(
+        HOME                   => $home,
+        PATH                   => _msys_path($fake_bin) . ':' . _base_path(),
+        DD_INSTALL_OS_OVERRIDE => 'debian',
+    );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' --jenkins");
+    };
+    is( $exit >> 8, 0, 'install.sh --jenkins succeeds on a Debian-family host with fake tools' )
+      or diag $stdout . $stderr;
+    like( $stdout, qr/^install\.sh --jenkins: DONE\. /m, 'install.sh --jenkins ends with one clear DONE line on a Debian-family host' );
+    unlike( $stderr, qr/FAILED/, 'install.sh --jenkins prints no FAILED line when it finishes' );
+
+    my @log_lines = _log_lines($log);
+    is(
+        scalar( grep { $_ eq 'perlbrew install perl-5.38.2 --notest -j 4' } @log_lines ),
+        1,
+        'install.sh --jenkins asks perlbrew for perl-5.38.2 even though the system Perl is new enough',
+    );
+    ok(
+        scalar( grep { $_ eq 'perl -e exit($] == 5.038002 ? 0 : 1)' } @log_lines ),
+        'install.sh --jenkins asks the built Perl whether it is exactly 5.38.2',
+    );
+    ok(
+        scalar( grep { m{\Acurl -fsSL https://cpanmin\.us -o \S+/jenkins-cpanm-bootstrap\.pl\z} } @log_lines ),
+        'install.sh --jenkins downloads the cpanm bootstrap to a file instead of piping it',
+    );
+    ok(
+        scalar( grep { m{\Aperl \S+/jenkins-cpanm-bootstrap\.pl --notest App::cpanminus\@1\.7049\z} } @log_lines ),
+        'install.sh --jenkins installs cpanm 1.7049 with the built Perl',
+    );
+    is_deeply(
+        [ grep { index( $_, 'cpanm --no-wget --notest ' ) == 0 } @log_lines ],
+        [ map { $jenkins_install_prefix . $_ } @jenkins_list ],
+        'install.sh --jenkins calls cpanm --notest once for each line of the pinned list, in list order',
+    );
+    is_deeply(
+        [ grep { index( $_, 'cpanm --no-wget --test-only ' ) == 0 } @log_lines ],
+        [ map { 'cpanm --no-wget --test-only ' . $_ } @jenkins_compiled ],
+        'install.sh --jenkins runs the own tests of each compiled distribution, in list order',
+    );
+    is_deeply(
+        [ grep { index( $_, 'cpanm --no-wget --uninstall ' ) == 0 } @log_lines ],
+        [ map { 'cpanm --no-wget --uninstall -f ' . $_ } qw(Test::LeakTrace Test::Requires Test::Warnings Test::Fatal B::COW) ],
+        'install.sh --jenkins removes the test-only helpers the compiled tests pull in',
+    );
+    ok(
+        scalar( grep { m{\Aapt-get install -y openjdk-21-jre-headless make\z} } @log_lines ),
+        'install.sh --jenkins installs Java 21 and make on a Debian-family host',
+    );
+    is_deeply(
+        [ grep { m{\A(?:d2 |cpanm .*local::lib|cpanm .* \.\z)} } @log_lines ],
+        [],
+        'install.sh --jenkins does not install or initialise the dashboard',
+    );
+    is_deeply(
+        [ grep { -e File::Spec->catfile( $home, $_ ) } @jenkins_rc_names ],
+        [],
+        'install.sh --jenkins writes no shell rc file and no dashboard runtime',
+    );
+    is_deeply(
+        [ grep { m{\A(?:sudo -n )?(?:systemsetup|pmset|sntp) } } @log_lines ],
+        [],
+        'install.sh --jenkins leaves the macOS-only settings step out on a Debian-family host',
+    );
+    ok( -d File::Spec->catdir( $home, 'jenkins' ), 'install.sh --jenkins creates the agent remote root under the home directory' );
+
+    my $first_run_lines = scalar @log_lines;
+    my ( $stdout_again, $stderr_again, $exit_again ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' --jenkins");
+    };
+    is( $exit_again >> 8, 0, 'install.sh --jenkins succeeds again on a finished node' )
+      or diag $stdout_again . $stderr_again;
+    like( $stdout_again, qr/^install\.sh --jenkins: DONE\. /m, 'install.sh --jenkins still ends DONE on a finished node' );
+    my @second_run = _log_lines($log);
+    splice @second_run, 0, $first_run_lines;
+    is_deeply(
+        [ grep { m{\A(?:perlbrew install |perl \S+jenkins-cpanm-bootstrap|cpanm --no-wget --(?:notest|test-only|uninstall) )} } @second_run ],
+        [],
+        'install.sh --jenkins builds, installs and tests nothing a second time on a finished node',
+    );
+}
+
+{
+    my $home     = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log      = File::Spec->catfile( $fake_bin, 'install.log' );
+    _seed_fake_install_commands( fake_bin => $fake_bin, log => $log, fake_perlbrew_on_path => 0 );
+    _seed_fake_jenkins_commands( fake_bin => $fake_bin, log => $log, perlbrew_on_path => 0 );
+    my $env_prefix = _jenkins_env_prefix(
+        HOME                   => $home,
+        PATH                   => _msys_path($fake_bin) . ':' . _path_hiding_command('perlbrew'),
+        DD_INSTALL_OS_OVERRIDE => 'darwin',
+    );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' --jenkins");
+    };
+    is( $exit >> 8, 0, 'install.sh --jenkins succeeds on a macOS host with fake tools' )
+      or diag $stdout . $stderr;
+    like( $stdout, qr/^install\.sh --jenkins: DONE\. /m, 'install.sh --jenkins ends with one clear DONE line on a macOS host' );
+
+    my @log_lines = _log_lines($log);
+    is_deeply(
+        [ grep { m{\A(?:systemsetup|pmset|sntp) } } @log_lines ],
+        [
+            'systemsetup -setnetworktimeserver time.apple.com',
+            'systemsetup -setusingnetworktime on',
+            'pmset -a powernap 0 sleep 0 disksleep 0 displaysleep 0 standby 0 hibernatemode 0 autopoweroff 0',
+            'sntp -sS time.apple.com',
+        ],
+        'install.sh --jenkins runs the time-server and no-sleep settings step on a macOS host',
+    );
+    ok(
+        scalar( grep { $_ eq 'brew install openjdk@21 openssl@3 make' } @log_lines ),
+        'install.sh --jenkins installs Java 21, OpenSSL 3 and make on a macOS host',
+    );
+    ok(
+        scalar( grep { m{\Acurl -fsSL https://install\.perlbrew\.pl -o \S+/jenkins-perlbrew-install\.sh\z} } @log_lines )
+          && scalar( grep { m{\A/bin/bash \S+/jenkins-perlbrew-install\.sh\z} } @log_lines ),
+        'install.sh --jenkins downloads the perlbrew installer to a file and runs it when perlbrew is missing',
+    );
+    is(
+        scalar( grep { $_ eq 'perlbrew install perl-5.38.2 --notest -j 4' } @log_lines ),
+        1,
+        'install.sh --jenkins builds perl-5.38.2 with the perlbrew it installed under the home directory',
+    );
+    ok(
+        scalar( grep { $_ eq 'brew --prefix openssl@3' } @log_lines ),
+        'install.sh --jenkins points native builds at Homebrew openssl@3 on a macOS host',
+    );
+    is_deeply(
+        [ grep { index( $_, 'cpanm --no-wget --notest ' ) == 0 } @log_lines ],
+        [ map { $jenkins_install_prefix . $_ } @jenkins_list ],
+        'install.sh --jenkins installs the whole pinned list in list order on a macOS host',
+    );
+    is_deeply(
+        [ ( grep { -e File::Spec->catfile( $home, $_ ) } @jenkins_rc_names ), ( grep { m{\Ad2 } } @log_lines ) ],
+        [],
+        'install.sh --jenkins writes no shell rc file and never calls d2 on a macOS host',
+    );
+}
+
+for my $case (
+    {
+        label    => 'a built Perl that is not 5.38.2',
+        platform => 'debian',
+        extra    => [ FAKE_JENKINS_PERL_WRONG => '1' ],
+        stderr   => qr/is not Perl 5\.38\.2; refusing to go on/,
+        installs => 0,
+    },
+    {
+        label    => 'a pinned distribution that fails to build',
+        platform => 'debian',
+        extra    => [ FAKE_JENKINS_CPANM_FAILS_ON => $jenkins_list[2] ],
+        stderr   => qr/Unable to install pinned distribution \Q$jenkins_list[2]\E/,
+        installs => 3,
+    },
+    {
+        label    => 'a platform it does not support',
+        platform => 'fedora',
+        extra    => [],
+        stderr   => qr/install\.sh --jenkins supports macOS, Debian and Ubuntu only; this machine is 'fedora'\./,
+        installs => 0,
+        untouched => 1,
+    },
+  )
+{
+    my $home     = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log      = File::Spec->catfile( $fake_bin, 'install.log' );
+    _seed_fake_install_commands( fake_bin => $fake_bin, log => $log );
+    _seed_fake_jenkins_commands( fake_bin => $fake_bin, log => $log, perlbrew_on_path => 1 );
+    my $env_prefix = _jenkins_env_prefix(
+        HOME                   => $home,
+        PATH                   => _msys_path($fake_bin) . ':' . _base_path(),
+        DD_INSTALL_OS_OVERRIDE => $case->{platform},
+        @{ $case->{extra} },
+    );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' --jenkins");
+    };
+    is( $exit >> 8, 1, "install.sh --jenkins refuses to go on with $case->{label}" )
+      or diag $stdout . $stderr;
+    like( $stderr, $case->{stderr}, "install.sh --jenkins says why it stopped with $case->{label}" );
+    like( $stderr, qr/^install\.sh --jenkins: FAILED \(exit 1\)\./m, "install.sh --jenkins ends with one clear FAILED line with $case->{label}" );
+    unlike( $stdout, qr/DONE/, "install.sh --jenkins prints no DONE line with $case->{label}" );
+    my @log_lines = _log_lines($log);
+    is(
+        scalar( grep { index( $_, 'cpanm --no-wget --notest ' ) == 0 } @log_lines ),
+        $case->{installs},
+        "install.sh --jenkins makes $case->{installs} pinned install calls with $case->{label}",
+    );
+    if ( $case->{untouched} ) {
+        is_deeply( \@log_lines, [], "install.sh --jenkins calls no tool at all with $case->{label}" );
+        is_deeply(
+            [ grep { -e File::Spec->catfile( $home, $_ ) } @jenkins_rc_names, 'perl5', 'jenkins' ],
+            [],
+            "install.sh --jenkins creates nothing under the home directory with $case->{label}",
+        );
+    }
+}
+
+{
+    my @public_files = (
+        $install_sh,
+        map { File::Spec->catfile( $root, 'share', 'jenkins', $_ ) }
+          qw(modules-unix.txt modules-compiled.txt modules-windows.txt modules-compiled-windows.txt),
+    );
+    my ( @addresses, @home_paths );
+    for my $file (@public_files) {
+        my $number = 0;
+        for my $line ( split /\n/, _raw_text($file) ) {
+            $number++;
+            push @addresses,  "$file line $number" if $line =~ /(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?![\d.])/;
+            push @home_paths, "$file line $number" if $line =~ m{/(?:Users|home)/[A-Za-z0-9_]};
+        }
+    }
+    is_deeply( \@addresses,  [], 'install.sh and the Jenkins lists hold no IP address' );
+    is_deeply( \@home_paths, [], 'install.sh and the Jenkins lists hold no /Users/<name> or /home/<name> path' );
 }
 
 done_testing;
@@ -1716,6 +1949,193 @@ SH
     }
 }
 
+# _plain_lines($path)
+# Reads a one-entry-per-line list file.
+# Input: file path. Output: the non-empty lines, in file order.
+sub _plain_lines {
+    my ($path) = @_;
+    return grep { $_ ne '' } map { s/\s+\z//r } split /\n/, _raw_text($path);
+}
+
+# _raw_text($path)
+# Reads a file exactly as it is on disk, with no spelling changes.
+# Input: file path. Output: the file text.
+sub _raw_text {
+    my ($path) = @_;
+    open my $fh, '<', $path or die "Unable to read $path: $!";
+    binmode $fh;
+    my $text = do { local $/; <$fh> };
+    close $fh or die "Unable to close $path: $!";
+    return $text;
+}
+
+# _jenkins_env_prefix(%env)
+# Builds the "KEY='value' ..." prefix for an install.sh --jenkins scenario.
+# Input: environment names and values, in order. Output: the prefix text.
+sub _jenkins_env_prefix {
+    my (@pairs) = @_;
+    my @parts;
+    while (@pairs) {
+        my ( $key, $value ) = splice @pairs, 0, 2;
+        push @parts, sprintf q{%s='%s'}, $key, _msys_path($value);
+    }
+    return join ' ', @parts;
+}
+
+# _seed_fake_jenkins_commands(%args)
+# Adds the fake tools the install.sh --jenkins route needs on top of
+# _seed_fake_install_commands: a sudo that accepts -n, the macOS settings
+# tools, java, a brew that knows the openssl@3 and openjdk@21 prefixes, a
+# perlbrew that "builds" a fake Perl, and a bash that "runs" the perlbrew
+# installer. The fake Perl answers the exact-version question (wrong when
+# FAKE_JENKINS_PERL_WRONG is 1) and "installs" a fake cpanm, which records
+# each pinned distribution the way the real one does (and fails on the
+# distribution named in FAKE_JENKINS_CPANM_FAILS_ON).
+# Input: fake_bin, log, perlbrew_on_path.
+# Output: none; the stubs are written under fake_bin.
+sub _seed_fake_jenkins_commands {
+    my (%args) = @_;
+    my $fake_bin = $args{fake_bin};
+    my $log      = $args{log};
+    my $payload  = File::Spec->catdir( $fake_bin, 'jenkins-payload' );
+    make_path($payload);
+
+    my $write = sub {
+        my ( $path, $body ) = @_;
+        $body =~ s/__LOG__/$log/g;
+        $body =~ s/__PAYLOAD__/$payload/g;
+        return _write_executable( $path, $body );
+    };
+
+    $write->( File::Spec->catfile( $fake_bin, 'sudo' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "sudo $*" >> "__LOG__"
+if [ "$1" = "-n" ]; then
+shift
+fi
+exec "$@"
+SH
+    for my $tool (qw(systemsetup pmset sntp)) {
+        $write->( File::Spec->catfile( $fake_bin, $tool ), <<"SH" );
+#!/bin/sh
+printf '%s\\n' "$tool \$*" >> "__LOG__"
+exit 0
+SH
+    }
+    my $java = <<'SH';
+#!/bin/sh
+printf '%s\n' "java $*" >> "__LOG__"
+printf '%s\n' 'openjdk version "21.0.13" 2026-10-24' >&2
+exit 0
+SH
+    $write->( File::Spec->catfile( $fake_bin, 'java' ), $java );
+    $write->( File::Spec->catfile( $payload,  'java' ), $java );
+    $write->( File::Spec->catfile( $fake_bin, 'brew' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "brew $*" >> "__LOG__"
+if [ "$1" = "--prefix" ]; then
+case "$2" in
+  perl)
+    printf '%s\n' "$HOME/.homebrew/opt/perl"
+    ;;
+  openssl@3)
+    mkdir -p "$HOME/.homebrew/opt/openssl@3/bin"
+    printf '%s\n' "$HOME/.homebrew/opt/openssl@3"
+    ;;
+  openjdk@21)
+    mkdir -p "$HOME/.homebrew/opt/openjdk@21/bin"
+    cp "__PAYLOAD__/java" "$HOME/.homebrew/opt/openjdk@21/bin/java"
+    chmod 0755 "$HOME/.homebrew/opt/openjdk@21/bin/java"
+    printf '%s\n' "$HOME/.homebrew/opt/openjdk@21"
+    ;;
+esac
+fi
+exit 0
+SH
+    $write->( File::Spec->catfile( $payload, 'cpanm' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "cpanm $*" >> "__LOG__"
+last=''
+for arg in "$@"; do
+last=$arg
+done
+case " $* " in
+  *" --version "*)
+    printf '%s\n' 'cpanm (App::cpanminus) version 1.7049 (fake)'
+    exit 0
+    ;;
+  *" --test-only "*|*" --uninstall "*)
+    exit 0
+    ;;
+esac
+case "$last" in
+  */*.tar.gz)
+    if [ "${FAKE_JENKINS_CPANM_FAILS_ON:-}" = "$last" ]; then
+      printf '%s\n' 'fake build failure' >&2
+      exit 1
+    fi
+    name=$(basename "$last" .tar.gz)
+    meta="$(dirname "$0")/../lib/site_perl/5.38.2/fake-arch/.meta/$name"
+    mkdir -p "$meta"
+    printf '{"dist":"%s","pathname":"%s"}\n' "$name" "$last" > "$meta/install.json"
+    ;;
+esac
+exit 0
+SH
+    $write->( File::Spec->catfile( $payload, 'perl' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "perl $*" >> "__LOG__"
+case "$*" in
+  *"5.038002"*)
+    if [ "${FAKE_JENKINS_PERL_WRONG:-0}" = "1" ]; then
+      exit 1
+    fi
+    exit 0
+    ;;
+  *"App::cpanminus@1.7049"*)
+    cp "__PAYLOAD__/cpanm" "$(dirname "$0")/cpanm"
+    chmod 0755 "$(dirname "$0")/cpanm"
+    exit 0
+    ;;
+esac
+exit 0
+SH
+    my $perlbrew = <<'SH';
+#!/bin/sh
+printf '%s\n' "perlbrew $*" >> "__LOG__"
+root="${PERLBREW_ROOT:-$HOME/perl5/perlbrew}"
+case "$1" in
+  init)
+    mkdir -p "$root/perls"
+    ;;
+  install)
+    mkdir -p "$root/perls/$2/bin"
+    cp "__PAYLOAD__/perl" "$root/perls/$2/bin/perl"
+    chmod 0755 "$root/perls/$2/bin/perl"
+    ;;
+esac
+exit 0
+SH
+    $write->( File::Spec->catfile( $payload, 'perlbrew' ), $perlbrew );
+    if ( $args{perlbrew_on_path} ) {
+        $write->( File::Spec->catfile( $fake_bin, 'perlbrew' ), $perlbrew );
+    }
+    $write->( File::Spec->catfile( $fake_bin, 'bash' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "/bin/bash $*" >> "__LOG__"
+case "$1" in
+  *jenkins-perlbrew-install.sh)
+    root="${PERLBREW_ROOT:-$HOME/perl5/perlbrew}"
+    mkdir -p "$root/bin"
+    cp "__PAYLOAD__/perlbrew" "$root/bin/perlbrew"
+    chmod 0755 "$root/bin/perlbrew"
+    ;;
+esac
+exit 0
+SH
+    return 1;
+}
+
 # _posix_shell_binary($preferred)
 # Resolves the POSIX shell that runs install.sh. Windows has no sh on PATH,
 # so the copy shipped with Git for Windows (usr\bin) is located explicitly;
@@ -1888,8 +2308,14 @@ and macOS package installation flows use the repo manifests in order, that the
 user-space Perl bootstrap goes through C<local::lib>, and that the correct
 shell rc file receives exactly one bootstrap line.
 It also checks the installer's arguments: an unknown argument is refused
-with a usage line, and C<--jenkins> takes its own route, and in both cases no
-tool is called and no shell rc file is written.
+with a usage line before any tool is called or any shell rc file is written.
+C<--jenkins> takes its own route, the Jenkins test-node setup: with fake tools
+it checks that Perl 5.38.2 is always built, that the pinned list is installed
+in list order, that the compiled distributions run their own tests, that the
+macOS-only settings step runs only on macOS, that a wrong Perl, a failed
+build or an unsupported platform stops with one FAILED line, that a second
+run changes nothing, and that neither the dashboard nor a shell rc file is
+touched.
 
 =head1 WHY IT EXISTS
 
