@@ -1259,7 +1259,7 @@ sub _test_citation_population {
                     # outside the shipped/repository documentation set while
                     # Problem 20 is paused; its historical PAX test references
                     # describe tests removed with the retired subsystem.
-                    return if $File::Find::name eq _repo_path( 'doc', 'problem-20-report.md' );
+                    return if _same_path( $File::Find::name, _repo_path( 'doc', 'problem-20-report.md' ) );
                     push @paths, $File::Find::name;
                 },
             },
@@ -1374,7 +1374,7 @@ sub _repo_search_without_self {
     my @matches;
     FILE:
     for my $path ( sort grep { !$seen{$_}++ && $tracked_repo_paths{ _tracked_key($_) } } @files ) {
-        next if $path eq $self;
+        next if _same_path( $path, $self );
         next if $path =~ m{/t/fixtures/};
         my $content = _slurp($path);
         my @lines   = split /\n/, $content, -1;
