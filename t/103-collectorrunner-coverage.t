@@ -1896,6 +1896,54 @@ ok( $runner->_terminate_loop_workers(undef), '_terminate_loop_workers tolerates 
     is_deeply( \%active, {}, '_terminate_loop_workers still clears the active set on the Windows branch' );
 }
 {
+    # The Windows branch resolves taskkill through the shared
+    # _taskkill_command helper, the one RuntimeManager's _send_signal uses,
+    # instead of handing a bare name to system(). The helper is replaced
+    # here with a Perl recorder so the check runs the same way on every
+    # platform and never starts a real taskkill: both tree kills (the first
+    # one on the live worker and the escalation one) must go through it.
+    no warnings qw(redefine prototype);
+    my $recorder = File::Spec->catfile( $home, 'r93-taskkill-recorder.pl' );
+    my $recorded = File::Spec->catfile( $home, 'r93-taskkill-args.txt' );
+    open my $recorder_fh, '>', $recorder or die "Unable to write $recorder: $!";
+    print {$recorder_fh} <<'RECORDER';
+open my $fh, '>>', $ENV{R93_TASKKILL_ARGS} or die "Unable to append $ENV{R93_TASKKILL_ARGS}: $!";
+print {$fh} join( ' ', @ARGV ), "\n";
+close $fh or die "Unable to close $ENV{R93_TASKKILL_ARGS}: $!";
+exit 0;
+RECORDER
+    close $recorder_fh or die "Unable to close $recorder: $!";
+    local $ENV{R93_TASKKILL_ARGS} = $recorded;
+    my $helper_calls = 0;
+    my @terminated;
+    local *Developer::Dashboard::CollectorRunner::is_windows          = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_pid_is_running     = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_reap_child_process = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::sleep               = sub { return 0 };
+    local *Developer::Dashboard::CollectorRunner::_taskkill_command   = sub { $helper_calls++; return ( $^X, $recorder ) };
+    local *Developer::Dashboard::GoRoutine::terminate_process         = sub { push @terminated, [@_]; return 1 };
+    my %active = ( 808080 => 1 );
+    ok( $runner->_terminate_loop_workers( \%active ), '_terminate_loop_workers returns true when taskkill is resolved through the helper' );
+    is( $helper_calls, 2, '_terminate_loop_workers asks _taskkill_command for both Windows tree kills' );
+    my @recorded_lines;
+    if ( open my $recorded_fh, '<', $recorded ) {
+        @recorded_lines = <$recorded_fh>;
+        close $recorded_fh;
+        s/\r?\n\z// for @recorded_lines;
+    }
+    is_deeply(
+        \@recorded_lines,
+        [ '/PID 808080 /T /F', '/PID 808080 /T /F' ],
+        '_terminate_loop_workers runs the resolved taskkill with the tree-kill arguments, first on the live worker and again on escalation'
+    );
+    is_deeply(
+        \@terminated,
+        [ [ 808080, 'TERM' ], [ 808080, 'KILL' ] ],
+        '_terminate_loop_workers still terminates a worker the tree kill leaves behind, TERM first and KILL on escalation'
+    );
+    is_deeply( \%active, {}, '_terminate_loop_workers clears the active set after the helper-resolved tree kills' );
+}
+{
     # Real POSIX branch: a stubborn worker child that ignores SIGTERM.
     my $worker = Developer::Dashboard::GoRoutine::spawn(
         [ $^X, '-e', q{$SIG{TERM} = 'IGNORE'; select undef, undef, undef, 30;} ],
