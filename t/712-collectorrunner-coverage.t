@@ -213,6 +213,27 @@ WORKER
     ok( -f $pidfile, 'the repaired pidfile exists' );
 }
 
+# --- adopting with no pidfile and an unreadable state record ------------------
+{
+    # With the pidfile gone and nothing found in the process table, the
+    # state record is the last place asked. A state file that is empty or
+    # torn is no record of a running loop: adoption must answer "nothing to
+    # adopt" so start_loop goes on to spawn, never die and fail the start.
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_find_running_loop = sub { return; };
+    for my $case ( [ 's8-adopt-empty', '', 'an empty' ], [ 's8-adopt-torn', '{"pid":', 'a torn' ] ) {
+        my ( $name, $content, $label ) = @{$case};
+        my $pidfile = File::Spec->catfile( $home, "$name.pid" );
+        write_file( $runner->_statefile($name), $content );
+        my %args = ( pidfile => $pidfile, name => $name, title => "d2 collector: $name", interval => 1, schedule_mode => 'interval' );
+        my $adopted = 'not-run';
+        my $err = eval { $adopted = $runner->_adopt_existing_loop_if_running(%args); 1 } ? '' : $@;
+        is( $err, '', "adopting with no pidfile does not die on $label state file" );
+        is( $adopted, undef, "adopting with no pidfile and $label state file finds nothing to adopt" );
+        ok( !-f $pidfile, "adopting with no pidfile and $label state file writes no pidfile" );
+    }
+}
+
 # --- loop state read failures -----------------------------------------------
 {
     $runner->_write_loop_state( 's8-state', { pid => $$ } );
