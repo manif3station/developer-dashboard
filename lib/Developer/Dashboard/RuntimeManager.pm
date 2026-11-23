@@ -27,6 +27,7 @@ use Developer::Dashboard::ProcessSupervision qw(
     _pid_is_running
     _lifetime_owner_pid
     _lifetime_owner_is_gone
+    _lifetime_owner_poll_seconds
     _pid_namespace_id
     _powershell_command
     _powershell_single_quote
@@ -2084,6 +2085,25 @@ sub _stop_recorded_web_for_lifetime_owner {
     return if $pid !~ /\A\d+\z/ || $pid < 1;
     $pid += 0;
     return if !$self->_pid_is_running($pid) || !$self->_is_managed_web($pid);
+    return $self->_stop_web_pid_for_lifetime_owner($pid);
+}
+
+# _stop_web_pid_for_lifetime_owner($pid)
+# Stops one web process by pid and nothing else: TERM first, a short
+# wait, then KILL if it is still there. It stops the pid only while it
+# still proves to be a managed dashboard web process, the same proof
+# _stop_recorded_web_for_lifetime_owner makes: if the web process died
+# and its pid was reused by an unrelated program, the pid is left alone.
+# The proof is the env-marker read first, so a real web process passes
+# it without touching runtime state; the state read behind it is only
+# reached when the marker is absent, which is the case the guard exists
+# for. Nothing is looked up by name here, for the reason given at
+# _stop_recorded_web_for_lifetime_owner.
+# Input: web process id integer.
+# Output: the pid that was signalled, or undef when it is not stopped.
+sub _stop_web_pid_for_lifetime_owner {
+    my ( $self, $pid ) = @_;
+    return if !$self->_pid_is_running($pid) || !$self->_is_managed_web($pid);
     $self->_send_signal( 'TERM', $pid );
     for ( 1 .. 30 ) {
         return $pid if !$self->_pid_is_running($pid);
@@ -2091,6 +2111,34 @@ sub _stop_recorded_web_for_lifetime_owner {
     }
     $self->_send_signal( 'KILL', $pid );
     return $pid;
+}
+
+# _run_web_lifetime_owner_watcher($web_pid)
+# Body of the watcher process a web process starts for itself when its
+# starter opted in to a lifetime owner (see _start_lifetime_owner_watcher
+# in Developer::Dashboard::Web::Server). It polls two pids: when the web
+# process is gone the watcher has nothing left to do and ends; when the
+# owner has been dead on two polls in a row it stops that one web
+# process and ends. The web pid is only signalled straight after a poll
+# that saw it alive. Called on the class, not on an object: it needs no
+# runtime state, only the liveness, signal and owner helpers. The
+# watcher's own pid is refused as the web pid, and an owner that is the
+# web process itself is refused, so nothing can be tied to itself.
+# Input: web process id integer.
+# Output: 0, the watcher's exit status, once there is nothing to watch.
+sub _run_web_lifetime_owner_watcher {
+    my ( $self, $web_pid ) = @_;
+    return 0 if !defined $web_pid || $web_pid !~ /\A\d+\z/ || $web_pid < 1 || $web_pid == $$;
+    my $owner = { pid => $self->_lifetime_owner_pid, dead_polls => 0 };
+    return 0 if !defined $owner->{pid} || $owner->{pid} == $web_pid;
+    while (1) {
+        return 0 if !$self->_pid_is_running($web_pid);
+        if ( $self->_lifetime_owner_is_gone($owner) ) {
+            eval { $self->_stop_web_pid_for_lifetime_owner($web_pid); 1 };
+            return 0;
+        }
+        sleep $self->_lifetime_owner_poll_seconds;
+    }
 }
 
 # _shutdown_collector_supervisor($status)

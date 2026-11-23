@@ -769,6 +769,94 @@ ok(
         'collector supervisor reap helper leaves no GoRoutine child running after reaping it' );
 }
 
+{
+    # The pid stop the watcher uses: only a pid that still proves to be
+    # a managed dashboard web process is signalled, so a reused pid
+    # belonging to an unrelated program is left alone. Mocked: no real
+    # process is probed or signalled.
+    my $running = 1;
+    my $managed = 1;
+    my @signals;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub { return $running };
+    local *Developer::Dashboard::RuntimeManager::_is_managed_web = sub { return $managed };
+    local *Developer::Dashboard::RuntimeManager::_runtime_poll_interval = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_send_signal = sub {
+        my ( undef, $signal, @pids ) = @_;
+        push @signals, join ' ', $signal, @pids;
+        $running = 0 if $signal eq 'TERM' && $pids[0] == 5151;
+        return scalar @pids;
+    };
+
+    $running = 0;
+    is( scalar( $manager->_stop_web_pid_for_lifetime_owner(4343) ), undef, 'a web pid that is no longer running is left alone' );
+    $running = 1;
+    $managed = 0;
+    is( scalar( $manager->_stop_web_pid_for_lifetime_owner(4343) ), undef, 'a pid that is not a managed web process is left alone' );
+    is_deeply( \@signals, [], 'nothing has been signalled so far' );
+
+    $managed = 1;
+    is( scalar( $manager->_stop_web_pid_for_lifetime_owner(5151) ), 5151, 'a managed web process that ends on TERM is reported stopped' );
+    is_deeply( \@signals, ['TERM 5151'], 'a web process that ends on TERM is not sent KILL' );
+
+    @signals = ();
+    $running = 1;
+    is( scalar( $manager->_stop_web_pid_for_lifetime_owner(6262) ), 6262, 'a managed web process that ignores TERM is still reported stopped' );
+    is_deeply( \@signals, [ 'TERM 6262', 'KILL 6262' ], 'a web process that ignores TERM is sent KILL after the wait' );
+}
+
+{
+    # The watcher a web process starts for itself when its starter opted
+    # in to a lifetime owner. Called on the class, as the watcher process
+    # calls it. Mocked: no real process is probed or signalled.
+    my $class = 'Developer::Dashboard::RuntimeManager';
+    my %alive;
+    my @probed;
+    my @stopped;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_lifetime_owner_poll_seconds = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub {
+        my ( undef, $pid ) = @_;
+        push @probed, $pid;
+        my $answers = $alive{$pid} || [];
+        return @{$answers} > 1 ? shift @{$answers} : $answers->[0];
+    };
+    local *Developer::Dashboard::RuntimeManager::_stop_web_pid_for_lifetime_owner = sub {
+        my ( undef, $pid ) = @_;
+        push @stopped, $pid;
+        die "web stop failed\n";
+    };
+
+    local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = 4242;
+    is( $class->_run_web_lifetime_owner_watcher(undef), 0, 'the web owner watcher ends at once with no web pid' );
+    is( $class->_run_web_lifetime_owner_watcher('junk'), 0, 'the web owner watcher ends at once with a malformed web pid' );
+    is( $class->_run_web_lifetime_owner_watcher($$), 0, 'the web owner watcher never watches its own pid as the web process' );
+    is( $class->_run_web_lifetime_owner_watcher(4242), 0, 'a web process is never tied to itself as owner' );
+    {
+        local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
+        delete $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
+        is( $class->_run_web_lifetime_owner_watcher(5151), 0, 'the web owner watcher ends at once when the starter did not opt in' );
+    }
+    is_deeply( \@probed, [], 'nothing is probed in any of the cases with nothing to watch' );
+
+    # The web process ends first: the watcher just ends.
+    %alive = ( 5151 => [ 1, 1, 0 ], 4242 => [1] );
+    is( $class->_run_web_lifetime_owner_watcher(5151), 0, 'the web owner watcher ends once the web process is gone' );
+    is_deeply( \@stopped, [], 'nothing is stopped when the web process ends by itself' );
+
+    # The owner dies: one dead poll is not enough, the second stops the web.
+    @probed = ();
+    %alive  = ( 5151 => [1], 4242 => [ 1, 0, 1, 0, 0 ] );
+    is( $class->_run_web_lifetime_owner_watcher(5151), 0,
+        'the web owner watcher ends after stopping the web process, even when that stop fails' );
+    is_deeply( \@stopped, [5151], 'only the one web process the watcher was started for is stopped, once' );
+    is_deeply(
+        \@probed,
+        [ 5151, 4242, 5151, 4242, 5151, 4242, 5151, 4242, 5151, 4242 ],
+        'a single dead poll of the owner is forgiven; two in a row stop the web process, each time straight after seeing it alive',
+    );
+}
+
 END {
     chdir $original_cwd if defined $original_cwd && length $original_cwd;
 }

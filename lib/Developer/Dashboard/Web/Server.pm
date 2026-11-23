@@ -20,6 +20,7 @@ use Time::HiRes qw(sleep time);
 use Developer::Dashboard::GoRoutine;
 use Developer::Dashboard::Platform qw(is_windows);
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::ProcessSupervision ();
 use Developer::Dashboard::Web::DancerApp;
 use Developer::Dashboard::Web::Server::Daemon;
 
@@ -72,9 +73,41 @@ sub new {
 sub run {
     my ($self) = @_;
 
+    _start_lifetime_owner_watcher();
     my $daemon = $self->start_daemon;
     print "Developer Dashboard listening on ", $self->listening_url($daemon), "\n";
     return $self->serve_daemon($daemon);
+}
+
+# _start_lifetime_owner_watcher()
+# Starts a separate watcher process that ends this web process once the
+# opted-in lifetime owner is dead. A starter opts in by exporting
+# DEVELOPER_DASHBOARD_LIFETIME_PID (see _lifetime_owner_pid in
+# Developer::Dashboard::ProcessSupervision, the one reader of that
+# variable); an ordinary user never sets it, so no watcher is started
+# and nothing changes. The web process cannot watch the owner itself:
+# once the PSGI server is running, the main loop belongs to that server
+# and none of this code gets a turn. The watcher is started before the
+# listen socket exists, so it never holds the port, and with its
+# standard streams on the null device, so it never holds a test
+# harness pipe open. It ends by itself as soon as this web process is
+# gone, however that happened.
+# Input: none.
+# Output: watcher pid integer, or 0 when the starter did not opt in.
+sub _start_lifetime_owner_watcher {
+    return 0 if !defined Developer::Dashboard::ProcessSupervision::_lifetime_owner_pid();
+    my $watcher_program = <<'WATCHER_PERL';
+use strict;
+use warnings;
+use Developer::Dashboard::RuntimeManager ();
+exit Developer::Dashboard::RuntimeManager->_run_web_lifetime_owner_watcher(@ARGV);
+WATCHER_PERL
+    my @library_args = map { ( '-I', $_ ) } grep { defined && !ref && -d $_ } @INC;
+    my $null = File::Spec->devnull();
+    return Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, @library_args, '-e', $watcher_program, $$ ],
+        { stdin => $null, stdout => $null, stderr => $null },
+    ) || 0;
 }
 
 # start_daemon()

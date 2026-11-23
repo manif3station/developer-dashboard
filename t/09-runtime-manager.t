@@ -205,6 +205,10 @@ chdir $test_cwd or die "Unable to chdir to $test_cwd: $!";
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
 local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = File::Spec->catdir( $home, 'state' );
+# Every web process this file starts is detached or outlives a killed
+# run, and only the matching stop further down ends it. Tie them to
+# this test process: each web process is ended once this pid is gone.
+local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = $$;
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
