@@ -124,8 +124,12 @@ sub _pid_is_running {
 sub _lifetime_owner_pid {
     my ($self) = @_;
     my $value = $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
-    return if !defined $value || $value !~ /\A\d+\z/ || $value < 1;
-    return if $value == $$;
+    # An explicit undef, never a bare return: callers build a hash with
+    # this value in list context, and an empty list there would shift
+    # the next key into the pid slot and make an ordinary user look
+    # opted in to an owner that can never be alive.
+    return undef if !defined $value || $value !~ /\A\d+\z/ || $value < 1;    ## no critic (ProhibitExplicitReturnUndef)
+    return undef if $value == $$;                                             ## no critic (ProhibitExplicitReturnUndef)
     return $value + 0;
 }
 

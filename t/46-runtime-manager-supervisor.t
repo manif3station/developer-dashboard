@@ -603,6 +603,16 @@ ok(
         local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
         delete $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
         is( scalar( $manager->_lifetime_owner_pid ), undef, 'no lifetime owner when the starter did not opt in' );
+        my @in_list_context = $manager->_lifetime_owner_pid;
+        is_deeply( \@in_list_context, [undef],
+            'with no opt-in the owner reader returns one undef in list context, never an empty list' );
+        my $owner_state = { pid => $manager->_lifetime_owner_pid, dead_polls => 0 };
+        is_deeply( $owner_state, { pid => undef, dead_polls => 0 },
+            'with no opt-in the owner state built the way the supervisor, loop and web watcher build it has an undef pid' );
+        is( $manager->_lifetime_owner_is_gone($owner_state), 0,
+            'an ordinary user with no opt-in is never judged to have a dead owner' );
+        is( $manager->_lifetime_owner_is_gone($owner_state), 0,
+            'and still not on a second poll in a row' );
         $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = 'abc';
         is( scalar( $manager->_lifetime_owner_pid ), undef, 'a malformed lifetime owner value is ignored' );
         $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = 0;
