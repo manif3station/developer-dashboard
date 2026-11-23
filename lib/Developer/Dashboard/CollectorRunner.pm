@@ -884,6 +884,20 @@ sub _run_loop_worker {
 # Output: count of reaped worker processes.
 sub _reap_finished_loop_workers {
     my ( $self, $active_workers ) = @_;
+
+    # A REAP MUST LEAVE THE EXIT STATUS AND ERRNO AS IT FOUND THEM. The loop
+    # runs this from its CHLD handler, and a handler can be delivered
+    # straight after a system() the loop made itself, between the system()
+    # and the statement that reads its exit status. Each wait below writes
+    # the exit status: -1 while a worker is still running or is not a child
+    # (with errno ECHILD), the worker's own status when it is reaped. A
+    # "system ...; return $? >> 8" in the loop would then read a status the
+    # command never set. Both values are restored when this sub returns,
+    # whichever caller it has. The guard is here and not in
+    # _waitpid_nonblocking because this sub is that wrapper's only caller
+    # and no caller of this sub reads a worker's exit status.
+    local $?;
+    local $!;
     $active_workers ||= {};
     my $reaped = 0;
     for my $pid ( keys %{$active_workers} ) {
