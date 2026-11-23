@@ -717,6 +717,18 @@ sub _wait_for_any_child_process {
 # Output: number of child processes reaped.
 sub _reap_any_child_processes {
     my ($self) = @_;
+
+    # A REAP MUST LEAVE THE EXIT STATUS AND ERRNO AS IT FOUND THEM. The
+    # supervisor runs this from its CHLD handler, and on Linux that handler
+    # is delivered straight after a system() the supervisor made itself,
+    # between the system() and the statement that reads its exit status.
+    # The wait below then finds no child and sets $? to -1 and $! to
+    # ECHILD, so "system ...; return $? >> 8" read a failed command where
+    # the command had exited 0 - the listener lookup came back empty and
+    # the supervisor did not recognise its own recorded web. Both values
+    # are restored when this sub returns, whichever caller it has.
+    local $?;
+    local $!;
     if ( is_windows() ) {
         # waitpid(-1) cannot see GoRoutine (CreateProcess) children, so
         # there is no wait-any equivalent on Windows. The spawn registry

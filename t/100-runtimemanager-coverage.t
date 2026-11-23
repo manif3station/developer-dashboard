@@ -200,6 +200,64 @@ ok( $manager->_pid_is_running($$),        '_pid_is_running confirms the current 
     is( $reaped, 1, 'on Windows _reap_any_child_processes reaps one exited direct child through the spawn registry' );
 }
 
+# A reap must leave the exit status and errno as it found them. The
+# supervisor reaps from its CHLD handler, and on Linux that handler runs
+# straight after a system() the supervisor made itself, before the next
+# statement reads the exit status. First with the wait replaced by one that
+# does what a wait with no child does (exit status -1, errno ECHILD), on the
+# POSIX branch on every box, so nothing here depends on signal timing.
+{
+    no warnings 'redefine';
+    local $Developer::Dashboard::Platform::OS_NAME = 'linux';
+    local $?;
+    local $!;
+    my $asked = 0;
+    local *Developer::Dashboard::RuntimeManager::_wait_for_any_child_process = sub {
+        $asked++;
+        $? = -1;
+        $! = POSIX::ECHILD();
+        return -1;
+    };
+    $? = 3 << 8;
+    $! = POSIX::ENOENT();
+    my $reaped       = $manager->_reap_any_child_processes;
+    my $status_after = $?;
+    my $errno_after  = $! + 0;
+    is( $reaped, 0, '_reap_any_child_processes reaps nothing when the wait finds no child' );
+    is( $asked,  1, '_reap_any_child_processes asked the wait once before stopping' );
+    is( $status_after, 3 << 8, '_reap_any_child_processes leaves the exit status as it found it when the wait set it to -1' );
+    is( $errno_after, POSIX::ENOENT(), '_reap_any_child_processes leaves errno as it found it when the wait set it to ECHILD' );
+}
+
+# The same through the real wait, whatever it finds: no child, a child
+# still running, or one it reaps all write the exit status on POSIX.
+{
+    local $?;
+    local $!;
+    $? = 3 << 8;
+    $! = POSIX::ENOENT();
+    $manager->_reap_any_child_processes;
+    my $status_after = $?;
+    my $errno_after  = $! + 0;
+    is( $status_after, 3 << 8, '_reap_any_child_processes leaves the exit status as it found it through the real wait' );
+    is( $errno_after, POSIX::ENOENT(), '_reap_any_child_processes leaves errno as it found it through the real wait' );
+}
+
+# And the shape that failed in the supervisor: a command run with the
+# supervisor-shaped CHLD handler installed, its exit status read on the
+# next statement, as the listener lookup reads it.
+{
+    local $?;
+    local $SIG{CHLD} = sub {
+        $manager->_reap_any_child_processes;
+        return;
+    };
+    my $returned = system $^X, '-e', 'exit 0';
+    my $status   = $?;
+    is( $returned, 0, 'a command that exits 0 returns 0 from system with the supervisor-shaped CHLD handler installed' );
+    is( $status, 0, 'the exit status read on the statement after system is the one the command set, not one the CHLD handler left behind' );
+}
+
 # --- _wait_for_windows_web_shutdown -----------------------------------------
 ok( $manager->_wait_for_windows_web_shutdown( $$, undef, undef ),   '_wait_for_windows_web_shutdown true when the saved pid is alive' );
 ok( !$manager->_wait_for_windows_web_shutdown( 999999, undef, [] ), '_wait_for_windows_web_shutdown false when nothing is alive' );
