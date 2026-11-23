@@ -25,6 +25,8 @@ use Developer::Dashboard::ProcessSupervision qw(
     _open_file_descriptors
     _overwrite_state_file_in_place
     _pid_is_running
+    _lifetime_owner_pid
+    _lifetime_owner_is_gone
     _pid_namespace_id
     _powershell_command
     _powershell_single_quote
@@ -2038,26 +2040,6 @@ sub _check_collector_supervisor_parent {
     $self->_shutdown_collector_supervisor('parent-gone');
 }
 
-# _lifetime_owner_pid()
-# Returns the pid this runtime's lifetime is tied to. A starter opts in
-# by exporting DEVELOPER_DASHBOARD_LIFETIME_PID before it starts the
-# runtime; every process the runtime starts inherits it. It exists for
-# starters that can be killed without ever running a stop, such as a
-# test run ended by a CI stop-all: the web, the supervisor and the loops
-# are all detached, so nothing else would ever end them. An ordinary
-# user never sets it, so a runtime started from a shell still outlives
-# that shell exactly as before. The supervisor's own pid is refused, so
-# a process cannot be tied to itself.
-# Input: none.
-# Output: pid integer, or undef when no usable owner pid is set.
-sub _lifetime_owner_pid {
-    my ($self) = @_;
-    my $value = $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
-    return if !defined $value || $value !~ /\A\d+\z/ || $value < 1;
-    return if $value == $$;
-    return $value + 0;
-}
-
 # _check_collector_supervisor_lifetime_owner($targets, $owner)
 # Ends the whole runtime once the opted-in lifetime owner is dead: stops
 # the watched loops, stops this runtime's own recorded web process, then
@@ -2073,13 +2055,7 @@ sub _lifetime_owner_pid {
 # otherwise undef.
 sub _check_collector_supervisor_lifetime_owner {
     my ( $self, $targets, $owner ) = @_;
-    return if !defined $owner->{pid};
-    if ( $self->_pid_is_running( $owner->{pid} ) ) {
-        $owner->{dead_polls} = 0;
-        return;
-    }
-    $owner->{dead_polls}++;
-    return if $owner->{dead_polls} < 2;
+    return if !$self->_lifetime_owner_is_gone($owner);
     for my $name ( @{$targets} ) {
         eval { $self->{runner}->stop_loop($name); 1 };
     }

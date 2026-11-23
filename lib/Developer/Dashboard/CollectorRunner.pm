@@ -28,6 +28,9 @@ use Developer::Dashboard::ProcessSupervision qw(
     _open_file_descriptors
     _overwrite_state_file_in_place
     _pid_is_running
+    _lifetime_owner_pid
+    _lifetime_owner_is_gone
+    _lifetime_owner_poll_seconds
     _pid_namespace_id
     _powershell_single_quote
     _process_exists
@@ -640,6 +643,13 @@ sub _run_loop_child {
     local $SIG{HUP}  = \&_signal_stop;
     my ( $execution_mode, $max_parallel ) = $self->_collector_execution_policy($job);
 
+    # The process this loop's lifetime is tied to, when the starter opted
+    # in through DEVELOPER_DASHBOARD_LIFETIME_PID, how many polls in a
+    # row it has been seen dead, and how long the loop has slept since
+    # the last poll. Undef pid when the starter did not opt in, which is
+    # every ordinary user: the sleep below then never polls anything.
+    my $lifetime_owner = { pid => $self->_lifetime_owner_pid, dead_polls => 0, slept => 0 };
+
     while (1) {
         $self->_reap_finished_loop_workers( \%active_workers );
         $self->_write_loop_state(
@@ -709,6 +719,8 @@ sub _run_loop_child {
         $self->_sleep_until_next_tick(
             interval       => $schedule_mode eq 'cron' ? 1 : $interval,
             active_workers => \%active_workers,
+            name           => $name,
+            lifetime_owner => $lifetime_owner,
         );
         if ($single_tick) {
             $self->_settle_single_tick_workers( \%active_workers );
@@ -1015,22 +1027,60 @@ sub _settle_single_tick_workers {
 # _sleep_until_next_tick(%args)
 # Sleeps until the next collector loop tick while periodically reaping any
 # finished worker children so zombies do not sit around for an entire interval
-# when a CHLD wakeup is missed.
-# Input: interval seconds and active_workers hash reference.
+# when a CHLD wakeup is missed. When the starter opted in to a lifetime
+# owner, the same slices also poll that owner, so a loop with an hour-long
+# interval still notices its owner dying within seconds.
+# Input: interval seconds and active_workers hash reference, plus the
+# optional collector name and lifetime-owner state hash reference.
 # Output: true value after the bounded sleep window completes.
 sub _sleep_until_next_tick {
     my ( $self, %args ) = @_;
     my $remaining = defined $args{interval} ? $args{interval} : 0;
     $remaining = 0 if $remaining < 0;
     my $active_workers = $args{active_workers} || {};
+    my $owner = $args{lifetime_owner};
+    $owner = undef if ref($owner) ne 'HASH' || !defined $owner->{pid};
     my $slice = $remaining > 0.1 ? 0.1 : $remaining;
     while ( $remaining > 0 ) {
         $slice = $remaining if $remaining < $slice;
         sleep $slice;
         $remaining -= $slice;
         $self->_reap_finished_loop_workers($active_workers);
+        next if !$owner;
+        $owner->{slept} += $slice;
+        next if $owner->{slept} < $self->_lifetime_owner_poll_seconds;
+        $owner->{slept} = 0;
+        $self->_check_loop_lifetime_owner( $args{name}, $owner, $active_workers );
     }
     return 1;
+}
+
+# _check_loop_lifetime_owner($name, $owner, $active_workers)
+# Ends this collector loop once the opted-in lifetime owner is confirmed
+# dead: records why in the collector log, then shuts down through the
+# same path a stop signal takes, which ends the loop's workers, writes
+# the final state and removes the loop's pid and state files. A loop
+# started with no supervisor has nothing else that would ever end it
+# when its starter is killed without running a stop. The log entry is
+# not allowed to keep the loop alive when it fails.
+# Input: collector name string, the owner-state hash reference the loop
+# keeps across polls (pid, dead_polls), and the active worker hash
+# reference.
+# Output: never returns once the owner has been confirmed dead;
+# otherwise undef.
+sub _check_loop_lifetime_owner {
+    my ( $self, $name, $owner, $active_workers ) = @_;
+    return if !$self->_lifetime_owner_is_gone($owner);
+    eval {
+        $self->{collectors}->append_log_entry(
+            $name,
+            happened_at => _now_iso8601( tz => "local" ),
+            source      => 'loop stopped: lifetime owner gone',
+            error       => "lifetime owner pid $owner->{pid} is gone; loop pid $$ is stopping",
+        );
+        1;
+    };
+    $self->_shutdown_loop( $name, 'lifetime-owner-gone', $active_workers );
 }
 
 # stop_loop($name)
