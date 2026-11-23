@@ -43,10 +43,11 @@ backend. Linux inotify and Windows directory notifications are provided by
 the shared XS extension. No workflow job installs or requires
 FFI::Platypus or FFI::CheckLib.
 
-Run the static workflow contract and watcher tests in the development
-container:
+Run the watcher test in the development container. The static workflow
+contract test (230-native-xs-workflow) was removed on 2026-11-23 together with
+the GitHub workflow files it checked:
 
-    d2 docker compose exec dev prove -Iblib/arch -Iblib/lib -Ilib -lv t/230-native-xs-workflow.t t/669-problem48-inotify-watch.t
+    d2 docker compose exec dev prove -Iblib/arch -Iblib/lib -Ilib -lv t/669-problem48-inotify-watch.t
 
 The 2026-10-31 Docker verification of version 6.14 passed all 290 test files
 and 25,955 tests. Statement, branch, condition, and subroutine coverage each

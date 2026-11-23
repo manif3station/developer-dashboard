@@ -831,7 +831,8 @@ CPAN distribution, while unreleased fixes exist only in the Git checkout. The
 image flow had no job that rebuilt the checked-out code into a tarball and
 installed that exact artifact after bootstrap.
 
-Red test: `t/228-dockerhub-image-workflow.t` asserts the GitHub workflow,
+Red test: the test 228-dockerhub-image-workflow (removed on 2026-11-23 with
+the GitHub workflow files) asserted the GitHub workflow,
 credential wiring, version/latest tags, target platforms, and that the image
 build runs `install.sh`, `dzil build`, and installs the generated tarball with
 `cpanm`. It also guards that GitHub automation files, excluded from the CPAN
@@ -872,7 +873,8 @@ packaged. README/POD parity and all 76 library module versions were verified.
 
 Post-push Scorecard identified one repository-fixable item: the Ubuntu base
 image tag was not pinned by digest (Pinned-Dependencies 9/10). A new assertion
-in `t/228-dockerhub-image-workflow.t` reproduced that finding before the
+in the test 228-dockerhub-image-workflow (removed on 2026-11-23 with the
+GitHub workflow files) reproduced that finding before the
 Dockerfile was changed to the Scorecard-reported multi-platform manifest
 digest. This follow-up is version 5.82. The remaining Scorecard findings
 require repository administration or community history; rerun Scorecard after
@@ -913,7 +915,8 @@ Dockerfile's final `cpanm` installation had no `--notest`, so it reran the
 23,000+ test suite for each emulated target architecture despite the separate
 full repository and coverage gates.
 
-Red test: updated `t/228-dockerhub-image-workflow.t` first to require
+Red test: updated the test 228-dockerhub-image-workflow (removed on
+2026-11-23 with the GitHub workflow files) first to require
 `cpanm --notest --reinstall` for installing the generated archive. Running it
 inside the Docker `dev` service failed at that assertion against the old
 Dockerfile (31 passed, 1 failed), reproducing the unwanted duplicate suite.
@@ -3136,7 +3139,8 @@ Perl processes could not load the extension compiled from the current source.
 
 Fix: add an explicit XS build step, pass both `blib` paths to `prove`, and
 export them before the coverage step so its child processes inherit the same
-extension and local dependencies. Expand `t/230-native-xs-workflow.t` to
+extension and local dependencies. Expand the test
+230-native-xs-workflow (removed on 2026-11-23 with the GitHub workflow files) to
 protect build ordering and both library paths. Correct the Web::App cache
 fixture that claimed to omit a signature while retaining its default value,
 and add a watcher-mode test for an unavailable initial freshness signature.

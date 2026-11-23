@@ -359,8 +359,9 @@ and `latest` tags for Linux amd64 and arm64. Full test and coverage gates must
 pass before publication; rerunning the full suite under QEMU for each target
 architecture duplicated that work and caused the 120-minute workflow timeout.
 The exact tarball still receives a tested `cpanm` install in the blank Docker
-environment above. The workflow contract is covered by
-`t/228-dockerhub-image-workflow.t`; Docker Hub publication itself requires
+environment above. The workflow contract was covered by
+the test 228-dockerhub-image-workflow, removed on 2026-11-23 together with the
+GitHub workflow files it checked; Docker Hub publication itself requires
 GitHub-managed credentials and is verified in the Actions run.
 
 The run passes when:

@@ -27,8 +27,9 @@ now:
 
 This gives the dependency build a deterministic OpenSSL prefix and ensures a
 future native build failure includes its configure, compiler, and linker
-details in the Actions log. The workflow contract is tested by
-`t/229-platform-openssl-workflow.t` inside the development container. The
+details in the Actions log. The workflow contract was tested by
+the test 229-platform-openssl-workflow inside the development container; that
+test was removed on 2026-11-23 together with the GitHub workflow files. The
 hosted macOS ARM64 rerun is required to confirm the build itself; the local
 Docker test validates the workflow structure, not a macOS native build.
 
