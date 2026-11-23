@@ -2189,6 +2189,201 @@ sub _stop_web_pid_for_lifetime_owner {
     return $pid;
 }
 
+# _web_watcher_spares_itself()
+# Says whether the web owner watcher must stop its web without a tree
+# kill. On Windows the watcher is a child of the web it watches, and the
+# ordinary stop there is a whole-tree kill of the web, which ends the
+# watcher inside its own stop before it can confirm anything or write a
+# line (Jenkins run-tests #75). Everywhere else a signal to the web pid
+# reaches that pid alone and the watcher outlives it.
+# Input: none.
+# Output: 1 on Windows, otherwise 0.
+sub _web_watcher_spares_itself {
+    return is_windows() ? 1 : 0;
+}
+
+# _web_watcher_tree_looks()
+# Returns how many times the watcher lists the web's tree in one stop:
+# the first listing, then looks for a child born after it.
+# Input: none.
+# Output: integer number of looks.
+sub _web_watcher_tree_looks {
+    return 3;
+}
+
+# _windows_process_tree_rows()
+# Lists every process with its parent process id and its start time, so
+# a caller can walk a process tree itself instead of asking taskkill
+# for a tree kill. The start time is the creation time in ticks, a
+# plain run of digits; it is empty when the system does not give one.
+# Input: none.
+# Output: array reference of hash references with pid, ppid and started
+# keys, or undef when the listing could not be made.
+sub _windows_process_tree_rows {
+    my ($self) = @_;
+    local $?;
+    my $powershell = _powershell_command;
+    return if !length $powershell;
+    my ( $stdout, undef, $exit_code ) = capture {
+        system(
+            $powershell,
+            '-NoLogo',
+            '-NoProfile',
+            '-Command',
+            q{$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | ForEach-Object { $t = ''; if ($null -ne $_.CreationDate) { $t = $_.CreationDate.ToUniversalTime().Ticks.ToString() }; [Console]::Out.WriteLine($_.ProcessId.ToString() + [char]9 + $_.ParentProcessId.ToString() + [char]9 + $t) }},
+        );
+        return $? >> 8;
+    };
+    return if $exit_code != 0 || !defined $stdout;
+    my @rows;
+    for my $line ( split /\n/, $stdout ) {
+        next if $line !~ /^\s*(\d+)\t(\d+)\t(\d*)\s*$/;
+        push @rows, { pid => $1 + 0, ppid => $2 + 0, started => $3 };
+    }
+    return if !@rows;
+    return \@rows;
+}
+
+# _process_started_not_before($child_started, $parent_started)
+# Compares two start times given as runs of digits. A real child never
+# starts before its parent, so a process that names a parent pid but is
+# older than the process holding that pid is not its child: the pid was
+# reused. A start time that cannot be read proves nothing.
+# Input: child start time string, parent start time string.
+# Output: 1 when both are readable and the child is not older, else 0.
+sub _process_started_not_before {
+    my ( $child, $parent ) = @_;
+    return 0 if !defined $child  || $child  !~ /\A\d+\z/;
+    return 0 if !defined $parent || $parent !~ /\A\d+\z/;
+    $child  =~ s/\A0+(?=\d)//;
+    $parent =~ s/\A0+(?=\d)//;
+    return length $child > length $parent ? 1 : 0 if length $child != length $parent;
+    return $child ge $parent ? 1 : 0;
+}
+
+# _descendant_pids_sparing($rows, $roots, $spare_pid)
+# Walks a process listing down from the given tree members and returns
+# every process below them that is not itself one of them, deepest
+# first. The members are given with their start times, so a member that
+# has already ended and left the listing still anchors the walk: a child
+# keeps naming its parent pid after the parent is gone. The spared pid
+# is never returned and nothing below it is walked, so the caller and
+# its own helper commands are left out. A process is only taken as a
+# child when its start time shows it is not older than its parent; one
+# that fails that check is returned as refused instead and nothing
+# below it is walked.
+# Input: array reference of listing rows, hash reference of member pid
+# to start time string, pid to spare.
+# Output: two array references: [pid, start time] pairs to stop, deepest
+# first, and refused pids with the reason, as "pid: reason" strings.
+sub _descendant_pids_sparing {
+    my ( $self, $rows, $roots, $spare_pid ) = @_;
+    my %children;
+    push @{ $children{ $_->{ppid} } }, $_ for grep { $_->{pid} != $_->{ppid} } @{ $rows || [] };
+    my ( @found, @refused );
+    my %seen  = map { $_ => 1 } keys %{ $roots || {} };
+    my @queue = map { [ $_, $roots->{$_}, 0 ] } sort { $a <=> $b } keys %{ $roots || {} };
+    while ( my $item = shift @queue ) {
+        my ( $pid, $started, $depth ) = @{$item};
+        for my $row ( sort { $a->{pid} <=> $b->{pid} } @{ $children{$pid} || [] } ) {
+            next if $seen{ $row->{pid} }++;
+            next if defined $spare_pid && $row->{pid} == $spare_pid;
+            if ( !_process_started_not_before( $row->{started}, $started ) ) {
+                my $why = defined $row->{started} && $row->{started} =~ /\A\d+\z/
+                  ? 'it is older than the process holding its parent pid, so that pid was reused'
+                  : 'a start time could not be read';
+                push @refused, "$row->{pid}: $why";
+                next;
+            }
+            push @found, [ $row->{pid}, $row->{started}, $depth + 1 ];
+            push @queue, [ $row->{pid}, $row->{started}, $depth + 1 ];
+        }
+    }
+    my @ordered = map { [ $_->[0], $_->[1] ] } sort { $b->[2] <=> $a->[2] || $a->[0] <=> $b->[0] } @found;
+    return ( \@ordered, \@refused );
+}
+
+# _kill_exact_pids(@pids)
+# Ends each given process by its exact pid on Windows, one taskkill per
+# pid and never the tree option, in the order given.
+# Input: process id values.
+# Output: number of pids taskkill reported ended or already gone.
+sub _kill_exact_pids {
+    my ( $self, @pids ) = @_;
+    local $?;
+    my $ended = 0;
+    for my $pid ( grep { defined $_ && /^\d+$/ && $_ > 0 } @pids ) {
+        my @taskkill = ( _taskkill_command, '/PID', $pid, '/F' );
+        my ( $stdout, $stderr, $exit_code ) = capture {
+            system @taskkill;
+            return $? >> 8;
+        };
+        $ended++ if $exit_code == 0 || join( ' ', grep { defined } $stdout, $stderr ) =~ /not found/i;
+    }
+    return $ended;
+}
+
+# _stop_web_pid_as_its_watcher($pid, $log_path, $prefix)
+# The stop the web owner watcher itself makes. Off Windows it is exactly
+# _stop_web_pid_for_lifetime_owner. On Windows the watcher is a child of
+# the web, so it lists the web's tree, leaves its own pid out, ends each
+# descendant by exact pid, deepest first, then the web pid, and looks
+# again for a child born in between; it then waits for the web pid to
+# go, as the ordinary stop does. Nothing here writes the line that says
+# the web was stopped: the caller writes it after this returns. What it
+# does write is what it left alone and why. When the tree cannot be
+# listed it says so, says that the tree kill it falls back to will end
+# this watcher as well, and makes that tree kill, so no part of the tree
+# is left behind for want of a listing.
+# Input: web process id integer, log file path string or undef, the text
+# that names the dead owner at the start of each line.
+# Output: the pid that was stopped, or undef when it is not stopped.
+sub _stop_web_pid_as_its_watcher {
+    my ( $self, $pid, $log_path, $prefix ) = @_;
+    return $self->_stop_web_pid_for_lifetime_owner($pid) if !$self->_web_watcher_spares_itself;
+    return if !$self->_pid_is_running($pid) || !$self->_is_managed_web($pid);
+    $prefix = '' if !defined $prefix;
+    my $rows = $self->_windows_process_tree_rows;
+    my ($root) = grep { $_->{pid} == $pid } @{ $rows || [] };
+    if ( !$rows || !$root || !defined $root->{started} || $root->{started} !~ /\A\d+\z/ ) {
+        $self->_log_web_lifetime_owner_event( $log_path,
+            "web tree not listed: $prefix the process tree of web pid $pid could not be listed with start times; falling back to a whole-tree kill of web pid $pid, which ends watcher pid $$ as well, so no further line follows from this watcher" );
+        return $self->_stop_web_pid_for_lifetime_owner($pid);
+    }
+    my $looks = $self->_web_watcher_tree_looks;
+    my %known = ( $pid => $root->{started} );
+    my %refused;
+    for my $look ( 1 .. $looks ) {
+        if ( $look > 1 ) {
+            $rows = $self->_windows_process_tree_rows;
+            last if !$rows;
+        }
+        my ( $found, $refused ) = $self->_descendant_pids_sparing( $rows, \%known, $$ );
+        $refused{$_} = 1 for @{$refused};
+        my @targets = map { $_->[0] } @{$found};
+        if ( $look == 1 ) {
+            push @targets, $pid;
+        }
+        else {
+            push @targets,
+              map { $_->{pid} }
+              grep { exists $known{ $_->{pid} } && defined $_->{started} && $_->{started} eq $known{ $_->{pid} } } @{$rows};
+        }
+        $known{ $_->[0] } = $_->[1] for @{$found};
+        last if !@targets;
+        $self->_kill_exact_pids(@targets);
+    }
+    $self->_log_web_lifetime_owner_event( $log_path,
+        "web tree member left alone: $prefix under web pid $pid, pid $_" )
+      for sort keys %refused;
+    for ( 1 .. 30 ) {
+        return $pid if !$self->_pid_is_running($pid);
+        sleep $self->_runtime_poll_interval;
+    }
+    $self->_kill_exact_pids($pid);
+    return $pid;
+}
+
 # _log_web_lifetime_owner_event($log_path, $text)
 # Appends one time-stamped line to the web owner watcher's log. Every
 # line the watcher writes goes through here. A failed write is silent:
@@ -2402,7 +2597,7 @@ sub _run_web_lifetime_owner_watcher {
         if ( $self->_lifetime_owner_is_gone($owner) ) {
             my $prefix = "lifetime owner gone; lifetime owner pid $owner->{pid} is gone;";
             my $stopped;
-            my $finished = eval { $stopped = $self->_stop_web_pid_for_lifetime_owner($web_pid); 1 };
+            my $finished = eval { $stopped = $self->_stop_web_pid_as_its_watcher( $web_pid, $log_path, $prefix ); 1 };
             my $error    = $@;
             eval {
                 if ( !$finished ) {

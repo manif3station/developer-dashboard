@@ -837,6 +837,7 @@ ok(
         return defined $text ? $text : '';
     };
     no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_web_watcher_spares_itself   = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_lifetime_owner_poll_seconds = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_web_stop_confirm_pause_seconds = sub {
         $confirm_pauses++;
@@ -1109,6 +1110,7 @@ ok(
     local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = $owner_pid;
     local *Developer::Dashboard::RuntimeManager::_lifetime_owner_poll_seconds = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_runtime_poll_interval       = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_web_watcher_spares_itself   = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub {
         my ( $self, $pid ) = @_;
         push @objects, ref($self) || 'class name';
@@ -1430,6 +1432,139 @@ ok(
         $raw = "5151\n";
         is( scalar( $manager->_recorded_web_pid_for_lifetime_owner ), 5151, 'a recorded web pid is read as a number' );
     }
+}
+
+{
+    # The watcher's own stop where the watcher is a child of its web
+    # (Windows). There a whole-tree kill of the web ends the watcher
+    # inside its own stop, so it must list the tree itself, leave its
+    # own pid out, end every other member by exact pid, deepest first,
+    # then the web, and only then say the web was stopped. The listing
+    # and the kill are stood in for by recorders, so the same checks run
+    # on every platform.
+    my $class       = 'Developer::Dashboard::RuntimeManager';
+    my $web_pid     = 7000;
+    my $owner_pid   = 4242;
+    my $watcher_log = File::Spec->catfile( $home, 'web-lifetime-owner-watcher-spares-itself.log' );
+    my $read_watcher_log = sub {
+        open my $fh, '<', $watcher_log or return '';
+        local $/;
+        my $text = <$fh>;
+        return defined $text ? $text : '';
+    };
+    my $web_alive = 1;
+    my ( @tree_signals, @kills, @listings, @log_at_kill );
+    my @tree = (
+        { pid => 7000, ppid => 6000, started => '500' },
+        { pid => 7001, ppid => 7000, started => '510' },
+        { pid => 7002, ppid => 7001, started => '520' },
+        { pid => $$,   ppid => 7000, started => '530' },
+        { pid => 7003, ppid => $$,   started => '540' },
+        { pid => 7004, ppid => 7000, started => '100' },
+        { pid => 7005, ppid => 7000, started => '' },
+        { pid => 7006, ppid => 7005, started => '560' },
+        { pid => 8000, ppid => 6000, started => '505' },
+    );
+    # Born under 7001 after the first listing; 7001 has ended by the
+    # second listing and its row is gone, but the child still names it.
+    my @late = ( { pid => 7009, ppid => 7001, started => '600' } );
+    no warnings 'redefine';
+    local $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = $owner_pid;
+    local *Developer::Dashboard::RuntimeManager::_web_watcher_spares_itself   = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_lifetime_owner_poll_seconds = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_poll_interval       = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_web_stop_confirm_pause_seconds = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_web_lifetime_owner_watcher_object = sub { return $manager };
+    local *Developer::Dashboard::RuntimeManager::_lifetime_owner_is_gone = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_is_managed_web         = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub {
+        my ( undef, $pid ) = @_;
+        return $pid == $web_pid ? $web_alive : 0;
+    };
+    local *Developer::Dashboard::RuntimeManager::_send_signal = sub {
+        my ( undef, $signal, @pids ) = @_;
+        push @tree_signals, join ' ', $signal, @pids;
+        $web_alive = 0;
+        return scalar @pids;
+    };
+    local *Developer::Dashboard::RuntimeManager::_windows_process_tree_rows = sub {
+        push @listings, scalar @listings + 1;
+        my @gone = @listings == 1 ? () : ( 7000, 7001, 7002 );
+        my @rows = grep { my $row = $_; !grep { $_ == $row->{pid} } @gone } @tree;
+        push @rows, @late if @listings == 2;
+        return \@rows;
+    };
+    local *Developer::Dashboard::RuntimeManager::_kill_exact_pids = sub {
+        my ( undef, @pids ) = @_;
+        push @kills, @pids;
+        push @log_at_kill, $read_watcher_log->();
+        $web_alive = 0 if grep { $_ == $web_pid } @pids;
+        return scalar @pids;
+    };
+
+    unlink $watcher_log;
+    is( $class->_run_web_lifetime_owner_watcher( $web_pid, $watcher_log ), 0,
+        'spare route: the watcher ends normally when it is a child of the web it stops' );
+    is_deeply( \@tree_signals, [],
+        'spare route: the watcher never makes the whole-tree kill that would end the watcher itself' );
+    is_deeply( [ @kills[ 0 .. 2 ] ], [ 7002, 7001, 7000 ],
+        'spare route: every listed member is ended by exact pid, deepest first, and the web pid last' );
+    is( scalar( grep { $_ == $$ } @kills ), 0, 'spare route: the watcher leaves its own pid out of the kill' );
+    is( scalar( grep { $_ == 7003 } @kills ), 0, 'spare route: nothing under the watcher itself is ended' );
+    is( scalar( grep { $_ == 8000 } @kills ), 0, 'spare route: a process outside the web tree is never ended' );
+    is( scalar( grep { $_ == 7004 } @kills ), 0,
+        'spare route: a process older than the web that names its pid as parent is left alone' );
+    is( scalar( grep { $_ == 7005 || $_ == 7006 } @kills ), 0,
+        'spare route: a process whose start time cannot be read is left alone, with everything under it' );
+    is_deeply( [ @kills[ 3 .. $#kills ] ], [7009],
+        'spare route: a child born after the first listing is found on the next look and ended' );
+    is( scalar @listings, 3, 'spare route: the tree is listed again until a look finds nothing left, at most three times' );
+    is( scalar( grep { /web stopped:/ } @log_at_kill ), 0,
+        'spare route: no stop line is in the log at the moment of any kill' );
+    like( $read_watcher_log->(),
+        qr/ web stopped: lifetime owner gone; lifetime owner pid \Q$owner_pid\E is gone; web pid \Q$web_pid\E is stopping\n\z/,
+        'spare route: the stop line is written after the kills and is the last line' );
+    like( $read_watcher_log->(), qr/ web tree member left alone: [^\n]* under web pid 7000, pid 7004: it is older than the process holding its parent pid/,
+        'spare route: the log names the member left alone because its parent pid was reused' );
+    like( $read_watcher_log->(), qr/ web tree member left alone: [^\n]* under web pid 7000, pid 7005: a start time could not be read/,
+        'spare route: the log names the member left alone because its start time could not be read' );
+
+    # The listing fails: the watcher says so, says what it falls back
+    # to, and never claims a stop before the act.
+    unlink $watcher_log;
+    ( $web_alive, @tree_signals ) = (1);
+    @kills = ();
+    local *Developer::Dashboard::RuntimeManager::_windows_process_tree_rows = sub { return };
+    is( $class->_run_web_lifetime_owner_watcher( $web_pid, $watcher_log ), 0,
+        'spare route: the watcher ends normally when the tree cannot be listed' );
+    is_deeply( \@kills, [], 'spare route: with no listing nothing is ended by exact pid' );
+    is_deeply( \@tree_signals, ["TERM $web_pid"], 'spare route: with no listing the watcher falls back to the whole-tree kill' );
+    like( $read_watcher_log->(), qr/ web tree not listed: [^\n]* falling back to a whole-tree kill of web pid 7000, which ends watcher pid \Q$$\E as well[^\n]*\n\S+ web stopped: /,
+        'spare route: the fallback line is written before the tree kill and before any stop line' );
+
+    # Where the watcher is not a child of its web the stop is the
+    # ordinary one, unchanged.
+    unlink $watcher_log;
+    ( $web_alive, @tree_signals ) = (1);
+    @kills    = ();
+    @listings = ();
+    local *Developer::Dashboard::RuntimeManager::_web_watcher_spares_itself = sub { return 0 };
+    is( $class->_run_web_lifetime_owner_watcher( $web_pid, $watcher_log ), 0,
+        'ordinary route: the watcher ends normally where it is not a child of its web' );
+    is_deeply( [ \@tree_signals, \@kills, \@listings ], [ ["TERM $web_pid"], [], [] ],
+        'ordinary route: the stop is the plain signal, with no listing and no kill by exact pid' );
+
+    is( Developer::Dashboard::RuntimeManager::_process_started_not_before( '1000', '999' ), 1,
+        'start times: a longer run of digits is the later time' );
+    is( Developer::Dashboard::RuntimeManager::_process_started_not_before( '999', '1000' ), 0,
+        'start times: a shorter run of digits is the earlier time' );
+    is( Developer::Dashboard::RuntimeManager::_process_started_not_before( '500', '500' ), 1,
+        'start times: a child may share its parent start time' );
+    is( Developer::Dashboard::RuntimeManager::_process_started_not_before( '', '500' ), 0,
+        'start times: an unreadable child start time proves nothing' );
+    is( Developer::Dashboard::RuntimeManager::_process_started_not_before( '500', undef ), 0,
+        'start times: an unreadable parent start time proves nothing' );
+    unlink $watcher_log;
 }
 
 END {
