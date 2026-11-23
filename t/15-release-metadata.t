@@ -50,7 +50,7 @@ my $agents_override = _slurp_optional( _repo_path('AGENTS.override.md') );
 my $security_pod = _slurp_optional( _repo_path('SECURITY.pod') );
 my $contributing_pod = _slurp_optional( _repo_path('CONTRIBUTING.pod') );
 my @doc_paths = grep {
-    -e $_ && $tracked_repo_paths{ File::Spec->abs2rel( $_, $ROOT ) }
+    -e $_ && $tracked_repo_paths{ _tracked_key($_) }
 } (
     _repo_path('README.md'),
     _repo_path('SKILL.md'),
@@ -385,7 +385,13 @@ for my $path (
 }
 
 ok( -f _repo_path( 'bin', 'd2' ), 'bin/d2 is shipped as the real short d2 entrypoint' );
-ok( -x _repo_path( 'bin', 'd2' ), 'bin/d2 is shipped as an executable' );
+# Perl's -x on Windows goes by the file extension, so it is false for the
+# extensionless bin/d2 whatever the file is. There the same property is
+# read where it really lives: the executable bit recorded in the git index.
+ok(
+    $^O eq 'MSWin32' ? _git_index_mode( 'bin/d2' ) eq '100755' : -x _repo_path( 'bin', 'd2' ),
+    'bin/d2 is shipped as an executable',
+);
 
 for my $module (
     qw(
@@ -1023,7 +1029,7 @@ for my $path ( _perl_doc_paths() ) {
     like( $content, qr/^__END__$/m, "$path keeps Perl POD after __END__" );
     like( $content, qr/^=head1 NAME$/m, "$path documents NAME" );
     unlike( _extract_pod($content), qr/\b[A-Za-z0-9_\/.-]+\.md\b/, "$path POD does not point readers at repo-internal markdown filenames" );
-    next if $path eq _repo_path( 'lib', 'Developer', 'Dashboard.pm' );
+    next if _same_path( $path, _repo_path( 'lib', 'Developer', 'Dashboard.pm' ) );
     like( $content, qr/^=head1 PURPOSE$/m, "$path documents PURPOSE" );
     like( $content, qr/^=head1 WHY IT EXISTS$/m, "$path documents WHY IT EXISTS" );
     like( $content, qr/^=head1 WHEN TO USE$/m, "$path documents WHEN TO USE" );
@@ -1049,7 +1055,7 @@ for my $path ( _shipped_perl_doc_paths() ) {
         unlike( $content, $pattern, "$path no longer uses the generic FULL-POD-DOC boilerplate" );
     }
 
-    next if $path eq _repo_path( 'lib', 'Developer', 'Dashboard.pm' );
+    next if _same_path( $path, _repo_path( 'lib', 'Developer', 'Dashboard.pm' ) );
 
     my $how_to_use = _section_body( $content, 'HOW TO USE' );
     my $normalized_how_to_use = $how_to_use;
@@ -1132,6 +1138,41 @@ sub _repo_path {
     return File::Spec->catfile( $ROOT, @_ );
 }
 
+# Purpose: say whether two paths name the same file, whatever separator each
+# was spelt with. File::Find joins with a forward slash and File::Spec with
+# the platform separator, so on Windows the same file arrives in two
+# spellings and a plain string comparison never matches.
+# Input: two path strings. Output: true when both canonicalise to one path.
+sub _same_path {
+    my ( $left, $right ) = @_;
+    return File::Spec->canonpath($left) eq File::Spec->canonpath($right);
+}
+
+# Purpose: turn an absolute path into the key git ls-files uses for it.
+# git always answers with forward slashes; File::Spec->abs2rel answers with
+# backslashes on Windows, so the raw value never matched a tracked path there
+# and the tracked-only walks came back almost empty.
+# Input: absolute path. Output: repository-relative path, forward slashes.
+sub _tracked_key {
+    my ($path) = @_;
+    my $relative = File::Spec->abs2rel( $path, $ROOT );
+    $relative =~ s{\\}{/}g if $^O eq 'MSWin32';
+    return $relative;
+}
+
+# Purpose: read the file mode git records in its index for one tracked path.
+# Input: repository-relative path with forward slashes. Output: the mode
+# string such as 100755, or an empty string when the path is not tracked.
+sub _git_index_mode {
+    my ($relative) = @_;
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'git', '-C', $ROOT, 'ls-files', '-s', '--', $relative );
+    };
+    die "git ls-files -s failed while reading the index mode of $relative: $stderr"
+      if $exit != 0 || $stderr ne '';
+    return $stdout =~ /\A([0-7]{6}) / ? $1 : '';
+}
+
 sub _tracked_repo_paths {
     my ( $stdout, $stderr, $exit ) = capture {
         system( 'git', '-C', $ROOT, 'ls-files', '-z' );
@@ -1186,7 +1227,7 @@ sub _perl_doc_paths {
                     return if !-f $_;
                     # Concurrent tests create and remove transient Perl fixtures.
                     # A release metadata sweep must read tracked sources only.
-                    return if !$tracked_repo_paths{ File::Spec->abs2rel( $File::Find::name, $ROOT ) };
+                    return if !$tracked_repo_paths{ _tracked_key($File::Find::name) };
                     return if $_ =~ m{/OLD_CODE/};
                     return if $_ !~ /\.(?:pm|pl|t)\z/ && $_ !~ m{/share/private-cli/[^/]+\z};
                     push @paths, $File::Find::name;
@@ -1212,7 +1253,7 @@ sub _test_citation_population {
                 no_chdir => 1,
                 wanted   => sub {
                     return if !-f $_;
-                    return if !$tracked_repo_paths{ File::Spec->abs2rel( $File::Find::name, $ROOT ) };
+                    return if !$tracked_repo_paths{ _tracked_key($File::Find::name) };
                     return if $_ !~ /\.md\z/;
                     # This locally ignored coverage work log is intentionally
                     # outside the shipped/repository documentation set while
@@ -1332,7 +1373,7 @@ sub _repo_search_without_self {
     my %seen;
     my @matches;
     FILE:
-    for my $path ( sort grep { !$seen{$_}++ && $tracked_repo_paths{ File::Spec->abs2rel( $_, $ROOT ) } } @files ) {
+    for my $path ( sort grep { !$seen{$_}++ && $tracked_repo_paths{ _tracked_key($_) } } @files ) {
         next if $path eq $self;
         next if $path =~ m{/t/fixtures/};
         my $content = _slurp($path);
