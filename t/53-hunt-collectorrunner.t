@@ -103,10 +103,36 @@ is( $runner->_normalize_timeout_ms('not-a-hash'), undef,
 # firing on every one-second scheduling tick.
 # ----------------------------------------------------------------------------
 {
-    my $cron_name = 'cron.everyminute';
-    ok( $runner->_cron_due( '* * * * *', $cron_name ),
+    # The two calls must share one minute for the dedup to hold. On Windows
+    # the first call's state-file write takes 150 ms or more, so a minute
+    # boundary can fall between the calls; then the second call is correctly
+    # due in the new minute and the pair must be tried again with a fresh
+    # cron name. At most three attempts: a real dedup failure still fails,
+    # and a minute that keeps rolling over fails loudly instead of looping.
+    my $minute_stamp = sub {
+        my @now = localtime();
+        return sprintf '%04d-%02d-%02dT%02d:%02d',
+          $now[5] + 1900, $now[4] + 1, $now[3], $now[2], $now[1];
+    };
+    my $first_due;
+    my $second_due;
+    my $decided = 0;
+    for my $attempt ( 1 .. 3 ) {
+        my $cron_name = "cron.everyminute.$attempt";
+        my $before = $minute_stamp->();
+        $first_due  = $runner->_cron_due( '* * * * *', $cron_name );
+        $second_due = $runner->_cron_due( '* * * * *', $cron_name );
+        my $after = $minute_stamp->();
+        if ( $before eq $after ) {
+            $decided = 1;
+            last;
+        }
+    }
+    diag 'the minute kept rolling over between the two _cron_due calls'
+      if !$decided;
+    ok( $decided && $first_due,
         'wildcard cron is due on the first tick of a minute' );
-    ok( !$runner->_cron_due( '* * * * *', $cron_name ),
+    ok( $decided && !$second_due,
         'wildcard cron is de-duplicated within the same minute' );
 }
 
