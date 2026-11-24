@@ -35,7 +35,14 @@ my $paths = Developer::Dashboard::PathRegistry->new(
 my $files  = Developer::Dashboard::FileRegistry->new( paths => $paths );
 my $runner = Developer::Dashboard::ActionRunner->new( files => $files, paths => $paths );
 
-my $background_wait_loops = $INC{'Devel/Cover.pm'} ? 600 : 40;
+# Windows waits longer: each wait loop costs about 0.125 to 0.137 s of wall
+# time there (0.1 s sleep plus Windows timer overshoot), and the supervisor
+# exit chain (supervisor perl load, then PowerShell, then the grandchild
+# perl) reached 5.09 s in round 92 and passed 5.48 s in round 96, so 40
+# loops (about 5.0 to 5.5 s) sits on the edge. 100 loops is about 12.5 to
+# 13.7 s of wall time: room for the slowest observed exit (about 6 to 7 s)
+# with margin, and still bounded, so a supervisor that never exits fails.
+my $background_wait_loops = $INC{'Devel/Cover.pm'} ? 600 : ( $^O eq 'MSWin32' ? 100 : 40 );
 
 # wait_for_pid_exit($pid)
 # Purpose: block until a background action wrapper pid stops so the detached
