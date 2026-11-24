@@ -184,9 +184,10 @@ SKIP: {
     skip 'a late-adopted process title is not observable under qemu user-mode emulation, so title-adoption timing cannot be measured there', 2
       if _running_under_qemu();
     my $late_delay = 3;
+    # Start the clock before the spawn, so the measured time covers the spawn itself.
+    my $started = Time::HiRes::time();
     my $late = spawn_fixture_child( $late_delay, $runner->_process_title('fixture.late') );
     write_bare_pidfile( 'fixture.late', $late );
-    my $started = Time::HiRes::time();
     ok( wait_for_managed_loop( $runner, $late, 'fixture.late' ), 'wait_for_managed_loop recognizes a child that adopts its title late' );
     cmp_ok(
         Time::HiRes::time() - $started,
