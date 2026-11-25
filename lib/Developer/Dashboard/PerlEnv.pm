@@ -261,7 +261,10 @@ sub bootstrap_perl5lib {
     my @paths = $class->perl5lib_list( %args, env => $env );
     my $value = join( $path_sep, @paths );
     $env->{PERL5LIB} = $value;
-    unshift @INC, @paths;
+    # A repeated bootstrap call must not grow @INC without bound: only
+    # prepend paths that are not already in @INC.
+    my %in_inc = map { $_ => 1 } @INC;
+    unshift @INC, grep { !$in_inc{$_}++ } @paths;
     return $value;
 }
 
