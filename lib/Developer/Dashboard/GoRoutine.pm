@@ -1079,14 +1079,23 @@ sub receive {
     $self->_check;
     if (@{ $self->{queue} }) {
         my $value = shift @{ $self->{queue} };
+        # A receiver that yielded here is no longer waiting: it has
+        # its value. Clear the flag, or it stays 1 permanently and
+        # every later unbuffered send takes the fast path instead of
+        # the sender-queue/backpressure path.
+        $self->{receiver_waiting} = 0;
         return wantarray ? ($value, 1) : $value;
     }
     if (@{ $self->{sender_queue} }) {
         my $entry = shift @{ $self->{sender_queue} };
         my $value = $entry->[0];
+        $self->{receiver_waiting} = 0;
         return wantarray ? ($value, 1) : $value;
     }
-    return wantarray ? (undef, 0) : undef if $self->{closed};
+    if ($self->{closed}) {
+        $self->{receiver_waiting} = 0;
+        return wantarray ? (undef, 0) : undef;
+    }
     # Inside a dispatched callback a blocking wait would deadlock the
     # pump: the main thread is stuck inside send()'s pump waiting for
     # this callback to return, so no value can ever arrive. Yield
