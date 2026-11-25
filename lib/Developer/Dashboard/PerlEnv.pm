@@ -244,15 +244,24 @@ sub dashboard_child_env {
 # bootstrap_perl5lib(%args)
 # Writes the safe PERL5LIB ordering back into the target environment during
 # early process bootstrap so staged helpers do not load stale dual-life XS
-# modules ahead of core Perl copies.
+# modules ahead of core Perl copies. It also prepends the same paths to
+# @INC for the current process: Perl reads PERL5LIB at interpreter startup
+# to build @INC, so setting it in a BEGIN block changes the environment for
+# child processes but not the current process's @INC. Without the @INC
+# update, bin/d2's own load of EnvAudit, JSON and JSON::XS fails in a bare
+# checkout even though the staged helper finds its modules (T2 Leg A).
 # Input: optional env hash reference plus the same named arguments accepted by
 # perl5lib_env().
 # Output: final PERL5LIB string written into the target environment.
 sub bootstrap_perl5lib {
     my ( $class, %args ) = @_;
     my $env = ref( $args{env} ) eq 'HASH' ? $args{env} : \%ENV;
-    my $value = $class->perl5lib_env( %args, env => $env );
+    my $path_sep = $args{path_sep};
+    $path_sep = path_separator() if !$path_sep;
+    my @paths = $class->perl5lib_list( %args, env => $env );
+    my $value = join( $path_sep, @paths );
     $env->{PERL5LIB} = $value;
+    unshift @INC, @paths;
     return $value;
 }
 
@@ -359,7 +368,8 @@ dashboard-managed subprocesses.
 =head2 bootstrap_perl5lib
 
 Writes the normalized C<PERL5LIB> value back into the target environment hash,
-defaulting to C<%ENV>.
+defaulting to C<%ENV>, and prepends the same paths to C<@INC> so the current
+process can load them too.
 
 =head1 EXAMPLES
 
