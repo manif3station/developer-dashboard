@@ -53,11 +53,11 @@ sub _set_indicator {
 }
 
 # _list_indicator($name)
-# Reads one indicator back through `d2 indicator list -o json` and
+# Reads one indicator back through `d2 indicator list` and
 # returns its decoded record, or undef when it is not listed.
 sub _list_indicator {
     my ($name) = @_;
-    my ( $exit, $stdout, $stderr ) = _run_d2( 'indicator', 'list', '-o', 'json' );
+    my ( $exit, $stdout, $stderr ) = _run_d2( 'indicator', 'list' );
     is( $exit, 0, 'indicator: d2 indicator list exits 0' );
     my $list = eval { json_decode($stdout) };
     ok( $list && ref($list) eq 'ARRAY', 'indicator: d2 indicator list prints a JSON list' );
