@@ -1216,7 +1216,7 @@ function Test-JenkinsGitVersion {
     if ($LASTEXITCODE -ne 0) {
         return $false
     }
-    return ($versionText -match ('git version ' + [Regex]::Escape($JenkinsGitVersionFull)))
+    return ($versionText -match ('git version ' + [Regex]::Escape($JenkinsGitVersionFull) + '(?:\s|$)'))
 }
 
 function Resolve-JenkinsGitPath {

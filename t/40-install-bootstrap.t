@@ -1845,8 +1845,13 @@ for my $case (
     );
     like(
         $route,
-        qr/return \(\$versionText -match \('git version ' \+ \[Regex\]::Escape\(\$JenkinsGitVersionFull\)\)\)/,
+        qr/return \(\$versionText -match \('git version ' \+ \[Regex\]::Escape\(\$JenkinsGitVersionFull\) \+ '\(\?:\\s\|\$\)'\)\)/,
         'install.ps1 -Jenkins checks git --version against the pinned version exactly',
+    );
+    unlike(
+        $route,
+        qr/return \(\$versionText -match \('git version ' \+ \[Regex\]::Escape\(\$JenkinsGitVersionFull\)\)\)/,
+        'install.ps1 -Jenkins no longer matches git --version against the pinned version without an end anchor',
     );
     like(
         $route,
