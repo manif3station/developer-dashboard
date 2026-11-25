@@ -1553,10 +1553,14 @@ function Invoke-JenkinsNodeSetup {
         # A unique work folder per run, mirroring the POSIX side
         # (install.sh creates JENKINS_WORK with mktemp -d): a fixed
         # folder would collide with a stale one from an earlier run.
-        # $script: is required here: a bare assignment inside this
-        # function would stay local to it and the install steps that
-        # read $JenkinsWork would still see the empty string.
-        $script:JenkinsWork = Join-Path ([IO.Path]::GetTempPath()) ('developer-dashboard-jenkins-' + [Guid]::NewGuid().ToString('N'))
+        # The assignment is bare on purpose. The whole script runs
+        # inside `& { ... } @args`, so a $script: assignment would
+        # write to the outer script scope while the reads resolve to
+        # the empty string in the wrapper's child scope. A bare
+        # assignment stays in this function's scope, which the
+        # New-Item, the install steps it calls, and the finally
+        # block can all read under PowerShell's dynamic scoping.
+        $JenkinsWork = Join-Path ([IO.Path]::GetTempPath()) ('developer-dashboard-jenkins-' + [Guid]::NewGuid().ToString('N'))
         $null = New-Item -ItemType Directory -Path $JenkinsWork -Force
         $listFolder = Resolve-JenkinsListFolder
         $pinnedList = @(Get-JenkinsListLines -Path (Join-Path $listFolder 'modules-windows.txt'))

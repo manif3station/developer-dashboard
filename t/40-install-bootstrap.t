@@ -1987,8 +1987,13 @@ for my $ubuntu_version ( '22.04', '24.04' ) {
     like( $route, qr/^\$JenkinsWork = ''\r?$/m, 'install.ps1 -Jenkins starts with an empty work folder' );
     like(
         $route,
-        qr/function Invoke-JenkinsNodeSetup \{.*?\$script:JenkinsWork = Join-Path \(\[IO\.Path\]::GetTempPath\(\)\) \('developer-dashboard-jenkins-' \+ \[Guid\]::NewGuid\(\)\.ToString\('N'\)\)/s,
+        qr/function Invoke-JenkinsNodeSetup \{.*?\$JenkinsWork = Join-Path \(\[IO\.Path\]::GetTempPath\(\)\) \('developer-dashboard-jenkins-' \+ \[Guid\]::NewGuid\(\)\.ToString\('N'\)\)/s,
         'install.ps1 -Jenkins creates a unique work folder for each run',
+    );
+    unlike(
+        $route,
+        qr/function Invoke-JenkinsNodeSetup \{.*?\$script:JenkinsWork = Join-Path \(\[IO\.Path\]::GetTempPath\(\)\) \('developer-dashboard-jenkins-' \+ \[Guid\]::NewGuid\(\)\.ToString\('N'\)\)/s,
+        'install.ps1 -Jenkins no longer assigns the work folder through the script scope',
     );
     unlike( $route, qr/Join-Path \(\[IO\.Path\]::GetTempPath\(\)\) 'developer-dashboard-jenkins'/, 'install.ps1 -Jenkins keeps no fixed work folder path' );
     like(
