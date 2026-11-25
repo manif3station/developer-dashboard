@@ -1468,6 +1468,30 @@ for my $case (
         untouched => 1,
     },
     {
+        label    => 'Ubuntu 20.04',
+        platform => 'ubuntu',
+        extra    => [ DD_INSTALL_UBUNTU_VERSION_ID => '20.04' ],
+        stderr   => qr/install\.sh --jenkins supports Ubuntu 22\.04 and later; this machine is Ubuntu 20\./,
+        installs => 0,
+        untouched => 1,
+    },
+    {
+        label    => 'Ubuntu 21.10',
+        platform => 'ubuntu',
+        extra    => [ DD_INSTALL_UBUNTU_VERSION_ID => '21.10' ],
+        stderr   => qr/install\.sh --jenkins supports Ubuntu 22\.04 and later; this machine is Ubuntu 21\./,
+        installs => 0,
+        untouched => 1,
+    },
+    {
+        label    => 'an Ubuntu version that cannot be told',
+        platform => 'ubuntu',
+        extra    => [ DD_INSTALL_UBUNTU_VERSION_ID => '' ],
+        stderr   => qr/install\.sh --jenkins cannot tell the Ubuntu version; refusing to set up a test node on an unknown Ubuntu\./,
+        installs => 0,
+        untouched => 1,
+    },
+    {
         label    => 'a platform it does not support',
         platform => 'fedora',
         extra    => [],
@@ -1511,6 +1535,30 @@ for my $case (
             "install.sh --jenkins creates nothing under the home directory with $case->{label}",
         );
     }
+}
+
+# install.sh --jenkins accepts Ubuntu 22.04 and later: the floor is 22,
+# so the first supported release and a later one both run the whole route.
+for my $ubuntu_version ( '22.04', '24.04' ) {
+    my $home     = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log      = File::Spec->catfile( $fake_bin, 'install.log' );
+    _seed_fake_install_commands( fake_bin => $fake_bin, log => $log );
+    _seed_fake_jenkins_commands( fake_bin => $fake_bin, log => $log, perlbrew_on_path => 1 );
+    my $env_prefix = _jenkins_env_prefix(
+        HOME                       => $home,
+        PATH                       => _msys_path($fake_bin) . ':' . _base_path(),
+        DD_INSTALL_OS_OVERRIDE     => 'ubuntu',
+        DD_INSTALL_UBUNTU_VERSION_ID => $ubuntu_version,
+    );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' --jenkins");
+    };
+    is( $exit >> 8, 0, "install.sh --jenkins succeeds on Ubuntu $ubuntu_version" )
+      or diag $stdout . $stderr;
+    like( $stdout, qr/^install\.sh --jenkins: DONE\. /m, "install.sh --jenkins ends with one clear DONE line on Ubuntu $ubuntu_version" );
+    unlike( $stderr, qr/FAILED/, "install.sh --jenkins prints no FAILED line on Ubuntu $ubuntu_version" );
 }
 
 {

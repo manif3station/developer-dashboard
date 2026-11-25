@@ -1246,6 +1246,19 @@ jenkins_detect_platform() {
                 ;;
         esac
     fi
+    if [ "$PLATFORM" = 'ubuntu' ]; then
+        ubuntu_major=$(jenkins_ubuntu_major_version)
+        case "$ubuntu_major" in
+            ''|*[!0-9]*)
+                fail "install.sh --jenkins cannot tell the Ubuntu version; refusing to set up a test node on an unknown Ubuntu."
+                ;;
+            *)
+                if [ "$ubuntu_major" -lt 22 ]; then
+                    fail "install.sh --jenkins supports Ubuntu 22.04 and later; this machine is Ubuntu $ubuntu_major."
+                fi
+                ;;
+        esac
+    fi
     jenkins_say "platform $PLATFORM"
 }
 
@@ -1263,6 +1276,24 @@ jenkins_debian_major_version() {
         debian_version_id=$(head -n 1 /etc/debian_version)
     fi
     printf '%s\n' "${debian_version_id%%.*}"
+}
+
+# The major version of this Ubuntu machine: the VERSION_ID in
+# /etc/os-release, or DD_INSTALL_UBUNTU_VERSION_ID when that is set (the
+# test seam t/40 uses to fake an Ubuntu version on a box that is not
+# Ubuntu). A seam set to an empty string fakes a version that cannot be
+# told: unlike the Debian reader, a set seam is authoritative here, so
+# the test can fake "unknown" on a box whose /etc/os-release would
+# otherwise supply a real version. Prints an empty line when the version
+# cannot be told at all.
+jenkins_ubuntu_major_version() {
+    ubuntu_version_id=''
+    if [ -n "${DD_INSTALL_UBUNTU_VERSION_ID+x}" ]; then
+        ubuntu_version_id="$DD_INSTALL_UBUNTU_VERSION_ID"
+    elif [ -f /etc/os-release ]; then
+        ubuntu_version_id=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"' | head -n 1)
+    fi
+    printf '%s\n' "${ubuntu_version_id%%.*}"
 }
 
 # macOS only: the time server and the no-sleep settings a test node needs.
