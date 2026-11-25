@@ -1576,8 +1576,11 @@ for my $case (
 
         my $run_meta = sub {
             my ( $site_dir, $snippet ) = @_;
-            my $command = sprintf q{. '%s'; JENKINS_SITE_DIR='%s'; %s},
-              _msys_path($func_file), _msys_path($site_dir), $snippet;
+            # PATH holds _base_path() so grep and sed are found on Windows,
+            # where they live only in Git's /usr/bin; off Windows it is the
+            # caller's PATH, so this is a no-op there.
+            my $command = sprintf q{PATH='%s'; . '%s'; JENKINS_SITE_DIR='%s'; %s},
+              _base_path(), _msys_path($func_file), _msys_path($site_dir), $snippet;
             return capture { _sh_c($command) };
         };
         my $check_installed = sub {
@@ -1613,7 +1616,7 @@ for my $case (
         my $fake_bin = File::Spec->catdir( $dir, 'counting-grep-bin' );
         make_path($fake_bin);
         my $count_file = File::Spec->catfile( $dir, 'grep-count.txt' );
-        my ( $real_grep_out, undef, $real_grep_status ) = capture { _sh_c(q{command -v grep}) };
+        my ( $real_grep_out, undef, $real_grep_status ) = capture { _sh_c( sprintf q{PATH='%s'; command -v grep}, _base_path() ) };
         $real_grep_out =~ s/\s+\z//;
         ok( $real_grep_status == 0 && $real_grep_out ne '', 'a real grep is on PATH for the counting fake' );
         if ( $real_grep_status == 0 && $real_grep_out ne '' ) {
@@ -1621,8 +1624,12 @@ for my $case (
                 File::Spec->catfile( $fake_bin, 'grep' ),
                 "#!/bin/sh\nprintf '%s\\n' \"grep \$*\" >> \"\$GREP_COUNT_FILE\"\nexec \"\$REAL_GREP\" \"\$\@\"\n",
             );
-            my $count_command = sprintf q{PATH='%s':"$PATH"; REAL_GREP='%s'; GREP_COUNT_FILE='%s'; . '%s'; JENKINS_SITE_DIR='%s'; jenkins_dist_installed '%s'; echo "rc=$?"},
-              _msys_path($fake_bin), _msys_path($real_grep_out), _msys_path($count_file), _msys_path($func_file), _msys_path($site), 'Z/ZZ/AUTHOR/DistZ-9.00.tar.gz';
+            # REAL_GREP and GREP_COUNT_FILE are exported: the fake grep is a
+            # child process, and a plain assignment never reaches it. PATH
+            # holds the counting fake bin plus _base_path(), the way the
+            # scenario commands build it, so grep is found on Windows too.
+            my $count_command = sprintf q{PATH='%s'; export REAL_GREP='%s' GREP_COUNT_FILE='%s'; . '%s'; JENKINS_SITE_DIR='%s'; jenkins_dist_installed '%s'; echo "rc=$?"},
+              _msys_path($fake_bin) . ':' . _base_path(), _msys_path($real_grep_out), _msys_path($count_file), _msys_path($func_file), _msys_path($site), 'Z/ZZ/AUTHOR/DistZ-9.00.tar.gz';
             ( $out, $err ) = capture { _sh_c($count_command) };
             like( $out, qr/^rc=1$/m, 'jenkins_dist_installed still reports a distribution with no record as missing when grep is counted' );
             my $grep_calls = -f $count_file ? scalar( split /\n/, _slurp($count_file) ) : 0;
@@ -1689,7 +1696,10 @@ for my $case (
 
         my $run_java = sub {
             my ( $prefix, $brew_exit ) = @_;
-            my $command = sprintf q{PATH='%s':"$PATH"; PLATFORM='darwin'; JENKINS_JAVA_MAJOR='21'; FAKE_BREW_PREFIX='%s'; FAKE_BREW_EXIT='%s'; . '%s'; jenkins_java_command},
+            # FAKE_BREW_PREFIX and FAKE_BREW_EXIT are exported: the fake
+            # brew is a child process, and a plain assignment never
+            # reaches it.
+            my $command = sprintf q{PATH='%s':"$PATH"; PLATFORM='darwin'; JENKINS_JAVA_MAJOR='21'; export FAKE_BREW_PREFIX='%s' FAKE_BREW_EXIT='%s'; . '%s'; jenkins_java_command},
               _msys_path($fake_bin), $prefix, $brew_exit, _msys_path($func_file);
             return capture { _sh_c($command) };
         };
