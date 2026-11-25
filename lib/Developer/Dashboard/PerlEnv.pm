@@ -140,12 +140,29 @@ sub perl5lib_list {
     # A source checkout's native build must win over an installed copy of the
     # same XS extension. Installed distributions have no sibling blib tree, so
     # this only changes source-tree execution after the extension was built.
+    # A checkout also carries its own installed dependencies under
+    # local/lib/perl5 (the documented checkout dependency location): without
+    # it, a bare-checkout invocation with no inherited PERL5LIB cannot find
+    # them, so `d2 init` dies on `use Capture::Tiny` before it can create
+    # anything (T2). The checkout library sits after the core directories,
+    # like an inherited PERL5LIB entry, so a core dual-life module still
+    # wins over a stale local copy.
     my @build_arch;
+    my @checkout_local_libs;
     if ( defined $args{dashboard_lib} && $args{dashboard_lib} ne ''
         && -f File::Spec->catfile( $args{dashboard_lib}, 'Developer', 'Dashboard.pm' ) ) {
         my $checkout_root = dirname( $args{dashboard_lib} );
         my $build_arch = File::Spec->catdir( $checkout_root, 'blib', 'arch' );
         push @build_arch, $build_arch if -d $build_arch;
+        my $local_lib = File::Spec->catdir( $checkout_root, 'local', 'lib', 'perl5' );
+        if ( -d $local_lib ) {
+            push @checkout_local_libs, $local_lib;
+            my $archname = $Config::Config{archname} || '';
+            if ( $archname ne '' ) {
+                my $arch_lib = File::Spec->catdir( $local_lib, $archname );
+                push @checkout_local_libs, $arch_lib if -d $arch_lib;
+            }
+        }
     }
 
     my @ordered;
@@ -159,6 +176,7 @@ sub perl5lib_list {
         @build_arch,
         @{ $args{extra} || [] },
         $class->core_inc_paths,
+        @checkout_local_libs,
         @existing,
     );
     for my $path (@prefixes) {
@@ -226,15 +244,27 @@ sub dashboard_child_env {
 # bootstrap_perl5lib(%args)
 # Writes the safe PERL5LIB ordering back into the target environment during
 # early process bootstrap so staged helpers do not load stale dual-life XS
-# modules ahead of core Perl copies.
+# modules ahead of core Perl copies. It also prepends the same paths to
+# @INC for the current process: Perl reads PERL5LIB at interpreter startup
+# to build @INC, so setting it in a BEGIN block changes the environment for
+# child processes but not the current process's @INC. Without the @INC
+# update, bin/d2's own load of EnvAudit, JSON and JSON::XS fails in a bare
+# checkout even though the staged helper finds its modules (T2 Leg A).
 # Input: optional env hash reference plus the same named arguments accepted by
 # perl5lib_env().
 # Output: final PERL5LIB string written into the target environment.
 sub bootstrap_perl5lib {
     my ( $class, %args ) = @_;
     my $env = ref( $args{env} ) eq 'HASH' ? $args{env} : \%ENV;
-    my $value = $class->perl5lib_env( %args, env => $env );
+    my $path_sep = $args{path_sep};
+    $path_sep = path_separator() if !$path_sep;
+    my @paths = $class->perl5lib_list( %args, env => $env );
+    my $value = join( $path_sep, @paths );
     $env->{PERL5LIB} = $value;
+    # A repeated bootstrap call must not grow @INC without bound: only
+    # prepend paths that are not already in @INC.
+    my %in_inc = map { $_ => 1 } @INC;
+    unshift @INC, grep { !$in_inc{$_}++ } @paths;
     return $value;
 }
 
@@ -319,8 +349,9 @@ active interpreter.
 
 Builds the ordered list of C<PERL5LIB> paths using the dashboard lib path,
 the checkout's C<blib/arch> directory when its native extension has been built,
-runtime-specific extra paths, the active interpreter's core directories, and
-the inherited environment. The built checkout extension precedes installed
+runtime-specific extra paths, the active interpreter's core directories, the
+checkout's C<local/lib/perl5> dependency library when present, and the
+inherited environment. The built checkout extension precedes installed
 Perl libraries so its XS symbols remain paired with the source modules.
 
 =head2 perl5lib_env
@@ -340,7 +371,8 @@ dashboard-managed subprocesses.
 =head2 bootstrap_perl5lib
 
 Writes the normalized C<PERL5LIB> value back into the target environment hash,
-defaulting to C<%ENV>.
+defaulting to C<%ENV>, and prepends the same paths to C<@INC> so the current
+process can load them too.
 
 =head1 EXAMPLES
 

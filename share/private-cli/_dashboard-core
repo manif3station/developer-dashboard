@@ -5,7 +5,6 @@ use warnings;
 use utf8;
 
 use Config ();
-use Capture::Tiny qw(capture);
 use FindBin qw($Bin);
 use lib grep { defined && -d } ( $ENV{DEVELOPER_DASHBOARD_REPO_LIB}, "$Bin/../lib" );
 use Developer::Dashboard::PerlEnv ();
@@ -22,6 +21,12 @@ BEGIN {
         dashboard_lib => $dashboard_lib,
     );
 }
+
+# These come after the BEGIN block: bootstrap_perl5lib puts the checkout's
+# local lib on @INC, and Capture::Tiny lives there. Loading it before the
+# BEGIN block dies in a bare checkout with no inherited PERL5LIB.
+use Capture::Tiny qw(capture);
+use Encode ();
 
 use Developer::Dashboard::Platform qw(
   is_windows
@@ -96,7 +101,7 @@ require Developer::Dashboard::FileRegistry;
 require Developer::Dashboard::Housekeeper;
 require Developer::Dashboard::IndicatorStore;
 require Developer::Dashboard::JSON;
-Developer::Dashboard::JSON->import(qw(json_encode));
+Developer::Dashboard::JSON->import(qw(json_encode json_encode_with_options));
 require Developer::Dashboard::PageDocument;
 require Developer::Dashboard::PageRuntime;
 require Developer::Dashboard::PageResolver;
@@ -226,6 +231,28 @@ sub _tmux_ticket_ref {
         return $1 if $line =~ /^TICKET_REF=(.+)$/;
     }
     return;
+}
+
+# _decode_cli_text($value)
+# Decodes one command-line argument from UTF-8 bytes into a Perl character
+# string. @ARGV arrives as bytes, so a non-ASCII label or icon passed on the
+# command line would otherwise reach json_encode() still encoded and come
+# back double-encoded (T3). An already-decoded string or a plain ASCII string
+# passes through unchanged, and bytes that are not valid UTF-8 are left alone
+# rather than dying.
+# Input: scalar string value.
+# Output: decoded character string, or the input unchanged when there is
+# nothing to decode.
+sub _decode_cli_text {
+    my ($value) = @_;
+    return $value if !defined $value;
+    my $text = "$value";
+    return $text if utf8::is_utf8($text) || $text !~ /[\x80-\xFF]/;
+    my $decoded = eval {
+        Encode::decode( 'UTF-8', $text, Encode::FB_CROAK() );
+    };
+    return $decoded if !$@;
+    return $text;
 }
 
 sub _load_configured_path_aliases {
@@ -505,23 +532,26 @@ elsif ( $cmd eq 'indicator' ) {
         my ( $name, $label, $icon, $status ) = @ARGV;
         die "Usage: d2 indicator set <name> <label> <icon> <status>\n" if !$status;
         my $item = $indicators->set_indicator(
-            $name,
-            label          => $label,
-            icon           => $icon,
-            status         => $status,
+            _decode_cli_text($name),
+            label          => _decode_cli_text($label),
+            icon           => _decode_cli_text($icon),
+            status         => _decode_cli_text($status),
             priority       => 100,
             prompt_visible => 1,
         );
-        print json_encode($item);
+        # STDOUT carries :encoding(UTF-8), so the JSON printed here must
+        # be a character string: json_encode returns UTF-8 bytes, which
+        # the layer would encode a second time (T3).
+        print json_encode_with_options( $item, pretty => 1 );
         exit 0;
     }
     elsif ( $action eq 'list' ) {
-        print json_encode( [ $indicators->list_indicators ] );
+        print json_encode_with_options( [ $indicators->list_indicators ], pretty => 1 );
         exit 0;
     }
     elsif ( $action eq 'refresh-core' ) {
         my $cwd = shift @ARGV || current_working_directory();
-        print json_encode( $indicators->refresh_core_indicators( cwd => $cwd ) );
+        print json_encode_with_options( $indicators->refresh_core_indicators( cwd => $cwd ), pretty => 1 );
         exit 0;
     }
 }
