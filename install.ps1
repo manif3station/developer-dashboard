@@ -1046,7 +1046,7 @@ $JenkinsPerlPath = Join-Path $JenkinsStrawberryRoot 'perl\bin\perl.exe'
 $JenkinsCpanmPath = Join-Path $JenkinsStrawberryRoot 'perl\bin\cpanm'
 $JenkinsSiteCpanmPath = Join-Path $JenkinsStrawberryRoot 'perl\site\bin\cpanm'
 $JenkinsTestedStamp = Join-Path $JenkinsStrawberryRoot 'perl\.jenkins-compiled-tests-passed'
-$JenkinsWork = Join-Path ([IO.Path]::GetTempPath()) 'developer-dashboard-jenkins'
+$JenkinsWork = ''
 
 function Test-JenkinsRequested {
     # Purpose: decide whether this run is the Jenkins test-node route.
@@ -1119,7 +1119,7 @@ function Invoke-JenkinsCpanm {
         [string[]]$Arguments
     )
 
-    $commandLine = ('{0} {1} {2} < NUL' -f $JenkinsPerlPath, $JenkinsCpanmPath, ($Arguments -join ' '))
+    $commandLine = ('{0} {1} {2} < NUL' -f $JenkinsPerlPath, $script:JenkinsCpanmPath, ($Arguments -join ' '))
     Invoke-NativeCommand -Label $Label -FilePath 'cmd.exe' -Arguments @('/d', '/c', $commandLine)
 }
 
@@ -1183,7 +1183,7 @@ function Install-JenkinsStrawberryPerl {
 
     Assert-JenkinsPerlVersion
     Add-StrawberryPaths -PerlPath $JenkinsPerlPath
-    if (-not (Test-Path -LiteralPath $JenkinsCpanmPath -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $script:JenkinsCpanmPath -PathType Leaf)) {
         throw "Strawberry's own cpanm is missing at $JenkinsCpanmPath"
     }
 }
@@ -1221,8 +1221,11 @@ function Resolve-JenkinsGitPath {
     if (-not [string]::IsNullOrWhiteSpace($gitOnPath)) {
         $null = $candidates.Add($gitOnPath)
     }
-    $defaultGitPath = Join-Path $env:ProgramFiles 'Git\cmd\git.exe'
-    $null = $candidates.Add($defaultGitPath)
+    $defaultGitPath = ''
+    if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+        $defaultGitPath = Join-Path $env:ProgramFiles 'Git\cmd\git.exe'
+        $null = $candidates.Add($defaultGitPath)
+    }
 
     foreach ($candidate in $candidates) {
         if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
@@ -1516,9 +1519,14 @@ function Invoke-JenkinsNodeSetup {
     # Input: none; reads the pinned settings above and the DD_INSTALL_JENKINS_* environment variables.
     # Output: returns nothing after the DONE line; prints the FAILED line and rethrows on any failure.
     try {
-        if (-not (Test-Path -LiteralPath $JenkinsWork)) {
-            $null = New-Item -ItemType Directory -Path $JenkinsWork -Force
-        }
+        # A unique work folder per run, mirroring the POSIX side
+        # (install.sh creates JENKINS_WORK with mktemp -d): a fixed
+        # folder would collide with a stale one from an earlier run.
+        # $script: is required here: a bare assignment inside this
+        # function would stay local to it and the install steps that
+        # read $JenkinsWork would still see the empty string.
+        $script:JenkinsWork = Join-Path ([IO.Path]::GetTempPath()) ('developer-dashboard-jenkins-' + [Guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $JenkinsWork -Force
         $listFolder = Resolve-JenkinsListFolder
         $pinnedList = @(Get-JenkinsListLines -Path (Join-Path $listFolder 'modules-windows.txt'))
         $compiledList = @(Get-JenkinsListLines -Path (Join-Path $listFolder 'modules-compiled-windows.txt'))
@@ -1540,7 +1548,7 @@ function Invoke-JenkinsNodeSetup {
         throw
     }
     finally {
-        if (Test-Path -LiteralPath $JenkinsWork) {
+        if (-not [string]::IsNullOrWhiteSpace($JenkinsWork) -and (Test-Path -LiteralPath $JenkinsWork)) {
             Remove-Item -LiteralPath $JenkinsWork -Recurse -Force
         }
     }

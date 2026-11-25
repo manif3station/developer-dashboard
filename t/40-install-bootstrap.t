@@ -1531,6 +1531,106 @@ for my $case (
     );
 }
 
+# jenkins_dist_installed and jenkins_installed_pathnames: the two .meta
+# readers in install.sh. Real cpanm writes install.json with no trailing
+# newline, so the read-back must take one pathname per file: catting them
+# all together merges them into one line and a single sed pass keeps only
+# the last pathname (R84: the fresh-node proof found 1 of 119, podlators).
+# The layout differs between machines, so both .meta locations are read:
+# directly under the site folder and under the arch folder. A distribution
+# recorded in both places is counted once by the final check (sort -u).
+{
+    my $install_sh_text = _slurp($install_sh);
+    my ($dist_installed) = $install_sh_text =~ /(jenkins_dist_installed\(\) \{.*?\n\})/s;
+    my ($pathnames) = $install_sh_text =~ /(jenkins_installed_pathnames\(\) \{.*?\n\})/s;
+    ok( defined $dist_installed, 'install.sh defines jenkins_dist_installed for the --jenkins route' );
+    ok( defined $pathnames, 'install.sh defines jenkins_installed_pathnames for the --jenkins route' );
+    if ( defined $dist_installed && defined $pathnames ) {
+        my $dir  = tempdir( CLEANUP => 1 );
+        my $site = File::Spec->catdir( $dir, 'site_perl', '5.38.2' );
+        # Each install.json is written with NO trailing newline, exactly
+        # as the real cpanm writes it; a newline here would hide the
+        # read-back merging the files into one line.
+        my $write_meta = sub {
+            my ( $base, $dist, $pathname ) = @_;
+            my $meta_dir = File::Spec->catdir( $base, '.meta', $dist );
+            make_path($meta_dir);
+            my $path = File::Spec->catfile( $meta_dir, 'install.json' );
+            open my $fh, '>', $path or die "Unable to write $path: $!";
+            binmode $fh;
+            print {$fh} qq|{"dist":"$dist","pathname":"$pathname"}|;
+            close $fh or die "Unable to close $path: $!";
+        };
+        $write_meta->( $site, 'DistA-1.00', 'A/AA/AUTHOR/DistA-1.00.tar.gz' );
+        $write_meta->( File::Spec->catdir( $site, 'fake-arch' ), 'DistB-2.00', 'B/BB/AUTHOR/DistB-2.00.tar.gz' );
+        $write_meta->( $site, 'Podlators-1.00', 'P/PO/AUTHOR/Podlators-1.00.tar.gz' );
+        $write_meta->( File::Spec->catdir( $site, 'fake-arch' ), 'Podlators-1.00', 'P/PO/AUTHOR/Podlators-1.00.tar.gz' );
+        my $spaced_site = File::Spec->catdir( $dir, 'site with space', '5.38.2' );
+        $write_meta->( $spaced_site, 'DistC-3.00', 'C/CC/AUTHOR/DistC-3.00.tar.gz' );
+
+        my $func_file = File::Spec->catfile( $dir, 'jenkins-meta-funcs.sh' );
+        open my $ffh, '>', $func_file or die "Unable to write $func_file: $!";
+        binmode $ffh;
+        print {$ffh} $dist_installed, "\n", $pathnames, "\n";
+        close $ffh or die "Unable to close $func_file: $!";
+
+        my $run_meta = sub {
+            my ( $site_dir, $snippet ) = @_;
+            my $command = sprintf q{. '%s'; JENKINS_SITE_DIR='%s'; %s},
+              _msys_path($func_file), _msys_path($site_dir), $snippet;
+            return capture { _sh_c($command) };
+        };
+        my $check_installed = sub {
+            my ( $site_dir, $pathname ) = @_;
+            return $run_meta->(
+                $site_dir,
+                sprintf q{jenkins_dist_installed '%s'; rc=$?; if [ "$rc" -eq 0 ]; then echo INSTALLED; else echo "MISSING rc=$rc"; fi},
+                $pathname,
+            );
+        };
+
+        my ( $out, $err );
+        ( $out, $err ) = $check_installed->( $site, 'A/AA/AUTHOR/DistA-1.00.tar.gz' );
+        like( $out, qr/^INSTALLED$/m, 'jenkins_dist_installed finds a distribution recorded directly under the site folder' );
+        ( $out, $err ) = $check_installed->( $site, 'B/BB/AUTHOR/DistB-2.00.tar.gz' );
+        like( $out, qr/^INSTALLED$/m, 'jenkins_dist_installed finds a distribution recorded under the arch folder' );
+        ( $out, $err ) = $check_installed->( $site, 'Z/ZZ/AUTHOR/DistZ-9.00.tar.gz' );
+        like( $out, qr/^MISSING rc=1$/m, 'jenkins_dist_installed reports a distribution with no record as missing' );
+        ( $out, $err ) = $check_installed->( File::Spec->catdir( $dir, 'no-such-site' ), 'A/AA/AUTHOR/DistA-1.00.tar.gz' );
+        like( $out, qr/^MISSING rc=1$/m, 'jenkins_dist_installed reports missing when the site folder does not exist, and never lets the glob stay literal' );
+        my $empty_site = File::Spec->catdir( $dir, 'empty-site', '5.38.2' );
+        make_path($empty_site);
+        ( $out, $err ) = $check_installed->( $empty_site, 'A/AA/AUTHOR/DistA-1.00.tar.gz' );
+        like( $out, qr/^MISSING rc=1$/m, 'jenkins_dist_installed reports missing when the site folder holds no .meta entries' );
+        ( $out, $err ) = $check_installed->( $spaced_site, 'C/CC/AUTHOR/DistC-3.00.tar.gz' );
+        like( $out, qr/^INSTALLED$/m, 'jenkins_dist_installed finds a distribution when the site path holds a space' );
+
+        ( $out, $err ) = $run_meta->( $site, q{jenkins_installed_pathnames} );
+        is_deeply(
+            [ sort split /\n/, $out ],
+            [
+                'A/AA/AUTHOR/DistA-1.00.tar.gz',
+                'B/BB/AUTHOR/DistB-2.00.tar.gz',
+                'P/PO/AUTHOR/Podlators-1.00.tar.gz',
+                'P/PO/AUTHOR/Podlators-1.00.tar.gz',
+            ],
+            'jenkins_installed_pathnames lists every pathname from install.json files with no trailing newlines, from both .meta locations',
+        );
+        ( $out, $err ) = $run_meta->( $site, q{jenkins_installed_pathnames | LC_ALL=C sort -u} );
+        is_deeply(
+            [ split /\n/, $out ],
+            [
+                'A/AA/AUTHOR/DistA-1.00.tar.gz',
+                'B/BB/AUTHOR/DistB-2.00.tar.gz',
+                'P/PO/AUTHOR/Podlators-1.00.tar.gz',
+            ],
+            'jenkins_installed_pathnames piped through sort -u counts a distribution recorded in both places once',
+        );
+        ( $out, $err ) = $run_meta->( File::Spec->catdir( $dir, 'no-such-site' ), q{jenkins_installed_pathnames; echo "rc=$?"} );
+        is( $out, "rc=0\n", 'jenkins_installed_pathnames lists nothing when the site folder does not exist' );
+    }
+}
+
 {
     my @public_files = (
         $install_sh,
@@ -1610,6 +1710,11 @@ for my $case (
     );
     like(
         $route,
+        qr/function Resolve-JenkinsGitPath \{.*?if \(-not \[string\]::IsNullOrWhiteSpace\(\$env:ProgramFiles\)\) \{\s+\$defaultGitPath = Join-Path \$env:ProgramFiles 'Git\\cmd\\git\.exe'/s,
+        'install.ps1 -Jenkins only adds the default Git candidate when ProgramFiles is set',
+    );
+    like(
+        $route,
         qr/function Install-JenkinsGit \{.*?\$gitPath = Resolve-JenkinsGitPath.*?if \(-not \[string\]::IsNullOrWhiteSpace\(\$gitPath\)\) \{\s+Write-JenkinsLine -Message "Git \$JenkinsGitVersionFull is already installed"\s+return \$gitPath\s+\}/s,
         'install.ps1 -Jenkins skips the Git install when the pinned Git is already there',
     );
@@ -1674,7 +1779,20 @@ for my $case (
         qr/Invoke-JenkinsCpanm -Label "cpanm --notest \$distribution".*?if \(Test-Path -LiteralPath \$JenkinsSiteCpanmPath -PathType Leaf\) \{\s+\$script:JenkinsCpanmPath = \$JenkinsSiteCpanmPath\s+\}/s,
         'install.ps1 -Jenkins switches to the pinned cpanm after the first line installs it',
     );
-    like( $route, qr/'\{0\} \{1\} \{2\} < NUL' -f \$JenkinsPerlPath, \$JenkinsCpanmPath/, 'install.ps1 -Jenkins runs cpanm with standard input closed' );
+    like( $route, qr/'\{0\} \{1\} \{2\} < NUL' -f \$JenkinsPerlPath, \$script:JenkinsCpanmPath/, 'install.ps1 -Jenkins runs cpanm with standard input closed' );
+    like( $route, qr/if \(-not \(Test-Path -LiteralPath \$script:JenkinsCpanmPath -PathType Leaf\)\) \{\s+throw "Strawberry's own cpanm is missing at \$JenkinsCpanmPath"/, 'install.ps1 -Jenkins checks Strawberry cpanm through the script-scoped path' );
+    like( $route, qr/^\$JenkinsWork = ''\r?$/m, 'install.ps1 -Jenkins starts with an empty work folder' );
+    like(
+        $route,
+        qr/function Invoke-JenkinsNodeSetup \{.*?\$script:JenkinsWork = Join-Path \(\[IO\.Path\]::GetTempPath\(\)\) \('developer-dashboard-jenkins-' \+ \[Guid\]::NewGuid\(\)\.ToString\('N'\)\)/s,
+        'install.ps1 -Jenkins creates a unique work folder for each run',
+    );
+    unlike( $route, qr/Join-Path \(\[IO\.Path\]::GetTempPath\(\)\) 'developer-dashboard-jenkins'/, 'install.ps1 -Jenkins keeps no fixed work folder path' );
+    like(
+        $route,
+        qr/finally \{\s+if \(-not \[string\]::IsNullOrWhiteSpace\(\$JenkinsWork\) -and \(Test-Path -LiteralPath \$JenkinsWork\)\) \{\s+Remove-Item -LiteralPath \$JenkinsWork -Recurse -Force\s+\}/s,
+        'install.ps1 -Jenkins deletes the unique work folder at the end, and only when one was created',
+    );
     unlike( $route, qr/cpanmin\.us|Download-CpanmScript|local-lib/, 'install.ps1 -Jenkins downloads no other cpanm and uses no private install root' );
 
     is( scalar( () = $route =~ /-Message \("DONE\. This machine is ready to be a Jenkins test node: /g ), 1, 'install.ps1 -Jenkins has one DONE line' );
@@ -2328,7 +2446,11 @@ case "$last" in
     name=$(basename "$last" .tar.gz)
     meta="$(dirname "$0")/../lib/site_perl/5.38.2/fake-arch/.meta/$name"
     mkdir -p "$meta"
-    printf '{"dist":"%s","pathname":"%s"}\n' "$name" "$last" > "$meta/install.json"
+    # No trailing newline, exactly as the real cpanm writes install.json
+    # (its save_meta prints the JSON with no newline): the final check
+    # must read one pathname per file, and a newline here would hide a
+    # read-back that merges the files into one line (R84).
+    printf '{"dist":"%s","pathname":"%s"}' "$name" "$last" > "$meta/install.json"
     ;;
 esac
 exit 0

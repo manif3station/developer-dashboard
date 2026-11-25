@@ -1418,9 +1418,33 @@ jenkins_openssl_env() {
 }
 
 # Says whether a pinned distribution file is already recorded as
-# installed in the 5.38.2 tree.
+# installed in the 5.38.2 tree. Reads both .meta locations: directly
+# under the site folder and under the arch folder, because the layout
+# differs between machines. A missing or empty site folder means the
+# distribution is not installed, and the glob is never left literal.
 jenkins_dist_installed() {
-    grep -Fqs "\"pathname\":\"$1\"" "$JENKINS_SITE_DIR"/*/.meta/*/install.json
+    [ -n "$JENKINS_SITE_DIR" ] && [ -d "$JENKINS_SITE_DIR" ] || return 1
+    for jenkins_meta in "$JENKINS_SITE_DIR"/.meta/*/install.json "$JENKINS_SITE_DIR"/*/.meta/*/install.json; do
+        [ -f "$jenkins_meta" ] || continue
+        if grep -Fqs "\"pathname\":\"$1\"" "$jenkins_meta"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Writes the pathname of every installed pinned distribution, one per
+# line. Reads each install.json on its own: real cpanm writes install.json
+# with no trailing newline, so catting them all together merges them into
+# one line and a single sed pass would keep only the last pathname.
+# Reads both .meta locations, directly under the site folder and under the
+# arch folder, because the layout differs between machines.
+jenkins_installed_pathnames() {
+    [ -n "$JENKINS_SITE_DIR" ] && [ -d "$JENKINS_SITE_DIR" ] || return 0
+    for jenkins_meta in "$JENKINS_SITE_DIR"/.meta/*/install.json "$JENKINS_SITE_DIR"/*/.meta/*/install.json; do
+        [ -f "$jenkins_meta" ] || continue
+        sed -n 's/.*"pathname":"\([^"]*\)".*/\1/p' "$jenkins_meta"
+    done
 }
 
 jenkins_list_lines() {
@@ -1507,9 +1531,7 @@ jenkins_verify() {
     jenkins_want="$JENKINS_WORK/want.txt"
     jenkins_have="$JENKINS_WORK/have.txt"
     LC_ALL=C sort "$JENKINS_WORK/pinned-list.txt" > "$jenkins_want"
-    cat "$JENKINS_SITE_DIR"/*/.meta/*/install.json 2>/dev/null |
-        sed -n 's/.*"pathname":"\([^"]*\)".*/\1/p' |
-        LC_ALL=C sort > "$jenkins_have"
+    jenkins_installed_pathnames | LC_ALL=C sort -u > "$jenkins_have"
     if ! cmp -s "$jenkins_want" "$jenkins_have"; then
         diff "$jenkins_want" "$jenkins_have" >&2 || true
         fail "The installed distributions differ from the pinned list $JENKINS_LIST"
