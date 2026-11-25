@@ -700,7 +700,7 @@ ok(
     );
     is_deeply(
         \@exec,
-        [ ( $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} || 'd2' ), 'open-file', '/tmp/demo-command' ],
+        [ ( $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} || ( Developer::Dashboard::CLI::Which::command_in_path_direct('d2') // 'd2' ) ), 'open-file', '/tmp/demo-command' ],
         'which edit mode hands the resolved command path to d2 open-file before returning success',
     );
 }
@@ -759,7 +759,7 @@ like(
 
 is_deeply(
     [ Developer::Dashboard::CLI::Which::_dashboard_entry_command() ],
-    [ $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} || 'd2' ],
+    [ $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} || ( Developer::Dashboard::CLI::Which::command_in_path_direct('d2') // 'd2' ) ],
     'which edit handoff defaults to the current public d2 entrypoint',
 );
 
