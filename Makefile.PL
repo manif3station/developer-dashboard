@@ -43,70 +43,6 @@ $local_lib_root ||= '.perl5';
 my %test_requires = ( 'Test::Harness' => '3.48' );
 $test_requires{'Devel::Cover'} = 0 if $^O ne 'MSWin32';
 
-# Homebrew OpenSSL on macOS (R105 Group 1): the PBKDF2 XS dlopens libcrypto
-# at runtime, and on perl 5.44 macOS that runtime load aborts the process
-# at teardown after the tests pass. Linking the Homebrew libcrypto at build
-# time (darwin only) makes dyld load it through the normal loader instead,
-# so the later dlopen finds it already loaded. The dlopen/dlsym mechanism
-# itself is unchanged (dd_load_crypto and the two function pointers are
-# untouched). Discovery, in order: $ENV{OPENSSL_PREFIX} if it holds
-# libcrypto.dylib; else `brew --prefix openssl@3` (pinned to openssl@3,
-# not unversioned openssl); else the two known keg paths
-# (/opt/homebrew/opt/openssl@3 on ARM, /usr/local/opt/openssl@3 on Intel).
-# If none is found, LIBS stays as it is and the build falls back to the
-# runtime dlopen only - the build must not fail on a macOS box without
-# Homebrew openssl.
-my $openssl_lib = q{};
-if ( $^O eq 'darwin' ) {
-    my $openssl_prefix;
-    if ( defined $ENV{OPENSSL_PREFIX}
-        && $ENV{OPENSSL_PREFIX} ne ''
-        && -f File::Spec->catfile( $ENV{OPENSSL_PREFIX}, 'lib', 'libcrypto.dylib' ) )
-    {
-        $openssl_prefix = $ENV{OPENSSL_PREFIX};
-    }
-    else {
-        my $brew;
-        for my $dir ( split /:/, ( $ENV{PATH} || q{} ) ) {
-            my $candidate = File::Spec->catfile( $dir, 'brew' );
-            if ( -x $candidate ) {
-                $brew = $candidate;
-                last;
-            }
-        }
-        if ( defined $brew ) {
-            my $brew_prefix = `$brew --prefix openssl\@3 2>/dev/null`;
-            chomp $brew_prefix if defined $brew_prefix;
-            if ( defined $brew_prefix
-                && $brew_prefix ne ''
-                && -f File::Spec->catfile( $brew_prefix, 'lib', 'libcrypto.dylib' ) )
-            {
-                $openssl_prefix = $brew_prefix;
-            }
-        }
-    }
-    if ( !defined $openssl_prefix ) {
-        for my $keg ( '/opt/homebrew/opt/openssl@3', '/usr/local/opt/openssl@3' ) {
-            if ( -f File::Spec->catfile( $keg, 'lib', 'libcrypto.dylib' ) ) {
-                $openssl_prefix = $keg;
-                last;
-            }
-        }
-    }
-    if ( defined $openssl_prefix ) {
-        $openssl_lib = '-L' . File::Spec->catdir( $openssl_prefix, 'lib' ) . ' -lcrypto';
-    }
-    else {
-        print "No Homebrew openssl\@3 found; building without -lcrypto (runtime dlopen only).\n";
-    }
-}
-
-# Library flags for the XS: -ldl on Linux, -L<prefix>/lib -lcrypto on macOS
-# when a Homebrew openssl@3 prefix was found, nothing elsewhere.
-my @libs;
-push @libs, '-ldl' if $^O eq 'linux';
-push @libs, split / /, $openssl_lib if $openssl_lib ne '';
-
 WriteMakefile(
     NAME         => 'Developer::Dashboard',
     MIN_PERL_VERSION => '5.038',
@@ -117,7 +53,7 @@ WriteMakefile(
         'HtmlEscape.c' => 'GoRoutine012.xs GoRoutineProcess.xs GoRoutineEvent.h GoRoutineProcessNative.h Native.xs SystemMenu.xs SystemMenuNative.h',
         'HtmlEscape$(OBJ_EXT)' => 'GoRoutineEvent.h SystemMenuNative.h',
     },
-    LIBS         => \@libs,
+    LIBS         => [ $^O eq 'linux' ? '-ldl' : q{} ],
     CCFLAGS      => $Config{ccflags} . ( $^O eq 'MSWin32' ? q{} : ' -pthread' ),
     ABSTRACT     => 'Project-neutral local developer dashboard runtime',
     AUTHOR       => 'Developer Dashboard Contributors',
