@@ -1170,6 +1170,13 @@ JENKINS_CPANM_VERSION='1.7049'
 JENKINS_JAVA_MAJOR='21'
 JENKINS_APT_EXTRA='openjdk-21-jre-headless make'
 JENKINS_BREW_EXTRA='openjdk@21 openssl@3 make'
+# The small package set a test node needs: build tools, the libraries the
+# Perl build links against, curl, and Git. The full manifests are not
+# used here: perlbrew comes from its own installer, cpanm from cpanmin.us,
+# and node, npm, perl, tmux and the package-manager perlbrew and cpanminus
+# are not needed for a green round.
+JENKINS_APT_PACKAGES='build-essential ca-certificates curl git libcrypt-dev libexpat1-dev libssl-dev pkg-config zlib1g-dev'
+JENKINS_BREW_PACKAGES='curl expat git pkgconf'
 JENKINS_PERLBREW_INSTALLER_URL='https://install.perlbrew.pl'
 JENKINS_CPANM_BOOTSTRAP_URL='https://cpanmin.us'
 JENKINS_TIME_SERVER='time.apple.com'
@@ -1226,7 +1233,36 @@ jenkins_detect_platform() {
             fail "install.sh --jenkins supports macOS, Debian and Ubuntu only; this machine is '$PLATFORM'."
             ;;
     esac
+    if [ "$PLATFORM" = 'debian' ]; then
+        debian_major=$(jenkins_debian_major_version)
+        case "$debian_major" in
+            ''|*[!0-9]*)
+                fail "install.sh --jenkins cannot tell the Debian version; refusing to set up a test node on an unknown Debian."
+                ;;
+            *)
+                if [ "$debian_major" -lt 13 ]; then
+                    fail "install.sh --jenkins supports Debian 13 and later; this machine is Debian $debian_major."
+                fi
+                ;;
+        esac
+    fi
     jenkins_say "platform $PLATFORM"
+}
+
+# The major version of this Debian machine: the VERSION_ID in
+# /etc/os-release, or /etc/debian_version when there is no os-release,
+# or DD_INSTALL_DEBIAN_VERSION_ID when that is set (the test seam t/40
+# uses to fake a Debian version on a box that is not Debian). Prints an
+# empty line when the version cannot be told at all.
+jenkins_debian_major_version() {
+    debian_version_id="${DD_INSTALL_DEBIAN_VERSION_ID:-}"
+    if [ -z "$debian_version_id" ] && [ -f /etc/os-release ]; then
+        debian_version_id=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"' | head -n 1)
+    fi
+    if [ -z "$debian_version_id" ] && [ -f /etc/debian_version ]; then
+        debian_version_id=$(head -n 1 /etc/debian_version)
+    fi
+    printf '%s\n' "${debian_version_id%%.*}"
 }
 
 # macOS only: the time server and the no-sleep settings a test node needs.
@@ -1247,39 +1283,48 @@ jenkins_install_system_packages() {
     jenkins_say "system packages, Java $JENKINS_JAVA_MAJOR and make"
     case "$PLATFORM" in
         debian|ubuntu)
-            install_apt_packages
             prefix=$(package_runner_prefix)
             if [ -n "$prefix" ]; then
+                explain_sudo_requirements
+                $prefix apt-get update
+            else
+                apt-get update
+            fi
+            # The --jenkins route installs the small list above, not the
+            # full manifest: the test node needs build tools, Java, Git
+            # and the libraries the Perl build links against, and
+            # nothing else. perlbrew comes from its own installer and
+            # cpanm from cpanmin.us.
+            if [ -n "$prefix" ]; then
                 # shellcheck disable=SC2086
-                $prefix apt-get install -y $JENKINS_APT_EXTRA </dev/null ||
-                    fail "Unable to install: $JENKINS_APT_EXTRA"
+                $prefix apt-get install -y $JENKINS_APT_PACKAGES $JENKINS_APT_EXTRA </dev/null ||
+                    fail "Unable to install: $JENKINS_APT_PACKAGES $JENKINS_APT_EXTRA"
             else
                 # shellcheck disable=SC2086
-                apt-get install -y $JENKINS_APT_EXTRA </dev/null ||
-                    fail "Unable to install: $JENKINS_APT_EXTRA"
+                apt-get install -y $JENKINS_APT_PACKAGES $JENKINS_APT_EXTRA </dev/null ||
+                    fail "Unable to install: $JENKINS_APT_PACKAGES $JENKINS_APT_EXTRA"
             fi
             ;;
         darwin)
             HOMEBREW_NO_AUTO_UPDATE=1
             HOMEBREW_NO_INSTALL_CLEANUP=1
             export HOMEBREW_NO_AUTO_UPDATE HOMEBREW_NO_INSTALL_CLEANUP
-            install_brew_packages
+            ensure_homebrew
             # shellcheck disable=SC2086
-            brew install $JENKINS_BREW_EXTRA </dev/null ||
-                fail "Unable to install: $JENKINS_BREW_EXTRA"
+            brew install $JENKINS_BREW_PACKAGES $JENKINS_BREW_EXTRA </dev/null ||
+                fail "Unable to install: $JENKINS_BREW_PACKAGES $JENKINS_BREW_EXTRA"
             ;;
     esac
 }
 
-# Finds perlbrew, or installs it under $PERLBREW_ROOT from its own
-# installer, downloaded to a file first and never piped.
+# Finds perlbrew under $PERLBREW_ROOT, or installs it there from its own
+# installer, downloaded to a file first and never piped. A perlbrew
+# elsewhere on PATH is never used: the real nodes run the installer one,
+# and the package-manager one is unused.
 jenkins_ensure_perlbrew() {
     if [ -x "$PERLBREW_ROOT/bin/perlbrew" ]; then
         PATH="$PERLBREW_ROOT/bin:$PATH"
         export PATH
-        return 0
-    fi
-    if command -v perlbrew >/dev/null 2>&1; then
         return 0
     fi
     jenkins_say "perlbrew is missing; installing it under $PERLBREW_ROOT"
@@ -1292,6 +1337,25 @@ jenkins_ensure_perlbrew() {
         fail "The perlbrew installer did not create $PERLBREW_ROOT/bin/perlbrew"
     PATH="$PERLBREW_ROOT/bin:$PATH"
     export PATH
+}
+
+# How many parallel jobs the Perl build gets: the machine's CPU count
+# (nproc on Linux, sysctl on macOS), or 4 when the count cannot be read.
+jenkins_build_jobs() {
+    jenkins_cpu_count=''
+    if [ "$PLATFORM" = 'darwin' ]; then
+        jenkins_cpu_count=$(sysctl -n hw.ncpu 2>/dev/null || true)
+    else
+        jenkins_cpu_count=$(nproc 2>/dev/null || true)
+    fi
+    case "$jenkins_cpu_count" in
+        ''|*[!0-9]*|0)
+            printf '%s\n' '4'
+            ;;
+        *)
+            printf '%s\n' "$jenkins_cpu_count"
+            ;;
+    esac
 }
 
 # Builds Perl 5.38.2 whatever the system Perl is, and refuses to go on
@@ -1313,7 +1377,8 @@ jenkins_build_perl() {
         jenkins_run perlbrew init ||
             fail "perlbrew init failed while preparing $PERLBREW_ROOT"
         jenkins_say "building $JENKINS_PERL_NAME with perlbrew; this can take a while"
-        jenkins_run perlbrew install "$JENKINS_PERL_NAME" --notest -j 4 ||
+        jenkins_build_jobs=$(jenkins_build_jobs)
+        jenkins_run perlbrew install "$JENKINS_PERL_NAME" --notest -j "$jenkins_build_jobs" ||
             fail "perlbrew failed to build $JENKINS_PERL_NAME under $PERLBREW_ROOT"
     fi
     [ -x "$PERL_BIN" ] || fail "perlbrew did not create $PERL_BIN"

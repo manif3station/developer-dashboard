@@ -1033,12 +1033,18 @@ $JenkinsPerlShort = '5.38.2'
 $JenkinsStrawberryBuild = '5.38.2.2'
 $JenkinsStrawberryMsiName = 'strawberry-perl-5.38.2.2-64bit.msi'
 $JenkinsCpanmVersion = '1.7049'
+$JenkinsGitVersionFull = '2.56.1.windows.1'
+$JenkinsGitInstallerName = 'Git-2.56.1-64-bit.exe'
+# Pinned directly, never resolved from the releases page: the bootstrap
+# resolver that follows 'latest' must not be used for the Jenkins node.
+$JenkinsGitInstallerUrl = 'https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/Git-2.56.1-64-bit.exe'
 $JenkinsJavaMajor = '21'
 $JenkinsKeyModules = @('Net::SSLeay', 'JSON::XS', 'Test::Pod')
 $JenkinsTestOnlyHelpers = @('B::COW')
 $JenkinsDistributionPattern = '^[A-Z]/[A-Z]{2}/[A-Z0-9-]+/[A-Za-z0-9._-]+\.tar\.gz$'
 $JenkinsPerlPath = Join-Path $JenkinsStrawberryRoot 'perl\bin\perl.exe'
 $JenkinsCpanmPath = Join-Path $JenkinsStrawberryRoot 'perl\bin\cpanm'
+$JenkinsSiteCpanmPath = Join-Path $JenkinsStrawberryRoot 'perl\site\bin\cpanm'
 $JenkinsTestedStamp = Join-Path $JenkinsStrawberryRoot 'perl\.jenkins-compiled-tests-passed'
 $JenkinsWork = Join-Path ([IO.Path]::GetTempPath()) 'developer-dashboard-jenkins'
 
@@ -1103,7 +1109,7 @@ function Test-JenkinsCommandSucceeds {
 }
 
 function Invoke-JenkinsCpanm {
-    # Purpose: run Strawberry's own cpanm with standard input closed so no build can stop to ask a question.
+    # Purpose: run the pinned cpanm with standard input closed so no build can stop to ask a question.
     # Input: a label for diagnostics and the cpanm argument array.
     # Output: streams the cpanm output and throws on a non-zero exit status.
     param(
@@ -1180,6 +1186,75 @@ function Install-JenkinsStrawberryPerl {
     if (-not (Test-Path -LiteralPath $JenkinsCpanmPath -PathType Leaf)) {
         throw "Strawberry's own cpanm is missing at $JenkinsCpanmPath"
     }
+}
+
+function Test-JenkinsGitVersion {
+    # Purpose: say whether one git.exe reports the pinned Git for Windows version.
+    # Input: a git.exe path.
+    # Output: returns $true when it runs and reports 2.56.1.windows.1, otherwise $false.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GitPath
+    )
+
+    $versionText = ''
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $versionText = (& $GitPath '--version' 2>&1 | ForEach-Object { [string]$_ }) -join ' '
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+    return ($versionText -match ('git version ' + [Regex]::Escape($JenkinsGitVersionFull)))
+}
+
+function Resolve-JenkinsGitPath {
+    # Purpose: find a git.exe that reports the pinned Git for Windows version.
+    # Input: none; looks on PATH and at the default Git for Windows install path.
+    # Output: returns the git.exe path, or an empty string when there is none.
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    $gitOnPath = Resolve-CommandPath -Names @('git.exe')
+    if (-not [string]::IsNullOrWhiteSpace($gitOnPath)) {
+        $null = $candidates.Add($gitOnPath)
+    }
+    $defaultGitPath = Join-Path $env:ProgramFiles 'Git\cmd\git.exe'
+    $null = $candidates.Add($defaultGitPath)
+
+    foreach ($candidate in $candidates) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            continue
+        }
+        if (Test-JenkinsGitVersion -GitPath $candidate) {
+            return $candidate
+        }
+    }
+    return ''
+}
+
+function Install-JenkinsGit {
+    # Purpose: make sure the pinned Git for Windows is installed, installing it only when no git.exe reports the pinned version.
+    # Input: none; reads the pinned installer URL and the work folder.
+    # Output: returns the git.exe path that reports the pinned version; throws otherwise.
+    $gitPath = Resolve-JenkinsGitPath
+    if (-not [string]::IsNullOrWhiteSpace($gitPath)) {
+        Write-JenkinsLine -Message "Git $JenkinsGitVersionFull is already installed"
+        return $gitPath
+    }
+
+    Write-JenkinsLine -Message "installing Git for Windows $JenkinsGitVersionFull"
+    $exePath = Join-Path $JenkinsWork $JenkinsGitInstallerName
+    Download-RemoteFile -Uri $JenkinsGitInstallerUrl -DestinationPath $exePath -Label 'Git for Windows pinned installer download'
+    Invoke-InstallerCommand -Label 'Git for Windows pinned installer' -FilePath $exePath -Arguments @('/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES')
+
+    $gitPath = Resolve-JenkinsGitPath
+    if ([string]::IsNullOrWhiteSpace($gitPath)) {
+        throw "Git $JenkinsGitVersionFull was not found after its installer ran"
+    }
+    return $gitPath
 }
 
 function Test-JenkinsJavaVersion {
@@ -1318,6 +1393,11 @@ function Install-JenkinsPinnedList {
     Write-JenkinsLine -Message ("the {0} pinned distributions, in list order" -f $Distributions.Count)
     $installed = Get-JenkinsInstalledDistributions
     $installedNow = 0
+    # Prefer the pinned cpanm from the start when it is already there, as
+    # on a second run.
+    if (Test-Path -LiteralPath $JenkinsSiteCpanmPath -PathType Leaf) {
+        $script:JenkinsCpanmPath = $JenkinsSiteCpanmPath
+    }
     foreach ($distribution in $Distributions) {
         if ($installed.ContainsKey($distribution)) {
             continue
@@ -1328,6 +1408,11 @@ function Install-JenkinsPinnedList {
         Invoke-JenkinsCpanm -Label "cpanm --notest $distribution" -Arguments @('--notest', $distribution)
         $installedNow++
         Write-Host "OK $distribution"
+        # The first line installs the pinned cpanm itself; use it for
+        # every line after that.
+        if (Test-Path -LiteralPath $JenkinsSiteCpanmPath -PathType Leaf) {
+            $script:JenkinsCpanmPath = $JenkinsSiteCpanmPath
+        }
     }
     Write-JenkinsLine -Message ("{0} of {1} installed now, the rest were already there" -f $installedNow, $Distributions.Count)
 }
@@ -1378,11 +1463,13 @@ function New-JenkinsAgentRoot {
 
 function Assert-JenkinsNodeReady {
     # Purpose: the final check of the Jenkins test-node route.
-    # Input: the java.exe path, the pinned list lines and the agent root (may be empty).
-    # Output: returns nothing when Java, the Perl, cpanm, the pinned list, the key modules and the agent root are all right; throws otherwise.
+    # Input: the java.exe path, the git.exe path, the pinned list lines and the agent root (may be empty).
+    # Output: returns nothing when Java, Git, the Perl, cpanm, the pinned list, the key modules and the agent root are all right; throws otherwise.
     param(
         [Parameter(Mandatory = $true)]
         [string]$JavaPath,
+        [Parameter(Mandatory = $true)]
+        [string]$GitPath,
         [Parameter(Mandatory = $true)]
         [string[]]$Distributions,
         [AllowEmptyString()]
@@ -1393,6 +1480,11 @@ function Assert-JenkinsNodeReady {
     $isPinnedJava = Test-JenkinsJavaVersion -JavaPath $JavaPath
     if (-not $isPinnedJava) {
         throw "$JavaPath is not Java $JenkinsJavaMajor"
+    }
+
+    $isPinnedGit = Test-JenkinsGitVersion -GitPath $GitPath
+    if (-not $isPinnedGit) {
+        throw "$GitPath is not Git $JenkinsGitVersionFull"
     }
 
     Assert-JenkinsPerlVersion
@@ -1432,12 +1524,13 @@ function Invoke-JenkinsNodeSetup {
         $compiledList = @(Get-JenkinsListLines -Path (Join-Path $listFolder 'modules-compiled-windows.txt'))
 
         Install-JenkinsStrawberryPerl
+        $gitPath = Install-JenkinsGit
         $javaPath = Resolve-JenkinsJavaPath
         Write-JenkinsLine -Message "Java $JenkinsJavaMajor found"
         Install-JenkinsPinnedList -Distributions $pinnedList
         Test-JenkinsCompiledList -Distributions $compiledList
         $agentRoot = New-JenkinsAgentRoot
-        Assert-JenkinsNodeReady -JavaPath $javaPath -Distributions $pinnedList -AgentRoot $agentRoot
+        Assert-JenkinsNodeReady -JavaPath $javaPath -GitPath $gitPath -Distributions $pinnedList -AgentRoot $agentRoot
 
         $agentRootText = if ([string]::IsNullOrWhiteSpace($agentRoot)) { 'no agent root named' } else { 'agent root created' }
         Write-JenkinsLine -Message ("DONE. This machine is ready to be a Jenkins test node: Strawberry Perl {0} at {1}, Java {2}, {3} pinned distributions, {4}." -f $JenkinsStrawberryBuild, $JenkinsStrawberryRoot, $JenkinsJavaMajor, $pinnedList.Count, $agentRootText)
