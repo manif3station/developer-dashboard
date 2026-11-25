@@ -597,6 +597,19 @@ my $NEXT_ROUTINE_ID = 0;
 # that sends again. Without a bound that recursion grows until the
 # stack overflows; the guard in pump() turns it into a catchable error.
 our $_PUMP_DEPTH = 0;
+
+# Id of the routine whose callback is currently being dispatched, or
+# undef when no callback is running. receive() uses it to tell a
+# blocking wait inside a callback (which would deadlock the pump)
+# from a wait on the main thread (which may pump). Declared with our
+# (not my) so _dispatch_routine can localize it around the callback.
+our $_DISPATCHING_ID;
+
+# Routine ids made ready by a channel send or close: a value arrived
+# for a routine that yielded in receive(), or a close woke its
+# waiters. These have no C-level trigger, so pump() dispatches them
+# before waiting for triggers.
+my @READY_ROUTINES;
 my $_LOAD_PID = $$; # forked children must not drain the parent's queue
 
 sub _routine_record {
@@ -759,6 +772,7 @@ sub _dispatch_routine {
     my $rec = $ROUTINES{$id};
     return 0 unless $rec && $rec->{state} eq 'pending';
     $rec->{state} = 'running';
+    local $_DISPATCHING_ID = $id;
     my $err = _ev_invoke_callback($rec->{cb});
     $rec = $ROUTINES{$id};
     if (!defined $err) {
@@ -774,6 +788,16 @@ sub _dispatch_routine {
     # merely mentions the token in its own die message is a failure.
     elsif ($err =~ /\A__GOROUTINE_EXIT__/) {
         _finish_routine($id, 'exited') if $rec;
+    }
+    # A callback that yielded in receive() waiting for a channel value:
+    # leave it pending so it can be re-dispatched when a value arrives
+    # (send() queues it) or the channel closes (close() queues it).
+    # Do not finish it and do not cancel its triggers. The channel
+    # recorded this routine as its waiter before it yielded.
+    elsif ($err =~ /\A__GOROUTINE_WOULD_BLOCK__/) {
+        if ($rec) {
+            $rec->{state} = 'pending';
+        }
     }
     else {
         _finish_routine($id, 'failed', $err) if $rec;
@@ -833,6 +857,12 @@ sub pump {
     # finds nothing. Re-waiting with a zero bound after each dispatch
     # picks up anything already due without blocking again.
     while (1) {
+        # Routines made ready by a channel send or close have no
+        # C-level trigger, so dispatch them before waiting for one.
+        while (@READY_ROUTINES) {
+            my $rid = shift @READY_ROUTINES;
+            $progress += _dispatch_routine($rid) ? 1 : 0;
+        }
         my @due = _ev_wait($wait_ms);
         if (!@due) {
             # The wait was sized to end at a routine timeout, but the wait
@@ -930,6 +960,7 @@ sub channel {
         capacity         => 0 + $capacity,
         sender_queue     => [],
         receiver_waiting => 0,
+        waiting_routines => [],
     }, 'Developer::Dashboard::GoRoutine::Channel';
 }
 
@@ -1000,10 +1031,12 @@ sub send {
             die "send on closed channel" if $self->{closed};
         }
         push @{ $self->{queue} }, $value;
+        $self->_wake_waiter;
         return $self;
     }
     if ($self->{receiver_waiting}) {
         push @{ $self->{queue} }, $value;
+        $self->_wake_waiter;
         return $self;
     }
     # No receiver is waiting: join the queue of pending senders. Each
@@ -1017,6 +1050,22 @@ sub send {
         die "send on closed channel" if $self->{closed};
     }
     return $self;
+}
+
+# _wake_waiter()
+# A value is now available for a routine that yielded in receive().
+# Queue the first waiting routine for dispatch and pump once so it
+# runs before this send returns. Returns true when a routine was
+# queued. A routine killed while it waited is skipped, not queued.
+sub _wake_waiter {
+    my ($self) = @_;
+    return 0 unless @{ $self->{waiting_routines} };
+    my $rid = shift @{ $self->{waiting_routines} };
+    my $rec = Developer::Dashboard::GoRoutine::_routine_record($rid);
+    return 0 unless $rec && $rec->{state} eq 'pending';
+    push @READY_ROUTINES, $rid;
+    Developer::Dashboard::GoRoutine::pump(0);
+    return 1;
 }
 
 # receive()
@@ -1038,6 +1087,20 @@ sub receive {
         return wantarray ? ($value, 1) : $value;
     }
     return wantarray ? (undef, 0) : undef if $self->{closed};
+    # Inside a dispatched callback a blocking wait would deadlock the
+    # pump: the main thread is stuck inside send()'s pump waiting for
+    # this callback to return, so no value can ever arrive. Yield
+    # instead: record this routine as the channel's waiter and die
+    # with the would-block token, which _dispatch_routine catches and
+    # leaves the routine pending for re-dispatch when a value arrives
+    # (send()) or the channel closes (close()).
+    if (defined $_DISPATCHING_ID) {
+        $self->{receiver_waiting} = 1;
+        push @{ $self->{waiting_routines} }, $_DISPATCHING_ID
+            unless grep { $_ == $_DISPATCHING_ID }
+            @{ $self->{waiting_routines} };
+        die "__GOROUTINE_WOULD_BLOCK__\n";
+    }
     $self->{receiver_waiting} = 1;
     while (1) {
         last if @{ $self->{queue} } || @{ $self->{sender_queue} } || $self->{closed};
@@ -1060,6 +1123,15 @@ sub close {
     my ($self) = @_;
     $self->_check;
     $self->{closed} = 1;
+    # Wake every routine that yielded in receive(): they must see the
+    # channel is closed and return (undef, 0) instead of waiting for a
+    # value that will never arrive. A routine killed while it waited
+    # is skipped, not queued.
+    while (my $rid = shift @{ $self->{waiting_routines} }) {
+        my $rec = Developer::Dashboard::GoRoutine::_routine_record($rid);
+        next unless $rec && $rec->{state} eq 'pending';
+        push @READY_ROUTINES, $rid;
+    }
     return $self;
 }
 
