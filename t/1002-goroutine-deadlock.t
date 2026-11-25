@@ -109,13 +109,38 @@ sub _run_script {
 
 sub _find_command {
     my @candidates = @_;
-    for my $candidate (@candidates) {
+    # On Windows, also try the .exe names. Git's usr/bin/timeout.exe is
+    # GNU coreutils, but system32 has a Windows timeout.exe earlier in
+    # PATH, so a .exe candidate is only accepted when `--version`
+    # reports GNU (see _is_gnu_timeout). A file named exactly `timeout`
+    # (no extension) can never be found on Windows: Perl's -x is false
+    # for it, as Peter verified by copying timeout.exe to a file named
+    # `timeout` ( -f true, -x false). On Linux and macOS the .exe names
+    # are never added, so behaviour there is unchanged.
+    my @names = @candidates;
+    if ( $^O eq 'MSWin32' ) {
+        push @names, map { "$_.exe" } @candidates;
+    }
+    for my $candidate (@names) {
         next if !defined $candidate || $candidate eq '';
         for my $dir ( File::Spec->path() ) {
             my $path = File::Spec->catfile( $dir, $candidate );
             next if !-f $path || !-x $path;
+            next if $candidate =~ /\.exe\z/i && !_is_gnu_timeout($path);
             return $path;
         }
     }
     return undef;
+}
+
+sub _is_gnu_timeout {
+    my ($path) = @_;
+    my ( $stdout, $stderr, $raw_exit ) = capture {
+        system( $path, '--version' );
+    };
+    # Capture::Tiny returns the raw wait status, so shift it to the exit
+    # code. GNU --version prints "timeout (GNU coreutils) ..." and exits
+    # 0; the Windows timeout.exe rejects --version at once (invalid
+    # argument) and exits non-zero without "GNU" in its output.
+    return ( $raw_exit >> 8 ) == 0 && $stdout =~ /GNU/;
 }
