@@ -1904,7 +1904,7 @@ for my $case (
         qr/Invoke-JenkinsCpanm -Label "cpanm --notest \$distribution".*?if \(Test-Path -LiteralPath \$JenkinsSiteCpanmPath -PathType Leaf\) \{\s+\$script:JenkinsCpanmPath = \$JenkinsSiteCpanmPath\s+\}/s,
         'install.ps1 -Jenkins switches to the pinned cpanm after the first line installs it',
     );
-    like( $route, qr/'\{0\} \{1\} \{2\} < NUL' -f \$JenkinsPerlPath, \$script:JenkinsCpanmPath/, 'install.ps1 -Jenkins runs cpanm with standard input closed' );
+    like( $route, qr/'\{0\} \{1\} \{2\} < NUL' -f \('"' \+ \$JenkinsPerlPath \+ '"'\), \('"' \+ \$script:JenkinsCpanmPath \+ '"'\)/, 'install.ps1 -Jenkins runs cpanm with standard input closed' );
     like(
         $route,
         qr/function Invoke-JenkinsCpanm \{.*?\$quotedArguments = \@\(\$Arguments \| ForEach-Object \{ '"' \+ \(\$_\.Replace\('"', '""'\)\) \+ '"' \}\)/s,
@@ -1912,8 +1912,13 @@ for my $case (
     );
     like(
         $route,
+        qr/function Invoke-JenkinsCpanm \{.*?\$commandLine = \('\{0\} \{1\} \{2\} < NUL' -f \('"' \+ \$JenkinsPerlPath \+ '"'\), \('"' \+ \$script:JenkinsCpanmPath \+ '"'\), \(\$quotedArguments -join ' '\)\)/s,
+        'install.ps1 -Jenkins builds the cpanm command line from the quoted paths and quoted arguments with standard input closed',
+    );
+    unlike(
+        $route,
         qr/function Invoke-JenkinsCpanm \{.*?\$commandLine = \('\{0\} \{1\} \{2\} < NUL' -f \$JenkinsPerlPath, \$script:JenkinsCpanmPath, \(\$quotedArguments -join ' '\)\)/s,
-        'install.ps1 -Jenkins builds the cpanm command line from the quoted arguments with standard input closed',
+        'install.ps1 -Jenkins no longer builds the cpanm command line from bare perl and cpanm paths',
     );
     like(
         $route,

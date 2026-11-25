@@ -1123,7 +1123,7 @@ function Invoke-JenkinsCpanm {
     # so an argument holding a space stays one argument on the cmd.exe
     # command line and stdin stays closed on < NUL.
     $quotedArguments = @($Arguments | ForEach-Object { '"' + ($_.Replace('"', '""')) + '"' })
-    $commandLine = ('{0} {1} {2} < NUL' -f $JenkinsPerlPath, $script:JenkinsCpanmPath, ($quotedArguments -join ' '))
+    $commandLine = ('{0} {1} {2} < NUL' -f ('"' + $JenkinsPerlPath + '"'), ('"' + $script:JenkinsCpanmPath + '"'), ($quotedArguments -join ' '))
     Invoke-NativeCommand -Label $Label -FilePath 'cmd.exe' -Arguments @('/d', '/c', $commandLine)
 }
 
