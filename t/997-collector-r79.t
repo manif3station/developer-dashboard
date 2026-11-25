@@ -168,7 +168,9 @@ sub _wait_for_gone {
     ok( _wait_for_gone($example_pid), 'collector: no example loop is running after stop' );
 
     ( $exit, $stdout, $stderr ) = _run_d2( 'collector', 'start' );
-    like( $stdout . $stderr, qr/Usage: d2 collector start <name>/, 'collector: d2 collector start with no name prints the usage' );
+    my $start_combined = $stdout . $stderr;
+    like( $start_combined, qr/Usage: d2 collector start <name>/, 'collector: d2 collector start with no name prints the usage' );
+    unlike( $start_combined, qr/^\d+$/m, 'collector: d2 collector start with no name starts nothing' );
 }
 
 # R79 AC 4 and AC 10, stop one or all: `d2 collector stop [name]` stops
@@ -241,6 +243,21 @@ sub _wait_for_gone {
     ( $exit, $stdout, $stderr ) = _run_d2( 'collector', 'stop', 'example' );
     is( $exit, 0, 'collector: d2 collector stop example exits 0 after the no-name restart' );
     ok( defined _pid_of($stdout), 'collector: stopping the example after the no-name restart prints a pid, so its loop was running' );
+}
+
+# R79, the help text encodes the name rules: `[name]` (optional) for
+# log, stop and restart, `<name>` (required) for run and start. Log, run
+# and start already read that way, so they are controls; stop and restart
+# still read `<name>` today, so those two are failing tests until the
+# help is updated with the change.
+{
+    my ( $exit, $stdout, $stderr ) = _run_d2( 'help', 'collector' );
+    is( $exit, 0, 'collector: d2 help collector exits 0' );
+    like( $stdout, qr/d2 collector log \[name\]/, 'collector: help shows d2 collector log [name]' );
+    like( $stdout, qr/d2 collector run <name>/, 'collector: help shows d2 collector run <name>' );
+    like( $stdout, qr/d2 collector start <name>/, 'collector: help shows d2 collector start <name>' );
+    like( $stdout, qr/d2 collector stop \[name\]/, 'collector: help shows d2 collector stop [name]' );
+    like( $stdout, qr/d2 collector restart \[name\]/, 'collector: help shows d2 collector restart [name]' );
 }
 
 # R79 AC 6, the verb-first forms go away: `d2 restart collector`,
