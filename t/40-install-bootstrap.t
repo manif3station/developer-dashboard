@@ -1715,6 +1715,39 @@ for my $case (
         ( $out, $err, $exit ) = $run_java->( _msys_path($good_dir), 0 );
         is( $exit >> 8, 0, 'jenkins_java_command succeeds when brew --prefix names a real directory' );
         is( $out, _msys_path($good_dir) . "/bin/java\n", 'jenkins_java_command prints the Java path under the brew prefix' );
+
+        # On a non-macOS platform the Java path comes from PATH, and a
+        # missing java must fail fast instead of printing the literal
+        # string 'java' and letting the final check fail later (R93: the
+        # fourth Q review on PR #93). 'debian' is a supported --jenkins
+        # platform that takes the non-macOS branch.
+        my $fake_bin_no_java = File::Spec->catdir( $dir, 'fake-bin-no-java' );
+        make_path($fake_bin_no_java);
+        my $fake_bin_with_java = File::Spec->catdir( $dir, 'fake-bin-with-java' );
+        make_path($fake_bin_with_java);
+        # The fake java only needs to be found by 'command -v'; it never runs.
+        _write_executable(
+            File::Spec->catfile( $fake_bin_with_java, 'java' ),
+            "#!/bin/sh\nexit 0\n",
+        );
+
+        my $run_java_nondarwin = sub {
+            my ($java_bin) = @_;
+            # PATH holds only the fake bin here: _base_path() is left out
+            # on purpose, because on Unix it is the caller's PATH, which
+            # holds a real java and would defeat the absent case. The
+            # function needs nothing from PATH but the java it looks for.
+            my $command = sprintf q{PATH='%s'; PLATFORM='debian'; JENKINS_JAVA_MAJOR='21'; . '%s'; jenkins_java_command},
+              _msys_path($java_bin), _msys_path($func_file);
+            return capture { _sh_c($command) };
+        };
+
+        ( $out, $err, $exit ) = $run_java_nondarwin->($fake_bin_no_java);
+        is( $exit >> 8, 1, 'jenkins_java_command fails when java is absent from PATH on a non-macOS platform' );
+        is( $out, '', 'jenkins_java_command prints no Java path when java is absent from PATH on a non-macOS platform' );
+        ( $out, $err, $exit ) = $run_java_nondarwin->($fake_bin_with_java);
+        is( $exit >> 8, 0, 'jenkins_java_command succeeds when java is on PATH on a non-macOS platform' );
+        is( $out, _msys_path($fake_bin_with_java) . "/java\n", 'jenkins_java_command prints the Java path from PATH on a non-macOS platform' );
     }
 }
 

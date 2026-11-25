@@ -1533,7 +1533,7 @@ jenkins_java_command() {
         printf '%s\n' "$jenkins_java_prefix/bin/java"
         return 0
     fi
-    command -v java 2>/dev/null || printf '%s\n' 'java'
+    command -v java 2>/dev/null || return 1
 }
 
 # The final check: Java, the Perl, cpanm, the installed distributions
