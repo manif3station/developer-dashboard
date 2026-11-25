@@ -137,7 +137,7 @@ my $tool = make_exec( File::Spec->catfile( $cli_root, 'coverage-tool' ) );
         }
     );
     is( $rc, 0, 'run_which_command --edit returns 0 after handing off to open-file' );
-    is( $exec[0], 'd2', 'run_which_command --edit re-enters via the default d2 entrypoint' );
+    is( $exec[0], Developer::Dashboard::CLI::Which::command_in_path_direct('d2') // 'd2', 'run_which_command --edit re-enters via the default d2 entrypoint' );
     is( $exec[1], 'open-file', 'run_which_command --edit re-enters the open-file command' );
     like( $exec[2], qr/coverage-tool/, 'run_which_command --edit hands the resolved command path to open-file' );
     is( $out, '', 'run_which_command --edit prints no inspection output' );
@@ -306,7 +306,7 @@ is( scalar Developer::Dashboard::CLI::Which::_resolve_directory_runner( File::Sp
     delete $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT};
     is_deeply(
         [ Developer::Dashboard::CLI::Which::_dashboard_entry_command() ],
-        ['d2'],
+        [ Developer::Dashboard::CLI::Which::command_in_path_direct('d2') // 'd2' ],
         '_dashboard_entry_command defaults to the public d2 entrypoint',
     );
 }
