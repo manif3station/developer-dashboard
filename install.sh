@@ -1422,28 +1422,43 @@ jenkins_openssl_env() {
 # under the site folder and under the arch folder, because the layout
 # differs between machines. A missing or empty site folder means the
 # distribution is not installed, and the glob is never left literal.
+# One grep per call: the install.json files that exist are collected
+# with a shell loop (no process spawns) and grepped in a single
+# invocation. The R84 shape ran one grep per file per call, and the
+# pinned list calls this once per distribution, so the install did
+# 0+1+...+118 = 7,021 grep invocations and crawled on Windows (R90).
+# The file list is held in the positional parameters, so a site path
+# holding a space is passed to grep whole.
 jenkins_dist_installed() {
     [ -n "$JENKINS_SITE_DIR" ] && [ -d "$JENKINS_SITE_DIR" ] || return 1
+    jenkins_want="\"pathname\":\"$1\""
+    set --
     for jenkins_meta in "$JENKINS_SITE_DIR"/.meta/*/install.json "$JENKINS_SITE_DIR"/*/.meta/*/install.json; do
         [ -f "$jenkins_meta" ] || continue
-        if grep -Fqs "\"pathname\":\"$1\"" "$jenkins_meta"; then
-            return 0
-        fi
+        set -- "$@" "$jenkins_meta"
     done
+    [ $# -gt 0 ] || return 1
+    if grep -Fqs "$jenkins_want" "$@"; then
+        return 0
+    fi
     return 1
 }
 
 # Writes the pathname of every installed pinned distribution, one per
 # line. Reads each install.json on its own: real cpanm writes install.json
 # with no trailing newline, so catting them all together merges them into
-# one line and a single sed pass would keep only the last pathname.
+# one line and a single sed pass would keep only the last pathname. Each
+# pathname is printed with its own newline: sed preserves the missing
+# trailing newline, so printing the sed output as-is would concatenate
+# all 119 pathnames into one line again (R88).
 # Reads both .meta locations, directly under the site folder and under the
 # arch folder, because the layout differs between machines.
 jenkins_installed_pathnames() {
     [ -n "$JENKINS_SITE_DIR" ] && [ -d "$JENKINS_SITE_DIR" ] || return 0
     for jenkins_meta in "$JENKINS_SITE_DIR"/.meta/*/install.json "$JENKINS_SITE_DIR"/*/.meta/*/install.json; do
         [ -f "$jenkins_meta" ] || continue
-        sed -n 's/.*"pathname":"\([^"]*\)".*/\1/p' "$jenkins_meta"
+        jenkins_pathname=$(sed -n 's/.*"pathname":"\([^"]*\)".*/\1/p' "$jenkins_meta")
+        [ -n "$jenkins_pathname" ] && printf '%s\n' "$jenkins_pathname"
     done
 }
 
@@ -1507,6 +1522,14 @@ jenkins_create_agent_root() {
 jenkins_java_command() {
     if [ "$PLATFORM" = 'darwin' ]; then
         jenkins_java_prefix=$(brew --prefix "openjdk@$JENKINS_JAVA_MAJOR" 2>/dev/null || true)
+        if [ -z "$jenkins_java_prefix" ]; then
+            printf '%s\n' "Homebrew openjdk@$JENKINS_JAVA_MAJOR was not found; install it with 'brew install openjdk@$JENKINS_JAVA_MAJOR' and run install.sh --jenkins again" >&2
+            return 1
+        fi
+        if [ ! -d "$jenkins_java_prefix" ]; then
+            printf '%s\n' "Homebrew openjdk@$JENKINS_JAVA_MAJOR prefix $jenkins_java_prefix is not a directory; reinstall it with 'brew reinstall openjdk@$JENKINS_JAVA_MAJOR' and run install.sh --jenkins again" >&2
+            return 1
+        fi
         printf '%s\n' "$jenkins_java_prefix/bin/java"
         return 0
     fi
@@ -1517,7 +1540,8 @@ jenkins_java_command() {
 # against the pinned list, the key modules and the agent root.
 jenkins_verify() {
     jenkins_say "final check"
-    jenkins_java=$(jenkins_java_command)
+    jenkins_java=$(jenkins_java_command) ||
+        fail "Java $JENKINS_JAVA_MAJOR was not found"
     jenkins_java_text=$("$jenkins_java" -version 2>&1 </dev/null) ||
         fail "Java did not run: $jenkins_java"
     printf '%s\n' "$jenkins_java_text" | grep -Fq "version \"$JENKINS_JAVA_MAJOR." ||

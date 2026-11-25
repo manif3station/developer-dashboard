@@ -1356,28 +1356,46 @@ function Get-JenkinsListLines {
 
 function Get-JenkinsInstalledDistributions {
     # Purpose: read which distribution files cpanm has recorded as installed in the pinned Perl.
-    # Input: none; asks the pinned Perl where its site folder is.
+    # Input: none; asks the pinned Perl where its site folders are.
     # Output: returns a hash table keyed by distribution file path.
-    $siteFolder = ''
+    $siteFolders = @()
     $previousErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $siteFolder = [string](& $JenkinsPerlPath '-MConfig' '-e' 'print $Config{sitearchexp}')
+        # Both site folders are asked for: the layout differs between
+        # machines, and on some (Strawberry Perl) the two keys return the
+        # same non-arch path. The .meta folders are found below, directly
+        # under each site folder and under each of its subdirectories.
+        foreach ($siteKey in @('sitearchexp', 'sitelibexp')) {
+            $siteFolders += [string](& $JenkinsPerlPath '-MConfig' '-e' ('print $Config{' + $siteKey + '}'))
+        }
     }
     finally {
         $ErrorActionPreference = $previousErrorActionPreference
     }
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($siteFolder)) {
-        throw "Unable to ask $JenkinsPerlPath for its site folder"
+    if ($LASTEXITCODE -ne 0 -or $siteFolders.Count -ne 2 -or [string]::IsNullOrWhiteSpace($siteFolders[0]) -or [string]::IsNullOrWhiteSpace($siteFolders[1])) {
+        throw "Unable to ask $JenkinsPerlPath for its site folders"
     }
 
     $installed = @{}
-    $metaFolder = Join-Path $siteFolder '.meta'
-    if (Test-Path -LiteralPath $metaFolder -PathType Container) {
-        foreach ($record in @(Get-ChildItem -LiteralPath $metaFolder -Recurse -File -Filter 'install.json')) {
-            $recordText = [string](Get-Content -LiteralPath $record.FullName -Raw)
-            if ($recordText -match '"pathname"\s*:\s*"([^"]+)"') {
-                $installed[$matches[1]] = $true
+    foreach ($siteFolder in $siteFolders) {
+        # .meta directly under the site folder, and .meta under each
+        # immediate subdirectory (the arch folder): the pinned Perl reports
+        # sitearchexp as the non-arch site lib, while cpanm records the
+        # distributions under the arch subdir's .meta, so reading only the
+        # site folder itself finds nothing.
+        $metaFolders = @(Join-Path $siteFolder '.meta')
+        foreach ($subFolder in @(Get-ChildItem -LiteralPath $siteFolder -Directory -ErrorAction SilentlyContinue)) {
+            $metaFolders += Join-Path $subFolder.FullName '.meta'
+        }
+        foreach ($metaFolder in $metaFolders) {
+            if (Test-Path -LiteralPath $metaFolder -PathType Container) {
+                foreach ($record in @(Get-ChildItem -LiteralPath $metaFolder -Recurse -File -Filter 'install.json')) {
+                    $recordText = [string](Get-Content -LiteralPath $record.FullName -Raw)
+                    if ($recordText -match '"pathname"\s*:\s*"([^"]+)"') {
+                        $installed[$matches[1]] = $true
+                    }
+                }
             }
         }
     }

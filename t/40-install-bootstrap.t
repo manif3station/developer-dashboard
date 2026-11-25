@@ -1605,6 +1605,30 @@ for my $case (
         ( $out, $err ) = $check_installed->( $spaced_site, 'C/CC/AUTHOR/DistC-3.00.tar.gz' );
         like( $out, qr/^INSTALLED$/m, 'jenkins_dist_installed finds a distribution when the site path holds a space' );
 
+        # R90: one grep per call, not one per file. The pinned list calls
+        # this once per distribution, so a per-file grep is 7,021 grep
+        # invocations for 119 distributions. A counting fake grep proves
+        # the rewrite greps all four install.json files in one invocation:
+        # the missing distribution is asked for, so every file is scanned.
+        my $fake_bin = File::Spec->catdir( $dir, 'counting-grep-bin' );
+        make_path($fake_bin);
+        my $count_file = File::Spec->catfile( $dir, 'grep-count.txt' );
+        my ( $real_grep_out, undef, $real_grep_status ) = capture { _sh_c(q{command -v grep}) };
+        $real_grep_out =~ s/\s+\z//;
+        ok( $real_grep_status == 0 && $real_grep_out ne '', 'a real grep is on PATH for the counting fake' );
+        if ( $real_grep_status == 0 && $real_grep_out ne '' ) {
+            _write_executable(
+                File::Spec->catfile( $fake_bin, 'grep' ),
+                "#!/bin/sh\nprintf '%s\\n' \"grep \$*\" >> \"\$GREP_COUNT_FILE\"\nexec \"\$REAL_GREP\" \"\$\@\"\n",
+            );
+            my $count_command = sprintf q{PATH='%s':"$PATH"; REAL_GREP='%s'; GREP_COUNT_FILE='%s'; . '%s'; JENKINS_SITE_DIR='%s'; jenkins_dist_installed '%s'; echo "rc=$?"},
+              _msys_path($fake_bin), _msys_path($real_grep_out), _msys_path($count_file), _msys_path($func_file), _msys_path($site), 'Z/ZZ/AUTHOR/DistZ-9.00.tar.gz';
+            ( $out, $err ) = capture { _sh_c($count_command) };
+            like( $out, qr/^rc=1$/m, 'jenkins_dist_installed still reports a distribution with no record as missing when grep is counted' );
+            my $grep_calls = -f $count_file ? scalar( split /\n/, _slurp($count_file) ) : 0;
+            is( $grep_calls, 1, 'jenkins_dist_installed runs one grep per call over all four install.json files, not one per file' );
+        }
+
         ( $out, $err ) = $run_meta->( $site, q{jenkins_installed_pathnames} );
         is_deeply(
             [ sort split /\n/, $out ],
@@ -1628,6 +1652,59 @@ for my $case (
         );
         ( $out, $err ) = $run_meta->( File::Spec->catdir( $dir, 'no-such-site' ), q{jenkins_installed_pathnames; echo "rc=$?"} );
         is( $out, "rc=0\n", 'jenkins_installed_pathnames lists nothing when the site folder does not exist' );
+    }
+}
+
+# jenkins_java_command: on macOS the Java path comes from brew --prefix,
+# and a failed lookup must fail fast with an actionable message instead of
+# silently becoming /bin/java (R86: the second Q review on PR #93).
+{
+    my $install_sh_text = _slurp($install_sh);
+    my ($java_command) = $install_sh_text =~ /(jenkins_java_command\(\) \{.*?\n\})/s;
+    ok( defined $java_command, 'install.sh defines jenkins_java_command for the --jenkins route' );
+    like(
+        $install_sh_text,
+        qr/jenkins_java=\$\(jenkins_java_command\) \|\|\s+fail "Java \$JENKINS_JAVA_MAJOR was not found"/,
+        'install.sh --jenkins fails the final check when the Java command cannot be found',
+    );
+    if ( defined $java_command ) {
+        my $dir      = tempdir( CLEANUP => 1 );
+        my $good_dir = File::Spec->catdir( $dir, 'fake-homebrew', 'opt', 'openjdk@21' );
+        make_path($good_dir);
+        my $fake_bin = File::Spec->catdir( $dir, 'fake-bin' );
+        make_path($fake_bin);
+        # The fake brew answers --prefix from an environment variable, so
+        # each case below can say what the lookup found: nothing, a path
+        # that is not a directory, or a real directory.
+        _write_executable(
+            File::Spec->catfile( $fake_bin, 'brew' ),
+            "#!/bin/sh\nprintf '%s\\n' \"\$FAKE_BREW_PREFIX\"\nexit \${FAKE_BREW_EXIT:-0}\n",
+        );
+
+        my $func_file = File::Spec->catfile( $dir, 'jenkins-java-func.sh' );
+        open my $ffh, '>', $func_file or die "Unable to write $func_file: $!";
+        binmode $ffh;
+        print {$ffh} $java_command, "\n";
+        close $ffh or die "Unable to close $func_file: $!";
+
+        my $run_java = sub {
+            my ( $prefix, $brew_exit ) = @_;
+            my $command = sprintf q{PATH='%s':"$PATH"; PLATFORM='darwin'; JENKINS_JAVA_MAJOR='21'; FAKE_BREW_PREFIX='%s'; FAKE_BREW_EXIT='%s'; . '%s'; jenkins_java_command},
+              _msys_path($fake_bin), $prefix, $brew_exit, _msys_path($func_file);
+            return capture { _sh_c($command) };
+        };
+
+        my ( $out, $err, $exit );
+        ( $out, $err, $exit ) = $run_java->( '', 0 );
+        is( $exit >> 8, 1, 'jenkins_java_command fails when brew --prefix finds nothing' );
+        like( $err, qr/Homebrew openjdk\@21 was not found; install it with 'brew install openjdk\@21'/, 'jenkins_java_command says how to install Java when brew --prefix finds nothing' );
+        is( $out, '', 'jenkins_java_command prints no Java path when brew --prefix finds nothing' );
+        ( $out, $err, $exit ) = $run_java->( File::Spec->catdir( $dir, 'no-such-prefix' ), 0 );
+        is( $exit >> 8, 1, 'jenkins_java_command fails when the brew prefix is not a directory' );
+        like( $err, qr/is not a directory; reinstall it with 'brew reinstall openjdk\@21'/, 'jenkins_java_command says how to repair Java when the brew prefix is not a directory' );
+        ( $out, $err, $exit ) = $run_java->( _msys_path($good_dir), 0 );
+        is( $exit >> 8, 0, 'jenkins_java_command succeeds when brew --prefix names a real directory' );
+        is( $out, _msys_path($good_dir) . "/bin/java\n", 'jenkins_java_command prints the Java path under the brew prefix' );
     }
 }
 
@@ -1792,6 +1869,26 @@ for my $case (
         $route,
         qr/finally \{\s+if \(-not \[string\]::IsNullOrWhiteSpace\(\$JenkinsWork\) -and \(Test-Path -LiteralPath \$JenkinsWork\)\) \{\s+Remove-Item -LiteralPath \$JenkinsWork -Recurse -Force\s+\}/s,
         'install.ps1 -Jenkins deletes the unique work folder at the end, and only when one was created',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?foreach \(\$siteKey in \@\('sitearchexp', 'sitelibexp'\)\)/s,
+        'install.ps1 -Jenkins asks the pinned Perl for both the arch and the pure-Perl site folders',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?\$metaFolders = \@\(Join-Path \$siteFolder '\.meta'\).*?foreach \(\$subFolder in \@\(Get-ChildItem -LiteralPath \$siteFolder -Directory.*?\$metaFolders \+= Join-Path \$subFolder\.FullName '\.meta'/s,
+        'install.ps1 -Jenkins reads .meta under each site folder and under each of its subdirectories, so the sandbox layout is covered where the site folder is the non-arch path and .meta sits only under the arch subdir',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?foreach \(\$metaFolder in \$metaFolders\) \{\s+if \(Test-Path -LiteralPath \$metaFolder -PathType Container\) \{\s+foreach \(\$record in \@\(Get-ChildItem -LiteralPath \$metaFolder -Recurse -File -Filter 'install\.json'\)\)/s,
+        'install.ps1 -Jenkins searches every collected .meta folder for install.json records',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?throw "Unable to ask \$JenkinsPerlPath for its site folders"/s,
+        'install.ps1 -Jenkins refuses to continue when the pinned Perl cannot name its site folders',
     );
     unlike( $route, qr/cpanmin\.us|Download-CpanmScript|local-lib/, 'install.ps1 -Jenkins downloads no other cpanm and uses no private install root' );
 
