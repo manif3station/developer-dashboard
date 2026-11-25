@@ -1119,7 +1119,11 @@ function Invoke-JenkinsCpanm {
         [string[]]$Arguments
     )
 
-    $commandLine = ('{0} {1} {2} < NUL' -f $JenkinsPerlPath, $script:JenkinsCpanmPath, ($Arguments -join ' '))
+    # Each argument is quoted on its own, with embedded quotes doubled,
+    # so an argument holding a space stays one argument on the cmd.exe
+    # command line and stdin stays closed on < NUL.
+    $quotedArguments = @($Arguments | ForEach-Object { '"' + ($_.Replace('"', '""')) + '"' })
+    $commandLine = ('{0} {1} {2} < NUL' -f $JenkinsPerlPath, $script:JenkinsCpanmPath, ($quotedArguments -join ' '))
     Invoke-NativeCommand -Label $Label -FilePath 'cmd.exe' -Arguments @('/d', '/c', $commandLine)
 }
 
@@ -1134,6 +1138,9 @@ function Resolve-JenkinsStrawberryMsiUrl {
             $url = [string]$release.edition.msi.url
         }
         catch {
+            $url = ''
+        }
+        if ([string]::IsNullOrWhiteSpace($url)) {
             continue
         }
         if ($url.EndsWith('/' + $JenkinsStrawberryMsiName)) {
@@ -1366,14 +1373,20 @@ function Get-JenkinsInstalledDistributions {
         # machines, and on some (Strawberry Perl) the two keys return the
         # same non-arch path. The .meta folders are found below, directly
         # under each site folder and under each of its subdirectories.
+        # $LASTEXITCODE is read inside the loop: after the loop it holds
+        # only the second call's exit code, so a non-zero exit from the
+        # first call would go undetected.
         foreach ($siteKey in @('sitearchexp', 'sitelibexp')) {
             $siteFolders += [string](& $JenkinsPerlPath '-MConfig' '-e' ('print $Config{' + $siteKey + '}'))
+            if ($LASTEXITCODE -ne 0) {
+                throw "Unable to ask $JenkinsPerlPath for its site folder ($siteKey)"
+            }
         }
     }
     finally {
         $ErrorActionPreference = $previousErrorActionPreference
     }
-    if ($LASTEXITCODE -ne 0 -or $siteFolders.Count -ne 2 -or [string]::IsNullOrWhiteSpace($siteFolders[0]) -or [string]::IsNullOrWhiteSpace($siteFolders[1])) {
+    if ([string]::IsNullOrWhiteSpace($siteFolders[0]) -or [string]::IsNullOrWhiteSpace($siteFolders[1])) {
         throw "Unable to ask $JenkinsPerlPath for its site folders"
     }
 

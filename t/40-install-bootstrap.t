@@ -1857,6 +1857,31 @@ for my $case (
         'install.ps1 -Jenkins switches to the pinned cpanm after the first line installs it',
     );
     like( $route, qr/'\{0\} \{1\} \{2\} < NUL' -f \$JenkinsPerlPath, \$script:JenkinsCpanmPath/, 'install.ps1 -Jenkins runs cpanm with standard input closed' );
+    like(
+        $route,
+        qr/function Invoke-JenkinsCpanm \{.*?\$quotedArguments = \@\(\$Arguments \| ForEach-Object \{ '"' \+ \(\$_\.Replace\('"', '""'\)\) \+ '"' \}\)/s,
+        'install.ps1 -Jenkins quotes each cpanm argument on its own, doubling embedded quotes, so an argument holding a space stays one argument',
+    );
+    like(
+        $route,
+        qr/function Invoke-JenkinsCpanm \{.*?\$commandLine = \('\{0\} \{1\} \{2\} < NUL' -f \$JenkinsPerlPath, \$script:JenkinsCpanmPath, \(\$quotedArguments -join ' '\)\)/s,
+        'install.ps1 -Jenkins builds the cpanm command line from the quoted arguments with standard input closed',
+    );
+    like(
+        $route,
+        qr/function Resolve-JenkinsStrawberryMsiUrl \{.*?catch \{\s+\$url = ''\s+\}/s,
+        'install.ps1 -Jenkins leaves the release URL empty when the feed entry has no MSI URL',
+    );
+    like(
+        $route,
+        qr/function Resolve-JenkinsStrawberryMsiUrl \{.*?catch \{\s+\$url = ''\s+\}\s+if \(\[string\]::IsNullOrWhiteSpace\(\$url\)\) \{\s+continue\s+\}/s,
+        'install.ps1 -Jenkins skips a release with no MSI URL, with the check outside the try/catch',
+    );
+    unlike(
+        $route,
+        qr/function Resolve-JenkinsStrawberryMsiUrl \{.*?catch \{\s+continue\s+\}/s,
+        'install.ps1 -Jenkins no longer hides a continue inside the catch of the MSI URL lookup',
+    );
     like( $route, qr/if \(-not \(Test-Path -LiteralPath \$script:JenkinsCpanmPath -PathType Leaf\)\) \{\s+throw "Strawberry's own cpanm is missing at \$JenkinsCpanmPath"/, 'install.ps1 -Jenkins checks Strawberry cpanm through the script-scoped path' );
     like( $route, qr/^\$JenkinsWork = ''\r?$/m, 'install.ps1 -Jenkins starts with an empty work folder' );
     like(
@@ -1889,6 +1914,21 @@ for my $case (
         $route,
         qr/function Get-JenkinsInstalledDistributions \{.*?throw "Unable to ask \$JenkinsPerlPath for its site folders"/s,
         'install.ps1 -Jenkins refuses to continue when the pinned Perl cannot name its site folders',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?foreach \(\$siteKey in \@\('sitearchexp', 'sitelibexp'\)\) \{.*?if \(\$LASTEXITCODE -ne 0\) \{\s+throw "Unable to ask \$JenkinsPerlPath for its site folder/s,
+        'install.ps1 -Jenkins reads the exit code inside the site-folder loop, so a failed first call is not missed',
+    );
+    unlike(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?\$siteFolders\.Count -ne 2/s,
+        'install.ps1 -Jenkins no longer checks a site-folder count that can never be wrong',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?if \(\[string\]::IsNullOrWhiteSpace\(\$siteFolders\[0\]\) -or \[string\]::IsNullOrWhiteSpace\(\$siteFolders\[1\]\)\) \{\s+throw "Unable to ask \$JenkinsPerlPath for its site folders"/s,
+        'install.ps1 -Jenkins still refuses to continue when the pinned Perl names no site folder',
     );
     unlike( $route, qr/cpanmin\.us|Download-CpanmScript|local-lib/, 'install.ps1 -Jenkins downloads no other cpanm and uses no private install root' );
 
