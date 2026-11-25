@@ -698,6 +698,9 @@ ok( $plain_row && !defined _leftover_kind( $manager, $plain_row ), 'detector: th
         is( $mark{602}, 1, 'detector: Unix rule calls a process whose parent is not in the table parentless' );
         is( $mark{603}, 1, 'detector: Unix rule calls a process whose parent started after it parentless' );
         is( $mark{605}, 0, 'detector: Unix rule leaves a live child of a live older parent alone' );
+        is( $mark{604}, 0, 'detector: Unix rule leaves a young child of a live older parent alone' );
+        is( $mark{500}, 1, 'detector: Unix rule calls a process handed to pid 1 parentless' );
+        is( $mark{1},   1, 'detector: Unix rule calls pid 1 itself parentless when its parent is not in the table' );
     }
 
     ( $found, $unresolved ) = _leftovers_in_rows( [ { %{ $orphaned[0] }, age => $min_age } ], $manager, $min_age, $from_temp );
@@ -711,6 +714,63 @@ ok( $plain_row && !defined _leftover_kind( $manager, $plain_row ), 'detector: th
     ok( scalar( @{$found} ) == 0 && scalar( @{$unresolved} ) == 1, 'detector: process scan reports, but does not flag, a supervisor whose origin cannot be read' );
 
     ok( _origin_is_temp($temp_origin) && !_origin_is_temp($real_home), 'detector: the temp-space rule tells the temp dir from a home directory' );
+
+    # Edge cases around the young-children rule, on made-up rows so they
+    # do not depend on the snapshot: the age skip must hold whatever the
+    # snapshot reported, and the boundary must flag only once the age is
+    # past the minimum. Test 16 above pins the same rule on the live
+    # rows; these pin it deterministically.
+    my $young_sup  = { %{ $orphaned[0] }, age => 0 };
+    my $young_loop = { %{ $orphaned[1] }, age => 5 };
+    my $almost_old = { %{ $orphaned[0] }, age => $min_age - 1 };
+    ( $found, $unresolved ) = _leftovers_in_rows( [ $young_sup, $young_loop, $almost_old ], $manager, $min_age, $from_temp );
+    is( scalar( @{$found} ) + scalar( @{$unresolved} ), 0, 'detector: process scan ignores parentless supervisor and loop rows younger than the minimum age' );
+
+    my $just_old = { %{ $orphaned[0] }, age => $min_age + 1 };
+    ( $found, $unresolved ) = _leftovers_in_rows( [ $just_old ], $manager, $min_age, $from_temp );
+    is( scalar @{$found}, 1, 'detector: process scan flags a parentless supervisor one second past the minimum age' );
+
+    my $no_age = { %{ $orphaned[0] } };
+    delete $no_age->{age};
+    ( $found, $unresolved ) = _leftovers_in_rows( [ $no_age ], $manager, $min_age, $from_temp );
+    is( scalar( @{$found} ) + scalar( @{$unresolved} ), 0, 'detector: process scan ignores a parentless supervisor with no age' );
+
+    my $self_row = { %{ $orphaned[0] }, pid => $$ };
+    ( $found, $unresolved ) = _leftovers_in_rows( [ $self_row ], $manager, $min_age, $from_temp );
+    is( scalar( @{$found} ) + scalar( @{$unresolved} ), 0, 'detector: process scan ignores its own pid even when old and parentless' );
+
+    if ( !$IS_WINDOWS ) {
+        my $foreign_uid = { %{ $orphaned[0] }, uid => $< + 1 };
+        ( $found, $unresolved ) = _leftovers_in_rows( [ $foreign_uid ], $manager, $min_age, $from_temp );
+        is( scalar( @{$found} ) + scalar( @{$unresolved} ), 0, 'detector: process scan ignores a parentless supervisor owned by another user' );
+    }
+}
+
+# The etime parser the snapshot ages depend on: a young process must
+# parse to a small age, or the young-children skip cannot work.
+is( _etime_seconds('00:03'),     3,     'detector: etime 00:03 parses to 3 seconds' );
+is( _etime_seconds('00:00'),     0,     'detector: etime 00:00 parses to 0 seconds' );
+is( _etime_seconds('01:02:03'),  3723,  'detector: etime 01:02:03 parses to 3723 seconds' );
+is( _etime_seconds('1-02:03:04'), 93784, 'detector: etime 1-02:03:04 parses to 93784 seconds' );
+is( _etime_seconds(''),          undef, 'detector: etime empty string parses to undef' );
+is( _etime_seconds('abc'),       undef, 'detector: etime abc parses to undef' );
+is( _etime_seconds('12'),        undef, 'detector: etime 12 parses to undef' );
+is( _etime_seconds('1:2:3:4'),   undef, 'detector: etime 1:2:3:4 parses to undef' );
+
+# A just-spawned child must read back young from the live process
+# table: the young-children skip in test 16 depends on the snapshot
+# ages being right, and the i686 run reported two of this run's own
+# children as old. Spawned here, so its age is seconds.
+{
+    my $fresh_pid  = _spawn_fake_child( [ $^X, '-e', 'sleep 30' ], {}, 'fresh', $script_dir );
+    my $fresh_rows = _process_table();
+    ok( ref($fresh_rows) eq 'ARRAY' && scalar @{$fresh_rows}, 'detector: the process table is readable for the fresh child' );
+    my %fresh_by_pid = map { $_->{pid} => $_ } @{ $fresh_rows || [] };
+    my $fresh_row = $fresh_by_pid{$fresh_pid};
+    ok( $fresh_row, 'detector: the fresh child appears in the process table' );
+    if ($fresh_row) {
+        ok( defined $fresh_row->{age} && $fresh_row->{age} < $min_age, 'detector: the fresh child reads back younger than the minimum age' );
+    }
 }
 
 # The real process-list scan. Any leftover found fails the test, exactly
@@ -800,10 +860,19 @@ the fake supervisor and loop as what they are and the plain child as
 nothing, that this run's own young children are never flagged, and, on
 copies of those rows, that an old parentless supervisor, loop and web
 master from temp space are flagged while one with a live parent, one
-that is too young, and one from outside temp space are not. Four more
+that is too young, and one from outside temp space are not. Seven more
 check the Unix parentless rule on made-up rows: parent pid 1, parent not
 in the table and parent started after the child are parentless, a live
-child of a live older parent is not.
+child of a live older parent is not, a young child of a live older
+parent is not, a process handed to pid 1 is, and pid 1 itself is when
+its parent is not in the table. Five more pin the young-children rule
+on made-up rows so it does not depend on the snapshot: parentless
+supervisor and loop rows aged 0, 5 and one second under the minimum are
+ignored, one second past the minimum is flagged, a row with no age is
+ignored, the test's own pid is ignored, and a row owned by another user
+is ignored. Eight check the etime parser the snapshot ages depend on,
+and three check that a just-spawned child reads back young from the
+live process table.
 When a real scan finds orphans, the test fails and diags each one
 (kind, name, pid, state root, heartbeat age, and STUCK when a
 supervisor heartbeat is stale; for the process-list scan kind, pid,
@@ -821,7 +890,7 @@ watches for orphans.
 
 =head1 EXAMPLES
 
-On a clean machine the test passes with twenty-five assertions: the
+On a clean machine the test passes with forty-eight assertions: the
 fake children are alive, the state-root controls agree and that scan
 finds no orphans, the process-list controls agree and that scan finds
 no leftovers. On a machine with leftovers it fails with diag lines like
