@@ -1155,23 +1155,480 @@ main() {
     say "  d2 version"
 }
 
+# Jenkins test-node setup (install.sh --jenkins).
+#
+# Takes a fresh macOS, Debian or Ubuntu machine to a working test node:
+# system packages, Java 21, Perl 5.38.2 built by perlbrew under
+# $HOME/perl5/perlbrew, cpanm inside that Perl, the pinned distributions
+# from share/jenkins, the agent's remote root, and a final check. It does
+# not install the dashboard and does not edit shell rc files. Everything
+# is relative to $HOME. A second run on a finished node changes nothing.
+JENKINS_PERL_NAME='perl-5.38.2'
+JENKINS_PERL_NUMBER='5.038002'
+JENKINS_PERL_SHORT='5.38.2'
+JENKINS_CPANM_VERSION='1.7049'
+JENKINS_JAVA_MAJOR='21'
+JENKINS_APT_EXTRA='openjdk-21-jre-headless make'
+JENKINS_BREW_EXTRA='openjdk@21 openssl@3 make'
+# The small package set a test node needs: build tools, the libraries the
+# Perl build links against, curl, and Git. The full manifests are not
+# used here: perlbrew comes from its own installer, cpanm from cpanmin.us,
+# and node, npm, perl, tmux and the package-manager perlbrew and cpanminus
+# are not needed for a green round.
+JENKINS_APT_PACKAGES='build-essential ca-certificates curl git libcrypt-dev libexpat1-dev libssl-dev pkg-config zlib1g-dev'
+JENKINS_BREW_PACKAGES='curl expat git pkgconf'
+JENKINS_PERLBREW_INSTALLER_URL='https://install.perlbrew.pl'
+JENKINS_CPANM_BOOTSTRAP_URL='https://cpanmin.us'
+JENKINS_TIME_SERVER='time.apple.com'
+JENKINS_TEST_ONLY_HELPERS='Test::LeakTrace Test::Requires Test::Warnings Test::Fatal B::COW'
+JENKINS_KEY_MODULES='Net::SSLeay JSON::XS Test::Pod'
+JENKINS_LIST="$SCRIPT_DIR/share/jenkins/modules-unix.txt"
+JENKINS_COMPILED_LIST="$SCRIPT_DIR/share/jenkins/modules-compiled.txt"
+JENKINS_AGENT_ROOT="$HOME/jenkins"
+JENKINS_WORK=''
+JENKINS_FINISHED='0'
+JENKINS_PERL_BIN_DIR=''
+JENKINS_SITE_DIR=''
+JENKINS_TESTED_STAMP=''
+
+jenkins_say() {
+    say "install.sh --jenkins: $*"
+}
+
+# Runs when the --jenkins route ends for any reason. Removes the work
+# folder and, unless the route finished, prints the one FAILED line.
+jenkins_on_exit() {
+    jenkins_status=$1
+    if [ -n "$JENKINS_WORK" ] && [ -d "$JENKINS_WORK" ]; then
+        rm -rf "$JENKINS_WORK"
+    fi
+    if [ "$JENKINS_FINISHED" != '1' ]; then
+        printf '%s\n' "install.sh --jenkins: FAILED (exit $jenkins_status). This machine is not ready to be a Jenkins test node." >&2
+    fi
+}
+
+# Runs a command with its output kept back unless it fails, and with
+# standard input closed so no tool can stop to ask a question.
+jenkins_run() {
+    run_logged_command "$@" </dev/null
+}
+
+# Runs a command as root: directly when already root, else through sudo
+# without a password prompt.
+jenkins_sudo() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+        return $?
+    fi
+    require_command sudo
+    sudo -n "$@"
+}
+
+jenkins_detect_platform() {
+    PLATFORM=$(platform_name)
+    case "$PLATFORM" in
+        darwin|debian|ubuntu)
+            ;;
+        *)
+            fail "install.sh --jenkins supports macOS, Debian and Ubuntu only; this machine is '$PLATFORM'."
+            ;;
+    esac
+    if [ "$PLATFORM" = 'debian' ]; then
+        debian_major=$(jenkins_debian_major_version)
+        case "$debian_major" in
+            ''|*[!0-9]*)
+                fail "install.sh --jenkins cannot tell the Debian version; refusing to set up a test node on an unknown Debian."
+                ;;
+            *)
+                if [ "$debian_major" -lt 13 ]; then
+                    fail "install.sh --jenkins supports Debian 13 and later; this machine is Debian $debian_major."
+                fi
+                ;;
+        esac
+    fi
+    if [ "$PLATFORM" = 'ubuntu' ]; then
+        ubuntu_major=$(jenkins_ubuntu_major_version)
+        case "$ubuntu_major" in
+            ''|*[!0-9]*)
+                fail "install.sh --jenkins cannot tell the Ubuntu version; refusing to set up a test node on an unknown Ubuntu."
+                ;;
+            *)
+                if [ "$ubuntu_major" -lt 22 ]; then
+                    fail "install.sh --jenkins supports Ubuntu 22.04 and later; this machine is Ubuntu $ubuntu_major."
+                fi
+                ;;
+        esac
+    fi
+    jenkins_say "platform $PLATFORM"
+}
+
+# The major version of this Debian machine: the VERSION_ID in
+# /etc/os-release, or /etc/debian_version when there is no os-release,
+# or DD_INSTALL_DEBIAN_VERSION_ID when that is set (the test seam t/40
+# uses to fake a Debian version on a box that is not Debian). Prints an
+# empty line when the version cannot be told at all.
+jenkins_debian_major_version() {
+    debian_version_id="${DD_INSTALL_DEBIAN_VERSION_ID:-}"
+    if [ -z "$debian_version_id" ] && [ -f /etc/os-release ]; then
+        debian_version_id=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"' | head -n 1)
+    fi
+    if [ -z "$debian_version_id" ] && [ -f /etc/debian_version ]; then
+        debian_version_id=$(head -n 1 /etc/debian_version)
+    fi
+    printf '%s\n' "${debian_version_id%%.*}"
+}
+
+# The major version of this Ubuntu machine: the VERSION_ID in
+# /etc/os-release, or DD_INSTALL_UBUNTU_VERSION_ID when that is set (the
+# test seam t/40 uses to fake an Ubuntu version on a box that is not
+# Ubuntu). A seam set to an empty string fakes a version that cannot be
+# told: unlike the Debian reader, a set seam is authoritative here, so
+# the test can fake "unknown" on a box whose /etc/os-release would
+# otherwise supply a real version. Prints an empty line when the version
+# cannot be told at all.
+jenkins_ubuntu_major_version() {
+    ubuntu_version_id=''
+    if [ -n "${DD_INSTALL_UBUNTU_VERSION_ID+x}" ]; then
+        ubuntu_version_id="$DD_INSTALL_UBUNTU_VERSION_ID"
+    elif [ -f /etc/os-release ]; then
+        ubuntu_version_id=$(sed -n 's/^VERSION_ID=//p' /etc/os-release | tr -d '"' | head -n 1)
+    fi
+    printf '%s\n' "${ubuntu_version_id%%.*}"
+}
+
+# macOS only: the time server and the no-sleep settings a test node needs.
+jenkins_macos_node_settings() {
+    [ "$PLATFORM" = 'darwin' ] || return 0
+    jenkins_say "macOS node settings: time server and no sleep"
+    jenkins_sudo systemsetup -setnetworktimeserver "$JENKINS_TIME_SERVER" ||
+        fail "Unable to set the network time server"
+    jenkins_sudo systemsetup -setusingnetworktime on ||
+        fail "Unable to turn network time on"
+    jenkins_sudo pmset -a powernap 0 sleep 0 disksleep 0 displaysleep 0 standby 0 hibernatemode 0 autopoweroff 0 ||
+        fail "Unable to switch sleep off"
+    jenkins_sudo sntp -sS "$JENKINS_TIME_SERVER" ||
+        fail "Unable to read the time from $JENKINS_TIME_SERVER"
+}
+
+jenkins_install_system_packages() {
+    jenkins_say "system packages, Java $JENKINS_JAVA_MAJOR and make"
+    case "$PLATFORM" in
+        debian|ubuntu)
+            prefix=$(package_runner_prefix)
+            if [ -n "$prefix" ]; then
+                explain_sudo_requirements
+                $prefix apt-get update
+            else
+                apt-get update
+            fi
+            # The --jenkins route installs the small list above, not the
+            # full manifest: the test node needs build tools, Java, Git
+            # and the libraries the Perl build links against, and
+            # nothing else. perlbrew comes from its own installer and
+            # cpanm from cpanmin.us.
+            if [ -n "$prefix" ]; then
+                # shellcheck disable=SC2086
+                $prefix apt-get install -y $JENKINS_APT_PACKAGES $JENKINS_APT_EXTRA </dev/null ||
+                    fail "Unable to install: $JENKINS_APT_PACKAGES $JENKINS_APT_EXTRA"
+            else
+                # shellcheck disable=SC2086
+                apt-get install -y $JENKINS_APT_PACKAGES $JENKINS_APT_EXTRA </dev/null ||
+                    fail "Unable to install: $JENKINS_APT_PACKAGES $JENKINS_APT_EXTRA"
+            fi
+            ;;
+        darwin)
+            HOMEBREW_NO_AUTO_UPDATE=1
+            HOMEBREW_NO_INSTALL_CLEANUP=1
+            export HOMEBREW_NO_AUTO_UPDATE HOMEBREW_NO_INSTALL_CLEANUP
+            ensure_homebrew
+            # shellcheck disable=SC2086
+            brew install $JENKINS_BREW_PACKAGES $JENKINS_BREW_EXTRA </dev/null ||
+                fail "Unable to install: $JENKINS_BREW_PACKAGES $JENKINS_BREW_EXTRA"
+            ;;
+    esac
+}
+
+# Finds perlbrew under $PERLBREW_ROOT, or installs it there from its own
+# installer, downloaded to a file first and never piped. A perlbrew
+# elsewhere on PATH is never used: the real nodes run the installer one,
+# and the package-manager one is unused.
+jenkins_ensure_perlbrew() {
+    if [ -x "$PERLBREW_ROOT/bin/perlbrew" ]; then
+        PATH="$PERLBREW_ROOT/bin:$PATH"
+        export PATH
+        return 0
+    fi
+    jenkins_say "perlbrew is missing; installing it under $PERLBREW_ROOT"
+    require_command bash
+    perlbrew_installer="$JENKINS_WORK/jenkins-perlbrew-install.sh"
+    download_to_path "$JENKINS_PERLBREW_INSTALLER_URL" "$perlbrew_installer"
+    jenkins_run bash "$perlbrew_installer" ||
+        fail "The perlbrew installer failed"
+    [ -x "$PERLBREW_ROOT/bin/perlbrew" ] ||
+        fail "The perlbrew installer did not create $PERLBREW_ROOT/bin/perlbrew"
+    PATH="$PERLBREW_ROOT/bin:$PATH"
+    export PATH
+}
+
+# How many parallel jobs the Perl build gets: the machine's CPU count
+# (nproc on Linux, sysctl on macOS), or 4 when the count cannot be read.
+jenkins_build_jobs() {
+    jenkins_cpu_count=''
+    if [ "$PLATFORM" = 'darwin' ]; then
+        jenkins_cpu_count=$(sysctl -n hw.ncpu 2>/dev/null || true)
+    else
+        jenkins_cpu_count=$(nproc 2>/dev/null || true)
+    fi
+    case "$jenkins_cpu_count" in
+        ''|*[!0-9]*|0)
+            printf '%s\n' '4'
+            ;;
+        *)
+            printf '%s\n' "$jenkins_cpu_count"
+            ;;
+    esac
+}
+
+# Builds Perl 5.38.2 whatever the system Perl is, and refuses to go on
+# unless that Perl reports exactly 5.38.2.
+jenkins_build_perl() {
+    PERLBREW_ROOT="$HOME/perl5/perlbrew"
+    PERLBREW_HOME="$PERLBREW_ROOT"
+    export PERLBREW_ROOT PERLBREW_HOME
+    JENKINS_PERL_BIN_DIR="$PERLBREW_ROOT/perls/$JENKINS_PERL_NAME/bin"
+    JENKINS_SITE_DIR="$PERLBREW_ROOT/perls/$JENKINS_PERL_NAME/lib/site_perl/$JENKINS_PERL_SHORT"
+    JENKINS_TESTED_STAMP="$PERLBREW_ROOT/perls/$JENKINS_PERL_NAME/.jenkins-compiled-tests-passed"
+    PERL_BIN="$JENKINS_PERL_BIN_DIR/perl"
+
+    mkdir -p "$PERLBREW_ROOT" || fail "Unable to create $PERLBREW_ROOT"
+    jenkins_ensure_perlbrew
+    if [ -x "$PERL_BIN" ]; then
+        jenkins_say "$JENKINS_PERL_NAME is already built"
+    else
+        jenkins_run perlbrew init ||
+            fail "perlbrew init failed while preparing $PERLBREW_ROOT"
+        jenkins_say "building $JENKINS_PERL_NAME with perlbrew; this can take a while"
+        jenkins_build_jobs=$(jenkins_build_jobs)
+        jenkins_run perlbrew install "$JENKINS_PERL_NAME" --notest -j "$jenkins_build_jobs" ||
+            fail "perlbrew failed to build $JENKINS_PERL_NAME under $PERLBREW_ROOT"
+    fi
+    [ -x "$PERL_BIN" ] || fail "perlbrew did not create $PERL_BIN"
+    "$PERL_BIN" -e "exit(\$] == $JENKINS_PERL_NUMBER ? 0 : 1)" </dev/null ||
+        fail "$PERL_BIN is not Perl $JENKINS_PERL_SHORT; refusing to go on"
+    PATH="$JENKINS_PERL_BIN_DIR:$PATH"
+    export PATH
+}
+
+# Puts cpanm inside the 5.38.2 tree. The bootstrap is downloaded to a
+# file first: piped in, with standard input closed, it installs nothing.
+jenkins_install_cpanm() {
+    CPANM_SCRIPT="$JENKINS_PERL_BIN_DIR/cpanm"
+    if [ -x "$CPANM_SCRIPT" ] &&
+        "$CPANM_SCRIPT" --version </dev/null 2>/dev/null | grep -Fq "version $JENKINS_CPANM_VERSION"; then
+        jenkins_say "cpanm $JENKINS_CPANM_VERSION is already in $JENKINS_PERL_NAME"
+        return 0
+    fi
+    jenkins_say "installing cpanm $JENKINS_CPANM_VERSION into $JENKINS_PERL_NAME"
+    cpanm_bootstrap="$JENKINS_WORK/jenkins-cpanm-bootstrap.pl"
+    download_to_path "$JENKINS_CPANM_BOOTSTRAP_URL" "$cpanm_bootstrap"
+    jenkins_run "$PERL_BIN" "$cpanm_bootstrap" --notest "App::cpanminus@$JENKINS_CPANM_VERSION" ||
+        fail "Unable to install cpanm $JENKINS_CPANM_VERSION into $JENKINS_PERL_NAME"
+    [ -x "$CPANM_SCRIPT" ] || fail "cpanm is missing from $JENKINS_PERL_BIN_DIR"
+}
+
+# On macOS native builds must find Homebrew's OpenSSL 3 (Net::SSLeay).
+jenkins_openssl_env() {
+    [ "$PLATFORM" = 'darwin' ] || return 0
+    RC_FILE=''
+    OPENSSL_PREFIX=''
+    export_darwin_openssl_env
+    [ -n "${OPENSSL_PREFIX:-}" ] ||
+        fail "Homebrew openssl@3 was not found; Net::SSLeay cannot be built without it"
+    PATH="$JENKINS_PERL_BIN_DIR:$OPENSSL_PREFIX/bin:$PATH"
+    export PATH
+}
+
+# Says whether a pinned distribution file is already recorded as
+# installed in the 5.38.2 tree. Reads both .meta locations: directly
+# under the site folder and under the arch folder, because the layout
+# differs between machines. A missing or empty site folder means the
+# distribution is not installed, and the glob is never left literal.
+# One grep per call: the install.json files that exist are collected
+# with a shell loop (no process spawns) and grepped in a single
+# invocation. The R84 shape ran one grep per file per call, and the
+# pinned list calls this once per distribution, so the install did
+# 0+1+...+118 = 7,021 grep invocations and crawled on Windows (R90).
+# The file list is held in the positional parameters, so a site path
+# holding a space is passed to grep whole.
+jenkins_dist_installed() {
+    [ -n "$JENKINS_SITE_DIR" ] && [ -d "$JENKINS_SITE_DIR" ] || return 1
+    jenkins_want="\"pathname\":\"$1\""
+    set --
+    for jenkins_meta in "$JENKINS_SITE_DIR"/.meta/*/install.json "$JENKINS_SITE_DIR"/*/.meta/*/install.json; do
+        [ -f "$jenkins_meta" ] || continue
+        set -- "$@" "$jenkins_meta"
+    done
+    [ $# -gt 0 ] || return 1
+    if grep -Fqs "$jenkins_want" "$@"; then
+        return 0
+    fi
+    return 1
+}
+
+# Writes the pathname of every installed pinned distribution, one per
+# line. Reads each install.json on its own: real cpanm writes install.json
+# with no trailing newline, so catting them all together merges them into
+# one line and a single sed pass would keep only the last pathname. Each
+# pathname is printed with its own newline: sed preserves the missing
+# trailing newline, so printing the sed output as-is would concatenate
+# all 119 pathnames into one line again (R88).
+# Reads both .meta locations, directly under the site folder and under the
+# arch folder, because the layout differs between machines.
+jenkins_installed_pathnames() {
+    [ -n "$JENKINS_SITE_DIR" ] && [ -d "$JENKINS_SITE_DIR" ] || return 0
+    for jenkins_meta in "$JENKINS_SITE_DIR"/.meta/*/install.json "$JENKINS_SITE_DIR"/*/.meta/*/install.json; do
+        [ -f "$jenkins_meta" ] || continue
+        jenkins_pathname=$(sed -n 's/.*"pathname":"\([^"]*\)".*/\1/p' "$jenkins_meta")
+        [ -n "$jenkins_pathname" ] && printf '%s\n' "$jenkins_pathname"
+    done
+}
+
+jenkins_list_lines() {
+    sed -e 's/[[:space:]]*$//' -e '/^$/d' "$1"
+}
+
+# Installs the pinned list in list order, one distribution at a time,
+# without running their tests, and stops at the first that fails.
+jenkins_install_pinned_list() {
+    [ -f "$JENKINS_LIST" ] || fail "Missing pinned list: $JENKINS_LIST"
+    jenkins_list_copy="$JENKINS_WORK/pinned-list.txt"
+    jenkins_list_lines "$JENKINS_LIST" > "$jenkins_list_copy"
+    jenkins_total=$(wc -l < "$jenkins_list_copy" | tr -d '[:space:]')
+    jenkins_say "the $jenkins_total pinned distributions, in list order"
+    jenkins_new=0
+    while IFS= read -r jenkins_dist; do
+        if jenkins_dist_installed "$jenkins_dist"; then
+            continue
+        fi
+        rm -f "$JENKINS_TESTED_STAMP"
+        jenkins_run run_cpanm --notest \
+            --mirror https://cpan.metacpan.org --mirror https://backpan.perl.org \
+            "$jenkins_dist" ||
+            fail "Unable to install pinned distribution $jenkins_dist"
+        jenkins_new=$((jenkins_new + 1))
+        say "OK $jenkins_dist"
+    done < "$jenkins_list_copy"
+    jenkins_say "$jenkins_new of $jenkins_total installed now, the rest were already there"
+}
+
+# Runs the own tests of the distributions that hold compiled code, then
+# removes the test-only helpers those tests pull in.
+jenkins_test_compiled_list() {
+    [ -f "$JENKINS_COMPILED_LIST" ] || fail "Missing compiled list: $JENKINS_COMPILED_LIST"
+    if [ -f "$JENKINS_TESTED_STAMP" ]; then
+        jenkins_say "the compiled distributions already passed their own tests"
+        return 0
+    fi
+    jenkins_compiled_copy="$JENKINS_WORK/compiled-list.txt"
+    jenkins_list_lines "$JENKINS_COMPILED_LIST" > "$jenkins_compiled_copy"
+    jenkins_say "the own tests of the compiled distributions"
+    while IFS= read -r jenkins_dist; do
+        jenkins_run run_cpanm --test-only "$jenkins_dist" ||
+            fail "Compiled distribution $jenkins_dist failed its own tests"
+        say "TESTED OK $jenkins_dist"
+    done < "$jenkins_compiled_copy"
+    for jenkins_helper in $JENKINS_TEST_ONLY_HELPERS; do
+        if "$PERL_BIN" "-M$jenkins_helper" -e 1 </dev/null >/dev/null 2>&1; then
+            jenkins_run run_cpanm --uninstall -f "$jenkins_helper" ||
+                fail "Unable to remove the test-only helper $jenkins_helper"
+        fi
+    done
+    : > "$JENKINS_TESTED_STAMP" || fail "Unable to write $JENKINS_TESTED_STAMP"
+}
+
+jenkins_create_agent_root() {
+    mkdir -p "$JENKINS_AGENT_ROOT" || fail "Unable to create $JENKINS_AGENT_ROOT"
+}
+
+jenkins_java_command() {
+    if [ "$PLATFORM" = 'darwin' ]; then
+        jenkins_java_prefix=$(brew --prefix "openjdk@$JENKINS_JAVA_MAJOR" 2>/dev/null || true)
+        if [ -z "$jenkins_java_prefix" ]; then
+            printf '%s\n' "Homebrew openjdk@$JENKINS_JAVA_MAJOR was not found; install it with 'brew install openjdk@$JENKINS_JAVA_MAJOR' and run install.sh --jenkins again" >&2
+            return 1
+        fi
+        if [ ! -d "$jenkins_java_prefix" ]; then
+            printf '%s\n' "Homebrew openjdk@$JENKINS_JAVA_MAJOR prefix $jenkins_java_prefix is not a directory; reinstall it with 'brew reinstall openjdk@$JENKINS_JAVA_MAJOR' and run install.sh --jenkins again" >&2
+            return 1
+        fi
+        printf '%s\n' "$jenkins_java_prefix/bin/java"
+        return 0
+    fi
+    command -v java 2>/dev/null || return 1
+}
+
+# The final check: Java, the Perl, cpanm, the installed distributions
+# against the pinned list, the key modules and the agent root.
+jenkins_verify() {
+    jenkins_say "final check"
+    jenkins_java=$(jenkins_java_command) ||
+        fail "Java $JENKINS_JAVA_MAJOR was not found"
+    jenkins_java_text=$("$jenkins_java" -version 2>&1 </dev/null) ||
+        fail "Java did not run: $jenkins_java"
+    printf '%s\n' "$jenkins_java_text" | grep -Fq "version \"$JENKINS_JAVA_MAJOR." ||
+        fail "$jenkins_java is not Java $JENKINS_JAVA_MAJOR"
+
+    "$PERL_BIN" -e "exit(\$] == $JENKINS_PERL_NUMBER ? 0 : 1)" </dev/null ||
+        fail "$PERL_BIN is not Perl $JENKINS_PERL_SHORT"
+    "$CPANM_SCRIPT" --version </dev/null 2>/dev/null | grep -Fq "version $JENKINS_CPANM_VERSION" ||
+        fail "$CPANM_SCRIPT is not cpanm $JENKINS_CPANM_VERSION"
+
+    jenkins_want="$JENKINS_WORK/want.txt"
+    jenkins_have="$JENKINS_WORK/have.txt"
+    LC_ALL=C sort "$JENKINS_WORK/pinned-list.txt" > "$jenkins_want"
+    jenkins_installed_pathnames | LC_ALL=C sort -u > "$jenkins_have"
+    if ! cmp -s "$jenkins_want" "$jenkins_have"; then
+        diff "$jenkins_want" "$jenkins_have" >&2 || true
+        fail "The installed distributions differ from the pinned list $JENKINS_LIST"
+    fi
+
+    for jenkins_module in $JENKINS_KEY_MODULES; do
+        "$PERL_BIN" "-M$jenkins_module" -e 1 </dev/null ||
+            fail "$jenkins_module does not load in $JENKINS_PERL_NAME"
+    done
+    [ -d "$JENKINS_AGENT_ROOT" ] || fail "Missing agent root $JENKINS_AGENT_ROOT"
+}
+
+jenkins_main() {
+    trap 'jenkins_on_exit $?' EXIT
+    JENKINS_WORK=$(mktemp -d "${TMPDIR:-/tmp}/developer-dashboard-jenkins.XXXXXX") ||
+        fail "Unable to create a work folder under ${TMPDIR:-/tmp}"
+    jenkins_detect_platform
+    jenkins_macos_node_settings
+    jenkins_install_system_packages
+    jenkins_build_perl
+    jenkins_install_cpanm
+    jenkins_openssl_env
+    jenkins_install_pinned_list
+    jenkins_test_compiled_list
+    jenkins_create_agent_root
+    jenkins_verify
+    JENKINS_FINISHED='1'
+    jenkins_say "DONE. This machine is ready to be a Jenkins test node: $JENKINS_PERL_NAME under \$HOME/perl5/perlbrew, $jenkins_total pinned distributions, agent root \$HOME/jenkins."
+}
+
 # Arguments.
 #   (none)      Install Developer Dashboard for this user. This is the
 #               only path there was before arguments existed, and it is
 #               unchanged.
-#   --jenkins   Set this machine up as a Jenkins test node instead. It
-#               does not install the dashboard and does not edit shell
-#               rc files. Not implemented yet: it stops with a message.
+#   --jenkins   Set this machine up as a Jenkins test node instead
+#               (macOS, Debian and Ubuntu). It does not install the
+#               dashboard and does not edit shell rc files.
 # Anything else is refused before anything is installed or changed.
 usage() {
     printf '%s\n' 'Usage: install.sh [--jenkins]' >&2
     printf '%s\n' '  (no argument)  install Developer Dashboard for this user' >&2
     printf '%s\n' '  --jenkins      set this machine up as a Jenkins test node' >&2
-}
-
-jenkins_main() {
-    printf '%s\n' 'install.sh --jenkins: the Jenkins test-node setup is not implemented yet. Nothing was installed or changed.' >&2
-    exit 1
 }
 
 if [ "$#" -eq 0 ]; then

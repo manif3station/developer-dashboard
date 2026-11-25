@@ -1015,6 +1015,590 @@ for my $key (qw(PATH PERL5LIB PERL_LOCAL_LIB_ROOT PERL_MB_OPT PERL_MM_OPT)) {
     }
 }
 
+# >>> Jenkins test-node route >>>
+# Jenkins test-node setup (install.ps1 -Jenkins, or DD_INSTALL_JENKINS=1
+# for the piped form, which cannot take a switch).
+#
+# Takes a Windows machine to a working test node: Strawberry Perl
+# 5.38.2.2 at C:\Strawberry, Java 21, the pinned distributions from
+# share\jenkins installed in list order with Strawberry's own cpanm, the
+# own tests of the compiled ones, the agent root, and a final check. It
+# does not install the dashboard and does not edit any PowerShell
+# profile. Nothing on this route runs unless it is asked for: without
+# the switch and without the variable the installer goes on exactly as
+# it did before this route existed.
+$JenkinsStrawberryRoot = 'C:\Strawberry'
+$JenkinsPerlNumber = '5.038002'
+$JenkinsPerlShort = '5.38.2'
+$JenkinsStrawberryBuild = '5.38.2.2'
+$JenkinsStrawberryMsiName = 'strawberry-perl-5.38.2.2-64bit.msi'
+$JenkinsCpanmVersion = '1.7049'
+$JenkinsGitVersionFull = '2.56.1.windows.1'
+$JenkinsGitInstallerName = 'Git-2.56.1-64-bit.exe'
+# Pinned directly, never resolved from the releases page: the bootstrap
+# resolver that follows 'latest' must not be used for the Jenkins node.
+$JenkinsGitInstallerUrl = 'https://github.com/git-for-windows/git/releases/download/v2.56.1.windows.1/Git-2.56.1-64-bit.exe'
+$JenkinsJavaMajor = '21'
+$JenkinsKeyModules = @('Net::SSLeay', 'JSON::XS', 'Test::Pod')
+$JenkinsTestOnlyHelpers = @('B::COW')
+$JenkinsDistributionPattern = '^[A-Z]/[A-Z]{2}/[A-Z0-9-]+/[A-Za-z0-9._-]+\.tar\.gz$'
+$JenkinsPerlPath = Join-Path $JenkinsStrawberryRoot 'perl\bin\perl.exe'
+# $script: is required here: the reads and the switch writes are all
+# $script:, and the switch must persist in the script scope across
+# functions (Install-JenkinsPinnedList writes it, Test-JenkinsCompiledList
+# reads it through Invoke-JenkinsCpanm).
+$script:JenkinsCpanmPath = Join-Path $JenkinsStrawberryRoot 'perl\bin\cpanm'
+$JenkinsSiteCpanmPath = Join-Path $JenkinsStrawberryRoot 'perl\site\bin\cpanm'
+$JenkinsTestedStamp = Join-Path $JenkinsStrawberryRoot 'perl\.jenkins-compiled-tests-passed'
+$JenkinsWork = ''
+
+function Test-JenkinsRequested {
+    # Purpose: decide whether this run is the Jenkins test-node route.
+    # Input: the arguments given to install.ps1 and the DD_INSTALL_JENKINS environment variable.
+    # Output: returns $true for -Jenkins or DD_INSTALL_JENKINS=1, $false when neither is given, and throws for any other value of the variable.
+    param(
+        [AllowNull()]
+        [object[]]$Arguments
+    )
+
+    foreach ($argument in @($Arguments)) {
+        if ([string]$argument -ieq '-Jenkins') {
+            return $true
+        }
+    }
+
+    $flag = $env:DD_INSTALL_JENKINS
+    if ([string]::IsNullOrWhiteSpace($flag)) {
+        return $false
+    }
+    if ($flag.Trim() -eq '1') {
+        return $true
+    }
+
+    throw "install.ps1: DD_INSTALL_JENKINS must be 1 or unset, not '$flag'. Nothing was installed or changed."
+}
+
+function Write-JenkinsLine {
+    # Purpose: print one progress line for the Jenkins test-node route.
+    # Input: the message text.
+    # Output: writes the prefixed line to the terminal and returns nothing.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    Write-Host "install.ps1 -Jenkins: $Message"
+}
+
+function Test-JenkinsCommandSucceeds {
+    # Purpose: run a short native check quietly and report whether it exited with zero.
+    # Input: an executable path and its argument array.
+    # Output: returns $true when the command exits with zero, otherwise $false.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $FilePath @Arguments 2>&1 | Out-Null
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Invoke-JenkinsCpanm {
+    # Purpose: run the pinned cpanm with standard input closed so no build can stop to ask a question.
+    # Input: a label for diagnostics and the cpanm argument array.
+    # Output: streams the cpanm output and throws on a non-zero exit status.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Label,
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    # Each argument is quoted on its own, with embedded quotes doubled,
+    # so an argument holding a space stays one argument on the cmd.exe
+    # command line and stdin stays closed on < NUL.
+    $quotedArguments = @($Arguments | ForEach-Object { '"' + ($_.Replace('"', '""')) + '"' })
+    $commandLine = ('{0} {1} {2} < NUL' -f ('"' + $JenkinsPerlPath + '"'), ('"' + $script:JenkinsCpanmPath + '"'), ($quotedArguments -join ' '))
+    Invoke-NativeCommand -Label $Label -FilePath 'cmd.exe' -Arguments @('/d', '/c', $commandLine)
+}
+
+function Resolve-JenkinsStrawberryMsiUrl {
+    # Purpose: find the download address of the one pinned Strawberry Perl installer in the official release feed.
+    # Input: none.
+    # Output: returns the https MSI URL whose file name is the pinned installer, or throws when the feed does not list it.
+    $releases = Get-RemoteJson -Uri 'https://strawberryperl.com/releases.json' -Label 'Strawberry Perl releases feed'
+    foreach ($release in $releases) {
+        $url = ''
+        try {
+            $url = [string]$release.edition.msi.url
+        }
+        catch {
+            $url = ''
+        }
+        if ([string]::IsNullOrWhiteSpace($url)) {
+            continue
+        }
+        if ($url.EndsWith('/' + $JenkinsStrawberryMsiName)) {
+            return $url
+        }
+    }
+
+    throw "The official Strawberry Perl release feed does not list $JenkinsStrawberryMsiName."
+}
+
+function Assert-JenkinsPerlVersion {
+    # Purpose: refuse to go on unless the Perl at the pinned path is exactly the pinned Strawberry Perl.
+    # Input: none; reads the pinned perl.exe path.
+    # Output: returns nothing when the Perl is right and throws otherwise.
+    if (-not (Test-Path -LiteralPath $JenkinsPerlPath -PathType Leaf)) {
+        throw "Missing $JenkinsPerlPath"
+    }
+
+    $versionCode = 'exit($] == ' + $JenkinsPerlNumber + ' ? 0 : 1)'
+    if (-not (Test-JenkinsCommandSucceeds -FilePath $JenkinsPerlPath -Arguments @('-e', $versionCode))) {
+        throw "$JenkinsPerlPath is not Perl $JenkinsPerlShort; refusing to go on"
+    }
+
+    $buildCode = 'exit(index($Config{myuname}, q(strawberry-perl ' + $JenkinsStrawberryBuild + ')) >= 0 ? 0 : 1)'
+    if (-not (Test-JenkinsCommandSucceeds -FilePath $JenkinsPerlPath -Arguments @('-MConfig', '-e', $buildCode))) {
+        throw "$JenkinsPerlPath is not Strawberry Perl $JenkinsStrawberryBuild; refusing to go on"
+    }
+}
+
+function Install-JenkinsStrawberryPerl {
+    # Purpose: make sure the pinned Strawberry Perl is at the pinned root, installing it only when nothing is there.
+    # Input: none; reads the pinned root, installer name and work folder.
+    # Output: returns nothing after the pinned Perl is present, checked and on PATH; throws otherwise.
+    if (Test-Path -LiteralPath $JenkinsPerlPath -PathType Leaf) {
+        Write-JenkinsLine -Message "a Perl is already at $JenkinsStrawberryRoot"
+    }
+    else {
+        if (Test-Path -LiteralPath $JenkinsStrawberryRoot) {
+            throw "$JenkinsStrawberryRoot exists but holds no perl\bin\perl.exe; refusing to install over it"
+        }
+        Write-JenkinsLine -Message "installing Strawberry Perl $JenkinsStrawberryBuild to $JenkinsStrawberryRoot"
+        $msiUrl = Resolve-JenkinsStrawberryMsiUrl
+        $msiPath = Join-Path $JenkinsWork $JenkinsStrawberryMsiName
+        Download-RemoteFile -Uri $msiUrl -DestinationPath $msiPath -Label 'Strawberry Perl pinned installer download'
+        Invoke-InstallerCommand -Label 'Strawberry Perl pinned installer' -FilePath 'msiexec.exe' -Arguments @('/i', $msiPath, '/qn', '/norestart')
+    }
+
+    Assert-JenkinsPerlVersion
+    Add-StrawberryPaths -PerlPath $JenkinsPerlPath
+    if (-not (Test-Path -LiteralPath $script:JenkinsCpanmPath -PathType Leaf)) {
+        throw "Strawberry's own cpanm is missing at $JenkinsCpanmPath"
+    }
+}
+
+function Test-JenkinsGitVersion {
+    # Purpose: say whether one git.exe reports the pinned Git for Windows version.
+    # Input: a git.exe path.
+    # Output: returns $true when it runs and reports 2.56.1.windows.1, otherwise $false.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GitPath
+    )
+
+    $versionText = ''
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $versionText = (& $GitPath '--version' 2>&1 | ForEach-Object { [string]$_ }) -join ' '
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+    return ($versionText -match ('git version ' + [Regex]::Escape($JenkinsGitVersionFull) + '(?:\s|$)'))
+}
+
+function Resolve-JenkinsGitPath {
+    # Purpose: find a git.exe that reports the pinned Git for Windows version.
+    # Input: none; looks on PATH and at the default Git for Windows install path.
+    # Output: returns the git.exe path, or an empty string when there is none.
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    $gitOnPath = Resolve-CommandPath -Names @('git.exe')
+    if (-not [string]::IsNullOrWhiteSpace($gitOnPath)) {
+        $null = $candidates.Add($gitOnPath)
+    }
+    $defaultGitPath = ''
+    if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+        $defaultGitPath = Join-Path $env:ProgramFiles 'Git\cmd\git.exe'
+        $null = $candidates.Add($defaultGitPath)
+    }
+
+    foreach ($candidate in $candidates) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            continue
+        }
+        if (Test-JenkinsGitVersion -GitPath $candidate) {
+            return $candidate
+        }
+    }
+    return ''
+}
+
+function Install-JenkinsGit {
+    # Purpose: make sure the pinned Git for Windows is installed, installing it only when no git.exe reports the pinned version.
+    # Input: none; reads the pinned installer URL and the work folder.
+    # Output: returns the git.exe path that reports the pinned version; throws otherwise.
+    $gitPath = Resolve-JenkinsGitPath
+    if (-not [string]::IsNullOrWhiteSpace($gitPath)) {
+        Write-JenkinsLine -Message "Git $JenkinsGitVersionFull is already installed"
+        return $gitPath
+    }
+
+    Write-JenkinsLine -Message "installing Git for Windows $JenkinsGitVersionFull"
+    $exePath = Join-Path $JenkinsWork $JenkinsGitInstallerName
+    Download-RemoteFile -Uri $JenkinsGitInstallerUrl -DestinationPath $exePath -Label 'Git for Windows pinned installer download'
+    Invoke-InstallerCommand -Label 'Git for Windows pinned installer' -FilePath $exePath -Arguments @('/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES')
+
+    $gitPath = Resolve-JenkinsGitPath
+    if ([string]::IsNullOrWhiteSpace($gitPath)) {
+        throw "Git $JenkinsGitVersionFull was not found after its installer ran"
+    }
+    return $gitPath
+}
+
+function Test-JenkinsJavaVersion {
+    # Purpose: say whether one java.exe is the pinned major version.
+    # Input: a java.exe path.
+    # Output: returns $true when it runs and reports the pinned major version, otherwise $false.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$JavaPath
+    )
+
+    $versionText = ''
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $versionText = (& $JavaPath '-version' 2>&1 | ForEach-Object { [string]$_ }) -join ' '
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+    return ($versionText -match ('version "' + $JenkinsJavaMajor + '\.'))
+}
+
+function Resolve-JenkinsJavaPath {
+    # Purpose: find the Java the agent will run on.
+    # Input: the DD_INSTALL_JENKINS_JAVA environment variable, the java21 folder under the user's home directory, and PATH.
+    # Output: returns the first java.exe that reports the pinned major version, or throws when there is none.
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    if (-not [string]::IsNullOrWhiteSpace($env:DD_INSTALL_JENKINS_JAVA)) {
+        $null = $candidates.Add($env:DD_INSTALL_JENKINS_JAVA)
+    }
+
+    $javaFolder = Join-Path (Resolve-HomeDirectory) 'java21'
+    if (Test-Path -LiteralPath $javaFolder -PathType Container) {
+        foreach ($runtime in @(Get-ChildItem -LiteralPath $javaFolder -Directory)) {
+            $null = $candidates.Add((Join-Path $runtime.FullName 'bin\java.exe'))
+        }
+    }
+
+    $javaOnPath = Resolve-CommandPath -Names @('java.exe')
+    if (-not [string]::IsNullOrWhiteSpace($javaOnPath)) {
+        $null = $candidates.Add($javaOnPath)
+    }
+
+    foreach ($candidate in $candidates) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            continue
+        }
+        $isPinnedJava = Test-JenkinsJavaVersion -JavaPath $candidate
+        if ($isPinnedJava) {
+            return $candidate
+        }
+    }
+
+    throw "Java $JenkinsJavaMajor was not found. Unpack a Java $JenkinsJavaMajor runtime into the java21 folder under the home directory, or name its java.exe in DD_INSTALL_JENKINS_JAVA."
+}
+
+function Resolve-JenkinsListFolder {
+    # Purpose: find the folder that holds the pinned lists.
+    # Input: the DD_INSTALL_JENKINS_LIST_DIR environment variable and the folder install.ps1 was run from.
+    # Output: returns the folder path, or throws when the script was piped and no folder was named.
+    if (-not [string]::IsNullOrWhiteSpace($env:DD_INSTALL_JENKINS_LIST_DIR)) {
+        return $env:DD_INSTALL_JENKINS_LIST_DIR
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        return (Join-Path $PSScriptRoot 'share\jenkins')
+    }
+
+    throw 'The pinned lists were not found. Run install.ps1 from a checkout, or name the folder that holds them in DD_INSTALL_JENKINS_LIST_DIR.'
+}
+
+function Get-JenkinsListLines {
+    # Purpose: read one pinned list and refuse any line that is not a plain CPAN distribution file path.
+    # Input: the list file path.
+    # Output: returns the non-empty lines in file order, or throws when the file is missing or a line is malformed.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Missing pinned list: $Path"
+    }
+
+    $lines = @(Get-Content -LiteralPath $Path | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+    foreach ($line in $lines) {
+        if ($line -cnotmatch $JenkinsDistributionPattern) {
+            throw "Malformed line in ${Path}: $line"
+        }
+    }
+    return $lines
+}
+
+function Get-JenkinsInstalledDistributions {
+    # Purpose: read which distribution files cpanm has recorded as installed in the pinned Perl.
+    # Input: none; asks the pinned Perl where its site folders are.
+    # Output: returns a hash table keyed by distribution file path.
+    $siteFolders = @()
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        # Both site folders are asked for: the layout differs between
+        # machines, and on some (Strawberry Perl) the two keys return the
+        # same non-arch path. The .meta folders are found below, directly
+        # under each site folder and under each of its subdirectories.
+        # $LASTEXITCODE is read inside the loop: after the loop it holds
+        # only the second call's exit code, so a non-zero exit from the
+        # first call would go undetected.
+        foreach ($siteKey in @('sitearchexp', 'sitelibexp')) {
+            $siteFolders += [string](& $JenkinsPerlPath '-MConfig' '-e' ('print $Config{' + $siteKey + '}'))
+            if ($LASTEXITCODE -ne 0) {
+                throw "Unable to ask $JenkinsPerlPath for its site folder ($siteKey)"
+            }
+        }
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ([string]::IsNullOrWhiteSpace($siteFolders[0]) -or [string]::IsNullOrWhiteSpace($siteFolders[1])) {
+        throw "Unable to ask $JenkinsPerlPath for its site folders"
+    }
+
+    $installed = @{}
+    foreach ($siteFolder in $siteFolders) {
+        # .meta directly under the site folder, and .meta under each
+        # immediate subdirectory (the arch folder): the pinned Perl reports
+        # sitearchexp as the non-arch site lib, while cpanm records the
+        # distributions under the arch subdir's .meta, so reading only the
+        # site folder itself finds nothing.
+        $metaFolders = @(Join-Path $siteFolder '.meta')
+        foreach ($subFolder in @(Get-ChildItem -LiteralPath $siteFolder -Directory -ErrorAction SilentlyContinue)) {
+            $metaFolders += Join-Path $subFolder.FullName '.meta'
+        }
+        foreach ($metaFolder in $metaFolders) {
+            if (Test-Path -LiteralPath $metaFolder -PathType Container) {
+                foreach ($record in @(Get-ChildItem -LiteralPath $metaFolder -Recurse -File -Filter 'install.json')) {
+                    $recordText = [string](Get-Content -LiteralPath $record.FullName -Raw)
+                    if ($recordText -match '"pathname"\s*:\s*"([^"]+)"') {
+                        $installed[$matches[1]] = $true
+                    }
+                }
+            }
+        }
+    }
+    return $installed
+}
+
+function Install-JenkinsPinnedList {
+    # Purpose: install the pinned list in list order, one distribution at a time, without running their tests.
+    # Input: the list lines in install order.
+    # Output: returns nothing; stops at the first distribution that fails to install.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Distributions
+    )
+
+    Write-JenkinsLine -Message ("the {0} pinned distributions, in list order" -f $Distributions.Count)
+    $installed = Get-JenkinsInstalledDistributions
+    $installedNow = 0
+    # Prefer the pinned cpanm from the start when it is already there, as
+    # on a second run.
+    if (Test-Path -LiteralPath $JenkinsSiteCpanmPath -PathType Leaf) {
+        $script:JenkinsCpanmPath = $JenkinsSiteCpanmPath
+    }
+    foreach ($distribution in $Distributions) {
+        if ($installed.ContainsKey($distribution)) {
+            continue
+        }
+        if (Test-Path -LiteralPath $JenkinsTestedStamp) {
+            Remove-Item -LiteralPath $JenkinsTestedStamp -Force
+        }
+        Invoke-JenkinsCpanm -Label "cpanm --notest $distribution" -Arguments @('--notest', $distribution)
+        $installedNow++
+        Write-Host "OK $distribution"
+        # The first line installs the pinned cpanm itself; use it for
+        # every line after that.
+        if (Test-Path -LiteralPath $JenkinsSiteCpanmPath -PathType Leaf) {
+            $script:JenkinsCpanmPath = $JenkinsSiteCpanmPath
+        }
+    }
+    Write-JenkinsLine -Message ("{0} of {1} installed now, the rest were already there" -f $installedNow, $Distributions.Count)
+}
+
+function Test-JenkinsCompiledList {
+    # Purpose: run the own tests of the distributions that hold compiled code, then remove the test-only helper those tests pull in.
+    # Input: the compiled list lines.
+    # Output: returns nothing; stops at the first distribution whose own tests fail.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Distributions
+    )
+
+    if (Test-Path -LiteralPath $JenkinsTestedStamp) {
+        Write-JenkinsLine -Message 'the compiled distributions already passed their own tests'
+        return
+    }
+
+    Write-JenkinsLine -Message 'the own tests of the compiled distributions'
+    foreach ($distribution in $Distributions) {
+        Invoke-JenkinsCpanm -Label "cpanm --test-only $distribution" -Arguments @('--test-only', $distribution)
+        Write-Host "TESTED OK $distribution"
+    }
+    foreach ($helper in $JenkinsTestOnlyHelpers) {
+        $helperLoads = Test-JenkinsCommandSucceeds -FilePath $JenkinsPerlPath -Arguments @("-M$helper", '-e', '1')
+        if ($helperLoads) {
+            Invoke-JenkinsCpanm -Label "cpanm --uninstall $helper" -Arguments @('--uninstall', '-f', $helper)
+        }
+    }
+    Set-Content -LiteralPath $JenkinsTestedStamp -Value 'passed' -Encoding ASCII
+}
+
+function New-JenkinsAgentRoot {
+    # Purpose: create the folder the Jenkins agent works in, when one was named.
+    # Input: the DD_INSTALL_JENKINS_AGENT_ROOT environment variable.
+    # Output: returns the folder path, or an empty string when none was named.
+    if ([string]::IsNullOrWhiteSpace($env:DD_INSTALL_JENKINS_AGENT_ROOT)) {
+        Write-JenkinsLine -Message 'no agent root was named in DD_INSTALL_JENKINS_AGENT_ROOT, so none is created'
+        return ''
+    }
+
+    $agentRoot = $env:DD_INSTALL_JENKINS_AGENT_ROOT
+    if (-not (Test-Path -LiteralPath $agentRoot -PathType Container)) {
+        $null = New-Item -ItemType Directory -Path $agentRoot -Force
+    }
+    return $agentRoot
+}
+
+function Assert-JenkinsNodeReady {
+    # Purpose: the final check of the Jenkins test-node route.
+    # Input: the java.exe path, the git.exe path, the pinned list lines and the agent root (may be empty).
+    # Output: returns nothing when Java, Git, the Perl, cpanm, the pinned list, the key modules and the agent root are all right; throws otherwise.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$JavaPath,
+        [Parameter(Mandatory = $true)]
+        [string]$GitPath,
+        [Parameter(Mandatory = $true)]
+        [string[]]$Distributions,
+        [AllowEmptyString()]
+        [string]$AgentRoot = ''
+    )
+
+    Write-JenkinsLine -Message 'final check'
+    $isPinnedJava = Test-JenkinsJavaVersion -JavaPath $JavaPath
+    if (-not $isPinnedJava) {
+        throw "$JavaPath is not Java $JenkinsJavaMajor"
+    }
+
+    $isPinnedGit = Test-JenkinsGitVersion -GitPath $GitPath
+    if (-not $isPinnedGit) {
+        throw "$GitPath is not Git $JenkinsGitVersionFull"
+    }
+
+    Assert-JenkinsPerlVersion
+
+    $cpanmCode = 'exit($App::cpanminus::VERSION == ' + $JenkinsCpanmVersion + ' ? 0 : 1)'
+    if (-not (Test-JenkinsCommandSucceeds -FilePath $JenkinsPerlPath -Arguments @('-MApp::cpanminus', '-e', $cpanmCode))) {
+        throw "App::cpanminus $JenkinsCpanmVersion does not load in $JenkinsPerlPath"
+    }
+
+    $installed = Get-JenkinsInstalledDistributions
+    $missing = @($Distributions | Where-Object { -not $installed.ContainsKey($_) })
+    if ($missing.Count -gt 0) {
+        throw ("These pinned distributions are not recorded as installed: {0}" -f ($missing -join ', '))
+    }
+
+    foreach ($module in $JenkinsKeyModules) {
+        if (-not (Test-JenkinsCommandSucceeds -FilePath $JenkinsPerlPath -Arguments @("-M$module", '-e', '1'))) {
+            throw "$module does not load in $JenkinsPerlPath"
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($AgentRoot) -and -not (Test-Path -LiteralPath $AgentRoot -PathType Container)) {
+        throw "Missing agent root $AgentRoot"
+    }
+}
+
+function Invoke-JenkinsNodeSetup {
+    # Purpose: run the whole Jenkins test-node route and end with one DONE or FAILED line.
+    # Input: none; reads the pinned settings above and the DD_INSTALL_JENKINS_* environment variables.
+    # Output: returns nothing after the DONE line; prints the FAILED line and rethrows on any failure.
+    try {
+        # A unique work folder per run, mirroring the POSIX side
+        # (install.sh creates JENKINS_WORK with mktemp -d): a fixed
+        # folder would collide with a stale one from an earlier run.
+        # The assignment is bare on purpose. The whole script runs
+        # inside `& { ... } @args`, so a $script: assignment would
+        # write to the outer script scope while the reads resolve to
+        # the empty string in the wrapper's child scope. A bare
+        # assignment stays in this function's scope, which the
+        # New-Item, the install steps it calls, and the finally
+        # block can all read under PowerShell's dynamic scoping.
+        $JenkinsWork = Join-Path ([IO.Path]::GetTempPath()) ('developer-dashboard-jenkins-' + [Guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $JenkinsWork -Force
+        $listFolder = Resolve-JenkinsListFolder
+        $pinnedList = @(Get-JenkinsListLines -Path (Join-Path $listFolder 'modules-windows.txt'))
+        $compiledList = @(Get-JenkinsListLines -Path (Join-Path $listFolder 'modules-compiled-windows.txt'))
+
+        Install-JenkinsStrawberryPerl
+        $gitPath = Install-JenkinsGit
+        $javaPath = Resolve-JenkinsJavaPath
+        Write-JenkinsLine -Message "Java $JenkinsJavaMajor found"
+        Install-JenkinsPinnedList -Distributions $pinnedList
+        Test-JenkinsCompiledList -Distributions $compiledList
+        $agentRoot = New-JenkinsAgentRoot
+        Assert-JenkinsNodeReady -JavaPath $javaPath -GitPath $gitPath -Distributions $pinnedList -AgentRoot $agentRoot
+
+        $agentRootText = if ([string]::IsNullOrWhiteSpace($agentRoot)) { 'no agent root named' } else { 'agent root created' }
+        Write-JenkinsLine -Message ("DONE. This machine is ready to be a Jenkins test node: Strawberry Perl {0} at {1}, Java {2}, {3} pinned distributions, {4}." -f $JenkinsStrawberryBuild, $JenkinsStrawberryRoot, $JenkinsJavaMajor, $pinnedList.Count, $agentRootText)
+    }
+    catch {
+        Write-Host ("install.ps1 -Jenkins: FAILED ({0}). This machine is not ready to be a Jenkins test node." -f $_.Exception.Message) -ForegroundColor Red
+        throw
+    }
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace($JenkinsWork) -and (Test-Path -LiteralPath $JenkinsWork)) {
+            Remove-Item -LiteralPath $JenkinsWork -Recurse -Force
+        }
+    }
+}
+
+if (Test-JenkinsRequested -Arguments $args) {
+    Invoke-JenkinsNodeSetup
+    return
+}
+# <<< Jenkins test-node route <<<
+
 Show-ProgressBoard
 
 Set-StepStatus -Id 'detect_profile' -Status 'running'

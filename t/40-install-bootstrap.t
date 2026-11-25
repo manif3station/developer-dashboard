@@ -1188,9 +1188,10 @@ SH
 }
 
 # install.sh arguments. No argument is the existing path, covered by every
-# scenario above. Anything else must be settled before a single tool runs,
-# so each scenario here seeds the full set of fake tools and then checks
-# that none of them was called and no shell rc file was written.
+# scenario above. An unknown argument must be settled before a single tool
+# runs, so each scenario here seeds the full set of fake tools and then
+# checks that none of them was called and no shell rc file was written.
+# --jenkins alone is the test-node route, covered further down.
 for my $case (
     {
         label  => 'an unknown argument',
@@ -1203,12 +1204,6 @@ for my $case (
         args   => q{'--jenkins' 'extra'},
         exit   => 2,
         stderr => qr/install\.sh: unknown argument: --jenkins extra\n.*Usage: install\.sh \[--jenkins\]/s,
-    },
-    {
-        label  => '--jenkins',
-        args   => q{'--jenkins'},
-        exit   => 1,
-        stderr => qr/\Ainstall\.sh --jenkins: the Jenkins test-node setup is not implemented yet\. Nothing was installed or changed\.\n\z/,
     },
   )
 {
@@ -1238,6 +1233,843 @@ for my $case (
     is_deeply( [ _log_lines($log) ], [], "install.sh given $case->{label} calls no package manager, perlbrew, cpanm or d2" );
     my @written = grep { -e File::Spec->catfile( $home, $_ ) } qw(.bashrc .profile .bash_profile .zshrc .zprofile perl5 .developer-dashboard);
     is_deeply( \@written, [], "install.sh given $case->{label} writes no shell rc file and creates nothing under the home directory" );
+}
+
+# install.sh --jenkins: the Jenkins test-node route. Every scenario runs
+# against fake tools only (see _seed_fake_jenkins_commands), so nothing is
+# downloaded, built or installed for real.
+my @jenkins_list     = _plain_lines( File::Spec->catfile( $root, 'share', 'jenkins', 'modules-unix.txt' ) );
+my @jenkins_compiled = _plain_lines( File::Spec->catfile( $root, 'share', 'jenkins', 'modules-compiled.txt' ) );
+my @jenkins_rc_names = qw(.bashrc .profile .bash_profile .zshrc .zprofile .developer-dashboard);
+my $jenkins_install_prefix = 'cpanm --no-wget --notest --mirror https://cpan.metacpan.org --mirror https://backpan.perl.org ';
+
+{
+    my $home     = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log      = File::Spec->catfile( $fake_bin, 'install.log' );
+    _seed_fake_install_commands( fake_bin => $fake_bin, log => $log );
+    _seed_fake_jenkins_commands( fake_bin => $fake_bin, log => $log, perlbrew_on_path => 1 );
+    my $env_prefix = _jenkins_env_prefix(
+        HOME                       => $home,
+        PATH                       => _msys_path($fake_bin) . ':' . _base_path(),
+        DD_INSTALL_OS_OVERRIDE     => 'debian',
+        DD_INSTALL_DEBIAN_VERSION_ID => '13',
+    );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' --jenkins");
+    };
+    is( $exit >> 8, 0, 'install.sh --jenkins succeeds on a Debian-family host with fake tools' )
+      or diag $stdout . $stderr;
+    like( $stdout, qr/^install\.sh --jenkins: DONE\. /m, 'install.sh --jenkins ends with one clear DONE line on a Debian-family host' );
+    unlike( $stderr, qr/FAILED/, 'install.sh --jenkins prints no FAILED line when it finishes' );
+
+    my @log_lines = _log_lines($log);
+    is(
+        scalar( grep { $_ eq 'perlbrew install perl-5.38.2 --notest -j 6' } @log_lines ),
+        1,
+        'install.sh --jenkins asks perlbrew for perl-5.38.2 with -j from the CPU count',
+    );
+    ok(
+        scalar( grep { m{\Acurl -fsSL https://install\.perlbrew\.pl -o \S+/jenkins-perlbrew-install\.sh\z} } @log_lines )
+          && scalar( grep { m{\A/bin/bash \S+/jenkins-perlbrew-install\.sh\z} } @log_lines ),
+        'install.sh --jenkins installs its own perlbrew from the installer even when a perlbrew is already on PATH',
+    );
+    ok(
+        scalar( grep { $_ eq 'perl -e exit($] == 5.038002 ? 0 : 1)' } @log_lines ),
+        'install.sh --jenkins asks the built Perl whether it is exactly 5.38.2',
+    );
+    ok(
+        scalar( grep { m{\Acurl -fsSL https://cpanmin\.us -o \S+/jenkins-cpanm-bootstrap\.pl\z} } @log_lines ),
+        'install.sh --jenkins downloads the cpanm bootstrap to a file instead of piping it',
+    );
+    ok(
+        scalar( grep { m{\Aperl \S+/jenkins-cpanm-bootstrap\.pl --notest App::cpanminus\@1\.7049\z} } @log_lines ),
+        'install.sh --jenkins installs cpanm 1.7049 with the built Perl',
+    );
+    is_deeply(
+        [ grep { index( $_, 'cpanm --no-wget --notest ' ) == 0 } @log_lines ],
+        [ map { $jenkins_install_prefix . $_ } @jenkins_list ],
+        'install.sh --jenkins calls cpanm --notest once for each line of the pinned list, in list order',
+    );
+    is_deeply(
+        [ grep { index( $_, 'cpanm --no-wget --test-only ' ) == 0 } @log_lines ],
+        [ map { 'cpanm --no-wget --test-only ' . $_ } @jenkins_compiled ],
+        'install.sh --jenkins runs the own tests of each compiled distribution, in list order',
+    );
+    is_deeply(
+        [ grep { index( $_, 'cpanm --no-wget --uninstall ' ) == 0 } @log_lines ],
+        [ map { 'cpanm --no-wget --uninstall -f ' . $_ } qw(Test::LeakTrace Test::Requires Test::Warnings Test::Fatal B::COW) ],
+        'install.sh --jenkins removes the test-only helpers the compiled tests pull in',
+    );
+    ok(
+        scalar( grep { m{\Aapt-get install -y build-essential ca-certificates curl git libcrypt-dev libexpat1-dev libssl-dev pkg-config zlib1g-dev openjdk-21-jre-headless make\z} } @log_lines ),
+        'install.sh --jenkins installs the small package set, Java 21 and make on a Debian-family host, not the full manifest',
+    );
+    is_deeply(
+        [ grep { m{\Aapt-get install -y .*?(?:cpanminus|perlbrew|nodejs|npm|perl|tmux)(?:\s|\z)} } @log_lines ],
+        [],
+        'install.sh --jenkins installs no manifest extra on a Debian-family host: no cpanminus, perlbrew, nodejs, npm, perl or tmux',
+    );
+    is_deeply(
+        [ grep { m{\A(?:d2 |cpanm .*local::lib|cpanm .* \.\z)} } @log_lines ],
+        [],
+        'install.sh --jenkins does not install or initialise the dashboard',
+    );
+    is_deeply(
+        [ grep { -e File::Spec->catfile( $home, $_ ) } @jenkins_rc_names ],
+        [],
+        'install.sh --jenkins writes no shell rc file and no dashboard runtime',
+    );
+    is_deeply(
+        [ grep { m{\A(?:sudo -n )?(?:systemsetup|pmset|sntp) } } @log_lines ],
+        [],
+        'install.sh --jenkins leaves the macOS-only settings step out on a Debian-family host',
+    );
+    ok( -d File::Spec->catdir( $home, 'jenkins' ), 'install.sh --jenkins creates the agent remote root under the home directory' );
+
+    my $first_run_lines = scalar @log_lines;
+    my ( $stdout_again, $stderr_again, $exit_again ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' --jenkins");
+    };
+    is( $exit_again >> 8, 0, 'install.sh --jenkins succeeds again on a finished node' )
+      or diag $stdout_again . $stderr_again;
+    like( $stdout_again, qr/^install\.sh --jenkins: DONE\. /m, 'install.sh --jenkins still ends DONE on a finished node' );
+    my @second_run = _log_lines($log);
+    splice @second_run, 0, $first_run_lines;
+    is_deeply(
+        [ grep { m{\A(?:perlbrew install |perl \S+jenkins-cpanm-bootstrap|cpanm --no-wget --(?:notest|test-only|uninstall) )} } @second_run ],
+        [],
+        'install.sh --jenkins builds, installs and tests nothing a second time on a finished node',
+    );
+    is_deeply(
+        [ grep { $_ =~ /install\.perlbrew\.pl/ } @second_run ],
+        [],
+        'install.sh --jenkins does not download the perlbrew installer a second time on a finished node',
+    );
+}
+
+{
+    my $home     = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log      = File::Spec->catfile( $fake_bin, 'install.log' );
+    _seed_fake_install_commands( fake_bin => $fake_bin, log => $log, fake_perlbrew_on_path => 0 );
+    _seed_fake_jenkins_commands( fake_bin => $fake_bin, log => $log, perlbrew_on_path => 0 );
+    my $env_prefix = _jenkins_env_prefix(
+        HOME                   => $home,
+        PATH                   => _msys_path($fake_bin) . ':' . _path_hiding_command('perlbrew'),
+        DD_INSTALL_OS_OVERRIDE => 'darwin',
+    );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' --jenkins");
+    };
+    is( $exit >> 8, 0, 'install.sh --jenkins succeeds on a macOS host with fake tools' )
+      or diag $stdout . $stderr;
+    like( $stdout, qr/^install\.sh --jenkins: DONE\. /m, 'install.sh --jenkins ends with one clear DONE line on a macOS host' );
+
+    my @log_lines = _log_lines($log);
+    is_deeply(
+        [ grep { m{\A(?:systemsetup|pmset|sntp) } } @log_lines ],
+        [
+            'systemsetup -setnetworktimeserver time.apple.com',
+            'systemsetup -setusingnetworktime on',
+            'pmset -a powernap 0 sleep 0 disksleep 0 displaysleep 0 standby 0 hibernatemode 0 autopoweroff 0',
+            'sntp -sS time.apple.com',
+        ],
+        'install.sh --jenkins runs the time-server and no-sleep settings step on a macOS host',
+    );
+    ok(
+        scalar( grep { $_ eq 'brew install curl expat git pkgconf openjdk@21 openssl@3 make' } @log_lines ),
+        'install.sh --jenkins installs the small package set, Java 21, OpenSSL 3 and make on a macOS host, not the full manifest',
+    );
+    is_deeply(
+        [ grep { m{\Abrew install .*?(?:cpanminus|node|perl|tmux)(?:\s|\z)} } @log_lines ],
+        [],
+        'install.sh --jenkins installs no manifest extra on a macOS host: no cpanminus, node, perl or tmux',
+    );
+    ok(
+        scalar( grep { m{\Acurl -fsSL https://install\.perlbrew\.pl -o \S+/jenkins-perlbrew-install\.sh\z} } @log_lines )
+          && scalar( grep { m{\A/bin/bash \S+/jenkins-perlbrew-install\.sh\z} } @log_lines ),
+        'install.sh --jenkins downloads the perlbrew installer to a file and runs it when perlbrew is missing',
+    );
+    is(
+        scalar( grep { $_ eq 'perlbrew install perl-5.38.2 --notest -j 6' } @log_lines ),
+        1,
+        'install.sh --jenkins builds perl-5.38.2 with the perlbrew it installed under the home directory, with -j from the CPU count',
+    );
+    ok(
+        scalar( grep { $_ eq 'brew --prefix openssl@3' } @log_lines ),
+        'install.sh --jenkins points native builds at Homebrew openssl@3 on a macOS host',
+    );
+    is_deeply(
+        [ grep { index( $_, 'cpanm --no-wget --notest ' ) == 0 } @log_lines ],
+        [ map { $jenkins_install_prefix . $_ } @jenkins_list ],
+        'install.sh --jenkins installs the whole pinned list in list order on a macOS host',
+    );
+    is_deeply(
+        [ ( grep { -e File::Spec->catfile( $home, $_ ) } @jenkins_rc_names ), ( grep { m{\Ad2 } } @log_lines ) ],
+        [],
+        'install.sh --jenkins writes no shell rc file and never calls d2 on a macOS host',
+    );
+}
+
+{
+    # The --jenkins route creates its work folder under TMPDIR, so a
+    # TMPDIR that holds a space must not break it.
+    my $home     = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log      = File::Spec->catfile( $fake_bin, 'install.log' );
+    _seed_fake_install_commands( fake_bin => $fake_bin, log => $log );
+    _seed_fake_jenkins_commands( fake_bin => $fake_bin, log => $log, perlbrew_on_path => 1 );
+    my $spaced_tmp = File::Spec->catdir( $home, 'with space' );
+    make_path($spaced_tmp);
+    my $env_prefix = _jenkins_env_prefix(
+        HOME                       => $home,
+        TMPDIR                     => $spaced_tmp,
+        PATH                       => _msys_path($fake_bin) . ':' . _base_path(),
+        DD_INSTALL_OS_OVERRIDE     => 'debian',
+        DD_INSTALL_DEBIAN_VERSION_ID => '13',
+    );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' --jenkins");
+    };
+    is( $exit >> 8, 0, 'install.sh --jenkins succeeds when TMPDIR holds a space' )
+      or diag $stdout . $stderr;
+    like( $stdout, qr/^install\.sh --jenkins: DONE\. /m, 'install.sh --jenkins ends with one clear DONE line when TMPDIR holds a space' );
+    ok(
+        scalar( grep { $_ eq 'perlbrew install perl-5.38.2 --notest -j 6' } _log_lines($log) ),
+        'install.sh --jenkins runs the whole route through a TMPDIR that holds a space',
+    );
+}
+
+for my $case (
+    {
+        label    => 'a built Perl that is not 5.38.2',
+        platform => 'debian',
+        extra    => [ FAKE_JENKINS_PERL_WRONG => '1', DD_INSTALL_DEBIAN_VERSION_ID => '13' ],
+        stderr   => qr/is not Perl 5\.38\.2; refusing to go on/,
+        installs => 0,
+    },
+    {
+        label    => 'a pinned distribution that fails to build',
+        platform => 'debian',
+        extra    => [ FAKE_JENKINS_CPANM_FAILS_ON => $jenkins_list[2], DD_INSTALL_DEBIAN_VERSION_ID => '13' ],
+        stderr   => qr/Unable to install pinned distribution \Q$jenkins_list[2]\E/,
+        installs => 3,
+    },
+    {
+        label    => 'Debian 12',
+        platform => 'debian',
+        extra    => [ DD_INSTALL_DEBIAN_VERSION_ID => '12' ],
+        stderr   => qr/install\.sh --jenkins supports Debian 13 and later; this machine is Debian 12\./,
+        installs => 0,
+        untouched => 1,
+    },
+    {
+        label    => 'Ubuntu 20.04',
+        platform => 'ubuntu',
+        extra    => [ DD_INSTALL_UBUNTU_VERSION_ID => '20.04' ],
+        stderr   => qr/install\.sh --jenkins supports Ubuntu 22\.04 and later; this machine is Ubuntu 20\./,
+        installs => 0,
+        untouched => 1,
+    },
+    {
+        label    => 'Ubuntu 21.10',
+        platform => 'ubuntu',
+        extra    => [ DD_INSTALL_UBUNTU_VERSION_ID => '21.10' ],
+        stderr   => qr/install\.sh --jenkins supports Ubuntu 22\.04 and later; this machine is Ubuntu 21\./,
+        installs => 0,
+        untouched => 1,
+    },
+    {
+        label    => 'an Ubuntu version that cannot be told',
+        platform => 'ubuntu',
+        extra    => [ DD_INSTALL_UBUNTU_VERSION_ID => '' ],
+        stderr   => qr/install\.sh --jenkins cannot tell the Ubuntu version; refusing to set up a test node on an unknown Ubuntu\./,
+        installs => 0,
+        untouched => 1,
+    },
+    {
+        label    => 'a platform it does not support',
+        platform => 'fedora',
+        extra    => [],
+        stderr   => qr/install\.sh --jenkins supports macOS, Debian and Ubuntu only; this machine is 'fedora'\./,
+        installs => 0,
+        untouched => 1,
+    },
+  )
+{
+    my $home     = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log      = File::Spec->catfile( $fake_bin, 'install.log' );
+    _seed_fake_install_commands( fake_bin => $fake_bin, log => $log );
+    _seed_fake_jenkins_commands( fake_bin => $fake_bin, log => $log, perlbrew_on_path => 1 );
+    my $env_prefix = _jenkins_env_prefix(
+        HOME                   => $home,
+        PATH                   => _msys_path($fake_bin) . ':' . _base_path(),
+        DD_INSTALL_OS_OVERRIDE => $case->{platform},
+        @{ $case->{extra} },
+    );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' --jenkins");
+    };
+    is( $exit >> 8, 1, "install.sh --jenkins refuses to go on with $case->{label}" )
+      or diag $stdout . $stderr;
+    like( $stderr, $case->{stderr}, "install.sh --jenkins says why it stopped with $case->{label}" );
+    like( $stderr, qr/^install\.sh --jenkins: FAILED \(exit 1\)\./m, "install.sh --jenkins ends with one clear FAILED line with $case->{label}" );
+    unlike( $stdout, qr/DONE/, "install.sh --jenkins prints no DONE line with $case->{label}" );
+    my @log_lines = _log_lines($log);
+    is(
+        scalar( grep { index( $_, 'cpanm --no-wget --notest ' ) == 0 } @log_lines ),
+        $case->{installs},
+        "install.sh --jenkins makes $case->{installs} pinned install calls with $case->{label}",
+    );
+    if ( $case->{untouched} ) {
+        is_deeply( \@log_lines, [], "install.sh --jenkins calls no tool at all with $case->{label}" );
+        is_deeply(
+            [ grep { -e File::Spec->catfile( $home, $_ ) } @jenkins_rc_names, 'perl5', 'jenkins' ],
+            [],
+            "install.sh --jenkins creates nothing under the home directory with $case->{label}",
+        );
+    }
+}
+
+# install.sh --jenkins accepts Ubuntu 22.04 and later: the floor is 22,
+# so the first supported release and a later one both run the whole route.
+for my $ubuntu_version ( '22.04', '24.04' ) {
+    my $home     = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log      = File::Spec->catfile( $fake_bin, 'install.log' );
+    _seed_fake_install_commands( fake_bin => $fake_bin, log => $log );
+    _seed_fake_jenkins_commands( fake_bin => $fake_bin, log => $log, perlbrew_on_path => 1 );
+    my $env_prefix = _jenkins_env_prefix(
+        HOME                       => $home,
+        PATH                       => _msys_path($fake_bin) . ':' . _base_path(),
+        DD_INSTALL_OS_OVERRIDE     => 'ubuntu',
+        DD_INSTALL_UBUNTU_VERSION_ID => $ubuntu_version,
+    );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        _sh_c("$env_prefix '$install_sh_for_sh' --jenkins");
+    };
+    is( $exit >> 8, 0, "install.sh --jenkins succeeds on Ubuntu $ubuntu_version" )
+      or diag $stdout . $stderr;
+    like( $stdout, qr/^install\.sh --jenkins: DONE\. /m, "install.sh --jenkins ends with one clear DONE line on Ubuntu $ubuntu_version" );
+    unlike( $stderr, qr/FAILED/, "install.sh --jenkins prints no FAILED line on Ubuntu $ubuntu_version" );
+}
+
+{
+    my $install_sh_text = _slurp($install_sh);
+    my ($jenkins_build_jobs) = $install_sh_text =~ /(jenkins_build_jobs\(\) \{.*?\n\})/s;
+    ok( defined $jenkins_build_jobs, 'install.sh defines jenkins_build_jobs for the --jenkins route' );
+    like(
+        $jenkins_build_jobs,
+        qr/printf '\%s\\n' '4'/,
+        'install.sh --jenkins falls back to 4 build jobs when the CPU count cannot be read',
+    );
+    my ($jenkins_ensure_perlbrew) = $install_sh_text =~ /(jenkins_ensure_perlbrew\(\) \{.*?\n\})/s;
+    ok( defined $jenkins_ensure_perlbrew, 'install.sh defines jenkins_ensure_perlbrew for the --jenkins route' );
+    unlike(
+        $jenkins_ensure_perlbrew,
+        qr/command -v perlbrew/,
+        'install.sh --jenkins never takes a perlbrew from PATH; it only uses the one under the home directory',
+    );
+}
+
+# jenkins_dist_installed and jenkins_installed_pathnames: the two .meta
+# readers in install.sh. Real cpanm writes install.json with no trailing
+# newline, so the read-back must take one pathname per file: catting them
+# all together merges them into one line and a single sed pass keeps only
+# the last pathname (R84: the fresh-node proof found 1 of 119, podlators).
+# The layout differs between machines, so both .meta locations are read:
+# directly under the site folder and under the arch folder. A distribution
+# recorded in both places is counted once by the final check (sort -u).
+{
+    my $install_sh_text = _slurp($install_sh);
+    my ($dist_installed) = $install_sh_text =~ /(jenkins_dist_installed\(\) \{.*?\n\})/s;
+    my ($pathnames) = $install_sh_text =~ /(jenkins_installed_pathnames\(\) \{.*?\n\})/s;
+    ok( defined $dist_installed, 'install.sh defines jenkins_dist_installed for the --jenkins route' );
+    ok( defined $pathnames, 'install.sh defines jenkins_installed_pathnames for the --jenkins route' );
+    if ( defined $dist_installed && defined $pathnames ) {
+        my $dir  = tempdir( CLEANUP => 1 );
+        my $site = File::Spec->catdir( $dir, 'site_perl', '5.38.2' );
+        # Each install.json is written with NO trailing newline, exactly
+        # as the real cpanm writes it; a newline here would hide the
+        # read-back merging the files into one line.
+        my $write_meta = sub {
+            my ( $base, $dist, $pathname ) = @_;
+            my $meta_dir = File::Spec->catdir( $base, '.meta', $dist );
+            make_path($meta_dir);
+            my $path = File::Spec->catfile( $meta_dir, 'install.json' );
+            open my $fh, '>', $path or die "Unable to write $path: $!";
+            binmode $fh;
+            print {$fh} qq|{"dist":"$dist","pathname":"$pathname"}|;
+            close $fh or die "Unable to close $path: $!";
+        };
+        $write_meta->( $site, 'DistA-1.00', 'A/AA/AUTHOR/DistA-1.00.tar.gz' );
+        $write_meta->( File::Spec->catdir( $site, 'fake-arch' ), 'DistB-2.00', 'B/BB/AUTHOR/DistB-2.00.tar.gz' );
+        $write_meta->( $site, 'Podlators-1.00', 'P/PO/AUTHOR/Podlators-1.00.tar.gz' );
+        $write_meta->( File::Spec->catdir( $site, 'fake-arch' ), 'Podlators-1.00', 'P/PO/AUTHOR/Podlators-1.00.tar.gz' );
+        my $spaced_site = File::Spec->catdir( $dir, 'site with space', '5.38.2' );
+        $write_meta->( $spaced_site, 'DistC-3.00', 'C/CC/AUTHOR/DistC-3.00.tar.gz' );
+
+        my $func_file = File::Spec->catfile( $dir, 'jenkins-meta-funcs.sh' );
+        open my $ffh, '>', $func_file or die "Unable to write $func_file: $!";
+        binmode $ffh;
+        print {$ffh} $dist_installed, "\n", $pathnames, "\n";
+        close $ffh or die "Unable to close $func_file: $!";
+
+        my $run_meta = sub {
+            my ( $site_dir, $snippet ) = @_;
+            # PATH holds _base_path() so grep and sed are found on Windows,
+            # where they live only in Git's /usr/bin; off Windows it is the
+            # caller's PATH, so this is a no-op there.
+            my $command = sprintf q{PATH='%s'; . '%s'; JENKINS_SITE_DIR='%s'; %s},
+              _base_path(), _msys_path($func_file), _msys_path($site_dir), $snippet;
+            return capture { _sh_c($command) };
+        };
+        my $check_installed = sub {
+            my ( $site_dir, $pathname ) = @_;
+            return $run_meta->(
+                $site_dir,
+                sprintf q{jenkins_dist_installed '%s'; rc=$?; if [ "$rc" -eq 0 ]; then echo INSTALLED; else echo "MISSING rc=$rc"; fi},
+                $pathname,
+            );
+        };
+
+        my ( $out, $err );
+        ( $out, $err ) = $check_installed->( $site, 'A/AA/AUTHOR/DistA-1.00.tar.gz' );
+        like( $out, qr/^INSTALLED$/m, 'jenkins_dist_installed finds a distribution recorded directly under the site folder' );
+        ( $out, $err ) = $check_installed->( $site, 'B/BB/AUTHOR/DistB-2.00.tar.gz' );
+        like( $out, qr/^INSTALLED$/m, 'jenkins_dist_installed finds a distribution recorded under the arch folder' );
+        ( $out, $err ) = $check_installed->( $site, 'Z/ZZ/AUTHOR/DistZ-9.00.tar.gz' );
+        like( $out, qr/^MISSING rc=1$/m, 'jenkins_dist_installed reports a distribution with no record as missing' );
+        ( $out, $err ) = $check_installed->( File::Spec->catdir( $dir, 'no-such-site' ), 'A/AA/AUTHOR/DistA-1.00.tar.gz' );
+        like( $out, qr/^MISSING rc=1$/m, 'jenkins_dist_installed reports missing when the site folder does not exist, and never lets the glob stay literal' );
+        my $empty_site = File::Spec->catdir( $dir, 'empty-site', '5.38.2' );
+        make_path($empty_site);
+        ( $out, $err ) = $check_installed->( $empty_site, 'A/AA/AUTHOR/DistA-1.00.tar.gz' );
+        like( $out, qr/^MISSING rc=1$/m, 'jenkins_dist_installed reports missing when the site folder holds no .meta entries' );
+        ( $out, $err ) = $check_installed->( $spaced_site, 'C/CC/AUTHOR/DistC-3.00.tar.gz' );
+        like( $out, qr/^INSTALLED$/m, 'jenkins_dist_installed finds a distribution when the site path holds a space' );
+
+        # R90: one grep per call, not one per file. The pinned list calls
+        # this once per distribution, so a per-file grep is 7,021 grep
+        # invocations for 119 distributions. A counting fake grep proves
+        # the rewrite greps all four install.json files in one invocation:
+        # the missing distribution is asked for, so every file is scanned.
+        my $fake_bin = File::Spec->catdir( $dir, 'counting-grep-bin' );
+        make_path($fake_bin);
+        my $count_file = File::Spec->catfile( $dir, 'grep-count.txt' );
+        my ( $real_grep_out, undef, $real_grep_status ) = capture { _sh_c( sprintf q{PATH='%s'; command -v grep}, _base_path() ) };
+        $real_grep_out =~ s/\s+\z//;
+        ok( $real_grep_status == 0 && $real_grep_out ne '', 'a real grep is on PATH for the counting fake' );
+        if ( $real_grep_status == 0 && $real_grep_out ne '' ) {
+            _write_executable(
+                File::Spec->catfile( $fake_bin, 'grep' ),
+                "#!/bin/sh\nprintf '%s\\n' \"grep \$*\" >> \"\$GREP_COUNT_FILE\"\nexec \"\$REAL_GREP\" \"\$\@\"\n",
+            );
+            # REAL_GREP and GREP_COUNT_FILE are exported: the fake grep is a
+            # child process, and a plain assignment never reaches it. PATH
+            # holds the counting fake bin plus _base_path(), the way the
+            # scenario commands build it, so grep is found on Windows too.
+            my $count_command = sprintf q{PATH='%s'; export REAL_GREP='%s' GREP_COUNT_FILE='%s'; . '%s'; JENKINS_SITE_DIR='%s'; jenkins_dist_installed '%s'; echo "rc=$?"},
+              _msys_path($fake_bin) . ':' . _base_path(), _msys_path($real_grep_out), _msys_path($count_file), _msys_path($func_file), _msys_path($site), 'Z/ZZ/AUTHOR/DistZ-9.00.tar.gz';
+            ( $out, $err ) = capture { _sh_c($count_command) };
+            like( $out, qr/^rc=1$/m, 'jenkins_dist_installed still reports a distribution with no record as missing when grep is counted' );
+            my $grep_calls = -f $count_file ? scalar( split /\n/, _slurp($count_file) ) : 0;
+            is( $grep_calls, 1, 'jenkins_dist_installed runs one grep per call over all four install.json files, not one per file' );
+        }
+
+        ( $out, $err ) = $run_meta->( $site, q{jenkins_installed_pathnames} );
+        is_deeply(
+            [ sort split /\n/, $out ],
+            [
+                'A/AA/AUTHOR/DistA-1.00.tar.gz',
+                'B/BB/AUTHOR/DistB-2.00.tar.gz',
+                'P/PO/AUTHOR/Podlators-1.00.tar.gz',
+                'P/PO/AUTHOR/Podlators-1.00.tar.gz',
+            ],
+            'jenkins_installed_pathnames lists every pathname from install.json files with no trailing newlines, from both .meta locations',
+        );
+        ( $out, $err ) = $run_meta->( $site, q{jenkins_installed_pathnames | LC_ALL=C sort -u} );
+        is_deeply(
+            [ split /\n/, $out ],
+            [
+                'A/AA/AUTHOR/DistA-1.00.tar.gz',
+                'B/BB/AUTHOR/DistB-2.00.tar.gz',
+                'P/PO/AUTHOR/Podlators-1.00.tar.gz',
+            ],
+            'jenkins_installed_pathnames piped through sort -u counts a distribution recorded in both places once',
+        );
+        ( $out, $err ) = $run_meta->( File::Spec->catdir( $dir, 'no-such-site' ), q{jenkins_installed_pathnames; echo "rc=$?"} );
+        is( $out, "rc=0\n", 'jenkins_installed_pathnames lists nothing when the site folder does not exist' );
+    }
+}
+
+# jenkins_java_command: on macOS the Java path comes from brew --prefix,
+# and a failed lookup must fail fast with an actionable message instead of
+# silently becoming /bin/java (R86: the second Q review on PR #93).
+{
+    my $install_sh_text = _slurp($install_sh);
+    my ($java_command) = $install_sh_text =~ /(jenkins_java_command\(\) \{.*?\n\})/s;
+    ok( defined $java_command, 'install.sh defines jenkins_java_command for the --jenkins route' );
+    like(
+        $install_sh_text,
+        qr/jenkins_java=\$\(jenkins_java_command\) \|\|\s+fail "Java \$JENKINS_JAVA_MAJOR was not found"/,
+        'install.sh --jenkins fails the final check when the Java command cannot be found',
+    );
+    if ( defined $java_command ) {
+        my $dir      = tempdir( CLEANUP => 1 );
+        my $good_dir = File::Spec->catdir( $dir, 'fake-homebrew', 'opt', 'openjdk@21' );
+        make_path($good_dir);
+        my $fake_bin = File::Spec->catdir( $dir, 'fake-bin' );
+        make_path($fake_bin);
+        # The fake brew answers --prefix from an environment variable, so
+        # each case below can say what the lookup found: nothing, a path
+        # that is not a directory, or a real directory.
+        _write_executable(
+            File::Spec->catfile( $fake_bin, 'brew' ),
+            "#!/bin/sh\nprintf '%s\\n' \"\$FAKE_BREW_PREFIX\"\nexit \${FAKE_BREW_EXIT:-0}\n",
+        );
+
+        my $func_file = File::Spec->catfile( $dir, 'jenkins-java-func.sh' );
+        open my $ffh, '>', $func_file or die "Unable to write $func_file: $!";
+        binmode $ffh;
+        print {$ffh} $java_command, "\n";
+        close $ffh or die "Unable to close $func_file: $!";
+
+        my $run_java = sub {
+            my ( $prefix, $brew_exit ) = @_;
+            # FAKE_BREW_PREFIX and FAKE_BREW_EXIT are exported: the fake
+            # brew is a child process, and a plain assignment never
+            # reaches it.
+            my $command = sprintf q{PATH='%s':"$PATH"; PLATFORM='darwin'; JENKINS_JAVA_MAJOR='21'; export FAKE_BREW_PREFIX='%s' FAKE_BREW_EXIT='%s'; . '%s'; jenkins_java_command},
+              _msys_path($fake_bin), $prefix, $brew_exit, _msys_path($func_file);
+            return capture { _sh_c($command) };
+        };
+
+        my ( $out, $err, $exit );
+        ( $out, $err, $exit ) = $run_java->( '', 0 );
+        is( $exit >> 8, 1, 'jenkins_java_command fails when brew --prefix finds nothing' );
+        like( $err, qr/Homebrew openjdk\@21 was not found; install it with 'brew install openjdk\@21'/, 'jenkins_java_command says how to install Java when brew --prefix finds nothing' );
+        is( $out, '', 'jenkins_java_command prints no Java path when brew --prefix finds nothing' );
+        ( $out, $err, $exit ) = $run_java->( File::Spec->catdir( $dir, 'no-such-prefix' ), 0 );
+        is( $exit >> 8, 1, 'jenkins_java_command fails when the brew prefix is not a directory' );
+        like( $err, qr/is not a directory; reinstall it with 'brew reinstall openjdk\@21'/, 'jenkins_java_command says how to repair Java when the brew prefix is not a directory' );
+        ( $out, $err, $exit ) = $run_java->( _msys_path($good_dir), 0 );
+        is( $exit >> 8, 0, 'jenkins_java_command succeeds when brew --prefix names a real directory' );
+        is( $out, _native_spelling( _msys_path($good_dir) . "/bin/java\n" ), 'jenkins_java_command prints the Java path under the brew prefix' );
+
+        # On a non-macOS platform the Java path comes from PATH, and a
+        # missing java must fail fast instead of printing the literal
+        # string 'java' and letting the final check fail later (R93: the
+        # fourth Q review on PR #93). 'debian' is a supported --jenkins
+        # platform that takes the non-macOS branch.
+        my $fake_bin_no_java = File::Spec->catdir( $dir, 'fake-bin-no-java' );
+        make_path($fake_bin_no_java);
+        my $fake_bin_with_java = File::Spec->catdir( $dir, 'fake-bin-with-java' );
+        make_path($fake_bin_with_java);
+        # The fake java only needs to be found by 'command -v'; it never runs.
+        _write_executable(
+            File::Spec->catfile( $fake_bin_with_java, 'java' ),
+            "#!/bin/sh\nexit 0\n",
+        );
+
+        my $run_java_nondarwin = sub {
+            my ($java_bin) = @_;
+            # PATH holds only the fake bin here: _base_path() is left out
+            # on purpose, because on Unix it is the caller's PATH, which
+            # holds a real java and would defeat the absent case. The
+            # function needs nothing from PATH but the java it looks for.
+            my $command = sprintf q{PATH='%s'; PLATFORM='debian'; JENKINS_JAVA_MAJOR='21'; . '%s'; jenkins_java_command},
+              _msys_path($java_bin), _msys_path($func_file);
+            return capture { _sh_c($command) };
+        };
+
+        ( $out, $err, $exit ) = $run_java_nondarwin->($fake_bin_no_java);
+        is( $exit >> 8, 1, 'jenkins_java_command fails when java is absent from PATH on a non-macOS platform' );
+        is( $out, '', 'jenkins_java_command prints no Java path when java is absent from PATH on a non-macOS platform' );
+        ( $out, $err, $exit ) = $run_java_nondarwin->($fake_bin_with_java);
+        is( $exit >> 8, 0, 'jenkins_java_command succeeds when java is on PATH on a non-macOS platform' );
+        is( $out, _native_spelling( _msys_path($fake_bin_with_java) . "/java\n" ), 'jenkins_java_command prints the Java path from PATH on a non-macOS platform' );
+    }
+}
+
+{
+    my @public_files = (
+        $install_sh,
+        map { File::Spec->catfile( $root, 'share', 'jenkins', $_ ) }
+          qw(modules-unix.txt modules-compiled.txt modules-windows.txt modules-compiled-windows.txt),
+    );
+    my ( @addresses, @home_paths );
+    for my $file (@public_files) {
+        my $number = 0;
+        for my $line ( split /\n/, _raw_text($file) ) {
+            $number++;
+            push @addresses,  "$file line $number" if $line =~ /(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?![\d.])/;
+            push @home_paths, "$file line $number" if $line =~ m{/(?:Users|home)/[A-Za-z0-9_]};
+        }
+    }
+    is_deeply( \@addresses,  [], 'install.sh and the Jenkins lists hold no IP address' );
+    is_deeply( \@home_paths, [], 'install.sh and the Jenkins lists hold no /Users/<name> or /home/<name> path' );
+}
+
+# install.ps1 -Jenkins: the Jenkins test-node route for Windows. These are
+# text reads of install.ps1, the same way the rest of install.ps1 is
+# checked in this file, so they run the same on every platform and start
+# no PowerShell anywhere.
+{
+    my $install_ps_raw = _raw_text($install_ps);
+    my ( $before_route, $route, $after_route ) =
+      $install_ps_raw =~ /\A(.*)^# >>> Jenkins test-node route >>>\r?\n(.*)^# <<< Jenkins test-node route <<<\r?\n(.*)\z/ms;
+    ok( defined $route, 'install.ps1 keeps the Jenkins test-node route between its two marker lines' );
+    $_ = defined $_ ? $_ : '' for $before_route, $route, $after_route;
+    my $normal_path = $before_route . $after_route;
+
+    like( $route, qr/\[string\]\$argument -ieq '-Jenkins'/, 'install.ps1 takes a -Jenkins switch' );
+    like( $route, qr/\$flag = \$env:DD_INSTALL_JENKINS\b.*?\$flag\.Trim\(\) -eq '1'/s, 'install.ps1 takes DD_INSTALL_JENKINS=1 for the piped form' );
+    like(
+        $route,
+        qr/throw "install\.ps1: DD_INSTALL_JENKINS must be 1 or unset, not '\$flag'\. Nothing was installed or changed\."/,
+        'install.ps1 refuses any other value of DD_INSTALL_JENKINS before anything is installed',
+    );
+    unlike( $normal_path, qr/Jenkins/i, 'install.ps1 names Jenkins nowhere outside the Jenkins test-node route' );
+    like(
+        $route . $after_route,
+        qr/^if \(Test-JenkinsRequested -Arguments \$args\) \{\s+Invoke-JenkinsNodeSetup\s+return\s+\}\s+Show-ProgressBoard\s+Set-StepStatus -Id 'detect_profile' -Status 'running'/m,
+        'install.ps1 leaves through the Jenkins route before the first step of the normal install',
+    );
+
+    like( $route, qr/^\$JenkinsStrawberryRoot = 'C:\\Strawberry'\r?$/m, 'install.ps1 -Jenkins pins Strawberry Perl to C:\\Strawberry' );
+    like( $route, qr/^\$JenkinsPerlNumber = '5\.038002'\r?$/m, 'install.ps1 -Jenkins pins Perl to exactly 5.38.2' );
+    like(
+        $route,
+        qr/\$versionCode = 'exit\(\$\] == ' \+ \$JenkinsPerlNumber \+ ' \? 0 : 1\)'.*?throw "\$JenkinsPerlPath is not Perl \$JenkinsPerlShort; refusing to go on"/s,
+        'install.ps1 -Jenkins refuses to go on unless the Perl reports exactly the pinned version',
+    );
+    like( $route, qr/^\$JenkinsStrawberryBuild = '5\.38\.2\.2'\r?$/m, 'install.ps1 -Jenkins pins the Strawberry Perl build' );
+    like( $route, qr/^\$JenkinsStrawberryMsiName = 'strawberry-perl-5\.38\.2\.2-64bit\.msi'\r?$/m, 'install.ps1 -Jenkins names the one pinned Strawberry Perl installer' );
+    unlike( $route, qr/Resolve-StrawberryPerlMsiUrl|Ensure-WingetPackage|winget/, 'install.ps1 -Jenkins never takes the latest Strawberry Perl and never calls winget' );
+    like( $route, qr/refusing to install over it/, 'install.ps1 -Jenkins refuses to install over a folder that is already at the pinned root' );
+
+    like( $route, qr/\$JenkinsJavaMajor = '21'/, 'install.ps1 -Jenkins pins Java to major version 21' );
+    like( $route, qr/-match \('version "' \+ \$JenkinsJavaMajor \+ '\\\.'\)/, 'install.ps1 -Jenkins checks what the Java itself reports' );
+
+    like( $route, qr/^\$JenkinsGitVersionFull = '2\.56\.1\.windows\.1'\r?$/m, 'install.ps1 -Jenkins pins Git for Windows to 2.56.1.windows.1' );
+    like(
+        $route,
+        qr/^\$JenkinsGitInstallerUrl = 'https:\/\/github\.com\/git-for-windows\/git\/releases\/download\/v2\.56\.1\.windows\.1\/Git-2\.56\.1-64-bit\.exe'\r?$/m,
+        'install.ps1 -Jenkins downloads Git for Windows from the one pinned installer URL',
+    );
+    unlike( $route, qr/Resolve-GitForWindowsInstallerUrl/, 'install.ps1 -Jenkins never resolves the latest Git for Windows' );
+    like(
+        $route,
+        qr/Install-JenkinsStrawberryPerl\n\s+\$gitPath = Install-JenkinsGit\n\s+\$javaPath = Resolve-JenkinsJavaPath/s,
+        'install.ps1 -Jenkins installs Git for Windows right after Strawberry Perl',
+    );
+    like(
+        $route,
+        qr/function Resolve-JenkinsGitPath \{.*?if \(Test-JenkinsGitVersion -GitPath \$candidate\) \{\s+return \$candidate\s+\}/s,
+        'install.ps1 -Jenkins only accepts a git that reports the pinned version',
+    );
+    like(
+        $route,
+        qr/function Resolve-JenkinsGitPath \{.*?if \(-not \[string\]::IsNullOrWhiteSpace\(\$env:ProgramFiles\)\) \{\s+\$defaultGitPath = Join-Path \$env:ProgramFiles 'Git\\cmd\\git\.exe'/s,
+        'install.ps1 -Jenkins only adds the default Git candidate when ProgramFiles is set',
+    );
+    like(
+        $route,
+        qr/function Install-JenkinsGit \{.*?\$gitPath = Resolve-JenkinsGitPath.*?if \(-not \[string\]::IsNullOrWhiteSpace\(\$gitPath\)\) \{\s+Write-JenkinsLine -Message "Git \$JenkinsGitVersionFull is already installed"\s+return \$gitPath\s+\}/s,
+        'install.ps1 -Jenkins skips the Git install when the pinned Git is already there',
+    );
+    like(
+        $route,
+        qr/Invoke-InstallerCommand -Label 'Git for Windows pinned installer' -FilePath \$exePath -Arguments \@\('\/VERYSILENT', '\/NORESTART', '\/SUPPRESSMSGBOXES'\)/,
+        'install.ps1 -Jenkins installs Git for Windows silently, with no restart',
+    );
+    like(
+        $route,
+        qr/return \(\$versionText -match \('git version ' \+ \[Regex\]::Escape\(\$JenkinsGitVersionFull\) \+ '\(\?:\\s\|\$\)'\)\)/,
+        'install.ps1 -Jenkins checks git --version against the pinned version exactly',
+    );
+    unlike(
+        $route,
+        qr/return \(\$versionText -match \('git version ' \+ \[Regex\]::Escape\(\$JenkinsGitVersionFull\)\)\)/,
+        'install.ps1 -Jenkins no longer matches git --version against the pinned version without an end anchor',
+    );
+    like(
+        $route,
+        qr/\$isPinnedGit = Test-JenkinsGitVersion -GitPath \$GitPath\s+if \(-not \$isPinnedGit\) \{\s+throw "\$GitPath is not Git \$JenkinsGitVersionFull"\s+\}/,
+        'install.ps1 -Jenkins checks in the final check that git reports the pinned version',
+    );
+
+    like( $route, qr/Join-Path \$PSScriptRoot 'share\\jenkins'/, 'install.ps1 -Jenkins reads its lists from share\\jenkins beside the script' );
+    like( $route, qr/\$pinnedList = \@\(Get-JenkinsListLines -Path \(Join-Path \$listFolder 'modules-windows\.txt'\)\)/, 'install.ps1 -Jenkins reads the pinned list from modules-windows.txt' );
+    like( $route, qr/\$compiledList = \@\(Get-JenkinsListLines -Path \(Join-Path \$listFolder 'modules-compiled-windows\.txt'\)\)/, 'install.ps1 -Jenkins reads the compiled list from modules-compiled-windows.txt' );
+    ok( -f File::Spec->catfile( $root, 'share', 'jenkins', 'modules-windows.txt' ), 'the Windows pinned list install.ps1 -Jenkins reads is in the repository' );
+    ok( -f File::Spec->catfile( $root, 'share', 'jenkins', 'modules-compiled-windows.txt' ), 'the Windows compiled list install.ps1 -Jenkins reads is in the repository' );
+    my ($list_pattern) = $route =~ /^\$JenkinsDistributionPattern = '([^']+)'\r?$/m;
+    ok( defined $list_pattern, 'install.ps1 -Jenkins holds the shape every list line must have' );
+    $list_pattern = '\A(?!)' if !defined $list_pattern;
+    is_deeply(
+        [
+            grep { $_ !~ /$list_pattern/ } map { _plain_lines( File::Spec->catfile( $root, 'share', 'jenkins', $_ ) ) }
+              qw(modules-windows.txt modules-compiled-windows.txt)
+        ],
+        [],
+        'every line of the two Windows lists has the shape install.ps1 -Jenkins accepts',
+    );
+    like(
+        $route,
+        qr/Get-Content -LiteralPath \$Path \| ForEach-Object \{ \$_.Trim\(\) \}.*?foreach \(\$line in \$lines\) \{\s+if \(\$line -cnotmatch \$JenkinsDistributionPattern\)/s,
+        'install.ps1 -Jenkins trims each list line before checking its shape, so a CRLF list still reads',
+    );
+    like( $route, qr/foreach \(\$distribution in \$Distributions\) \{.*?-Arguments \@\('--notest', \$distribution\)/s, 'install.ps1 -Jenkins installs the pinned list one line at a time, in list order, with --notest' );
+    like(
+        $route,
+        qr/foreach \(\$distribution in \$Distributions\) \{\s+if \(\$installed\.ContainsKey\(\$distribution\)\) \{\s+continue\s+\}/s,
+        'install.ps1 -Jenkins skips a pinned distribution that is already installed',
+    );
+    like( $route, qr/-Arguments \@\('--test-only', \$distribution\)/, 'install.ps1 -Jenkins runs the own tests of the compiled distributions' );
+    like(
+        $route,
+        qr/if \(Test-Path -LiteralPath \$JenkinsTestedStamp\) \{\s+Write-JenkinsLine -Message 'the compiled distributions already passed their own tests'\s+return\s+\}/s,
+        'install.ps1 -Jenkins skips the compiled tests when they already passed',
+    );
+    like( $route, qr/\$script:JenkinsCpanmPath = Join-Path \$JenkinsStrawberryRoot 'perl\\bin\\cpanm'/, q{install.ps1 -Jenkins starts with Strawberry's own cpanm} );
+    unlike( $route, qr/^\$JenkinsCpanmPath = Join-Path \$JenkinsStrawberryRoot 'perl\\bin\\cpanm'/m, 'install.ps1 -Jenkins no longer declares the cpanm path bare' );
+    like( $route, qr/\$JenkinsSiteCpanmPath = Join-Path \$JenkinsStrawberryRoot 'perl\\site\\bin\\cpanm'/, 'install.ps1 -Jenkins knows where the pinned cpanm lands in the site bin folder' );
+    like(
+        $route,
+        qr/Install-JenkinsPinnedList.*?if \(Test-Path -LiteralPath \$JenkinsSiteCpanmPath -PathType Leaf\) \{\s+\$script:JenkinsCpanmPath = \$JenkinsSiteCpanmPath\s+\}/s,
+        'install.ps1 -Jenkins prefers the pinned cpanm from the start when it is already there',
+    );
+    like(
+        $route,
+        qr/Invoke-JenkinsCpanm -Label "cpanm --notest \$distribution".*?if \(Test-Path -LiteralPath \$JenkinsSiteCpanmPath -PathType Leaf\) \{\s+\$script:JenkinsCpanmPath = \$JenkinsSiteCpanmPath\s+\}/s,
+        'install.ps1 -Jenkins switches to the pinned cpanm after the first line installs it',
+    );
+    like( $route, qr/'\{0\} \{1\} \{2\} < NUL' -f \('"' \+ \$JenkinsPerlPath \+ '"'\), \('"' \+ \$script:JenkinsCpanmPath \+ '"'\)/, 'install.ps1 -Jenkins runs cpanm with standard input closed' );
+    like(
+        $route,
+        qr/function Invoke-JenkinsCpanm \{.*?\$quotedArguments = \@\(\$Arguments \| ForEach-Object \{ '"' \+ \(\$_\.Replace\('"', '""'\)\) \+ '"' \}\)/s,
+        'install.ps1 -Jenkins quotes each cpanm argument on its own, doubling embedded quotes, so an argument holding a space stays one argument',
+    );
+    like(
+        $route,
+        qr/function Invoke-JenkinsCpanm \{.*?\$commandLine = \('\{0\} \{1\} \{2\} < NUL' -f \('"' \+ \$JenkinsPerlPath \+ '"'\), \('"' \+ \$script:JenkinsCpanmPath \+ '"'\), \(\$quotedArguments -join ' '\)\)/s,
+        'install.ps1 -Jenkins builds the cpanm command line from the quoted paths and quoted arguments with standard input closed',
+    );
+    unlike(
+        $route,
+        qr/function Invoke-JenkinsCpanm \{.*?\$commandLine = \('\{0\} \{1\} \{2\} < NUL' -f \$JenkinsPerlPath, \$script:JenkinsCpanmPath, \(\$quotedArguments -join ' '\)\)/s,
+        'install.ps1 -Jenkins no longer builds the cpanm command line from bare perl and cpanm paths',
+    );
+    like(
+        $route,
+        qr/function Resolve-JenkinsStrawberryMsiUrl \{.*?catch \{\s+\$url = ''\s+\}/s,
+        'install.ps1 -Jenkins leaves the release URL empty when the feed entry has no MSI URL',
+    );
+    like(
+        $route,
+        qr/function Resolve-JenkinsStrawberryMsiUrl \{.*?catch \{\s+\$url = ''\s+\}\s+if \(\[string\]::IsNullOrWhiteSpace\(\$url\)\) \{\s+continue\s+\}/s,
+        'install.ps1 -Jenkins skips a release with no MSI URL, with the check outside the try/catch',
+    );
+    unlike(
+        $route,
+        qr/function Resolve-JenkinsStrawberryMsiUrl \{.*?catch \{\s+continue\s+\}/s,
+        'install.ps1 -Jenkins no longer hides a continue inside the catch of the MSI URL lookup',
+    );
+    like( $route, qr/if \(-not \(Test-Path -LiteralPath \$script:JenkinsCpanmPath -PathType Leaf\)\) \{\s+throw "Strawberry's own cpanm is missing at \$JenkinsCpanmPath"/, 'install.ps1 -Jenkins checks Strawberry cpanm through the script-scoped path' );
+    like( $route, qr/^\$JenkinsWork = ''\r?$/m, 'install.ps1 -Jenkins starts with an empty work folder' );
+    like(
+        $route,
+        qr/function Invoke-JenkinsNodeSetup \{.*?\$JenkinsWork = Join-Path \(\[IO\.Path\]::GetTempPath\(\)\) \('developer-dashboard-jenkins-' \+ \[Guid\]::NewGuid\(\)\.ToString\('N'\)\)/s,
+        'install.ps1 -Jenkins creates a unique work folder for each run',
+    );
+    unlike(
+        $route,
+        qr/function Invoke-JenkinsNodeSetup \{.*?\$script:JenkinsWork = Join-Path \(\[IO\.Path\]::GetTempPath\(\)\) \('developer-dashboard-jenkins-' \+ \[Guid\]::NewGuid\(\)\.ToString\('N'\)\)/s,
+        'install.ps1 -Jenkins no longer assigns the work folder through the script scope',
+    );
+    unlike( $route, qr/Join-Path \(\[IO\.Path\]::GetTempPath\(\)\) 'developer-dashboard-jenkins'/, 'install.ps1 -Jenkins keeps no fixed work folder path' );
+    like(
+        $route,
+        qr/finally \{\s+if \(-not \[string\]::IsNullOrWhiteSpace\(\$JenkinsWork\) -and \(Test-Path -LiteralPath \$JenkinsWork\)\) \{\s+Remove-Item -LiteralPath \$JenkinsWork -Recurse -Force\s+\}/s,
+        'install.ps1 -Jenkins deletes the unique work folder at the end, and only when one was created',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?foreach \(\$siteKey in \@\('sitearchexp', 'sitelibexp'\)\)/s,
+        'install.ps1 -Jenkins asks the pinned Perl for both the arch and the pure-Perl site folders',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?\$metaFolders = \@\(Join-Path \$siteFolder '\.meta'\).*?foreach \(\$subFolder in \@\(Get-ChildItem -LiteralPath \$siteFolder -Directory.*?\$metaFolders \+= Join-Path \$subFolder\.FullName '\.meta'/s,
+        'install.ps1 -Jenkins reads .meta under each site folder and under each of its subdirectories, so the sandbox layout is covered where the site folder is the non-arch path and .meta sits only under the arch subdir',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?foreach \(\$metaFolder in \$metaFolders\) \{\s+if \(Test-Path -LiteralPath \$metaFolder -PathType Container\) \{\s+foreach \(\$record in \@\(Get-ChildItem -LiteralPath \$metaFolder -Recurse -File -Filter 'install\.json'\)\)/s,
+        'install.ps1 -Jenkins searches every collected .meta folder for install.json records',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?throw "Unable to ask \$JenkinsPerlPath for its site folders"/s,
+        'install.ps1 -Jenkins refuses to continue when the pinned Perl cannot name its site folders',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?foreach \(\$siteKey in \@\('sitearchexp', 'sitelibexp'\)\) \{.*?if \(\$LASTEXITCODE -ne 0\) \{\s+throw "Unable to ask \$JenkinsPerlPath for its site folder/s,
+        'install.ps1 -Jenkins reads the exit code inside the site-folder loop, so a failed first call is not missed',
+    );
+    unlike(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?\$siteFolders\.Count -ne 2/s,
+        'install.ps1 -Jenkins no longer checks a site-folder count that can never be wrong',
+    );
+    like(
+        $route,
+        qr/function Get-JenkinsInstalledDistributions \{.*?if \(\[string\]::IsNullOrWhiteSpace\(\$siteFolders\[0\]\) -or \[string\]::IsNullOrWhiteSpace\(\$siteFolders\[1\]\)\) \{\s+throw "Unable to ask \$JenkinsPerlPath for its site folders"/s,
+        'install.ps1 -Jenkins still refuses to continue when the pinned Perl names no site folder',
+    );
+    unlike( $route, qr/cpanmin\.us|Download-CpanmScript|local-lib/, 'install.ps1 -Jenkins downloads no other cpanm and uses no private install root' );
+
+    is( scalar( () = $route =~ /-Message \("DONE\. This machine is ready to be a Jenkins test node: /g ), 1, 'install.ps1 -Jenkins has one DONE line' );
+    is( scalar( () = $route =~ /"install\.ps1 -Jenkins: FAILED \(\{0\}\)\. This machine is not ready to be a Jenkins test node\."/g ), 1, 'install.ps1 -Jenkins has one FAILED line' );
+    like( $route, qr/catch \{\s+Write-Host \("install\.ps1 -Jenkins: FAILED .*?\s+throw\s+\}/s, 'install.ps1 -Jenkins fails the run after its FAILED line' );
+    like( $route, qr/Assert-JenkinsNodeReady -JavaPath \$javaPath -GitPath \$gitPath -Distributions \$pinnedList -AgentRoot \$agentRoot\s+\$agentRootText = .*?DONE\./s, 'install.ps1 -Jenkins prints DONE only after the final check' );
+    like( $route, qr/These pinned distributions are not recorded as installed/, 'install.ps1 -Jenkins checks the installed distributions against the pinned list at the end' );
+
+    unlike(
+        $route,
+        qr/Resolve-DefaultDashboardCheckout|DefaultBootstrapRepository|CpanTarget|git\s+clone|d2 init|\bshell\s+ps\b|dashboardCommand|d2\.bat/,
+        'install.ps1 -Jenkins does not install or initialise the dashboard',
+    );
+    unlike(
+        $route,
+        qr/Ensure-ProfileContains|ProfilePath|\$PROFILE|profileBlock|ExecutionPolicy|Developer Dashboard bootstrap/,
+        'install.ps1 -Jenkins edits no PowerShell profile and no execution policy',
+    );
+
+    my ( @ps_addresses, @ps_user_paths, @ps_user_names );
+    my $number = 0;
+    for my $line ( split /\n/, $install_ps_raw ) {
+        $number++;
+        # The pinned Strawberry Perl build has four numbers; it is a
+        # version, not an address, so it is taken out before the check.
+        ( my $checked = $line ) =~ s/(?<![\d.])5\.38\.2\.2(?![\d.])//g;
+        push @ps_addresses,  "line $number" if $checked =~ /(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?![\d.])/;
+        push @ps_user_paths, "line $number" if $line =~ m{[\\/](?:Users|home)[\\/][A-Za-z0-9_]}i;
+        push @ps_user_names, "line $number" if $line =~ /WDAGUtilityAccount|\$env:USERNAME\b|\$env:COMPUTERNAME\b/i;
+    }
+    is_deeply( \@ps_addresses,  [], 'install.ps1 holds no IP address' );
+    is_deeply( \@ps_user_paths, [], 'install.ps1 holds no path into one user profile' );
+    is_deeply( \@ps_user_names, [], 'install.ps1 names no user and no machine' );
 }
 
 done_testing;
@@ -1716,6 +2548,211 @@ SH
     }
 }
 
+# _plain_lines($path)
+# Reads a one-entry-per-line list file.
+# Input: file path. Output: the non-empty lines, in file order.
+sub _plain_lines {
+    my ($path) = @_;
+    return grep { $_ ne '' } map { s/\s+\z//r } split /\n/, _raw_text($path);
+}
+
+# _raw_text($path)
+# Reads a file exactly as it is on disk, with no spelling changes.
+# Input: file path. Output: the file text.
+sub _raw_text {
+    my ($path) = @_;
+    open my $fh, '<', $path or die "Unable to read $path: $!";
+    binmode $fh;
+    my $text = do { local $/; <$fh> };
+    close $fh or die "Unable to close $path: $!";
+    return $text;
+}
+
+# _jenkins_env_prefix(%env)
+# Builds the "KEY='value' ..." prefix for an install.sh --jenkins scenario.
+# Input: environment names and values, in order. Output: the prefix text.
+sub _jenkins_env_prefix {
+    my (@pairs) = @_;
+    my @parts;
+    while (@pairs) {
+        my ( $key, $value ) = splice @pairs, 0, 2;
+        push @parts, sprintf q{%s='%s'}, $key, _msys_path($value);
+    }
+    return join ' ', @parts;
+}
+
+# _seed_fake_jenkins_commands(%args)
+# Adds the fake tools the install.sh --jenkins route needs on top of
+# _seed_fake_install_commands: a sudo that accepts -n, the macOS settings
+# tools, java, a brew that knows the openssl@3 and openjdk@21 prefixes, a
+# perlbrew that "builds" a fake Perl, and a bash that "runs" the perlbrew
+# installer. The fake Perl answers the exact-version question (wrong when
+# FAKE_JENKINS_PERL_WRONG is 1) and "installs" a fake cpanm, which records
+# each pinned distribution the way the real one does (and fails on the
+# distribution named in FAKE_JENKINS_CPANM_FAILS_ON).
+# Input: fake_bin, log, perlbrew_on_path.
+# Output: none; the stubs are written under fake_bin.
+sub _seed_fake_jenkins_commands {
+    my (%args) = @_;
+    my $fake_bin = $args{fake_bin};
+    my $log      = $args{log};
+    my $payload  = File::Spec->catdir( $fake_bin, 'jenkins-payload' );
+    make_path($payload);
+
+    my $write = sub {
+        my ( $path, $body ) = @_;
+        $body =~ s/__LOG__/$log/g;
+        $body =~ s/__PAYLOAD__/$payload/g;
+        return _write_executable( $path, $body );
+    };
+
+    $write->( File::Spec->catfile( $fake_bin, 'sudo' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "sudo $*" >> "__LOG__"
+if [ "$1" = "-n" ]; then
+shift
+fi
+exec "$@"
+SH
+    for my $tool (qw(systemsetup pmset sntp)) {
+        $write->( File::Spec->catfile( $fake_bin, $tool ), <<"SH" );
+#!/bin/sh
+printf '%s\\n' "$tool \$*" >> "__LOG__"
+exit 0
+SH
+    }
+    my $java = <<'SH';
+#!/bin/sh
+printf '%s\n' "java $*" >> "__LOG__"
+printf '%s\n' 'openjdk version "21.0.13" 2026-10-24' >&2
+exit 0
+SH
+    $write->( File::Spec->catfile( $fake_bin, 'java' ), $java );
+    $write->( File::Spec->catfile( $payload,  'java' ), $java );
+    # The CPU count the --jenkins route reads for the Perl build: a fixed
+    # 6, so the test can tell -j from the count apart from a hard-coded 4.
+    $write->( File::Spec->catfile( $fake_bin, 'nproc' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "nproc $*" >> "__LOG__"
+printf '%s\n' '6'
+exit 0
+SH
+    $write->( File::Spec->catfile( $fake_bin, 'sysctl' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "sysctl $*" >> "__LOG__"
+printf '%s\n' '6'
+exit 0
+SH
+    $write->( File::Spec->catfile( $fake_bin, 'brew' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "brew $*" >> "__LOG__"
+if [ "$1" = "--prefix" ]; then
+case "$2" in
+  perl)
+    printf '%s\n' "$HOME/.homebrew/opt/perl"
+    ;;
+  openssl@3)
+    mkdir -p "$HOME/.homebrew/opt/openssl@3/bin"
+    printf '%s\n' "$HOME/.homebrew/opt/openssl@3"
+    ;;
+  openjdk@21)
+    mkdir -p "$HOME/.homebrew/opt/openjdk@21/bin"
+    cp "__PAYLOAD__/java" "$HOME/.homebrew/opt/openjdk@21/bin/java"
+    chmod 0755 "$HOME/.homebrew/opt/openjdk@21/bin/java"
+    printf '%s\n' "$HOME/.homebrew/opt/openjdk@21"
+    ;;
+esac
+fi
+exit 0
+SH
+    $write->( File::Spec->catfile( $payload, 'cpanm' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "cpanm $*" >> "__LOG__"
+last=''
+for arg in "$@"; do
+last=$arg
+done
+case " $* " in
+  *" --version "*)
+    printf '%s\n' 'cpanm (App::cpanminus) version 1.7049 (fake)'
+    exit 0
+    ;;
+  *" --test-only "*|*" --uninstall "*)
+    exit 0
+    ;;
+esac
+case "$last" in
+  */*.tar.gz)
+    if [ "${FAKE_JENKINS_CPANM_FAILS_ON:-}" = "$last" ]; then
+      printf '%s\n' 'fake build failure' >&2
+      exit 1
+    fi
+    name=$(basename "$last" .tar.gz)
+    meta="$(dirname "$0")/../lib/site_perl/5.38.2/fake-arch/.meta/$name"
+    mkdir -p "$meta"
+    # No trailing newline, exactly as the real cpanm writes install.json
+    # (its save_meta prints the JSON with no newline): the final check
+    # must read one pathname per file, and a newline here would hide a
+    # read-back that merges the files into one line (R84).
+    printf '{"dist":"%s","pathname":"%s"}' "$name" "$last" > "$meta/install.json"
+    ;;
+esac
+exit 0
+SH
+    $write->( File::Spec->catfile( $payload, 'perl' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "perl $*" >> "__LOG__"
+case "$*" in
+  *"5.038002"*)
+    if [ "${FAKE_JENKINS_PERL_WRONG:-0}" = "1" ]; then
+      exit 1
+    fi
+    exit 0
+    ;;
+  *"App::cpanminus@1.7049"*)
+    cp "__PAYLOAD__/cpanm" "$(dirname "$0")/cpanm"
+    chmod 0755 "$(dirname "$0")/cpanm"
+    exit 0
+    ;;
+esac
+exit 0
+SH
+    my $perlbrew = <<'SH';
+#!/bin/sh
+printf '%s\n' "perlbrew $*" >> "__LOG__"
+root="${PERLBREW_ROOT:-$HOME/perl5/perlbrew}"
+case "$1" in
+  init)
+    mkdir -p "$root/perls"
+    ;;
+  install)
+    mkdir -p "$root/perls/$2/bin"
+    cp "__PAYLOAD__/perl" "$root/perls/$2/bin/perl"
+    chmod 0755 "$root/perls/$2/bin/perl"
+    ;;
+esac
+exit 0
+SH
+    $write->( File::Spec->catfile( $payload, 'perlbrew' ), $perlbrew );
+    if ( $args{perlbrew_on_path} ) {
+        $write->( File::Spec->catfile( $fake_bin, 'perlbrew' ), $perlbrew );
+    }
+    $write->( File::Spec->catfile( $fake_bin, 'bash' ), <<'SH' );
+#!/bin/sh
+printf '%s\n' "/bin/bash $*" >> "__LOG__"
+case "$1" in
+  *jenkins-perlbrew-install.sh)
+    root="${PERLBREW_ROOT:-$HOME/perl5/perlbrew}"
+    mkdir -p "$root/bin"
+    cp "__PAYLOAD__/perlbrew" "$root/bin/perlbrew"
+    chmod 0755 "$root/bin/perlbrew"
+    ;;
+esac
+exit 0
+SH
+    return 1;
+}
+
 # _posix_shell_binary($preferred)
 # Resolves the POSIX shell that runs install.sh. Windows has no sh on PATH,
 # so the copy shipped with Git for Windows (usr\bin) is located explicitly;
@@ -1888,8 +2925,20 @@ and macOS package installation flows use the repo manifests in order, that the
 user-space Perl bootstrap goes through C<local::lib>, and that the correct
 shell rc file receives exactly one bootstrap line.
 It also checks the installer's arguments: an unknown argument is refused
-with a usage line, and C<--jenkins> takes its own route, and in both cases no
-tool is called and no shell rc file is written.
+with a usage line before any tool is called or any shell rc file is written.
+C<--jenkins> takes its own route, the Jenkins test-node setup: with fake tools
+it checks that Perl 5.38.2 is always built, that the pinned list is installed
+in list order, that the compiled distributions run their own tests, that the
+macOS-only settings step runs only on macOS, that a wrong Perl, a failed
+build or an unsupported platform stops with one FAILED line, that a second
+run changes nothing, and that neither the dashboard nor a shell rc file is
+touched.
+For F<install.ps1> it reads the script text: the C<-Jenkins> switch and the
+C<DD_INSTALL_JENKINS> variable exist, the Perl is pinned to exactly 5.38.2 at
+the Strawberry root, the Windows lists under F<share/jenkins> are the ones
+read, the dashboard install and the profile edits are not on that route, and
+the script holds no address and no path into one user profile. No PowerShell
+is started by this file on any platform.
 
 =head1 WHY IT EXISTS
 
