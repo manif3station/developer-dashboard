@@ -97,7 +97,7 @@ require Developer::Dashboard::FileRegistry;
 require Developer::Dashboard::Housekeeper;
 require Developer::Dashboard::IndicatorStore;
 require Developer::Dashboard::JSON;
-Developer::Dashboard::JSON->import(qw(json_encode));
+Developer::Dashboard::JSON->import(qw(json_encode json_encode_with_options));
 require Developer::Dashboard::PageDocument;
 require Developer::Dashboard::PageRuntime;
 require Developer::Dashboard::PageResolver;
@@ -535,16 +535,19 @@ elsif ( $cmd eq 'indicator' ) {
             priority       => 100,
             prompt_visible => 1,
         );
-        print json_encode($item);
+        # STDOUT carries :encoding(UTF-8), so the JSON printed here must
+        # be a character string: json_encode returns UTF-8 bytes, which
+        # the layer would encode a second time (T3).
+        print json_encode_with_options( $item, pretty => 1 );
         exit 0;
     }
     elsif ( $action eq 'list' ) {
-        print json_encode( [ $indicators->list_indicators ] );
+        print json_encode_with_options( [ $indicators->list_indicators ], pretty => 1 );
         exit 0;
     }
     elsif ( $action eq 'refresh-core' ) {
         my $cwd = shift @ARGV || current_working_directory();
-        print json_encode( $indicators->refresh_core_indicators( cwd => $cwd ) );
+        print json_encode_with_options( $indicators->refresh_core_indicators( cwd => $cwd ), pretty => 1 );
         exit 0;
     }
 }
