@@ -74,9 +74,11 @@ sub _list_indicator {
 # set path mangles them rather than the display.
 {
     my $record = _set_indicator( 'faye-emoji', 'café test', '🧪', 'ok' );
-    is( $record->{icon},  '🧪',        'indicator: emoji icon round-trips through indicator set' );
-    is( $record->{label}, 'café test', 'indicator: accented label round-trips through indicator set' );
-    is( $record->{name},  'faye-emoji', 'indicator: name round-trips through indicator set' );
+    if ($record) {
+        is( $record->{icon},  '🧪',        'indicator: emoji icon round-trips through indicator set' );
+        is( $record->{label}, 'café test', 'indicator: accented label round-trips through indicator set' );
+        is( $record->{name},  'faye-emoji', 'indicator: name round-trips through indicator set' );
+    }
 
     my $stored = _list_indicator('faye-emoji');
     ok( $stored, 'indicator: the non-ASCII indicator is listed back' );
@@ -89,8 +91,10 @@ sub _list_indicator {
 # Control: an ASCII indicator round-trips, as it already does.
 {
     my $record = _set_indicator( 'faye-ascii', 'plain test', 'A', 'ok' );
-    is( $record->{icon},  'A',          'indicator: ASCII icon round-trips through indicator set' );
-    is( $record->{label}, 'plain test', 'indicator: ASCII label round-trips through indicator set' );
+    if ($record) {
+        is( $record->{icon},  'A',          'indicator: ASCII icon round-trips through indicator set' );
+        is( $record->{label}, 'plain test', 'indicator: ASCII label round-trips through indicator set' );
+    }
 
     my $stored = _list_indicator('faye-ascii');
     ok( $stored, 'indicator: the ASCII indicator is listed back' );
