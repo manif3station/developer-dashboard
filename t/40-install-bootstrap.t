@@ -1714,7 +1714,7 @@ for my $case (
         like( $err, qr/is not a directory; reinstall it with 'brew reinstall openjdk\@21'/, 'jenkins_java_command says how to repair Java when the brew prefix is not a directory' );
         ( $out, $err, $exit ) = $run_java->( _msys_path($good_dir), 0 );
         is( $exit >> 8, 0, 'jenkins_java_command succeeds when brew --prefix names a real directory' );
-        is( $out, _msys_path($good_dir) . "/bin/java\n", 'jenkins_java_command prints the Java path under the brew prefix' );
+        is( $out, _native_spelling( _msys_path($good_dir) . "/bin/java\n" ), 'jenkins_java_command prints the Java path under the brew prefix' );
 
         # On a non-macOS platform the Java path comes from PATH, and a
         # missing java must fail fast instead of printing the literal
@@ -1747,7 +1747,7 @@ for my $case (
         is( $out, '', 'jenkins_java_command prints no Java path when java is absent from PATH on a non-macOS platform' );
         ( $out, $err, $exit ) = $run_java_nondarwin->($fake_bin_with_java);
         is( $exit >> 8, 0, 'jenkins_java_command succeeds when java is on PATH on a non-macOS platform' );
-        is( $out, _msys_path($fake_bin_with_java) . "/java\n", 'jenkins_java_command prints the Java path from PATH on a non-macOS platform' );
+        is( $out, _native_spelling( _msys_path($fake_bin_with_java) . "/java\n" ), 'jenkins_java_command prints the Java path from PATH on a non-macOS platform' );
     }
 }
 
