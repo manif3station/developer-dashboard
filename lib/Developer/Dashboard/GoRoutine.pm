@@ -1059,13 +1059,18 @@ sub send {
 # queued. A routine killed while it waited is skipped, not queued.
 sub _wake_waiter {
     my ($self) = @_;
-    return 0 unless @{ $self->{waiting_routines} };
-    my $rid = shift @{ $self->{waiting_routines} };
-    my $rec = Developer::Dashboard::GoRoutine::_routine_record($rid);
-    return 0 unless $rec && $rec->{state} eq 'pending';
-    push @READY_ROUTINES, $rid;
-    Developer::Dashboard::GoRoutine::pump(0);
-    return 1;
+    # Loop over the waiting routines, skipping any that were killed
+    # while they waited, and wake the first live one. Returning 0 on
+    # the first dead entry would strand the live waiters behind it
+    # until the channel closes or another send arrives.
+    while (my $rid = shift @{ $self->{waiting_routines} }) {
+        my $rec = Developer::Dashboard::GoRoutine::_routine_record($rid);
+        next unless $rec && $rec->{state} eq 'pending';
+        push @READY_ROUTINES, $rid;
+        Developer::Dashboard::GoRoutine::pump(0);
+        return 1;
+    }
+    return 0;
 }
 
 # receive()
