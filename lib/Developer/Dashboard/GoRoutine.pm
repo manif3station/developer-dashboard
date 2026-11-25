@@ -1070,6 +1070,12 @@ sub _wake_waiter {
         Developer::Dashboard::GoRoutine::pump(0);
         return 1;
     }
+    # No live waiter remains. A waiter that yielded here set
+    # receiver_waiting to 1, and if it was killed or cancelled the
+    # flag is never cleared anywhere else, so clear it here: the next
+    # send must fall through to the sender-queue/backpressure path,
+    # not push a value onto queue that no one will ever take.
+    $self->{receiver_waiting} = 0;
     return 0;
 }
 
