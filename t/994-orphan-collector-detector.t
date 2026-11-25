@@ -668,6 +668,20 @@ ok( $plain_row && !defined _leftover_kind( $manager, $plain_row ), 'detector: th
     my @live = grep { defined } ( $sup_row, $loop_row, $plain_row );
     my ( $found, $unresolved ) = _leftovers_in_rows( \@live, $manager, $min_age, $from_temp );
     is( scalar( @{$found} ) + scalar( @{$unresolved} ), 0, 'detector: process scan ignores this run\'s own young children' );
+    # R98: the rule is ruled out as the defect, and the failure is in the
+    # snapshot rows on the tester's box. When this fails, dump the rows so
+    # the failure output itself carries the evidence for the cause.
+    if ( @{$found} || @{$unresolved} ) {
+        diag( sprintf 'detector: min_age %ss, run age %ss', $min_age, time - $^T );
+        for my $row ( @{$found}, @{$unresolved} ) {
+            diag( sprintf 'detector: FLAGGED pid %s ppid %s age %ss parentless %s kind %s title [%s]',
+                $row->{pid}, $row->{ppid}, $row->{age}, $row->{parentless}, $row->{kind}, $row->{args} );
+        }
+        for my $row (@live) {
+            diag( sprintf 'detector: LIVE ROW pid %s ppid %s age %ss parentless %s title [%s]',
+                $row->{pid}, $row->{ppid}, $row->{age}, $row->{parentless}, $row->{args} );
+        }
+    }
 
     my @orphaned = map { +{ %{ $_ || { pid => 1, args => '' } }, parentless => 1, age => $old } } ( $sup_row, $loop_row, $plain_row );
     ( $found, $unresolved ) = _leftovers_in_rows( \@orphaned, $manager, $min_age, $from_temp );
@@ -770,6 +784,13 @@ is( _etime_seconds('1:2:3:4'),   undef, 'detector: etime 1:2:3:4 parses to undef
     ok( $fresh_row, 'detector: the fresh child appears in the process table' );
     if ($fresh_row) {
         ok( defined $fresh_row->{age} && $fresh_row->{age} < $min_age, 'detector: the fresh child reads back younger than the minimum age' );
+        # R98: same dump here, so a mis-read snapshot on the tester's box
+        # shows in the failure output instead of needing a second run.
+        if ( !defined $fresh_row->{age} || $fresh_row->{age} >= $min_age ) {
+            diag( sprintf 'detector: FRESH ROW pid %s ppid %s age %s parentless %s title [%s] min_age %ss',
+                $fresh_row->{pid}, $fresh_row->{ppid}, $fresh_row->{age} // 'undef',
+                $fresh_row->{parentless} // 'undef', $fresh_row->{args}, $min_age );
+        }
     }
 }
 
@@ -872,7 +893,11 @@ ignored, one second past the minimum is flagged, a row with no age is
 ignored, the test's own pid is ignored, and a row owned by another user
 is ignored. Eight check the etime parser the snapshot ages depend on,
 and three check that a just-spawned child reads back young from the
-live process table.
+live process table. When the young-children check or the fresh-child
+check fails, the test dumps the snapshot rows (pid, ppid, age,
+parentless, kind, title) and the minimum age, so the failure output
+itself carries the evidence for the cause — R98 ruled the rule logic
+out, and the failure is in the snapshot rows on the tester's box.
 When a real scan finds orphans, the test fails and diags each one
 (kind, name, pid, state root, heartbeat age, and STUCK when a
 supervisor heartbeat is stale; for the process-list scan kind, pid,
