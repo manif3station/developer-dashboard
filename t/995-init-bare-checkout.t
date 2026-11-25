@@ -33,6 +33,9 @@ sub _run_init {
         delete $ENV{PERL5OPT};
         delete $ENV{DEVELOPER_DASHBOARD_REPO_LIB};
         delete $ENV{HARNESS_PERL_SWITCHES};
+        delete $ENV{PERL_LOCAL_LIB_ROOT};
+        delete $ENV{PERL_MB_OPT};
+        delete $ENV{PERL_MM_OPT};
     }
     $ENV{HOME} = $home;
     my ( $stdout, $stderr, $exit ) = capture {
