@@ -1940,7 +1940,8 @@ for my $ubuntu_version ( '22.04', '24.04' ) {
         qr/if \(Test-Path -LiteralPath \$JenkinsTestedStamp\) \{\s+Write-JenkinsLine -Message 'the compiled distributions already passed their own tests'\s+return\s+\}/s,
         'install.ps1 -Jenkins skips the compiled tests when they already passed',
     );
-    like( $route, qr/\$JenkinsCpanmPath = Join-Path \$JenkinsStrawberryRoot 'perl\\bin\\cpanm'/, q{install.ps1 -Jenkins starts with Strawberry's own cpanm} );
+    like( $route, qr/\$script:JenkinsCpanmPath = Join-Path \$JenkinsStrawberryRoot 'perl\\bin\\cpanm'/, q{install.ps1 -Jenkins starts with Strawberry's own cpanm} );
+    unlike( $route, qr/^\$JenkinsCpanmPath = Join-Path \$JenkinsStrawberryRoot 'perl\\bin\\cpanm'/m, 'install.ps1 -Jenkins no longer declares the cpanm path bare' );
     like( $route, qr/\$JenkinsSiteCpanmPath = Join-Path \$JenkinsStrawberryRoot 'perl\\site\\bin\\cpanm'/, 'install.ps1 -Jenkins knows where the pinned cpanm lands in the site bin folder' );
     like(
         $route,

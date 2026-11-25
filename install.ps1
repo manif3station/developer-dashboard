@@ -1043,7 +1043,11 @@ $JenkinsKeyModules = @('Net::SSLeay', 'JSON::XS', 'Test::Pod')
 $JenkinsTestOnlyHelpers = @('B::COW')
 $JenkinsDistributionPattern = '^[A-Z]/[A-Z]{2}/[A-Z0-9-]+/[A-Za-z0-9._-]+\.tar\.gz$'
 $JenkinsPerlPath = Join-Path $JenkinsStrawberryRoot 'perl\bin\perl.exe'
-$JenkinsCpanmPath = Join-Path $JenkinsStrawberryRoot 'perl\bin\cpanm'
+# $script: is required here: the reads and the switch writes are all
+# $script:, and the switch must persist in the script scope across
+# functions (Install-JenkinsPinnedList writes it, Test-JenkinsCompiledList
+# reads it through Invoke-JenkinsCpanm).
+$script:JenkinsCpanmPath = Join-Path $JenkinsStrawberryRoot 'perl\bin\cpanm'
 $JenkinsSiteCpanmPath = Join-Path $JenkinsStrawberryRoot 'perl\site\bin\cpanm'
 $JenkinsTestedStamp = Join-Path $JenkinsStrawberryRoot 'perl\.jenkins-compiled-tests-passed'
 $JenkinsWork = ''
