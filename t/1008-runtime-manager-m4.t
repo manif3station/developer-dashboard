@@ -1064,7 +1064,19 @@ CHILD
     my $rc = $manager->stop_web();
     # There is no web state, but running_web finds the live legacy
     # web in the process table, so stop_web returns its pid.
-    is( $rc, $legacy, 'stop_web with a live legacy web and no web state returns the web pid' );
+    # On Windows the legacy worker is found only by its $0 title
+    # 'd2 serve', and $0 does not change the process CommandLine
+    # there, so the real process table has no 'd2 serve' row and
+    # stop_web returns undef. Skip this check there; the call above
+    # still runs. This block localises $OS_NAME to MSWin32, so
+    # is_windows() reads true here on every leg. Guard on $^O, the
+    # real OS, so the skip fires only on real Windows. $^O is never
+    # localised in this file.
+    SKIP: {
+        skip 'the legacy worker is found only by its $0 title, which does not read back on Windows', 1
+          if $^O eq 'MSWin32';
+        is( $rc, $legacy, 'stop_web with a live legacy web and no web state returns the web pid' );
+    }
     # The Windows branch TERMs the web pid first, then the ajax and
     # legacy workers, then KILLs the web pid and the lingering
     # workers, in that order.
@@ -1097,9 +1109,18 @@ CHILD
             "/PID $legacy /T /F\n$worker_a\n$worker_b\n/PID $legacy /T /F\n$worker_a\n$worker_b\n",
             'stop_web TERMs the web, the ajax and legacy workers, then KILLs the lingering ones' );
     }
-    ok( defined _read_file($powershell_log)
-          && length( _read_file($powershell_log) ) > 0,
-        'the Windows table scan ran through the fake powershell' );
+    # On Windows the fake powershell IS found on PATH, but it is a
+    # Unix shell script and cannot execute there, so the scan returns
+    # no rows and the fake log is never written. Skip this check
+    # there. Guard on $^O, the real OS: this block localises
+    # $OS_NAME to MSWin32, so is_windows() would fire on every leg.
+    SKIP: {
+        skip 'the fake powershell cannot execute on Windows', 1
+          if $^O eq 'MSWin32';
+        ok( defined _read_file($powershell_log)
+              && length( _read_file($powershell_log) ) > 0,
+            'the Windows table scan ran through the fake powershell' );
+    }
     is( $manager->_pid_is_running($ajax), 1,
         'the ajax worker is still alive: the fake taskkill ends nothing' );
     is( $manager->_pid_is_running($legacy), 1,
