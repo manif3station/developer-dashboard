@@ -698,11 +698,11 @@ d2 - thin command switchboard for Developer Dashboard
   d2 collector job <name>
   d2 collector output <name>
   d2 collector inspect <name>
-  d2 collector log [name]
+  d2 collector log [name] [-t] [-f] [--tail <lines>|--tail=<lines>] [-n <lines>]
   d2 collector run <name>
   d2 collector start <name>
-  d2 collector stop <name>
-  d2 collector restart <name>
+  d2 collector stop [name] [-o json|table] [--host <host>] [--port <port>] [--workers <count>] [--ssl|--no-ssl]
+  d2 collector restart [name] [-o json|table] [--host <host>] [--port <port>] [--workers <count>] [--ssl|--no-ssl]
   d2 housekeeper
   d2 skills install [-b branch] <git-url-or-local-dir>
   d2 skills enable <repo-name>
