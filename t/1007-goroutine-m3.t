@@ -324,12 +324,22 @@ is( Developer::Dashboard::GoRoutine::is_spawn_child(0), 0,
 is( Developer::Dashboard::GoRoutine::is_spawn_child('abc'), 0,
     'a non-numeric pid is not a spawn child' );
 
-# Without localisation a valid pid is refused at the $^O gate (line 75).
-my $plain_child = Developer::Dashboard::GoRoutine::spawn(
-    [ $^X, '-e', 'select undef, undef, undef, 0.5; exit 0;' ], {} );
-Developer::Dashboard::GoRoutine::_keep_spawn_handle($plain_child);
-is( Developer::Dashboard::GoRoutine::is_spawn_child($plain_child), 0,
-    'a pid is not recorded when $^O is not Windows' );
+# With $^O localised to a non-Windows value a valid pid is refused at
+# the $^O gate (line 75) on every leg. The localisation must cover the
+# spawn as well as the explicit _keep_spawn_handle call: spawn() goes
+# through _spawn_wrapper, which records the pid itself, so on Windows
+# the pid would already be in the registry before the explicit call.
+# (Probed: a spawn with $^O localised to MSWin32 records the pid;
+# localising only the keep call and the assertion leaves it recorded.)
+my $plain_child;
+{
+    local $^O = 'linux';
+    $plain_child = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'select undef, undef, undef, 0.5; exit 0;' ], {} );
+    Developer::Dashboard::GoRoutine::_keep_spawn_handle($plain_child);
+    is( Developer::Dashboard::GoRoutine::is_spawn_child($plain_child), 0,
+        'a pid is not recorded when $^O is not Windows' );
+}
 # With $^O localised the registry path runs (lines 75-77, 98-99): the
 # pid is recorded with the fallback handle 1, because Win32::Process
 # cannot load on POSIX and $opened stays undef.
