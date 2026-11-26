@@ -438,12 +438,22 @@ SKIP: {
     is( $manager->_is_starman_worker($plain), 0,
         'a plain sleep process is not a starman worker' );
     _kill_child($plain);
-    my $worker = _spawn_sleep( title => 'starman worker test' );
-    is( $manager->_read_process_title($worker), 'starman worker test',
-        'the worker child reads back with its $0 title' );
-    is( $manager->_is_starman_worker($worker), 1,
-        'a process titled starman worker is a starman worker' );
-    _kill_child($worker);
+    # _read_process_title reads /proc/<pid>/cmdline, which does
+    # not exist on Windows, and setting $0 in Perl does not change
+    # the Windows process title, so the title never reads back
+    # there. Skip both title checks on Windows; the negative
+    # checks above still run on all legs.
+    SKIP: {
+        skip 'the $0 title does not read back on Windows', 2
+          if is_windows();
+
+        my $worker = _spawn_sleep( title => 'starman worker test' );
+        is( $manager->_read_process_title($worker), 'starman worker test',
+            'the worker child reads back with its $0 title' );
+        is( $manager->_is_starman_worker($worker), 1,
+            'a process titled starman worker is a starman worker' );
+        _kill_child($worker);
+    }
 }
 
 # --- _process_started_not_before (lines 2266-2267) ------------------------
@@ -907,8 +917,19 @@ use Developer::Dashboard::RuntimeManager;
     sub new { my ( $c, %a ) = @_; return bless { stopped => [], %a }, $c }
     sub running_loops {
         $calls++;
-        die "loop scan failed\n" if $calls == 1;
-        return ( { name => 'alpha.collector' } ) if $calls == 2;
+        # R153: log each poll result to stderr, so the next proof
+        # shows what the child was doing if it hangs. The test
+        # reads the child's stderr on timeout.
+        my $now = time;
+        if ( $calls == 1 ) {
+            print STDERR "[$now] running_loops call 1: scan fails\n";
+            die "loop scan failed\n";
+        }
+        if ( $calls == 2 ) {
+            print STDERR "[$now] running_loops call 2: one live loop (alpha.collector)\n";
+            return ( { name => 'alpha.collector' } );
+        }
+        print STDERR "[$now] running_loops call $calls: no live loops\n";
         return ();
     }
     sub loop_state { return undef }
@@ -950,7 +971,11 @@ CHILD
         },
     );
     ok( defined $child && $child > 0, 'the quiesce child spawns' );
-    my $exit = _wait_for_exit( $child, 10 );
+    # R153: the wait is 30s, not 10s, so the next proof shows
+    # whether the child is slow (exits in 10-30s) or truly hung
+    # (still running at 30s). The child's stderr log, read on
+    # timeout below, shows what it was doing.
+    my $exit = _wait_for_exit( $child, 30 );
     if ( !defined $exit ) {
         diag 'quiesce child timed out; stderr: ' . ( _read_file($child_err) // '' );
     }
