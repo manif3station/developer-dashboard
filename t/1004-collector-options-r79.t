@@ -421,3 +421,84 @@ SKIP: {
 }
 
 done_testing();
+
+__END__
+
+=head1 NAME
+
+t/1004-collector-options-r79.t - failing tests for the R79 collector log and lifecycle options
+
+=head1 PURPOSE
+
+Pin the R115 collector options: C<d2 collector log> gains -t
+(timestamps), -f (follow) and --tail/-n (trailing lines); C<d2
+collector stop> and C<d2 collector restart> gain --output/-o (including
+JSON mode), --host, --port, --workers, --ssl. The log options reuse the
+verb-first log helpers (C<_timestamp_log_text>, C<_tail_log_text>); the
+lifecycle options reuse the verb-first lifecycle parsing. 90 checks. The
+follow test runs under C<timeout 3s> and, after the timeout, kills the
+surviving follow process tree on Windows (taskkill /T /F) so the test's
+pipes close and prove does not hang (R119).
+
+=head1 WHY IT EXISTS
+
+The R79 collector form shipped without the options the verb-first forms
+already had, so C<d2 collector log example -t> failed with usage while
+C<d2 log collector example -t> worked. Without tests pinning each option
+on the collector-first form, the options could stay missing or silently
+ignored (collector stop with -o json exited 0 but printed nothing before
+the fix). The tests pin the output, not just the exit code, so a
+silently-ignored option fails here.
+
+=head1 WHEN TO USE
+
+When a collector option is added or changes, when the log helpers
+(C<_timestamp_log_text>, C<_tail_log_text>) or the lifecycle parsing
+changes, or when C<d2 collector log -f> hangs the suite (the R119 kill).
+Also when a collector option is reported as ignored.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/1004-collector-options-r79.t> while
+iterating, then keep it green under C<prove -lr t> before release. It
+runs the checkout CLI in a child with a temp HOME via C<_run_d2> (and
+C<_run_d2_timeout> for the follow test), starts the example collector,
+and asserts the log options timestamp every line, return the last N
+lines, and print nothing for --tail 0; and that stop/restart print valid
+JSON naming the collector and its pid in JSON mode, accept -o table, and
+reject -o xml with usage. The follow test asserts exit 124 under timeout
+3s with the log already printed, then kills the surviving follow process
+tree on Windows before the assertions.
+
+=head1 WHAT USES IT
+
+It is used by the collector log and lifecycle commands (the collector
+dispatch in the private CLI core and RuntimeControl's log and lifecycle
+helpers), by the full C<prove -lr t> suite, and by anyone changing
+collector options who needs to know they still work on the
+collector-first form.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/1004-collector-options-r79.t
+
+Run the collector options checks by themselves while changing the log or
+lifecycle options.
+
+Example 2:
+
+  prove -lv t/997-collector-r79.t
+
+Run the collector form checks alongside it to see the same collector
+commands without their options.
+
+Example 3:
+
+  prove -lr t
+
+Run the whole suite after the focused check to keep the collector
+options aligned with the rest of the CLI.
+
+=cut
