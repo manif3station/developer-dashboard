@@ -748,22 +748,6 @@ is( $inside_running, 1, 'a routine reports running inside its callback' );
 is( $run_h->is_running, 0, 'a finished routine reports not running' );
 
 # ----------------------------------------------------------------------
-# The fork guard (line 976): a forked child returns from the END
-# block at once instead of draining the parent's queue.
-# ----------------------------------------------------------------------
-my $fork_pid = fork();
-if ( !defined $fork_pid ) {
-    fail('fork failed for the END block probe');
-}
-elsif ( $fork_pid == 0 ) {
-    exit(0);
-}
-else {
-    waitpid( $fork_pid, 0 );
-    is( $? >> 8, 0, 'a forked child exits cleanly' );
-}
-
-# ----------------------------------------------------------------------
 # R144: the fork test above goes (a direct fork() call is a bug, not a
 # rule exception), replaced by a GoRoutine-based test. A spawned child
 # cannot exercise the END-block fork guard (GoRoutine.pm line 990) the
