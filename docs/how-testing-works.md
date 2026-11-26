@@ -56,7 +56,7 @@ Every test file follows the same shape:
 - `use Test::More;` and `done_testing();` at the end.
 - A full POD block after `__END__`, with `=head1 NAME`, `PURPOSE`,
   `WHY IT EXISTS`, `WHEN TO USE`, `HOW TO USE`, `WHAT USES IT` and
-  `EXAMPLES`. The release-metadata test (`t/15`) requires all six
+  `EXAMPLES`. The release-metadata test (`t/15`) requires all seven
   sections plus `__END__` and `NAME` on every file under `t/`, and
   any test path cited in the POD must exist.
 
