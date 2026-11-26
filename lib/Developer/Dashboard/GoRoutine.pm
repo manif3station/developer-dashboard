@@ -718,6 +718,17 @@ sub go (&;$) {
     $opts = {} unless defined $opts;
     die "go() options must be a hash reference" unless ref($opts) eq 'HASH';
 
+    # Validate the IO triggers before creating the record (R135): a
+    # failed go() must not leave a pending record with no triggers,
+    # which would hang every later wait_all().
+    for my $dir (qw(readable writable)) {
+        next unless defined $opts->{$dir};
+        my $given = $opts->{$dir};
+        my $fd = ref($given) ? fileno($given) : $given;
+        die "go() $dir trigger needs a filehandle or a file descriptor"
+            unless defined($fd) && $fd =~ /\A\d+\z/;
+    }
+
     my $id = ++$NEXT_ROUTINE_ID;
     my $now = _ev_now();
     my $rec = {
