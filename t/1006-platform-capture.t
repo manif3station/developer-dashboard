@@ -81,11 +81,26 @@ use Developer::Dashboard::Platform ();
 # output is captured too. This is the behaviour the explicit
 # save/restore exists for: a localised glob would leave the child on
 # the original fd 1.
+# The child is a Perl child on Unix and a native child (cmd) on
+# Windows: a Perl child cannot be captured on Windows (a Perl-runtime
+# behaviour, not an fd inheritance issue - the dup2 diagnostic proved
+# native children are captured and Perl children are lost under both
+# methods), and the product never spawns a Perl child through _capture.
+# cmd writes CRLF, so the expected output on Windows is "child-out\r\n".
 {
+    my $is_windows = $^O eq 'MSWin32';
     my ( $out, $err, $rc ) = Developer::Dashboard::Platform::_capture(
-        sub { system( $^X, '-e', 'print "child-out\n"' ); } );
-    is( $out, "child-out\n", 'a spawned child writes through the redirected fd' );
-    is( $rc,  0,             'rc is 0 when the child exits 0' );
+        sub {
+            if ($is_windows) {
+                system( 'cmd', '/c', 'echo', 'child-out' );
+            }
+            else {
+                system( $^X, '-e', 'print "child-out\n"' );
+            }
+        } );
+    is( $out, $is_windows ? "child-out\r\n" : "child-out\n",
+        'a spawned child writes through the redirected fd' );
+    is( $rc, 0, 'rc is 0 when the child exits 0' );
 }
 
 # _capture: a dying code ref. The die propagates with the original
