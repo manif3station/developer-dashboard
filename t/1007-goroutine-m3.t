@@ -164,20 +164,21 @@ is( $repeat->status, 'killed', 'a killed repeat routine finishes killed' );
 close $wr3 or die "cannot close pipe write end: $!";
 close $rd3 or die "cannot close pipe read end: $!";
 
-# an invalid trigger dies explicitly. The record is created before
-# the trigger is validated, so a failed go() leaves a pending record
-# with no triggers: it would hang every later wait_all() in the
-# process. The record is cancelled here so the rest of the file can
-# run; the dangling record itself is a product defect, reported
-# separately, not fixed by the tests.
+# an invalid trigger dies explicitly. A failed go() leaves no pending
+# record: the trigger is validated before the record is created, so
+# nothing is left behind to hang a later wait_all(). The cancel call
+# below asserts exactly that — it returns 0 because there is no
+# record to cancel. (Before the R135 fix the record was created
+# before validation, so a failed go() left a pending record; the
+# test pinned that behaviour and now pins the fixed one.)
 my $id_probe = go sub { 1 };
 my $bad_id = $id_probe->{id} + 1;
 ok( $id_probe->kill, 'a probe routine can be killed to learn the next id' );
 my $bad_trigger = eval { go sub { 1 }, { readable => 'abc' }; 1 } ? '' : $@;
 like( $bad_trigger, qr/needs a filehandle or a file descriptor/,
     'a readable trigger that is not a handle or fd dies' );
-is( Developer::Dashboard::GoRoutine::_cancel_routine( $bad_id, 'killed' ), 1,
-    'the pending record left by a failed go() can be cancelled' );
+is( Developer::Dashboard::GoRoutine::_cancel_routine( $bad_id, 'killed' ), 0,
+    'no pending record remains after a failed go()' );
 
 # pid: the routine runs when the child exits. A lone pid trigger is
 # only checked when the wait is bounded (by a pump timeout or another
