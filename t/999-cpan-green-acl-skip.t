@@ -123,9 +123,22 @@ BEGIN {
     }
 }
 my \$dir = tempdir( CLEANUP => 1 );
-chmod 0700, \$dir or die "Unable to chmod \$dir: \$!";
-my \@st = stat \$dir;
-is( ( \$st[2] & 07777 ), 0700, 'owner-only mechanism works where the environment supports it' );
+# Verify owner-only with the platform's own mechanism. On Windows,
+# Perl's chmod does not set Unix mode bits and stat synthesizes 0777
+# for a directory regardless, so mode bits cannot measure it there
+# (build #167 failed with got 511, expected 448). On Windows the
+# probe's own calls set and check the DACL instead; on Unix mode
+# bits are the mechanism, so chmod + stat stays as it is.
+if ( Developer::Dashboard::Platform::is_real_windows() ) {
+    Developer::Dashboard::Platform::windows_acl_set_owner_only(\$dir);
+    ok( Developer::Dashboard::Platform::windows_acl_is_owner_only(\$dir),
+        'owner-only mechanism works where the environment supports it' );
+}
+else {
+    chmod 0700, \$dir or die "Unable to chmod \$dir: \$!";
+    my \@st = stat \$dir;
+    is( ( \$st[2] & 07777 ), 0700, 'owner-only mechanism works where the environment supports it' );
+}
 done_testing();
 PERL
     close $fh or die "Unable to close $path: $!";
