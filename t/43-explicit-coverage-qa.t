@@ -669,18 +669,18 @@ subtest 'CLI::Complete covers tmux session and collector-name providers' => sub 
     is_deeply(
         [
             sort( Developer::Dashboard::CLI::Complete::complete(
-                words            => [ 'dashboard', 'restart', 'collector', 'collector-' ],
+                words            => [ 'dashboard', 'collector', 'restart', 'collector-' ],
                 index            => 3,
                 collector_names  => sub { return qw(collector-one collector-two); },
             ) )
         ],
         [ qw(collector-one collector-two) ],
-        'complete uses the collector-name provider for restart collector completion',
+        'complete uses the collector-name provider for collector restart completion',
     );
 
     is_deeply(
         [ Developer::Dashboard::CLI::Complete::_subcommand_candidates('logs') ],
-        [ qw(web collector) ],
+        [ qw(web) ],
         '_subcommand_candidates includes runtime-control scopes for logs',
     );
 };
