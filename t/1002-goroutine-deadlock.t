@@ -144,3 +144,83 @@ sub _is_gnu_timeout {
     # argument) and exits non-zero without "GNU" in its output.
     return ( $raw_exit >> 8 ) == 0 && $stdout =~ /GNU/;
 }
+
+__END__
+
+=head1 NAME
+
+t/1002-goroutine-deadlock.t - failing tests for the GoRoutine re-entrancy deadlock (Michael's script)
+
+=head1 PURPOSE
+
+Pin that Michael's GoRoutine script (a channel, a worker that loops
+receiving and printing, sends 1..10, then kill and wait_all) completes
+and prints every value instead of hanging after the first one. The
+engine is cooperative and single-threaded: send parks the value and
+pumps, the worker takes it and blocks receiving again, and the main
+thread is stuck inside send's pump, so send never runs again - a
+re-entrancy deadlock in the cooperative scheduler. The test runs the
+script as a subprocess under a timeout so a hang fails instead of
+blocking the suite.
+
+=head1 WHY IT EXISTS
+
+Michael's script printed 01 and hung forever, and the hang was in the
+scheduler, not in his script. Without a regression test the deadlock
+could come back with any change to the GoRoutine engine, and a hang in
+the suite blocks every other test behind it. The test bounds the script
+with a timeout (GNU timeout or gtimeout, found the same way on Windows
+via the .exe names) so a future hang fails loudly in seconds instead of
+stalling the run.
+
+=head1 WHEN TO USE
+
+When a GoRoutine script hangs, when the GoRoutine engine (send, receive,
+pump, dispatch) changes, or when the timeout lookup changes for a
+platform. Also when a new cooperative-scheduling bug is suspected and a
+minimal repro is needed.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/1002-goroutine-deadlock.t> while
+iterating, then keep it green under C<prove -lr t> before release. It
+runs Michael's script as a subprocess under C<timeout 5s> (or
+C<gtimeout>, with C<timeout.exe>/C<gtimeout.exe> tried on Windows and
+only a GNU timeout accepted, so the Windows system32 timeout is
+skipped), and asserts the exit code and the full output
+C<0123456789done>. Without a timeout binary the test skips with a
+reason. The script sends 0..9 with plain print, which exercises the
+same deadlock as Michael's 1..10 with C<%02d> (the values differ, the
+stall is identical).
+
+=head1 WHAT USES IT
+
+It is used by the GoRoutine test family (the goroutine regression files
+that run alongside it), by the full C<prove -lr t> suite, and by anyone
+changing the GoRoutine scheduler who needs a fast check that the
+re-entrancy deadlock is still gone.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/1002-goroutine-deadlock.t
+
+Run the deadlock regression by itself while changing the GoRoutine
+engine or the timeout lookup.
+
+Example 2:
+
+  timeout 5s perl -Ilib -Iblib/lib -Iblib/arch t/1002-goroutine-deadlock.t
+
+Run the same check outside the harness to see the script's own output
+and exit code directly.
+
+Example 3:
+
+  prove -lr t
+
+Run the whole suite after the focused check to keep the deadlock
+regression aligned with the GoRoutine test family.
+
+=cut
