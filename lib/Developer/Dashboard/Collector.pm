@@ -522,13 +522,13 @@ sub _format_log_entry {
 
     my @chunks = ( join( ' | ', @header ) . " ===\n" );
     if ( defined $args{stdout} && $args{stdout} ne '' ) {
-        push @chunks, "[stdout]\n", _with_trailing_newline( $args{stdout} );
+        push @chunks, "[stdout]\n", _with_trailing_newline( _normalize_log_text( $args{stdout} ) );
     }
     if ( defined $args{stderr} && $args{stderr} ne '' ) {
-        push @chunks, "[stderr]\n", _with_trailing_newline( $args{stderr} );
+        push @chunks, "[stderr]\n", _with_trailing_newline( _normalize_log_text( $args{stderr} ) );
     }
     if ( defined $args{error} && $args{error} ne '' ) {
-        push @chunks, "[error]\n", _with_trailing_newline( $args{error} );
+        push @chunks, "[error]\n", _with_trailing_newline( _normalize_log_text( $args{error} ) );
     }
     push @chunks, "\n";
     return join '', @chunks;
@@ -712,6 +712,24 @@ sub _iso8601_to_epoch {
     };
     die "Unsupported collector log timestamp $timestamp\n" if $@;
     return $epoch;
+}
+
+# _normalize_log_text($text)
+# Normalizes captured command output for the log so each record has the
+# same line count on every platform. On Windows the captured stdout ends
+# with two line breaks (the PowerShell CRLF plus a second newline), which
+# adds a blank line to every record and breaks --tail counts. Converts
+# CRLF and lone CR to LF, then drops trailing blank lines so the text
+# ends with exactly one newline.
+# Input: text string (possibly undef).
+# Output: normalized text string.
+sub _normalize_log_text {
+    my ($text) = @_;
+    $text = '' if !defined $text;
+    $text =~ s/\r\n/\n/g;
+    $text =~ s/\r/\n/g;
+    $text =~ s/\n+\z/\n/ if $text ne '';
+    return $text;
 }
 
 # _with_trailing_newline($text)
