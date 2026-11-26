@@ -121,10 +121,19 @@ sub _capture {
     # read below reads the localized value, so the returned wait status
     # is unchanged.
     local $?;
+    # R128 fault 1: tempfile() opens in text mode, and on Windows
+    # binmode :raw does not strip the :crlf layer (proven by
+    # diagnostic: the layers still read unix,crlf after binmode),
+    # so a parent print's \n is translated to \r\n on write.
+    # Reserve the path with tempfile() and open it with '>:raw'
+    # instead, so the handle is raw from the start - the same
+    # pattern _slurp_raw_file already uses with '<:raw'.
     my ( $out_fh, $out_name ) = tempfile( UNLINK => 0 );
     my ( $err_fh, $err_name ) = tempfile( UNLINK => 0 );
-    binmode $out_fh, ':raw';
-    binmode $err_fh, ':raw';
+    close $out_fh;
+    close $err_fh;
+    open $out_fh, '>:raw', $out_name or die "Unable to open capture file $out_name: $!";
+    open $err_fh, '>:raw', $err_name or die "Unable to open capture file $err_name: $!";
     my ( $out, $err, $rc );
     my ( $saved_out, $saved_err );
     my $ok = eval {
