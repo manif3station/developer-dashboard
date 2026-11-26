@@ -1672,6 +1672,7 @@ sub _current_os {
 sub _is_debian_like {
     my ($self) = @_;
     return 1 if $ENV{DD_TEST_DEBIAN_LIKE};
+    return 0 if defined $ENV{DD_TEST_DEBIAN_LIKE} && $ENV{DD_TEST_DEBIAN_LIKE} eq '0';
     return 0 if $self->_is_alpine;
     return 0 if $self->_current_os ne 'linux';
     return 0 + !!-f '/etc/debian_version';
@@ -1684,6 +1685,7 @@ sub _is_debian_like {
 sub _is_alpine {
     my ($self) = @_;
     return 1 if $ENV{DD_TEST_ALPINE};
+    return 0 if defined $ENV{DD_TEST_ALPINE} && $ENV{DD_TEST_ALPINE} eq '0';
     return 0 if $self->_current_os ne 'linux';
     return 0 + !!-f '/etc/alpine-release';
 }
@@ -1695,6 +1697,7 @@ sub _is_alpine {
 sub _is_fedora {
     my ($self) = @_;
     return 1 if $ENV{DD_TEST_FEDORA};
+    return 0 if defined $ENV{DD_TEST_FEDORA} && $ENV{DD_TEST_FEDORA} eq '0';
     return 0 if $self->_current_os ne 'linux';
     return 0 + !!-f '/etc/fedora-release';
 }

@@ -1732,6 +1732,23 @@ my $repos = tempdir( CLEANUP => 1 );
     );
 }
 
+# _expected_system_task_ids($manager)
+# Expected host-progress system task ids, derived from the detection
+# predicates - the same mapping _host_progress_system_task_ids uses. The
+# test never hard-codes a manager for an OS; it follows the detection, so
+# a Linux host with no distro markers (the aarch64 tester box) expects no
+# system task, not install_aptfile.
+sub _expected_system_task_ids {
+    my ($mgr) = @_;
+    my $os = $mgr->_current_os;
+    return ['install_wingetfile'] if $os eq 'MSWin32';
+    return ['install_brewfile']   if $os eq 'darwin';
+    return ['install_apkfile']    if $mgr->_is_alpine;
+    return ['install_dnfile']     if $mgr->_is_fedora;
+    return ['install_aptfile']    if $mgr->_is_debian_like;
+    return [];
+}
+
 # ===========================================================================
 # _is_debian_like defers to alpine detection, and _host_progress detects the
 # Debian filesystem marker when no environment override is present.
@@ -1750,7 +1767,7 @@ my $repos = tempdir( CLEANUP => 1 );
         delete local $ENV{DD_TEST_ALPINE};
         delete local $ENV{DD_TEST_FEDORA};
         is_deeply( [ $manager->_host_progress_system_task_ids ],
-            $^O eq 'MSWin32' ? ['install_wingetfile'] : $^O eq 'darwin' ? ['install_brewfile'] : ['install_aptfile'],
+            _expected_system_task_ids($manager),
             'host progress detects the native package manager' );
     }
 }

@@ -28,6 +28,7 @@ our @EXPORT_OK = qw(
   effective_mode_octal
   windows_acl_is_owner_only
   windows_acl_set_owner_only
+  windows_acl_can_set_owner_only
 );
 
 our $OS_NAME = $^O;
@@ -272,6 +273,54 @@ sub windows_acl_set_owner_only {
     my ( $out, $err, $rc ) = _capture( sub { $SYSTEM_LAUNCHER->( 'icacls', $path, '/inheritance:r', '/grant:r', $grant ) } );
     die sprintf "Unable to set owner-only ACL on %s: icacls exited %d: %s%s\n", $path, $rc, $out, $err if $rc != 0;
     return $path;
+}
+
+# _acl_probe_result($ok)
+# Shapes one probe verdict for both calling contexts.
+# Input: boolean, 1 when the environment can set owner-only ACLs.
+# Output: in list context ($ok, $reason); in scalar context $ok alone.
+#   $reason is undef when capable; when incapable it names the missing
+#   owner-only ACL capability and icacls, the mechanism that cannot do it.
+sub _acl_probe_result {
+    my ($ok) = @_;
+    return wantarray ? ( 1, undef ) : 1 if $ok;
+    my $reason = 'cannot set owner-only ACLs: icacls cannot grant an owner-only ACL in this environment';
+    return wantarray ? ( 0, $reason ) : 0;
+}
+
+# windows_acl_can_set_owner_only()
+# Answers whether this environment can set owner-only ACLs, the single
+# capability the ACL-dependent tests need. On a host that cannot, those
+# tests skip with this reason instead of failing.
+# Input: none.
+# Output: in list context ($ok, $reason); in scalar context $ok alone.
+#   $ok is 1 when the environment can set owner-only ACLs, 0 when it
+#   cannot. $reason is undef when capable; when incapable it names the
+#   missing owner-only ACL capability and icacls.
+# $ENV{DD_TEST_WINDOWS_ACL} is the simulation hook, following the existing
+# DD_TEST_* pattern: '0' forces incapable (the tester sandbox shape), '1'
+# forces capable, anything else means a real check. The verdict never
+# consults the CPU architecture: 32-bit is out of scope entirely, so the
+# verdict is arch-independent.
+sub windows_acl_can_set_owner_only {
+    if ( defined $ENV{DD_TEST_WINDOWS_ACL} && $ENV{DD_TEST_WINDOWS_ACL} eq '0' ) {
+        return _acl_probe_result(0);
+    }
+    if ( defined $ENV{DD_TEST_WINDOWS_ACL} && $ENV{DD_TEST_WINDOWS_ACL} eq '1' ) {
+        return _acl_probe_result(1);
+    }
+    # On Unix the owner-only mechanism is mode bits, which work, so the
+    # environment is capable. Only real Windows needs a live check.
+    return _acl_probe_result(1) if !is_real_windows();
+    # Real Windows check: set an owner-only ACL on a throwaway directory
+    # and verify it. icacls failing (the tester sandbox shape) dies inside
+    # the eval, and an unverifiable DACL is not capable either.
+    my $dir = tempdir( CLEANUP => 1 );
+    my $ok = eval {
+        windows_acl_set_owner_only($dir);
+        windows_acl_is_owner_only($dir) ? 1 : 0;
+    };
+    return _acl_probe_result( $ok ? 1 : 0 );
 }
 
 # effective_mode_octal($path)
