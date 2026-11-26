@@ -22,14 +22,6 @@ find(
 );
 
 my @fork_calls;
-# Deliberate test forks, allowlisted by exact file and line. Each entry
-# names the one line it covers; any other fork() call is still caught.
-my %allowed_fork_calls = (
-    # t/1007:754 tests the END-block fork guard (GoRoutine.pm line 990):
-    # a forked child must return from the END block at once instead of
-    # draining the parent's queue. It is the only fork() call in the suite.
-    't/1007-goroutine-m3.t:754' => 1,
-);
 for my $path ( sort @source_files ) {
     open my $source_fh, '<', $path
       or die "Unable to read Perl source '$path': $!";
@@ -49,10 +41,8 @@ for my $path ( sort @source_files ) {
         next if $line =~ /^\s*#/;
         $line =~ s/(?:'[^'\\]*(?:\\.[^'\\]*)*'|"[^"\\]*(?:\\.[^"\\]*)*")//g;
         $line =~ s/#.*\z//;
-        my $location = "$path:$line_number";
-        push @fork_calls, $location
-          if $line =~ /(?<![\w:])(?:CORE::)?fork(?:\s*\(\s*\)|(?=\s*;))/
-          && !$allowed_fork_calls{$location};
+        push @fork_calls, "$path:$line_number"
+          if $line =~ /(?<![\w:])(?:CORE::)?fork(?:\s*\(\s*\)|(?=\s*;))/;
     }
     close $source_fh or die "Unable to close Perl source '$path': $!";
 }
@@ -122,10 +112,7 @@ without weakening the behavior assertions in its surrounding test.
 The scanner visits Perl files under C<lib/> and C<t/>, ignores full-line
 comments and POD/documentation after C<__END__>, and masks simple quoted
 strings before checking for call syntax. It reports every source location in
-one failing assertion. One deliberate test fork is allowlisted by exact
-file and line in %allowed_fork_calls: the t/1007-goroutine-m3.t
-fork-guard test, which must fork to exercise the END-block guard.
-Separate assertions also reject obsolete fork-based
+one failing assertion. Separate assertions also reject obsolete fork-based
 descriptions in the collector supervisor and its process-backed test fixture,
 so comments and POD cannot continue documenting the removed launch path.
 
