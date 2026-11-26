@@ -70,3 +70,81 @@ sub _run_init {
 }
 
 done_testing();
+
+__END__
+
+=head1 NAME
+
+t/995-init-bare-checkout.t - failing tests for the bare-checkout init fix (T2)
+
+=head1 PURPOSE
+
+Pin that C<d2 init> works in a bare checkout with no PERL5LIB set. The
+staged helper used Capture::Tiny before bootstrapping PERL5LIB, so init
+failed for a user with a fresh checkout and no PERL5LIB. The test runs
+C<d2 init> in a child with a fresh HOME and no PERL5LIB, no PERL5OPT and
+no dashboard repo hints, and asserts it exits 0 and creates the config;
+the control case (PERL5LIB set, the suite environment) still works. This
+box's system perl does not have Capture::Tiny in site_perl, so the bare
+case passing proves the fix.
+
+=head1 WHY IT EXISTS
+
+C<perl bin/d2 init> failed in a bare checkout with no PERL5LIB (T2), and
+the failure only showed up for a real user, not in the suite, because the
+suite always runs with PERL5LIB set. Without a test that reproduces the
+bare environment, the fix could regress silently and the next
+bare-checkout user would hit the same failure. The test is the
+discriminating check: it fails before the PerlEnv fix and passes after
+it.
+
+=head1 WHEN TO USE
+
+When C<d2 init> fails for a new user, when the PERL5LIB bootstrap in
+PerlEnv changes, or when the staged helper's module loading changes.
+Also when the init path gains a new dependency that might be needed
+before the bootstrap.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/995-init-bare-checkout.t> while
+iterating, then keep it green under C<prove -lr t> before release. It
+runs C<d2 init> in a child process with a fresh temp HOME and a stripped
+environment (no PERL5LIB, no PERL5OPT, no repo hints) via the
+C<_run_init> helper, and asserts the exit code and that the config file
+is created. The control block runs the same init with PERL5LIB set,
+which the existing t/05 init test already covers. The child environment
+is built with a localised C<%ENV>, so the parent suite environment is
+untouched.
+
+=head1 WHAT USES IT
+
+It is used by the init path (PerlEnv's C<perl5lib_list>, which adds the
+checkout's C<local/lib/perl5>), by the full C<prove -lr t> suite, and by
+anyone changing the staged helper bootstrap who needs to know a bare
+checkout still initialises.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/995-init-bare-checkout.t
+
+Run the bare-checkout init check by itself while changing the PERL5LIB
+bootstrap or the staged helper loading.
+
+Example 2:
+
+  env -u PERL5LIB perl -Ilib bin/d2 init
+
+Reproduce the bare environment by hand: init with no PERL5LIB set, the
+way a fresh checkout user runs it.
+
+Example 3:
+
+  prove -lr t
+
+Run the whole suite after the focused check to keep the init contract
+aligned with the rest of the CLI.
+
+=cut

@@ -145,3 +145,83 @@ SKIP: {
 }
 
 done_testing();
+
+__END__
+
+=head1 NAME
+
+t/1003-ssl-backend-unconnected.t - failing tests for the unconnected SSL backend fix (Group 3)
+
+=head1 PURPOSE
+
+Pin that the frontend handler dies with "Unable to connect to internal
+SSL backend" when the backend socket is unconnected. On macOS with perl
+5.44, IO::Socket::INET->new with Timeout => 5 returns a socket even
+when the connect to 127.0.0.1:9 was refused, so the Server.pm die never
+fired and the handler returned 1 with $@ empty. The test simulates the
+quirk by overriding IO::Socket::INET::new to return an unconnected
+socket for the backend connect only, drives the handler with a TLS first
+byte as t/17 Test 12 does, and asserts the handler dies with the backend
+message. A 10-second alarm bounds the handler call: before the fix an
+unconnected backend socket is never writable under select, so the proxy
+step spins forever.
+
+=head1 WHY IT EXISTS
+
+The 6.31 install failed on Michael's other Mac (Group 3: t/17 tests 84
+and 85, empty SSL backend error), and the existing t/17 checks pass on
+Jenkins (perl 5.38.2, where new() returns undef on a refused connect),
+so they cannot prove the fix there. Without a test that simulates the
+5.44 quirk, the Server.pm fix (verify the socket is actually connected
+after new(), die with the same message if it is not) could regress and
+the next Mac install would fail the same way.
+
+=head1 WHEN TO USE
+
+When the SSL backend error is empty on a Mac install, when Server.pm's
+backend connect logic changes, or when the IO::Socket timeout behaviour
+changes on a new perl. Also when a CPAN install fails on t/17 with an
+empty backend error.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/1003-ssl-backend-unconnected.t>
+while iterating, then keep it green under C<prove -lr t> before release.
+It overrides C<*IO::Socket::INET::new> (via C<local>, delegating through
+a captured original) to return an unconnected socket only for the
+backend connect to 127.0.0.1:9, drives the handler with a TLS first byte
+exactly as t/17 Test 12 does, and asserts the handler dies with the
+backend message. A 10-second alarm wraps the handler call so a pre-fix
+spin fails instead of hanging the suite. The two control checks and two
+quirk-socket sanity checks pin the harness itself.
+
+=head1 WHAT USES IT
+
+It is used by the web Server (Server.pm's backend connect check), by the
+full C<prove -lr t> suite, and by the Mac install verification that the
+SSL backend error is reported explicitly instead of coming back empty.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/1003-ssl-backend-unconnected.t
+
+Run the unconnected-backend check by itself while changing Server.pm's
+backend connect logic.
+
+Example 2:
+
+  prove -lv t/17-web-server-ssl.t
+
+Run the t/17 backend checks alongside it to see the same handler
+behaviour through the original test.
+
+Example 3:
+
+  prove -lr t
+
+Run the whole suite after the focused check to keep the backend
+contract aligned with the web server tests.
+
+=cut
