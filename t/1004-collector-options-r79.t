@@ -131,6 +131,41 @@ sub _is_gnu_timeout {
     return ( $raw_exit >> 8 ) == 0 && $stdout =~ /GNU/;
 }
 
+# _kill_surviving_follow()
+# On Windows, GNU timeout returns 124 but does not reliably terminate a
+# native Strawberry Perl child, so the follow process from the -f test
+# survives and holds the captured stdout/stderr pipes open: prove never
+# sees EOF and hangs, and the File::Temp cleanup fails with 'Permission
+# denied'. After the follow test's timeout, kill the surviving follow
+# process tree with the Windows-native taskkill /T /F. On Linux and
+# macOS timeout kills the child reliably, so this is a no-op there and
+# behaviour is unchanged. The kill is best-effort cleanup, not an
+# assertion: a process that is already gone simply has nothing to kill.
+sub _kill_surviving_follow {
+    return if $^O ne 'MSWin32';
+    for my $pid ( @{ _follow_pids_on_windows() } ) {
+        system( 'taskkill', '/T', '/F', '/PID', $pid );
+    }
+    return;
+}
+
+# _follow_pids_on_windows()
+# Finds the surviving follow process on Windows by its command line,
+# which ends with the follow invocation `collector log example -f`.
+# Input: none. Output: array reference of matching pids, empty when
+# none survives or when the query itself fails.
+sub _follow_pids_on_windows {
+    my ( $stdout, $stderr, $raw_exit ) = capture {
+        system(
+            'powershell', '-NoProfile', '-Command',
+            q(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'perl.exe' -and $_.CommandLine -like '*collector log example -f' } | Select-Object -ExpandProperty ProcessId),
+        );
+    };
+    return [] if ( $raw_exit >> 8 ) != 0;
+    my @pids = grep { /^\d+$/ } split /\s+/, $stdout;
+    return \@pids;
+}
+
 # The follow test needs a timeout binary to bound the never-returning
 # follow loop; without one it cannot run, so it skips. The other option
 # tests do not need it.
@@ -253,6 +288,7 @@ SKIP: {
     skip 'collector options: follow test requires a timeout binary (timeout or gtimeout) on PATH', 2
       if !$timeout_bin;
     my ( $exit, $stdout, $stderr ) = _run_d2_timeout( 3, 'collector', 'log', 'example', '-f' );
+    _kill_surviving_follow();
     is( $exit, 124, 'collector options: d2 collector log example -f is still following when the timeout kills it' );
     like( $stdout, qr/example-ok/, 'collector options: d2 collector log example -f already printed the log before following' );
 }
