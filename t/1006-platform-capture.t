@@ -144,7 +144,7 @@ use Developer::Dashboard::Platform ();
     system( $^X, '-e', 'exit 5' );
     my $before = $?;
     Developer::Dashboard::Platform::_capture( sub { print "guarded\n"; } );
-    is( $?, $before, 'the caller’s $? is unchanged after _capture' );
+    is( $?, $before, 'the caller's $? is unchanged after _capture' );
 }
 
 # _slurp_raw_file: an existing file returns its content, byte-exact.
@@ -231,7 +231,7 @@ both at once, a child exiting 0 and a child exiting 3 (through
 system(), never exit() in the code ref itself), a spawned child
 printing through the redirected fd, a dying code ref with the handles
 proved working afterwards, empty output, binary output kept
-byte-exact, the three-value return shape, and the caller’s $? left
+byte-exact, the three-value return shape, and the caller's $? left
 unchanged. The _slurp_raw_file checks use a temp dir: an existing
 file returns its content byte-exact, a missing file returns an empty
 string, and an empty file returns an empty string. Fixture files are
