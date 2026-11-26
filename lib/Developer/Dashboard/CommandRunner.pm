@@ -160,6 +160,13 @@ sub _windows_perl_inline_command {
 #       neither case changes (probe526b G1/G2). A script ending in a cmdlet
 #       after a failed native command now reports the failure instead of 0
 #       (probe526b G6) - the correct outcome for a collector.
+#   (4) Progress stream: a fresh PowerShell process emits a 'Preparing
+#       modules for first use.' progress record, serialised as CLIXML to
+#       stderr, which lands in the collector log and adds two lines to
+#       every record - breaking the 4-line record shape the log --tail
+#       counts rely on (t/1004 test 12, Jenkins builds #171/#172, R118).
+#       $ProgressPreference='SilentlyContinue' as the first statement
+#       suppresses the progress stream, so stderr stays clean.
 # The escaping is deliberately limited to single-quoted strings: a " there
 # is data, never PowerShell syntax, so \" cannot change what the script
 # means - while a " in a double-quoted region IS syntax and is left alone.
@@ -168,6 +175,7 @@ sub _windows_perl_inline_command {
 sub _windows_powershell_argv {
     my ($command) = @_;
     my $escaped = _escape_windows_powershell_single_quotes($command);
+    $escaped = q{$ProgressPreference='SilentlyContinue'; } . $escaped;
     $escaped .= '; exit $LASTEXITCODE';
     my $encoded = encode_base64( encode( 'UTF-16LE', $escaped ), '' );
     return ( 'powershell', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
