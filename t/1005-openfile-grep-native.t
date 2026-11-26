@@ -36,7 +36,7 @@ sub _handle_lines {
 sub _write_file {
     my ( $dir, $name, $content ) = @_;
     my $path = File::Spec->catfile( $dir, $name );
-    open my $fh, '>', $path or die "write $path: $!";
+    open my $fh, '>:raw', $path or die "write $path: $!";
     print {$fh} $content;
     close $fh or die "close $path: $!";
     return $path;
