@@ -310,34 +310,46 @@ my $powershell_log = File::Spec->catfile( $fakebin, 'powershell-log.txt' );
 # describes the fake taskkill.bat shape). The fake records its args
 # and exits 0, so the success path runs for real: ended counts up,
 # and the args are exactly /PID <pid> /F, one taskkill per pid.
-# On real Windows the command resolves to the real taskkill, not
-# the fake, so the fake checks are skipped there.
+# On real Windows the fake IS found now (R154 fixed the PATH),
+# but it is a Unix shell script and cannot execute there, so the
+# whole block is skipped on Windows (R155).
 {
     unlink $taskkill_args;
     local $ENV{PATH} = "$fakebin$Config{path_sep}$ENV{PATH}";
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
-    # On Windows _taskkill_command returns the real
-    # C:\Windows\system32\taskkill.exe, not the fake: the fake is
-    # a Unix shell script, not a Windows executable. Skip this
-    # check there; the kill-count checks below still run.
+    # The fake is a Unix shell script and cannot execute on
+    # Windows, so this check cannot run there. Skip it; the
+    # kill-count checks below are skipped there too.
+    # This block localises $OS_NAME to MSWin32 to simulate
+    # Windows, so is_windows() reads true here on every leg.
+    # Guard on $^O, the real OS, so the skips fire only on
+    # real Windows. $^O is never localised in this file.
     SKIP: {
         skip 'the fake taskkill is a Unix shell script', 1
-          if is_windows();
+          if $^O eq 'MSWin32';
         is( _taskkill_command(), File::Spec->catfile( $fakebin, 'taskkill' ),
             '_taskkill_command resolves the fake taskkill on PATH' );
     }
-    is( $manager->_kill_exact_pids(11111), 1,
-        '_kill_exact_pids counts one ended pid with the fake taskkill' );
-    is( $manager->_kill_exact_pids( 11111, 22222 ), 2,
-        '_kill_exact_pids counts two ended pids' );
-    is( $manager->_kill_exact_pids( undef, 'abc', 0, -3, 33333 ), 1,
-        '_kill_exact_pids filters non-pids before calling taskkill' );
+    # On Windows the fake IS found now (R154 fixed the PATH), but
+    # it is a Unix shell script and cannot execute there, so
+    # _kill_exact_pids counts 0, not 1/2/1. Skip the kill-count
+    # checks there; the logic is covered on Linux and macOS.
+    SKIP: {
+        skip 'the fake taskkill cannot execute on Windows', 3
+          if $^O eq 'MSWin32';
+        is( $manager->_kill_exact_pids(11111), 1,
+            '_kill_exact_pids counts one ended pid with the fake taskkill' );
+        is( $manager->_kill_exact_pids( 11111, 22222 ), 2,
+            '_kill_exact_pids counts two ended pids' );
+        is( $manager->_kill_exact_pids( undef, 'abc', 0, -3, 33333 ), 1,
+            '_kill_exact_pids filters non-pids before calling taskkill' );
+    }
     # The fake was never called on Windows, so the args file does
     # not exist there. Skip this check; the kill counts above
-    # still run on all legs.
+    # are skipped on Windows too (the fake cannot run there).
     SKIP: {
         skip 'the fake taskkill is never called on Windows', 1
-          if is_windows();
+          if $^O eq 'MSWin32';
         is( _read_file($taskkill_args),
             "/PID 11111 /F\n/PID 11111 /F\n/PID 22222 /F\n/PID 33333 /F\n",
             'the fake taskkill was called once per pid with /PID <pid> /F' );
