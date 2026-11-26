@@ -645,12 +645,15 @@ sub _finish_routine {
     return;
 }
 
-# _cancel_routine($id, $kind) -- $kind is 'killed' or 'timed_out'.
+# _cancel_routine($id, $kind) -- $kind is 'killed' or 'timed_out', and
+# defaults to 'killed' when omitted (R137): without a kind the record's
+# state would be undef and _is_finished_state would warn on every pump.
 # Pending: cancels at once. Running: sets the cooperative flag, which the
 # dispatch honours when the callback returns. Finished: a no-op.
 # Returns true when the routine was pending or running.
 sub _cancel_routine {
     my ($id, $kind) = @_;
+    $kind = 'killed' unless defined $kind;
     my $rec = $ROUTINES{$id};
     return 0 unless $rec;
     return 0 if _is_finished_state($rec->{state});
