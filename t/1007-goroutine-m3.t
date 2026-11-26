@@ -298,7 +298,12 @@ is( $finished_timeout->status, 'done',
 my $cleared = go sub { 1; }, { after => 0.3 };
 $cleared->timeout(0.05);
 $cleared->timeout(0);
-Developer::Dashboard::GoRoutine::pump(0.5);
+# Pump until the routine is done, with a 5s bound, instead of a single
+# pump(0.5): the single pump left only 0.2s of slack after the 0.3s
+# after delay, and it flaked on the slow Windows ARM64 leg in proof
+# #188 (the routine simply had not run yet, status 'pending'). The
+# 5s bound is the same shape the other waits in this file use.
+_pump_until( sub { $cleared->status eq 'done' }, 5 );
 is( $cleared->status, 'done',
     'a routine whose timeout was cleared runs to completion' );
 
