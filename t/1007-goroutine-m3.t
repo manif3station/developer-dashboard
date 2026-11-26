@@ -763,6 +763,47 @@ else {
     is( $? >> 8, 0, 'a forked child exits cleanly' );
 }
 
+# ----------------------------------------------------------------------
+# R144: the fork test above goes (a direct fork() call is a bug, not a
+# rule exception), replaced by a GoRoutine-based test. A spawned child
+# cannot exercise the END-block fork guard (GoRoutine.pm line 990) the
+# way a forked child does: a spawned child execs a fresh process and
+# loads GoRoutine fresh, so its $$ equals its own $_LOAD_PID and the
+# guard never fires. These tests pin what the replacement does cover
+# instead: a spawned child exits cleanly, and the parent's queue is
+# untouched by a child's exit. The guard's true branch is uncovered
+# once the fork test goes; that gap is accepted (R145) and annotated
+# at M7.
+# ----------------------------------------------------------------------
+my $spawn_dir = tempdir( CLEANUP => 1 );
+my $spawn_out = File::Spec->catfile( $spawn_dir, 'stdout.txt' );
+my $spawn_err = File::Spec->catfile( $spawn_dir, 'stderr.txt' );
+my $spawn_pid = Developer::Dashboard::GoRoutine::spawn(
+    [ $^X, '-e', 'exit 0;' ],
+    { cwd => $spawn_dir, stdout => $spawn_out, stderr => $spawn_err },
+);
+ok defined($spawn_pid) && $spawn_pid > 0,
+  'a GoRoutine-spawned child returns a positive process identifier';
+is( Developer::Dashboard::GoRoutine::wait_process($spawn_pid), 0,
+  'a GoRoutine-spawned child exits cleanly' );
+
+# The parent's queue is untouched by a spawned child's exit: a routine
+# created before the spawn still runs to completion after the child is
+# collected.
+share my $parent_ran = 0;
+my $parent_h = go sub { $parent_ran = 1; };
+my $spawn_pid2 = Developer::Dashboard::GoRoutine::spawn(
+    [ $^X, '-e', 'exit 0;' ],
+    { cwd => $spawn_dir, stdout => $spawn_out, stderr => $spawn_err },
+);
+is( Developer::Dashboard::GoRoutine::wait_process($spawn_pid2), 0,
+  'a second GoRoutine-spawned child exits cleanly' );
+wait_all();
+is( $parent_ran, 1,
+  'the parent routine still runs after a spawned child exits' );
+is( $parent_h->status, 'done',
+  'the parent routine finishes done after a spawned child exits' );
+
 done_testing();
 
 # ----------------------------------------------------------------------
