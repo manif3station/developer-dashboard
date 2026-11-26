@@ -248,7 +248,7 @@ The integration run creates:
   shape, so container lifecycle checks stay attached to the active listener
 - interactive `d2 stop` and `d2 restart` runs print the full lifecycle task board on `stderr` before work begins, so managed shutdown and startup waits stay visible instead of looking hung
 - `d2 stop` and `d2 restart` default to a final terminal table summary, while `-o json` keeps the machine-readable payload
-- `d2 stop web`, `d2 stop collector`, `d2 stop collector <name>`, `d2 restart web`, `d2 restart collector`, `d2 restart collector <name>`, `d2 log`, `d2 logs`, `d2 log web`, `d2 log collector`, and `d2 log collector <name>` all behave as documented, with collector-name completion feeding the scoped collector commands
+- `d2 stop web`, `d2 collector stop`, `d2 collector stop <name>`, `d2 restart web`, `d2 collector restart`, `d2 collector restart <name>`, `d2 log`, `d2 logs`, `d2 log web`, `d2 collector log`, and `d2 collector log <name>` all behave as documented, with collector-name completion feeding the scoped collector commands
 - `d2 logs -t`, `-f`, `--tail N`, and `--tail=N` work together across mixed web/collector output, web-only output, all collectors, and one named collector; tail limits the initial snapshot, follow streams only newly appended content from each selected source, and `-n N` remains a compatible tail alias
 - collector `-t` prefixes use each persisted run timestamp; raw web log lines have no stored per-line time, so their timestamp marks the time the log is read
 - `d2 serve logs` accepts the same timestamp, follow, and tail flags for web-only output
