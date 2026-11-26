@@ -653,7 +653,8 @@ sub _ssl_frontend_client_wait_first {
             Proto    => 'tcp',
             Timeout  => 5,
         );
-        die "Unable to connect to internal SSL backend: $!" if !$backend || !$backend->connected;
+        die "Unable to connect to internal SSL backend: $!"
+          if !$backend || ( $backend->can('connected') && !$backend->connected );
         $backend->blocking(0) if $backend->can('blocking');
         $state->{backend} = $backend;
         $state->{phase} = 'PROXY';
