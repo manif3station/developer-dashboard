@@ -169,4 +169,27 @@ The full repository suite runs it as a regression, and developers changing
 collector completion use it as the fast feedback loop alongside the wider
 completion coverage tests and the t/997 smoke tests.
 
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/998-collector-complete-r79.t
+
+Run the completion unit checks by themselves while changing the
+completion branches or how C<_collector_names> collects names.
+
+Example 2:
+
+  prove -lv t/997-collector-r79.t
+
+Run the smoke tests alongside it to see the same completion behaviour
+through the real CLI.
+
+Example 3:
+
+  prove -lr t
+
+Run the whole suite after the focused check to keep the completion
+contract aligned with the rest of the CLI.
+
 =cut

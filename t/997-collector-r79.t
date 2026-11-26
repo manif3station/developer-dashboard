@@ -319,3 +319,84 @@ for my $verb ( qw(restart stop log logs) ) {
 }
 
 done_testing();
+
+__END__
+
+=head1 NAME
+
+t/997-collector-r79.t - failing tests for the R79 collector form (one form d2 collector <verb>)
+
+=head1 PURPOSE
+
+Pin the R79 collector form: one form only, C<d2 collector
+<subcommand>> (run, log, start, stop, restart). Verb-first forms (C<d2
+log/restart/stop/logs collector>) go away entirely, with or without a
+name; C<d2 log>, C<d2 logs>, C<d2 restart>, C<d2 stop> keep working for
+web and with no scope; C<d2 logs> is an alias of C<d2 log>. AC 1: run
+<name> required. AC 2: log [name], no-name = ALL. AC 3: start name
+REQUIRED. AC 4: stop [name], no-name = ALL, no loop running after. AC 5:
+restart [name], no-name = ALL. AC 6: verb-first forms fail. AC 7:
+log/logs/restart/stop work no-scope + web. AC 9: housekeeper plus an
+example collector end to end. AC 10: no-name log/stop/restart = ALL; run
+requires a name. (AC 8, completion, is covered by t/998.) 108 checks,
+driven through the real CLI in a child with a temp HOME.
+
+=head1 WHY IT EXISTS
+
+The collector commands had two forms - verb-first (C<d2 log
+collector>) and collector-first (C<d2 collector log>) - and the
+verb-first form was the old shape R79 removes. Without tests that drive
+every verb-first form and assert it fails, and every collector-first
+form and assert it works, the old form could survive a refactor and
+users would keep two ways to do the same thing. The tests are the R79
+acceptance criteria in executable form, written before the implementation
+(TDD).
+
+=head1 WHEN TO USE
+
+When a collector subcommand changes, when the dispatch in the private CLI
+core changes, when a new collector verb is added, or when a verb-first
+form is reported as still working. Also when completion offers collector
+names for the wrong action.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/997-collector-r79.t> while iterating,
+then keep it green under C<prove -lr t> before release. It runs the
+checkout CLI in a child with a temp HOME via C<_run_d2>, starts and stops
+the example collector, and asserts exit codes, output shapes and the
+collector state after each action. The housekeeper plus the example
+collector run end to end as AC 9 requires. The verb-first blocks assert
+the old forms fail with usage; the no-name blocks assert log/stop/restart
+act on ALL collectors.
+
+=head1 WHAT USES IT
+
+It is used by the collector dispatch (the collector block in the private
+CLI core), by the full C<prove -lr t> suite, and by anyone changing
+collector commands who needs to know the one-form rule still holds.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/997-collector-r79.t
+
+Run the collector form checks by themselves while changing the collector
+dispatch or any collector subcommand.
+
+Example 2:
+
+  prove -lv t/998-collector-complete-r79.t
+
+Run the completion unit checks alongside it to see the same one-form
+rule through the completion branches.
+
+Example 3:
+
+  prove -lr t
+
+Run the whole suite after the focused check to keep the collector form
+aligned with the rest of the CLI.
+
+=cut
