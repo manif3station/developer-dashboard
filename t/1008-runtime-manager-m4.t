@@ -253,16 +253,31 @@ my $powershell_log = File::Spec->catfile( $fakebin, 'powershell-log.txt' );
 # --- _web_watcher_spares_itself (line 2212) -------------------------------
 # One line, no tool or filesystem: is_windows() ? 1 : 0. Both sides
 # are driven by localising $OS_NAME (R146), the documented hook.
+# The Unix-side checks (1 and 3) are skipped on Windows, where
+# the runtime $OS_NAME is already MSWin32.
 {
-    is( $manager->_web_watcher_spares_itself(), 0,
-        'the watcher does not spare itself on a Unix runtime' );
+    # On Windows the runtime $OS_NAME is MSWin32, so the watcher
+    # spares itself and this check reads 1, not 0. Skip it there;
+    # the localised check below still runs on all legs.
+    SKIP: {
+        skip 'the watcher spares itself on a Windows runtime', 1
+          if is_windows();
+        is( $manager->_web_watcher_spares_itself(), 0,
+            'the watcher does not spare itself on a Unix runtime' );
+    }
     {
         local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
         is( $manager->_web_watcher_spares_itself(), 1,
             'the watcher spares itself with $OS_NAME localised to MSWin32' );
     }
-    is( $manager->_web_watcher_spares_itself(), 0,
-        'the $OS_NAME localisation restores after the block' );
+    # The localisation restores, but on Windows it restores to
+    # MSWin32, so this check reads 1 there, not 0. Skip it there.
+    SKIP: {
+        skip 'the $OS_NAME localisation restores to MSWin32 on Windows', 1
+          if is_windows();
+        is( $manager->_web_watcher_spares_itself(), 0,
+            'the $OS_NAME localisation restores after the block' );
+    }
 }
 
 # --- _kill_exact_pids on Unix (lines 2322-2333) --------------------------
@@ -275,12 +290,20 @@ my $powershell_log = File::Spec->catfile( $fakebin, 'powershell-log.txt' );
         '_kill_exact_pids with no pids ends nothing' );
     is( $manager->_kill_exact_pids( undef, 'abc', 0, -3 ), 0,
         '_kill_exact_pids ignores non-pids and ends nothing on Unix' );
-    my $victim = _spawn_sleep();
-    is( $manager->_kill_exact_pids($victim), 0,
-        '_kill_exact_pids returns 0 for a live pid on Unix' );
-    is( $manager->_pid_is_running($victim), 1,
-        'the live pid is still running after the Unix no-op kill' );
-    _kill_child($victim);
+    # On Windows the real taskkill kills the pid, so the count is
+    # 1, not 0, and the pid is gone. Skip both checks there; the
+    # no-pid and non-pid checks above still run on all legs.
+    SKIP: {
+        skip 'the Unix no-op kill needs a Unix runtime', 2
+          if is_windows();
+
+        my $victim = _spawn_sleep();
+        is( $manager->_kill_exact_pids($victim), 0,
+            '_kill_exact_pids returns 0 for a live pid on Unix' );
+        is( $manager->_pid_is_running($victim), 1,
+            'the live pid is still running after the Unix no-op kill' );
+        _kill_child($victim);
+    }
 }
 
 # --- _kill_exact_pids with a fake taskkill (lines 2322-2333) ------------
@@ -289,21 +312,38 @@ my $powershell_log = File::Spec->catfile( $fakebin, 'powershell-log.txt' );
 # describes the fake taskkill.bat shape). The fake records its args
 # and exits 0, so the success path runs for real: ended counts up,
 # and the args are exactly /PID <pid> /F, one taskkill per pid.
+# On real Windows the command resolves to the real taskkill, not
+# the fake, so the fake checks are skipped there.
 {
     unlink $taskkill_args;
     local $ENV{PATH} = "$fakebin:$ENV{PATH}";
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
-    is( _taskkill_command(), File::Spec->catfile( $fakebin, 'taskkill' ),
-        '_taskkill_command resolves the fake taskkill on PATH' );
+    # On Windows _taskkill_command returns the real
+    # C:\Windows\system32\taskkill.exe, not the fake: the fake is
+    # a Unix shell script, not a Windows executable. Skip this
+    # check there; the kill-count checks below still run.
+    SKIP: {
+        skip 'the fake taskkill is a Unix shell script', 1
+          if is_windows();
+        is( _taskkill_command(), File::Spec->catfile( $fakebin, 'taskkill' ),
+            '_taskkill_command resolves the fake taskkill on PATH' );
+    }
     is( $manager->_kill_exact_pids(11111), 1,
         '_kill_exact_pids counts one ended pid with the fake taskkill' );
     is( $manager->_kill_exact_pids( 11111, 22222 ), 2,
         '_kill_exact_pids counts two ended pids' );
     is( $manager->_kill_exact_pids( undef, 'abc', 0, -3, 33333 ), 1,
         '_kill_exact_pids filters non-pids before calling taskkill' );
-    is( _read_file($taskkill_args),
-        "/PID 11111 /F\n/PID 11111 /F\n/PID 22222 /F\n/PID 33333 /F\n",
-        'the fake taskkill was called once per pid with /PID <pid> /F' );
+    # The fake was never called on Windows, so the args file does
+    # not exist there. Skip this check; the kill counts above
+    # still run on all legs.
+    SKIP: {
+        skip 'the fake taskkill is never called on Windows', 1
+          if is_windows();
+        is( _read_file($taskkill_args),
+            "/PID 11111 /F\n/PID 11111 /F\n/PID 22222 /F\n/PID 33333 /F\n",
+            'the fake taskkill was called once per pid with /PID <pid> /F' );
+    }
 }
 
 # --- _managed_ajax_processes, second loop (lines 658-668) ----------------
