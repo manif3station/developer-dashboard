@@ -960,7 +960,11 @@ use Developer::Dashboard::RuntimeManager;
         return ();
     }
     sub loop_state { return undef }
-    sub start_loop { return 4242 }
+    # 999999 is above the macOS max pid (99999), so it never
+    # exists: _collector_runtime_ready fails fast on the pid.
+    # 4242 is a live pid on macOS, and the readiness poll then
+    # ran 271 times and the child never reached the quiesce check.
+    sub start_loop { return 999999 }
     sub stop_loop { return 1 }
     package Local::Server;
     sub new { my ( $c, %a ) = @_; return bless { %a }, $c }
