@@ -31,8 +31,6 @@ use Developer::Dashboard::RuntimeManager;
 # $Developer::Dashboard::Platform::OS_NAME to 'MSWin32', the hook the
 # Platform POD documents at lines 38-44.
 
-my $RM = 'Developer::Dashboard::RuntimeManager';
-
 BEGIN {
     # DD-993: both 'redefine' AND 'prototype' must be silenced here,
     # not just 'redefine'. RuntimeManager.pm imports its "sleep" from
