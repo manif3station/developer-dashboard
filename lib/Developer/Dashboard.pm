@@ -1042,7 +1042,7 @@ collector.
 =item *
 
 Stopping a singleton collector loop also terminates the long-running command
-currently owned by that loop, so C<d2 stop collector foo> does not leave
+currently owned by that loop, so C<d2 collector stop foo> does not leave
 the old worker command alive behind the stopped dispatcher.
 
 =back
@@ -1676,11 +1676,11 @@ C<d2 stop web> only stops the managed web service
 
 =item *
 
-C<d2 stop collector> only stops managed collector loops
+C<d2 collector stop> only stops managed collector loops
 
 =item *
 
-C<d2 stop collector E<lt>nameE<gt>> only stops the requested managed
+C<d2 collector stop E<lt>nameE<gt>> only stops the requested managed
 collector loop, and collector-name shell completion suggests registered
 collector names
 
@@ -1709,11 +1709,11 @@ C<d2 restart web> only restarts the managed web service
 
 =item *
 
-C<d2 restart collector> only restarts managed collector loops
+C<d2 collector restart> only restarts managed collector loops
 
 =item *
 
-C<d2 restart collector E<lt>nameE<gt>> only restarts the requested
+C<d2 collector restart E<lt>nameE<gt>> only restarts the requested
 collector loop, including an on-demand manual collector by converting it into
 a managed interval loop, and collector-name shell completion suggests
 registered collector names
@@ -1735,7 +1735,7 @@ plus collector logs
 
 C<d2 logs --tail 100> or C<d2 logs --tail=100> prints only the
 last 100 lines of the combined output. The same C<--tail> option accepts both
-spellings for C<d2 log web>, C<d2 log collector>, and a named
+spellings for C<d2 log web>, C<d2 collector log>, and a named
 collector log. C<-n N> remains a compatible short form. C<--tail=0> prints no
 lines; negative or non-integer counts are rejected with usage information.
 
@@ -1753,12 +1753,12 @@ C<--tail N>, C<--tail=N>, C<-n N>, and C<-f>
 
 =item *
 
-C<d2 log collector> prints only collector logs and accepts C<-t>,
+C<d2 collector log> prints only collector logs and accepts C<-t>,
 C<-f>, and the same trailing-line limit
 
 =item *
 
-C<d2 log collector E<lt>nameE<gt>> prints only the requested collector
+C<d2 collector log E<lt>nameE<gt>> prints only the requested collector
 log, accepts C<-t>, C<-f>, C<--tail N>, and C<--tail=N>, and collector-name
 shell completion suggests registered collector names
 
