@@ -971,6 +971,16 @@ my $manager = Developer::Dashboard::RuntimeManager->new(
     paths       => $paths,
     runner      => Local::Runner->new,
 );
+# R156: log the parent-adoption state before the supervisor runs,
+# so the next proof shows whether a parent pid exists on macOS.
+# The quiesce check only runs when no parent is adopted.
+my $quiesce_state = $manager->web_state;
+print STDERR 'quiesce diagnostic: web_state pid=',
+    ( defined $quiesce_state && defined $quiesce_state->{pid}
+        ? $quiesce_state->{pid}
+        : 'no web state' ),
+    ' quiesce_seconds=', $manager->_collector_supervisor_quiesce_seconds,
+    ' poll_interval=', $manager->_collector_supervisor_poll_interval, "\n";
 $manager->_run_collector_supervisor_child( daemonize => 0, redirect => 0 );
 print "supervisor child returned, which it must never do\n";
 exit 3;
