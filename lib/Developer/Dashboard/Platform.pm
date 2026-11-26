@@ -121,13 +121,14 @@ sub _capture {
     # read below reads the localized value, so the returned wait status
     # is unchanged.
     local $?;
-    # R128 fault 1: tempfile() opens in text mode, and on Windows
-    # binmode :raw does not strip the :crlf layer (proven by
-    # diagnostic: the layers still read unix,crlf after binmode),
-    # so a parent print's \n is translated to \r\n on write.
-    # Reserve the path with tempfile() and open it with '>:raw'
-    # instead, so the handle is raw from the start - the same
-    # pattern _slurp_raw_file already uses with '<:raw'.
+    # R128/R131 fault 1: on Windows a parent print's \n is translated
+    # to \r\n on write, so the captured output is not byte-exact.
+    # The '>:raw' open below is kept (it is harmless), but it does
+    # NOT strip :crlf - the diagnostic proved the layers still read
+    # unix,crlf after it. The fix is the binmode on STDOUT and STDERR
+    # after the redirect below: binmode sets the fd to binary at the
+    # CRT level, and the diagnostic proved that gives byte-exact
+    # output even though the layer list still reads unix,crlf.
     my ( $out_fh, $out_name ) = tempfile( UNLINK => 0 );
     my ( $err_fh, $err_name ) = tempfile( UNLINK => 0 );
     close $out_fh;
@@ -146,6 +147,12 @@ sub _capture {
         open $saved_err, '>&', \*STDERR or die "Unable to save stderr for capture: $!";
         open STDOUT, '>&', $out_fh or die "Unable to redirect stdout for capture: $!";
         open STDERR, '>&', $err_fh or die "Unable to redirect stderr for capture: $!";
+        # R131: binmode the redirected handles, so prints go through
+        # raw. The dup carries the :crlf layer onto STDOUT/STDERR, and
+        # the '>:raw' open above does not strip it, so without this a
+        # parent print's \n is translated to \r\n on Windows.
+        binmode STDOUT, ':raw';
+        binmode STDERR, ':raw';
         $code->();
         $rc = $?;
         1;
