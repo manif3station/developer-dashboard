@@ -312,7 +312,17 @@ my $powershell_log = File::Spec->catfile( $fakebin, 'powershell-log.txt' );
 # DEVELOPER_DASHBOARD_RUNTIME_ROOT marker matches this runtime.
 # The processes are real, spawned with the markers in their own
 # environment; the rows table is the one the caller passes in.
-{
+# The second loop lives inside `if ( $self->_procfs_available )`,
+# and _procfs_available is false where /proc does not exist
+# (macOS), so the loop never runs there. The spawned ajax process
+# carries env markers but no 'd2 ajax:' title, so only this loop
+# can find it. Skip the whole block where /proc is not available,
+# the same shape as the looks-loop skip. The block holds six
+# checks: the found case asserts both the count and the pid.
+SKIP: {
+    skip 'the ajax second loop needs /proc (procfs)', 6
+      unless $manager->_procfs_available;
+
     my $root = $paths->state_root;
     my $ajax = _spawn_sleep(
         env => {
