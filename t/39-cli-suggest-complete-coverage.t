@@ -101,9 +101,9 @@ for my $case (
     [ api       => [ qw(ls add rm) ] ],
     [ file      => [ qw(resolve locate add del list) ] ],
     [ path      => [ qw(resolve locate cdr complete-cdr add del rm project-root list) ] ],
-    [ restart   => [ qw(web collector) ] ],
-    [ stop      => [ qw(web collector) ] ],
-    [ log       => [ qw(web collector) ] ],
+    [ restart   => [ qw(web) ] ],
+    [ stop      => [ qw(web) ] ],
+    [ log       => [ qw(web) ] ],
     [ indicator => [ qw(set list refresh-core) ] ],
     [ collector => [ qw(write-result status list job output inspect log run start stop restart) ] ],
     [ config    => [ qw(init show) ] ],
@@ -231,25 +231,25 @@ is_deeply(
 is_deeply(
     [
         Developer::Dashboard::CLI::Complete::complete(
-            words           => [ 'dashboard', 'restart', 'collector', 'al' ],
+            words           => [ 'dashboard', 'collector', 'restart', 'al' ],
             index           => 3,
             collector_names => sub { return qw(alpha.collector beta.collector) },
         )
     ],
     [qw(alpha.collector)],
-    'complete suggests configured collector names for d2 restart collector',
+    'complete suggests configured collector names for d2 collector restart',
 );
 
 is_deeply(
     [
         Developer::Dashboard::CLI::Complete::complete(
-            words           => [ 'dashboard', 'log', 'collector', 'be' ],
+            words           => [ 'dashboard', 'collector', 'log', 'be' ],
             index           => 3,
             collector_names => sub { return qw(alpha.collector beta.collector) },
         )
     ],
     [qw(beta.collector)],
-    'complete suggests configured collector names for d2 log collector',
+    'complete suggests configured collector names for d2 collector log',
 );
 
 {
