@@ -559,12 +559,17 @@ my $deep = _write_file( $sub, 'deep.txt', "needle deep\n" );
 {
     # An unreadable directory records a file error and contributes no lines.
     SKIP: {
-        skip 'unreadable directories cannot be made on Windows or as root', 3
-          if $^O eq 'MSWin32' || $> == 0;
+        skip 'unreadable directories cannot be made on Windows', 3
+          if $^O eq 'MSWin32';
         my $closed = File::Spec->catdir( $root, 'closed' );
         mkdir $closed or die "mkdir $closed: $!";
         _write_file( $closed, 'hidden.txt', "needle hidden\n" );
         chmod 0000, $closed or die "chmod $closed: $!";
+        if ( opendir my $probe, $closed ) {
+            closedir $probe;
+            chmod 0755, $closed or die "chmod back $closed: $!";
+            skip 'the denial is not observable here (the directory still opens after chmod 0000)', 3;
+        }
         my $spec  = _spec( '-r', 'needle', $root );
         my @lines = Developer::Dashboard::CLI::OpenFileGrep::_native_grep_dir( $spec, $root, [] );
         ok( !( grep { /hidden/ } @lines ), 'dir: an unreadable directory contributes no lines' );
