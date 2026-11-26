@@ -6,7 +6,9 @@ use warnings;
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin qw($Bin);
+use IO::Socket::INET;
 use Test::More;
+use Time::HiRes ();
 
 use lib File::Spec->catdir( $Bin, '..', 'lib' );
 use Developer::Dashboard::GoRoutine qw(go share wait_all channel);
@@ -26,6 +28,26 @@ sub _pump_until {
         Developer::Dashboard::GoRoutine::pump(0.05);
     }
     return $cond->() ? 1 : 0;
+}
+
+# _socket_pair: a connected TCP socket pair on loopback, the way t/238
+# does it. Sockets, not pipes: on Windows select only works on
+# sockets, and the go() contract is "fd on Unix, socket on Windows"
+# (GoRoutine.pm line 706), so a pipe fd is outside the contract on
+# Windows. Returns ($accepted, $client): write to $client to make
+# $accepted readable; $client is writable at once.
+sub _socket_pair {
+    my $server = IO::Socket::INET->new(
+        Listen => 1, LocalAddr => '127.0.0.1', LocalPort => 0,
+        Proto => 'tcp', ReuseAddr => 1,
+    ) or die "cannot listen: $!";
+    my $client = IO::Socket::INET->new(
+        PeerAddr => '127.0.0.1', PeerPort => $server->sockport, Proto => 'tcp',
+    ) or die "cannot connect: $!";
+    my $accepted = $server->accept or die "cannot accept: $!";
+    $client->autoflush(1);
+    close $server or die "cannot close listener: $!";
+    return ( $accepted, $client );
 }
 
 # ----------------------------------------------------------------------
@@ -112,62 +134,62 @@ is( $every->status, 'pending',
 ok( $every->kill, 'a repeating routine can be killed' );
 is( $every->status, 'killed', 'a killed repeating routine finishes killed' );
 
-# readable: a pipe becomes readable when data is written to it.
+# readable: a socket becomes readable when data is written to it.
 # syswrite, not print: print buffers in Perl and the data may never
-# reach the kernel pipe, so the fd would never become readable.
-pipe( my $rd, my $wr ) or die "cannot pipe: $!";
+# reach the kernel socket, so it would never become readable.
+my ( $accepted, $client ) = _socket_pair();
 share my $readable_ran = 0;
-my $readable = go sub { $readable_ran = 1 }, { readable => $rd };
+my $readable = go sub { $readable_ran = 1 }, { readable => $accepted };
 Developer::Dashboard::GoRoutine::pump(0.1);
-is( $readable_ran, 0, 'a readable routine does not run while the fd is quiet' );
-syswrite( $wr, "x\n" ) or die "cannot write to pipe: $!";
+is( $readable_ran, 0, 'a readable routine does not run while the socket is quiet' );
+syswrite( $client, "x\n" ) or die "cannot write to socket: $!";
 ok( _pump_until( sub { $readable_ran == 1 }, 2 ),
-    'a readable routine runs when the fd becomes readable' );
+    'a readable routine runs when the socket becomes readable' );
 is( $readable->status, 'done', 'a one-shot readable routine finishes done' );
 $readable->kill if $readable->status eq 'pending';
-close $wr or die "cannot close pipe write end: $!";
-close $rd or die "cannot close pipe read end: $!";
+close $client or die "cannot close client socket: $!";
+close $accepted or die "cannot close accepted socket: $!";
 
-# writable: a pipe write end is writable at once (its buffer is empty).
-pipe( my $rd2, my $wr2 ) or die "cannot pipe: $!";
+# writable: a connected socket is writable at once (its send buffer is empty).
+my ( $accepted2, $client2 ) = _socket_pair();
 share my $writable_ran = 0;
-my $writable = go sub { $writable_ran = 1 }, { writable => $wr2 };
+my $writable = go sub { $writable_ran = 1 }, { writable => $client2 };
 ok( _pump_until( sub { $writable_ran == 1 }, 2 ),
-    'a writable routine runs when the fd is writable' );
+    'a writable routine runs when the socket is writable' );
 is( $writable->status, 'done', 'a one-shot writable routine finishes done' );
 $writable->kill if $writable->status eq 'pending';
-close $wr2 or die "cannot close pipe write end: $!";
-close $rd2 or die "cannot close pipe read end: $!";
+close $client2 or die "cannot close client socket: $!";
+close $accepted2 or die "cannot close accepted socket: $!";
 
 # repeat: an IO trigger with repeat stays registered and the routine
 # stays pending after it fires. The callback must consume the
-# readiness (read the byte), or the fd stays ready forever and the
+# readiness (read the byte), or the socket stays ready forever and the
 # pump would keep re-dispatching the routine and never return: a
-# repeat trigger on a permanently-ready fd starves the pump loop.
-pipe( my $rd3, my $wr3 ) or die "cannot pipe: $!";
+# repeat trigger on a permanently-ready socket starves the pump loop.
+my ( $accepted3, $client3 ) = _socket_pair();
 share my $repeat_runs = 0;
 my $repeat = go sub {
     $repeat_runs++;
-    sysread( $rd3, my $byte, 1 );
-}, { readable => $rd3, repeat => 1 };
-syswrite( $wr3, "a" ) or die "cannot write to pipe: $!";
+    sysread( $accepted3, my $byte, 1 );
+}, { readable => $accepted3, repeat => 1 };
+syswrite( $client3, "a" ) or die "cannot write to socket: $!";
 ok( _pump_until( sub { $repeat_runs >= 1 }, 2 ),
     'a repeat IO routine runs' );
 is( $repeat->status, 'pending',
     'a repeat IO routine stays pending after it fires' );
 is( $repeat_runs, 1, 'a repeat IO routine runs once per byte written' );
-syswrite( $wr3, "b" ) or die "cannot write to pipe: $!";
+syswrite( $client3, "b" ) or die "cannot write to socket: $!";
 ok( _pump_until( sub { $repeat_runs >= 2 }, 2 ),
-    'a repeat IO routine fires again when the fd is ready again' );
+    'a repeat IO routine fires again when the socket is ready again' );
 ok( $repeat->kill, 'a repeat IO routine can be killed' );
 is( $repeat->status, 'killed', 'a killed repeat routine finishes killed' );
-close $wr3 or die "cannot close pipe write end: $!";
-close $rd3 or die "cannot close pipe read end: $!";
+close $client3 or die "cannot close client socket: $!";
+close $accepted3 or die "cannot close accepted socket: $!";
 
 # an invalid trigger dies explicitly. A failed go() leaves no pending
 # record: the trigger is validated before the record is created, so
 # nothing is left behind to hang a later wait_all(). The cancel call
-# below asserts exactly that — it returns 0 because there is no
+# below asserts exactly that - it returns 0 because there is no
 # record to cancel. (Before the R135 fix the record was created
 # before validation, so a failed go() left a pending record; the
 # test pinned that behaviour and now pins the fixed one.)
@@ -576,11 +598,15 @@ is( $neg_progress, 0, 'pump(-1) with nothing due reports no progress' );
 
 # A routine timeout bounds the pump wait (lines 845-846): the pump
 # returns after the routine timeout, not after the caller's bound.
+# The elapsed time is measured with Time::HiRes: whole-second time()
+# would report 1s whenever the pump straddles a wall-clock second
+# boundary, and the test would fail even though the pump returned
+# promptly (seen once in four runs).
 my $bound_h = go sub { 1; }, { after => 10 };
 $bound_h->timeout(0.05);
-my $bt0 = time();
+my $bt0 = Time::HiRes::time();
 my $bound_progress = Developer::Dashboard::GoRoutine::pump(10);
-my $bound_elapsed = time() - $bt0;
+my $bound_elapsed = Time::HiRes::time() - $bt0;
 ok( $bound_elapsed < 1, 'a routine timeout bounds the pump wait' );
 ok( $bound_progress >= 1, 'the bounded pump reports progress' );
 is( $bound_h->status, 'timed_out', 'the bounded routine times out' );
