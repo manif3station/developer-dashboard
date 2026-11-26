@@ -105,3 +105,78 @@ sub _list_indicator {
 }
 
 done_testing();
+
+__END__
+
+=head1 NAME
+
+t/996-indicator-non-ascii.t - failing tests for the non-ASCII indicator fix (T3)
+
+=head1 PURPOSE
+
+Pin that C<d2 indicator set> does not double-encode non-ASCII text. The
+CLI received UTF-8 bytes from the shell, json_encode treated them as
+already-encoded, and the stored label came back garbled. The test sets
+indicators with non-ASCII labels and icons (and an ASCII control), lists
+them back, and asserts the text round-trips exactly; the fix is the
+C<_decode_cli_text> helper that decodes @ARGV from UTF-8 bytes before
+storing.
+
+=head1 WHY IT EXISTS
+
+C<d2 indicator set> with a non-ASCII label stored mojibake (T3), and the
+garbling only showed up with real non-ASCII input, which the suite never
+used. Without a test that passes non-ASCII text through the real CLI,
+the double-encoding could come back with any change to the JSON encoding
+or the argument handling, and users with non-ASCII labels would see
+garbled text.
+
+=head1 WHEN TO USE
+
+When an indicator label or icon comes back garbled, when the JSON
+encoding or the CLI argument decoding changes, or when a new command
+takes free text from the shell. Also when a user reports mojibake in any
+stored text.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/996-indicator-non-ascii.t> while
+iterating, then keep it green under C<prove -lr t> before release. It
+runs the checkout CLI in a child with a temp HOME via C<_run_d2>,
+passing arguments as UTF-8 bytes exactly as a user's shell passes them,
+sets indicators with non-ASCII and ASCII text, lists them back with
+C<json_decode>, and asserts the stored label and icon match the input
+exactly. The ASCII block is the control: it must round-trip even without
+the fix.
+
+=head1 WHAT USES IT
+
+It is used by the indicator commands (C<_decode_cli_text> in the
+private CLI core), by the full C<prove -lr t> suite, and by anyone
+changing how the CLI decodes arguments or encodes JSON who needs to know
+non-ASCII text still round-trips.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/996-indicator-non-ascii.t
+
+Run the non-ASCII indicator check by itself while changing the argument
+decoding or the JSON encoding.
+
+Example 2:
+
+  perl -Ilib bin/d2 indicator set test "caf\x{e9}" "!" ok
+
+Set an indicator with a non-ASCII label by hand and list it back to see
+whether the text round-trips.
+
+Example 3:
+
+  prove -lr t
+
+Run the whole suite after the focused check to keep the indicator
+contract aligned with the rest of the CLI.
+
+=cut

@@ -9,12 +9,15 @@ Because of that supervisor, stopping a collector is not just "kill the loop" —
 the stop must also tell the supervisor to stop watching that collector, or the
 supervisor immediately restarts it.
 
-## The two stop commands (both supervisor-aware)
+## The stop command (supervisor-aware)
 
-- `d2 collector stop <name>` — the collector-subcommand form.
-- `d2 stop collector <name>` — the top-level runtime-control form.
+- `d2 collector stop <name>` - stops one collector.
+- `d2 collector stop` - stops all collectors.
 
-Both now route through the same supervisor-aware stop:
+The old top-level form `d2 stop collector <name>` is no longer
+supported; use `d2 collector stop [name]` instead.
+
+The stop routes through the same supervisor-aware stop:
 
 1. deregister the collector from the supervisor (and stop the supervisor when no
    collectors remain under it), so the loop cannot be respawned;

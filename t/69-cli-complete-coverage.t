@@ -195,30 +195,30 @@ sub write_fixture {
     is_deeply( \@candidates, [], 'ticket regex match with index != 2 falls through to subcommands' );
 }
 
-# --- restart/stop collector (index 3) -------------------------------------
+# --- collector restart/stop (index 3) -------------------------------------
 
 {
-    my @candidates = complete( words => [ 'dashboard', 'restart', 'collector' ], index => 3 );
+    my @candidates = complete( words => [ 'dashboard', 'collector', 'restart' ], index => 3 );
     ok( ( grep { $_ eq 'realcol' } @candidates ),
-        'restart collector at index 3 lists configured collector names via the real provider' );
+        'collector restart at index 3 lists configured collector names via the real provider' );
     ok( ( grep { $_ eq 'housekeeper' } @candidates ),
-        'restart collector completion includes built-in collectors' );
+        'collector restart completion includes built-in collectors' );
     ok( ( grep { $_ eq 'pvalid' } @candidates ),
-        'restart collector completion includes persisted collector names' );
+        'collector restart completion includes persisted collector names' );
 }
 
 {
     my @candidates = complete(
-        words           => [ 'dashboard', 'stop', 'collector' ],
+        words           => [ 'dashboard', 'collector', 'stop' ],
         index           => 3,
         collector_names => sub { return ('injected') },
     );
-    is_deeply( \@candidates, ['injected'], 'stop collector at index 3 honours an injected collector provider' );
+    is_deeply( \@candidates, ['injected'], 'collector stop at index 3 honours an injected collector provider' );
 }
 
 {
     my @candidates = complete(
-        words           => [ 'dashboard', 'restart', 'collector' ],
+        words           => [ 'dashboard', 'collector', 'restart' ],
         index           => 3,
         collector_names => sub { return ( 'dup', 'dup' ) },
     );
@@ -232,9 +232,9 @@ sub write_fixture {
 }
 
 {
-    my @candidates = complete( words => [ 'dashboard', 'stop', 'collector' ], index => 2 );
-    ok( ( grep { $_ eq 'collector' } @candidates ),
-        'stop collector at index 2 (not 3) falls back to stop subcommands' );
+    my @candidates = complete( words => [ 'dashboard', 'stop', 'web' ], index => 2 );
+    ok( ( grep { $_ eq 'web' } @candidates ),
+        'stop with a non-collector third word and index 2 falls back to stop subcommands' );
 }
 
 {
@@ -243,21 +243,21 @@ sub write_fixture {
         'restart with a missing third word still resolves restart subcommands' );
 }
 
-# --- log/logs collector (index 3) -----------------------------------------
+# --- collector log (index 3) -----------------------------------------
 
 {
-    my @candidates = complete( words => [ 'dashboard', 'log', 'collector' ], index => 3 );
+    my @candidates = complete( words => [ 'dashboard', 'collector', 'log' ], index => 3 );
     ok( ( grep { $_ eq 'realcol' } @candidates ),
-        'log collector at index 3 lists configured collector names via the real provider' );
+        'collector log at index 3 lists configured collector names via the real provider' );
 }
 
 {
     my @candidates = complete(
-        words           => [ 'dashboard', 'logs', 'collector' ],
+        words           => [ 'dashboard', 'collector', 'log' ],
         index           => 3,
         collector_names => sub { return ('injected') },
     );
-    is_deeply( \@candidates, ['injected'], 'logs collector at index 3 honours an injected collector provider' );
+    is_deeply( \@candidates, ['injected'], 'collector log at index 3 honours an injected collector provider' );
 }
 
 {
@@ -267,9 +267,9 @@ sub write_fixture {
 }
 
 {
-    my @candidates = complete( words => [ 'dashboard', 'logs', 'collector' ], index => 2 );
-    ok( ( grep { $_ eq 'collector' } @candidates ),
-        'logs collector at index 2 (not 3) falls back to logs subcommands' );
+    my @candidates = complete( words => [ 'dashboard', 'logs', 'web' ], index => 2 );
+    ok( ( grep { $_ eq 'web' } @candidates ),
+        'logs with a non-collector third word and index 2 falls back to logs subcommands' );
 }
 
 {
@@ -354,10 +354,10 @@ sub write_fixture {
         api       => [qw(ls add rm)],
         file      => [qw(resolve locate add del list)],
         path      => [qw(resolve locate cdr complete-cdr add del rm project-root list)],
-        restart   => [qw(web collector)],
-        stop      => [qw(web collector)],
-        log       => [qw(web collector)],
-        logs      => [qw(web collector)],
+        restart   => [qw(web)],
+        stop      => [qw(web)],
+        log       => [qw(web)],
+        logs      => [qw(web)],
         indicator => [qw(set list refresh-core)],
         collector => [qw(write-result status list job output inspect log run start stop restart)],
         config    => [qw(init show)],
@@ -452,7 +452,7 @@ sub write_fixture {
 
 {
     my @candidates = complete( words => [ 'dashboard', 'restart' ], index => 5 );
-    ok( ( grep { $_ eq 'collector' } @candidates ),
+    ok( ( grep { $_ eq 'web' } @candidates ),
         'an out-of-range current index leaves every subcommand candidate unfiltered' );
 }
 
@@ -468,7 +468,7 @@ sub write_fixture {
     close $fh;
 
     local $ENV{HOME} = $arr_home;
-    my @candidates = complete( words => [ 'dashboard', 'log', 'collector' ], index => 3 );
+    my @candidates = complete( words => [ 'dashboard', 'collector', 'log' ], index => 3 );
     ok( !( grep { ref $_ } @candidates ),
         'a non-hash persisted status is skipped instead of leaking a reference candidate' );
     ok( ( grep { $_ eq 'housekeeper' } @candidates ),
@@ -481,7 +481,7 @@ sub write_fixture {
     my $profile_home = tempdir( CLEANUP => 1 );
     local $ENV{HOME}        = '';
     local $ENV{USERPROFILE} = $profile_home;
-    my @candidates = complete( words => [ 'dashboard', 'restart', 'collector' ], index => 3 );
+    my @candidates = complete( words => [ 'dashboard', 'collector', 'restart' ], index => 3 );
     ok( ( grep { $_ eq 'housekeeper' } @candidates ),
         'an empty HOME falls back through the resolved-home path without dying' );
 }
@@ -501,7 +501,7 @@ t/69-cli-complete-coverage.t - branch and condition coverage for the shell-compl
 This test is the executable coverage contract for
 C<Developer::Dashboard::CLI::Complete>. It drives every dispatch arm of
 C<complete()> - top-level candidates, the workspace session branch, the
-restart/stop and log/logs collector branches, catalog-backed API/file/path
+collector restart/stop and log branches, catalog-backed API/file/path
 actions, the Docker development action branch, separated skill-command and
 workspace path-alias candidates, the empty-config fallback for workspace alias
 lookup,

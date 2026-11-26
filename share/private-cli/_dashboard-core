@@ -512,6 +512,29 @@ sub _install_runtime_cpan_modules {
     };
 }
 
+sub _parse_collector_lifecycle_options {
+    my ( $action, $argv ) = @_;
+    my $output = 'table';
+    my ( $host, $port, $workers, $ssl );
+    GetOptionsFromArray(
+        $argv,
+        'output|o=s' => \$output,
+        'host=s'     => \$host,
+        'port=i'     => \$port,
+        'workers=i'  => \$workers,
+        'ssl!'       => \$ssl,
+    );
+    die "Usage: d2 collector $action [name] [-o json|table] [--host <host>] [--port <port>] [--workers <count>] [--ssl|--no-ssl]\n"
+      if $output ne 'json' && $output ne 'table';
+    return (
+        output  => $output,
+        host    => $host,
+        port    => $port,
+        workers => $workers,
+        ssl     => $ssl,
+    );
+}
+
 if ( $cmd eq 'encode' ) {
     local $/;
     my $text = <STDIN>;
@@ -595,31 +618,44 @@ elsif ( $cmd eq 'collector' ) {
         exit 0;
     }
     elsif ( $action eq 'log' ) {
+        my $timestamps = 0;
+        my $follow     = 0;
+        my $tail;
+        GetOptionsFromArray(
+            \@ARGV,
+            't'      => \$timestamps,
+            'f'      => \$follow,
+            'tail=i' => \$tail,
+            'n=i'    => \$tail,
+        );
         my $name = shift @ARGV;
-        die "Usage: d2 collector log [name]\n" if @ARGV;
-        if ( defined $name && $name ne '' ) {
-            die "Unknown collector '$name'\n" if !_collector_known($name);
-            my $log = $collectors->read_log($name);
-            if ( !defined $log || $log eq '' ) {
-                print "No log entries are available yet for collector '$name'.\n";
-                exit 0;
-            }
-            print $log;
-            exit 0;
+        die "Usage: d2 collector log [name] [-t] [-f] [--tail <lines>] [-n <lines>]\n" if @ARGV;
+        if ( defined $tail && $tail < 0 ) {
+            die "Usage: d2 collector log [name] [-t] [-f] [--tail <lines>] [-n <lines>]\n";
         }
-        my @names = _known_collector_names();
-        if ( !@names ) {
-            print "No collector logs are available yet.\n";
-            exit 0;
-        }
-        my @logs;
-        for my $collector_name (@names) {
-            my $log = $collectors->read_log($collector_name);
-            $log = "No log entries are available yet for collector '$collector_name'.\n"
-              if !defined $log || $log eq '';
-            push @logs, $log;
-        }
-        print join "\n", @logs;
+        require Developer::Dashboard::CLI::RuntimeControl;
+        die "Unknown collector '$name'\n" if defined $name && $name ne '' && !_collector_known($name);
+        my $sources = Developer::Dashboard::CLI::RuntimeControl::_read_log_sources(
+            scope      => 'collector',
+            name       => $name,
+            runtime    => $runtime,
+            config     => $config,
+            collectors => $collectors,
+        );
+        my $output = Developer::Dashboard::CLI::RuntimeControl::_render_log_sources( $sources, 'collector', $name );
+        $output = Developer::Dashboard::CLI::RuntimeControl::_timestamp_log_text($output) if $timestamps;
+        $output = Developer::Dashboard::CLI::RuntimeControl::_tail_log_text( $output, $tail ) if defined $tail;
+        binmode STDOUT if $^O eq 'MSWin32';
+        print $output;
+        Developer::Dashboard::CLI::RuntimeControl::_follow_log_sources(
+            sources    => $sources,
+            scope      => 'collector',
+            name       => $name,
+            runtime    => $runtime,
+            config     => $config,
+            collectors => $collectors,
+            timestamps => $timestamps,
+        ) if $follow;
         exit 0;
     }
     elsif ( $action eq 'run' ) {
@@ -636,18 +672,56 @@ elsif ( $cmd eq 'collector' ) {
         exit 0;
     }
     elsif ( $action eq 'stop' ) {
-        my $name = shift @ARGV || die "Usage: d2 collector stop <name>\n";
-        my @stopped = $runtime->stop_collectors( names => [$name], structured => 1 );
-        my ($entry) = grep { ( $_->{name} || '' ) eq $name } @stopped;
-        my $pid = $entry ? $entry->{pid} : undef;
-        print defined $pid ? "$pid\n" : '';
+        my %lifecycle_options = _parse_collector_lifecycle_options( $action, \@ARGV );
+        my $name = shift @ARGV;
+        die "Usage: d2 collector stop [name] [-o json|table] [--host <host>] [--port <port>] [--workers <count>] [--ssl|--no-ssl]\n" if @ARGV;
+        if ( defined $name && $name ne '' ) {
+            die "Unknown collector '$name'\n" if !_collector_known($name);
+            my @stopped = $runtime->stop_collectors( names => [$name], structured => 1 );
+            if ( $lifecycle_options{output} eq 'json' ) {
+                my ($entry) = grep { ( $_->{name} || '' ) eq $name } @stopped;
+                my $entry_ref = $entry || { name => $name, status => 'stopped', pid => undef, details => '' };
+                print json_encode( { scope => 'collector', target => $name, collector => $entry_ref } );
+            }
+            else {
+                my ($entry) = grep { ( $_->{name} || '' ) eq $name } @stopped;
+                my $pid = $entry ? $entry->{pid} : undef;
+                print defined $pid ? "$pid\n" : '';
+            }
+            exit 0;
+        }
+        my @stopped = $runtime->stop_collectors( names => undef, structured => 1 );
+        if ( $lifecycle_options{output} eq 'json' ) {
+            print json_encode( { scope => 'collector', collectors => \@stopped } );
+        }
+        else {
+            print join '', map { defined $_->{pid} ? "$_->{pid}\n" : '' } @stopped;
+        }
         exit 0;
     }
     elsif ( $action eq 'restart' ) {
-        my $name = shift @ARGV || die "Usage: d2 collector restart <name>\n";
-        my $result = $runtime->restart_target( scope => 'collector', name => $name );
-        my $collector = $result->{collectors}[0] || {};
-        print $collector->{pid} . "\n" if defined $collector->{pid};
+        my %lifecycle_options = _parse_collector_lifecycle_options( $action, \@ARGV );
+        my $name = shift @ARGV;
+        die "Usage: d2 collector restart [name] [-o json|table] [--host <host>] [--port <port>] [--workers <count>] [--ssl|--no-ssl]\n" if @ARGV;
+        if ( defined $name && $name ne '' ) {
+            die "Unknown collector '$name'\n" if !_collector_known($name);
+            my $result = $runtime->restart_target( scope => 'collector', name => $name );
+            if ( $lifecycle_options{output} eq 'json' ) {
+                print json_encode($result);
+            }
+            else {
+                my $collector = $result->{collectors}[0] || {};
+                print $collector->{pid} . "\n" if defined $collector->{pid};
+            }
+            exit 0;
+        }
+        my $result = $runtime->restart_target( scope => 'collector', name => undef );
+        if ( $lifecycle_options{output} eq 'json' ) {
+            print json_encode($result);
+        }
+        else {
+            print join '', map { defined $_->{pid} ? "$_->{pid}\n" : '' } @{ $result->{collectors} || [] };
+        }
         exit 0;
     }
 }
@@ -1255,6 +1329,9 @@ elsif ( $cmd eq 'collector-supervisor-foreground' ) {
     exit 0;
 }
 elsif ( $cmd eq 'stop' ) {
+    if ( defined $ARGV[0] && $ARGV[0] eq 'collector' ) {
+        die "d2 stop collector is no longer supported; use d2 collector stop [name]\n";
+    }
     require Developer::Dashboard::CLI::RuntimeControl;
     exit Developer::Dashboard::CLI::RuntimeControl::run_runtime_command(
         command    => $cmd,
@@ -1265,6 +1342,9 @@ elsif ( $cmd eq 'stop' ) {
     );
 }
 elsif ( $cmd eq 'restart' ) {
+    if ( defined $ARGV[0] && $ARGV[0] eq 'collector' ) {
+        die "d2 restart collector is no longer supported; use d2 collector restart [name]\n";
+    }
     _load_configured_path_aliases();
     require Developer::Dashboard::CLI::RuntimeControl;
     exit Developer::Dashboard::CLI::RuntimeControl::run_runtime_command(
@@ -1276,6 +1356,9 @@ elsif ( $cmd eq 'restart' ) {
     );
 }
 elsif ( $cmd eq 'log' || $cmd eq 'logs' ) {
+    if ( defined $ARGV[0] && $ARGV[0] eq 'collector' ) {
+        die "d2 $cmd collector is no longer supported; use d2 collector log [name]\n";
+    }
     require Developer::Dashboard::CLI::RuntimeControl;
     exit Developer::Dashboard::CLI::RuntimeControl::run_runtime_command(
         command    => $cmd,

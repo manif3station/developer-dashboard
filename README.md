@@ -969,7 +969,7 @@ also removed instead of lingering as if it were still active.
     collector.
 
 - Stopping a singleton collector loop also terminates the long-running command
-currently owned by that loop, so `d2 stop collector foo` does not leave
+currently owned by that loop, so `d2 collector stop foo` does not leave
 the old worker command alive behind the stopped dispatcher.
 
 Collector indicators follow the collector exit code automatically: `0`
@@ -1511,8 +1511,8 @@ of silent waiting.
     the new pid.
 
 - `d2 stop web` only stops the managed web service
-- `d2 stop collector` only stops managed collector loops
-- `d2 stop collector <name>` only stops the requested managed
+- `d2 collector stop` only stops managed collector loops
+- `d2 collector stop <name>` only stops the requested managed
 collector loop, and collector-name shell completion suggests registered
 collector names
 - `d2 restart` stops both, starts configured collector loops again, then
@@ -1533,8 +1533,8 @@ pid and an accepting listener on the requested port.
     loop
 
 - `d2 restart web` only restarts the managed web service
-- `d2 restart collector` only restarts managed collector loops
-- `d2 restart collector <name>` only restarts the requested
+- `d2 collector restart` only restarts managed collector loops
+- `d2 collector restart <name>` only restarts the requested
 collector loop, including an on-demand manual collector by converting it into
 a managed interval loop, and collector-name shell completion suggests
 registered collector names
@@ -1547,7 +1547,7 @@ operator sees an explicit problem instead of infinite silent restart churn
 plus collector logs
 - `d2 logs --tail 100` or `d2 logs --tail=100` prints only the
 last 100 lines of the combined output. The same `--tail` option accepts both
-spellings for `d2 log web`, `d2 log collector`, and a named
+spellings for `d2 log web`, `d2 collector log`, and a named
 collector log. `-n N` remains a compatible short form. `--tail=0` prints no
 lines; negative or non-integer counts are rejected with usage information.
 
@@ -1560,9 +1560,9 @@ lines; negative or non-integer counts are rejected with usage information.
 
 - `d2 log web` prints only the dashboard web log and supports `-t`,
 `--tail N`, `--tail=N`, `-n N`, and `-f`
-- `d2 log collector` prints only collector logs and accepts `-t`,
+- `d2 collector log` prints only collector logs and accepts `-t`,
 `-f`, and the same trailing-line limit
-- `d2 log collector <name>` prints only the requested collector
+- `d2 collector log <name>` prints only the requested collector
 log, accepts `-t`, `-f`, `--tail N`, and `--tail=N`, and collector-name
 shell completion suggests registered collector names
 - interactive restart and stop task boards mark the active step with a blue

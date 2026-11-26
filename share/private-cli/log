@@ -24,8 +24,8 @@ log - private built-in log helper for Developer Dashboard
 
   d2 log
   d2 log web
-  d2 log collector
-  d2 log collector alpha.collector
+  d2 collector log
+  d2 collector log alpha.collector
 
 =head1 DESCRIPTION
 
@@ -55,7 +55,7 @@ for web versus collector log inspection.
 =head1 HOW TO USE
 
 Users run C<d2 log>, C<d2 logs>, C<d2 log web>, or
-C<d2 log collector [name]>. The helper re-enters the private runtime,
+C<d2 collector log [name]>. The helper re-enters the private runtime,
 which loads the shared runtime-control module and prints the requested log
 stream.
 
@@ -70,7 +70,7 @@ staged built-in helper instead of bloating the public entrypoint.
   d2 log
   d2 logs
   d2 log web -n 50
-  d2 log collector housekeeper
+  d2 collector log housekeeper
 
 =for comment FULL-POD-DOC END
 

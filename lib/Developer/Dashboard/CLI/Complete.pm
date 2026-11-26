@@ -45,21 +45,7 @@ sub complete {
             $provider->(),
         );
     }
-    elsif (
-        ( $words[1] || '' ) =~ /\A(?:restart|stop)\z/
-        && ( $words[2] || '' ) eq 'collector'
-        && $index == 3
-      )
-    {
-        my $provider = $args{collector_names} || \&_collector_names;
-        @candidates = $provider->();
-    }
-    elsif (
-        ( $words[1] || '' ) =~ /\A(?:log|logs)\z/
-        && ( $words[2] || '' ) eq 'collector'
-        && $index == 3
-      )
-    {
+    elsif ( ( $words[1] || '' ) eq 'collector' && $index == 3 ) {
         my $provider = $args{collector_names} || \&_collector_names;
         @candidates = $provider->();
     }

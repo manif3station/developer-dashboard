@@ -1305,11 +1305,21 @@ sub restart_target {
             ( @names ? ( names => \@names ) : () ),
             structured => 1,
         );
-        my @started = @names
-          ? ( $self->start_named_collector( name => $names[0], progress => $args{progress} ) )
-          : $self->start_collectors(
-            progress => $args{progress},
-          );
+        my @started;
+        if (@names) {
+            @started = ( $self->start_named_collector( name => $names[0], progress => $args{progress} ) );
+        }
+        elsif (@stopped) {
+            # Restart the collectors that were actually running, including
+            # manual ones. start_collectors with no names skips manual
+            # collectors, so restart each stopped collector by name.
+            @started = map { $self->start_named_collector( name => $_->{name}, progress => $args{progress} ) } @stopped;
+        }
+        else {
+            @started = $self->start_collectors(
+                progress => $args{progress},
+            );
+        }
         my %stopped = map { $_->{name} => $_ } @stopped;
         $result{collectors} = [
             map {

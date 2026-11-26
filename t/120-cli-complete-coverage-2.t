@@ -96,13 +96,13 @@ for my $spec ( [ 'dir_shared', 'alpha' ], [ 'dir_blank', '' ], [ 'dir_fresh', 'g
     );
 
     my @completions = Developer::Dashboard::CLI::Complete::complete(
-        words => [ 'd2', 'restart', 'collector', 'alp' ],
+        words => [ 'd2', 'collector', 'restart', 'alp' ],
         index => 3,
     );
     is_deeply(
         \@completions,
         ['alpha'],
-        'restart collector completion prefix-filters the de-duplicated collector names',
+        'collector restart completion prefix-filters the de-duplicated collector names',
     );
 }
 

@@ -1051,13 +1051,13 @@ if ( !$UNDER_COVER ) {
     my $top_level_web_timestamp = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' log -t web" );
     like( $top_level_web_timestamp, qr/\A\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ web one\n/, 'd2 log -t web prefixes raw web lines with UTC read timestamps' );
 
-    my $top_level_collector_logs = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' log collector" );
-    like( $top_level_collector_logs, qr/cli\.collector/, 'd2 log collector prints collector logs without needing the nested collector command' );
-    like( $top_level_collector_logs, qr/cli stdout/, 'd2 log collector includes collector stdout content' );
+    my $top_level_collector_logs = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector log" );
+    like( $top_level_collector_logs, qr/cli\.collector/, 'd2 collector log prints collector logs without needing a name' );
+    like( $top_level_collector_logs, qr/cli stdout/, 'd2 collector log includes collector stdout content' );
 
-    my $named_top_level_collector_log = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' log collector cli.collector" );
-    like( $named_top_level_collector_log, qr/cli\.collector/, 'd2 log collector <name> resolves one named collector log stream' );
-    unlike( $named_top_level_collector_log, qr/pending\.collector/, 'd2 log collector <name> limits output to the requested collector' );
+    my $named_top_level_collector_log = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector log cli.collector" );
+    like( $named_top_level_collector_log, qr/cli\.collector/, 'd2 collector log <name> resolves one named collector log stream' );
+    unlike( $named_top_level_collector_log, qr/pending\.collector/, 'd2 collector log <name> limits output to the requested collector' );
 
     my $everything_log = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' logs" );
     like( $everything_log, qr/web one/, 'd2 logs includes the dashboard web log in the all-logs view' );
@@ -1123,20 +1123,20 @@ if ( !$UNDER_COVER ) {
         'd2 collector log reports unknown collector names explicitly',
     );
 
-    my ( $missing_restart_stdout, $missing_restart_stderr, $missing_restart_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' restart collector missing.collector");
-    ok( $missing_restart_exit != 0, 'd2 restart collector exits non-zero for an unknown collector name' );
+    my ( $missing_restart_stdout, $missing_restart_stderr, $missing_restart_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' collector restart missing.collector");
+    ok( $missing_restart_exit != 0, 'd2 collector restart exits non-zero for an unknown collector name' );
     like(
         decode( 'UTF-8', $missing_restart_stdout . $missing_restart_stderr ),
         qr/Unknown collector 'missing\.collector'/,
-        'd2 restart collector reports unknown collector names explicitly',
+        'd2 collector restart reports unknown collector names explicitly',
     );
 
-    my ( $missing_stop_stdout, $missing_stop_stderr, $missing_stop_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' stop collector missing.collector");
-    ok( $missing_stop_exit != 0, 'd2 stop collector exits non-zero for an unknown collector name' );
+    my ( $missing_stop_stdout, $missing_stop_stderr, $missing_stop_exit ) = _sh_capture("$perl -I'$lib' '$dashboard' collector stop missing.collector");
+    ok( $missing_stop_exit != 0, 'd2 collector stop exits non-zero for an unknown collector name' );
     like(
         decode( 'UTF-8', $missing_stop_stdout . $missing_stop_stderr ),
         qr/Unknown collector 'missing\.collector'/,
-        'd2 stop collector reports unknown collector names explicitly',
+        'd2 collector stop reports unknown collector names explicitly',
     );
 
     my $collector_start_pid = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector start cli.collector" );
@@ -1152,17 +1152,19 @@ if ( !$UNDER_COVER ) {
     # re-start so the following top-level stop/restart assertions still control a live collector
     _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector start cli.collector" );
 
-    my $top_level_stop_named_collector = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' stop collector cli.collector" );
-    like( $top_level_stop_named_collector, qr/Component\s+Target\s+Status/, 'd2 stop collector <name> prints a table summary by default' );
-    like( $top_level_stop_named_collector, qr/collector\s+cli\.collector\s+stopped/, 'd2 stop collector <name> reports the named collector row' );
+    my $collector_stop_named = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector stop cli.collector" );
+    like( $collector_stop_named, qr/\A(?:\d+\n)?\z/, 'd2 collector stop <name> prints the stopped loop pid (or nothing when already stopped)' );
+    my $collector_stop_named_status = json_decode( _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector status cli.collector" ) );
+    ok( !$collector_stop_named_status->{running}, 'd2 collector stop <name> leaves the collector not running' );
 
-    my $top_level_restart_named_collector = json_decode( _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' restart collector cli.collector -o json" ) );
-    is( $top_level_restart_named_collector->{scope}, 'collector', 'd2 restart collector <name> reports the collector scope in JSON mode' );
-    is( $top_level_restart_named_collector->{target}, 'cli.collector', 'd2 restart collector <name> reports the requested collector target in JSON mode' );
+    my $collector_restart_named = json_decode( _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector restart cli.collector -o json" ) );
+    is( $collector_restart_named->{scope}, 'collector', 'd2 collector restart <name> reports the collector scope in JSON mode' );
+    is( $collector_restart_named->{target}, 'cli.collector', 'd2 collector restart <name> reports the requested collector target in JSON mode' );
 
-    my $top_level_stop_all_collectors = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' stop collector" );
-    like( $top_level_stop_all_collectors, qr/Component\s+Target\s+Status/, 'd2 stop collector without a name prints a table summary by default' );
-    like( $top_level_stop_all_collectors, qr/collector/, 'd2 stop collector without a name reports collector rows' );
+    my $collector_stop_all = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector stop" );
+    like( $collector_stop_all, qr/\A(?:\d+\n)*\z/, 'd2 collector stop without a name prints the stopped loop pids' );
+    my $collector_stop_all_status = json_decode( _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector status cli.collector" ) );
+    ok( !$collector_stop_all_status->{running}, 'd2 collector stop without a name leaves the collector not running' );
 
     my $restart_web_port = _find_free_port();
     my $top_level_restart_web = json_decode(

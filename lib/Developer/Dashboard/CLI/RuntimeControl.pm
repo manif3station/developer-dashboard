@@ -571,7 +571,7 @@ table behavior.
 =head1 WHY IT EXISTS
 
 It exists because restart and stop now need scoped variants such as
-C<d2 restart web> and C<d2 stop collector NAME>, and those flows
+C<d2 restart web> and C<d2 stop web>, and those flows
 should not be duplicated inside the private switchboard. Keeping the logic here
 makes the contract testable and keeps the thin helper loader honest.
 
@@ -598,13 +598,13 @@ runtime-manager tests that verify scoped restart and stop progress plans.
 
   d2 restart
   d2 restart web --port 7901
-  d2 restart collector housekeeper -o json
-  d2 stop collector
+  d2 restart web -o json
+  d2 stop web
   d2 log
   d2 logs --tail 100
   d2 logs --tail=100
   d2 log -t web -n 20 -f
-  d2 log -t collector alpha.collector --tail=50
+  d2 log -t web --tail=50
   d2 logs -f --tail=20
   d2 log web -n 50
 

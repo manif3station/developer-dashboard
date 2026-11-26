@@ -66,6 +66,10 @@ sub grep_matching_files {
             }
         }
         die "Unable to identify file in grep output: $line\n" if !defined $file;
+        # System grep joins the directory and file name with '/' even on
+        # Windows, but the returned paths must use the native separator
+        # so callers see the same form File::Spec builds.
+        $file =~ s{/}{\\}g if is_real_windows();
         push @files, $file if !$seen{$file}++;
     }
 
