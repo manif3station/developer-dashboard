@@ -121,10 +121,20 @@ sub _capture {
     # read below reads the localized value, so the returned wait status
     # is unchanged.
     local $?;
+    # R128/R131 fault 1: on Windows a parent print's \n is translated
+    # to \r\n on write, so the captured output is not byte-exact.
+    # The '>:raw' open below is kept (it is harmless), but it does
+    # NOT strip :crlf - the diagnostic proved the layers still read
+    # unix,crlf after it. The fix is the binmode on STDOUT and STDERR
+    # after the redirect below: binmode sets the fd to binary at the
+    # CRT level, and the diagnostic proved that gives byte-exact
+    # output even though the layer list still reads unix,crlf.
     my ( $out_fh, $out_name ) = tempfile( UNLINK => 0 );
     my ( $err_fh, $err_name ) = tempfile( UNLINK => 0 );
-    binmode $out_fh, ':raw';
-    binmode $err_fh, ':raw';
+    close $out_fh;
+    close $err_fh;
+    open $out_fh, '>:raw', $out_name or die "Unable to open capture file $out_name: $!";
+    open $err_fh, '>:raw', $err_name or die "Unable to open capture file $err_name: $!";
     my ( $out, $err, $rc );
     my ( $saved_out, $saved_err );
     my $ok = eval {
@@ -137,6 +147,12 @@ sub _capture {
         open $saved_err, '>&', \*STDERR or die "Unable to save stderr for capture: $!";
         open STDOUT, '>&', $out_fh or die "Unable to redirect stdout for capture: $!";
         open STDERR, '>&', $err_fh or die "Unable to redirect stderr for capture: $!";
+        # R131: binmode the redirected handles, so prints go through
+        # raw. The dup carries the :crlf layer onto STDOUT/STDERR, and
+        # the '>:raw' open above does not strip it, so without this a
+        # parent print's \n is translated to \r\n on Windows.
+        binmode STDOUT, ':raw';
+        binmode STDERR, ':raw';
         $code->();
         $rc = $?;
         1;
