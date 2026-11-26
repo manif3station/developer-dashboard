@@ -314,7 +314,7 @@ my $powershell_log = File::Spec->catfile( $fakebin, 'powershell-log.txt' );
 # the fake, so the fake checks are skipped there.
 {
     unlink $taskkill_args;
-    local $ENV{PATH} = "$fakebin:$ENV{PATH}";
+    local $ENV{PATH} = "$fakebin$Config{path_sep}$ENV{PATH}";
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     # On Windows _taskkill_command returns the real
     # C:\Windows\system32\taskkill.exe, not the fake: the fake is
@@ -662,7 +662,7 @@ SKIP: {
 {
     my $log_path = File::Spec->catfile( $test_cwd, 'watcher-fallback.log' );
     unlink $taskkill_args;
-    local $ENV{PATH} = "$fakebin:$ENV{PATH}";
+    local $ENV{PATH} = "$fakebin$Config{path_sep}$ENV{PATH}";
 
     my $plain = _spawn_sleep();
     is( $manager->_stop_web_pid_as_its_watcher( $plain, undef, '' ), undef,
@@ -1004,7 +1004,7 @@ CHILD
     # state; this section starts with no web state at all.
     my $web_state_file = $files->web_state;
     unlink $web_state_file if -f $web_state_file;
-    local $ENV{PATH} = "$fakebin:$ENV{PATH}";
+    local $ENV{PATH} = "$fakebin$Config{path_sep}$ENV{PATH}";
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
 
     my $root = $paths->state_root;
