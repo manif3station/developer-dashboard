@@ -189,6 +189,69 @@ first, diag the reason and C<plan skip_all> when the environment cannot
 set owner-only ACLs, run the tests when it can. The probe verdict never
 depends on the CPU architecture (no 32-bit work, AC 6).
 
+=head1 WHY IT EXISTS
+
+The CPAN report for 6.31 went red on testers whose sandboxes cannot set
+owner-only ACLs: on Exodist's Strawberry sandbox, icacls cannot grant an
+owner-only ACL, while the same suite passed on a real Windows box with
+ACL privileges. Without a probe, the ACL tests fail in environments that
+can never pass them, and the report stays red for a reason that has
+nothing to do with the code. The probe lets each ACL-dependent file
+decide at compile time whether the environment can do the thing it
+tests, so the report goes green by skipping honestly instead of failing
+or hiding the failure.
+
+=head1 WHEN TO USE
+
+When an ACL-dependent test fails on a new tester or CI box, when adding
+a new test that needs owner-only ACLs, or when the probe verdict itself
+is questioned (run this file to see whether the probe and the skip
+pattern still behave). Also when the CPAN report goes red on a Windows
+leg and the cause might be the environment rather than the code.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/999-cpan-green-acl-skip.t> while
+iterating, then keep it green under C<prove -lr t> before release. It
+pins the probe contract first (list and scalar context, the
+C<DD_TEST_WINDOWS_ACL> simulation hook with C<0> forcing incapable and
+C<1> forcing capable, and a verdict that never depends on CPU
+architecture), then runs a generated representative ACL test file as a
+subprocess in both branches: incapable (diag the reason, then C<plan
+skip_all>) and capable (the checks run). The representative file is
+generated into a temp dir and its TAP output is asserted, so the skip
+pattern is tested end to end rather than assumed.
+
+=head1 WHAT USES IT
+
+It is used by the ACL-dependent test files that BEGIN-probe with
+C<windows_acl_can_set_owner_only()> (the pattern this file pins), by the
+full C<prove -lr t> suite, and by the CPAN release check that the report
+goes green on tester sandboxes that cannot set owner-only ACLs.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/999-cpan-green-acl-skip.t
+
+Run the ACL probe contract and the representative skip file by
+themselves while changing the probe or the skip pattern.
+
+Example 2:
+
+  DD_TEST_WINDOWS_ACL=0 prove -lv t/999-cpan-green-acl-skip.t
+
+Force the probe incapable and watch the representative file skip with
+its reason, the way a tester sandbox behaves.
+
+Example 3:
+
+  prove -lr t
+
+Run the whole suite after the focused check to keep the CPAN-green
+skip contract aligned with the ACL tests.
+
 =head1 EXPECTED STATE
 
 RED until Harry implements the probe: the exists-check fails, the probe

@@ -152,6 +152,64 @@ F</etc/debian_version>, not Alpine, not Fedora) there is no system task.
 The distro detection is simulable via the C<DD_TEST_*> hooks, extended
 so C<0> forces a detection off.
 
+=head1 WHY IT EXISTS
+
+t/102 hard-coded C<install_aptfile> as the expected system task on every
+Linux host, so it failed on the aarch64 tester box, which has no distro
+markers at all. The expected task ids must follow the detected package
+manager, so the test passes on any Linux host instead of assuming
+Debian. The C<DD_TEST_*> force-off hooks make that detection simulable,
+so the aarch64 shape can be tested on any box without needing the box
+itself.
+
+=head1 WHEN TO USE
+
+When t/102 fails on a new Linux host or tester box, when adding a new
+distro detection predicate, or when the expected system task list
+changes. Also when the CPAN report goes red on a Linux leg with a
+task-id mismatch.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/1000-cpan-green-detected-manager.t>
+while iterating, then keep it green under C<prove -lr t> before release.
+It derives the expected system task ids from the detection predicates
+(never hard-coded per OS), extends the C<DD_TEST_*> hooks so C<0> forces
+a detection off, and asserts that a Linux host with no markers yields an
+empty task list rather than C<install_aptfile>. The aarch64 shape is
+simulated by forcing every detection off, so the test does not depend on
+the box it runs on.
+
+=head1 WHAT USES IT
+
+It is used by t/102 (the host-progress skill coverage test that consumes
+the detected manager), by the full C<prove -lr t> suite, and by the CPAN
+release check that the suite passes on Linux hosts without distro
+markers.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/1000-cpan-green-detected-manager.t
+
+Run the detected-manager contract by itself while changing the
+detection predicates or the force-off hooks.
+
+Example 2:
+
+  prove -lr t
+
+Run the whole suite after the focused check to keep the detected
+manager contract aligned with t/102.
+
+Example 3:
+
+  DD_TEST_DEBIAN_LIKE=0 prove -lv t/1000-cpan-green-detected-manager.t
+
+Force one detection off and watch the expected task list follow the
+remaining detections, the way a host without that distro marker behaves.
+
 =head1 EXPECTED STATE
 
 RED until Harry implements the force-off hook: the detections fall

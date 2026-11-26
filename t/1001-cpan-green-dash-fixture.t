@@ -91,6 +91,62 @@ aarch64 tester box shape, simulated here with a fake C<sh> that exits 0
 whatever it is asked. Under the real sh (dash) the fixture check passes
 as today.
 
+=head1 WHY IT EXISTS
+
+t/180's dash fixture failed on the aarch64 tester box because the login
+shell there cannot reproduce the dash hazard the fixture depends on. The
+fixture must skip with a reason when the shell cannot reproduce the
+hazard, instead of failing on a box where the hazard does not exist.
+This file pins that skip by running t/180 itself as a subprocess, once
+under a fake C<sh> and once under the real sh.
+
+=head1 WHEN TO USE
+
+When t/180 fails on a new tester or CI box, when the dash fixture
+changes, or when the login shell on a host is not dash. Also when the
+CPAN report goes red on a Linux leg with a t/180 failure.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/1001-cpan-green-dash-fixture.t>
+while iterating, then keep it green under C<prove -lr t> before release.
+It runs t/180 as a subprocess twice: under a fake C<sh> that exits 0
+without reading the profile (t/180 must skip with exit 0, a skip line in
+the TAP output, and no failures), and under the real sh (dash) as a
+control, where it passes as today. The fake sh is a small script placed
+on PATH for the subprocess, so the fixture's shell behaviour is tested
+end to end rather than assumed.
+
+=head1 WHAT USES IT
+
+It is used by t/180 (the dash fixture test that skips when the shell
+cannot reproduce the hazard), by the full C<prove -lr t> suite, and by
+the CPAN release check that the suite passes on hosts whose login shell
+is not dash.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/1001-cpan-green-dash-fixture.t
+
+Run the dash fixture contract by itself while changing t/180's skip
+gate or the fixture.
+
+Example 2:
+
+  prove -lr t
+
+Run the whole suite after the focused check to keep the dash fixture
+contract aligned with t/180.
+
+Example 3:
+
+  sh -c 'echo fake-sh-ok'
+
+Check that the fake C<sh> used by the test exits 0 whatever it is
+asked, before trusting the skip branch it exercises.
+
 =head1 EXPECTED STATE
 
 RED until Harry gates t/180's first check with a skip when the shell
