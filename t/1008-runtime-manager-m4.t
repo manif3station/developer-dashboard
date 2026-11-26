@@ -625,36 +625,49 @@ SKIP: {
     is( $manager->_stop_web_pid_as_its_watcher( 999999, undef, '' ), undef,
         'a pid with no process behind it is left alone' );
 
-    my $web = _spawn_sleep(
-        env => { DEVELOPER_DASHBOARD_WEB_SERVICE => '1' } );
-    is( $manager->_stop_web_pid_as_its_watcher( $web, $log_path, '' ), $web,
-        'the ordinary stop ends a managed web at runtime $OS_NAME' );
-    # The stop has already waited for the web to go, but the reap
-    # and the liveness read race the scheduler: a child that has
-    # just been killed can still read as running for a moment.
-    # Poll briefly for the gone state; a child that is really still
-    # alive stays alive past the poll and fails the test.
-    my $gone = 0;
-    for my $i ( 1 .. 20 ) {
-        if ( !$manager->_pid_is_running($web) ) { $gone = 1; last }
-        sleep 0.1;
-    }
-    ok( $gone, 'the web is gone after the ordinary stop' );
+    # The six checks below need _is_managed_web to recognise the
+    # spawned sleep, and _is_managed_web reads the WEB_SERVICE
+    # marker from /proc/<pid>/environ, which does not exist on
+    # macOS. Skip them where /proc is not available, the same
+    # shape as the ajax second-loop skip. The three negative
+    # checks above stay and run on all legs: they only need
+    # _is_managed_web to return 0, which it does everywhere for
+    # an unmarked pid or a pid with no process behind it.
+    SKIP: {
+        skip 'the watcher fallback needs /proc (procfs) to recognise a managed web', 6
+          unless $manager->_procfs_available;
 
-    my $spared = _spawn_sleep(
-        env => { DEVELOPER_DASHBOARD_WEB_SERVICE => '1' } );
-    {
-        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
-        is( $manager->_stop_web_pid_as_its_watcher( $spared, $log_path, '' ), $spared,
-            'the fallback returns the pid when the tree is not listed' );
+        my $web = _spawn_sleep(
+            env => { DEVELOPER_DASHBOARD_WEB_SERVICE => '1' } );
+        is( $manager->_stop_web_pid_as_its_watcher( $web, $log_path, '' ), $web,
+            'the ordinary stop ends a managed web at runtime $OS_NAME' );
+        # The stop has already waited for the web to go, but the reap
+        # and the liveness read race the scheduler: a child that has
+        # just been killed can still read as running for a moment.
+        # Poll briefly for the gone state; a child that is really still
+        # alive stays alive past the poll and fails the test.
+        my $gone = 0;
+        for my $i ( 1 .. 20 ) {
+            if ( !$manager->_pid_is_running($web) ) { $gone = 1; last }
+            sleep 0.1;
+        }
+        ok( $gone, 'the web is gone after the ordinary stop' );
+
+        my $spared = _spawn_sleep(
+            env => { DEVELOPER_DASHBOARD_WEB_SERVICE => '1' } );
+        {
+            local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+            is( $manager->_stop_web_pid_as_its_watcher( $spared, $log_path, '' ), $spared,
+                'the fallback returns the pid when the tree is not listed' );
+        }
+        is( $manager->_pid_is_running($spared), 1,
+            'the web is still alive: the fake taskkill ends nothing' );
+        is( _read_file($taskkill_args), "/PID $spared /T /F\n/PID $spared /T /F\n",
+            'the fallback TERMd then KILLd the web through the fake taskkill' );
+        like( _read_file($log_path), qr/web tree not listed: the process tree of web pid $spared/,
+            'the fallback logs that the web tree was not listed' );
+        _kill_child($spared);
     }
-    is( $manager->_pid_is_running($spared), 1,
-        'the web is still alive: the fake taskkill ends nothing' );
-    is( _read_file($taskkill_args), "/PID $spared /T /F\n/PID $spared /T /F\n",
-        'the fallback TERMd then KILLd the web through the fake taskkill' );
-    like( _read_file($log_path), qr/web tree not listed: the process tree of web pid $spared/,
-        'the fallback logs that the web tree was not listed' );
-    _kill_child($spared);
 }
 
 # --- _check_collector_supervisor_parent, direct paths (lines 2021-2059) ---
