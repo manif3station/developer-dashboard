@@ -144,7 +144,7 @@ use Developer::Dashboard::Platform ();
     system( $^X, '-e', 'exit 5' );
     my $before = $?;
     Developer::Dashboard::Platform::_capture( sub { print "guarded\n"; } );
-    is( $?, $before, 'the caller's $? is unchanged after _capture' );
+    is( $?, $before, 'the caller $? is unchanged after _capture' );
 }
 
 # _slurp_raw_file: an existing file returns its content, byte-exact.
