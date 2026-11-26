@@ -1004,8 +1004,26 @@ CHILD
     # The Windows branch TERMs the web pid first, then the ajax and
     # legacy workers, then KILLs the web pid and the lingering
     # workers, in that order.
-    is( _read_file($taskkill_args),
-        "/PID $legacy /T /F\n/PID $ajax /T /F\n/PID $legacy /T /F\n/PID $legacy /T /F\n/PID $ajax /T /F\n/PID $legacy /T /F\n",
+    # The fake powershell prints the process table with no
+    # guaranteed order, so the ajax and legacy workers can come
+    # back in either order inside each round. The web pid is
+    # TERMed first and KILLed first, and the TERM round comes
+    # before the KILL round, so sort only the two worker lines
+    # inside each round before comparing. The count stays one
+    # assertion, so the file still has 107 checks.
+    my $kills_text = _read_file($taskkill_args) // '';
+    my @kills = split /\n/, $kills_text;
+    my ( $worker_a, $worker_b )
+        = sort "/PID $ajax /T /F", "/PID $legacy /T /F";
+    if ( scalar(@kills) == 6 ) {
+        $kills_text = join( "\n",
+            $kills[0],
+            ( sort @kills[ 1 .. 2 ] ),
+            $kills[3],
+            ( sort @kills[ 4 .. 5 ] ) ) . "\n";
+    }
+    is( $kills_text,
+        "/PID $legacy /T /F\n$worker_a\n$worker_b\n/PID $legacy /T /F\n$worker_a\n$worker_b\n",
         'stop_web TERMs the web, the ajax and legacy workers, then KILLs the lingering ones' );
     ok( defined _read_file($powershell_log)
           && length( _read_file($powershell_log) ) > 0,
