@@ -645,12 +645,15 @@ sub _finish_routine {
     return;
 }
 
-# _cancel_routine($id, $kind) -- $kind is 'killed' or 'timed_out'.
+# _cancel_routine($id, $kind) -- $kind is 'killed' or 'timed_out', and
+# defaults to 'killed' when omitted (R137): without a kind the record's
+# state would be undef and _is_finished_state would warn on every pump.
 # Pending: cancels at once. Running: sets the cooperative flag, which the
 # dispatch honours when the callback returns. Finished: a no-op.
 # Returns true when the routine was pending or running.
 sub _cancel_routine {
     my ($id, $kind) = @_;
+    $kind = 'killed' unless defined $kind;
     my $rec = $ROUTINES{$id};
     return 0 unless $rec;
     return 0 if _is_finished_state($rec->{state});
@@ -714,6 +717,17 @@ sub go (&;$) {
     die "go() expects a code reference" unless ref($code) eq 'CODE';
     $opts = {} unless defined $opts;
     die "go() options must be a hash reference" unless ref($opts) eq 'HASH';
+
+    # Validate the IO triggers before creating the record (R135): a
+    # failed go() must not leave a pending record with no triggers,
+    # which would hang every later wait_all().
+    for my $dir (qw(readable writable)) {
+        next unless defined $opts->{$dir};
+        my $given = $opts->{$dir};
+        my $fd = ref($given) ? fileno($given) : $given;
+        die "go() $dir trigger needs a filehandle or a file descriptor"
+            unless defined($fd) && $fd =~ /\A\d+\z/;
+    }
 
     my $id = ++$NEXT_ROUTINE_ID;
     my $now = _ev_now();
