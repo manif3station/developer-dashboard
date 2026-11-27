@@ -1280,16 +1280,26 @@ sub _m7_read_file {
 }
 
 # --- _stop_web_pid_as_its_watcher (lines 2354-2390) -------------------
-# The guard first: a pid with no process behind it is left alone.
-# Then the tree paths, each with its own fake powershell and fake
-# taskkill. The killing fake ends the pid it is given (its second
-# argument) and exits 1, so the send-signal wait sees a dead pid;
-# the no-op fake exits 0 without ending anything, so the wait runs
-# its full budget and the pid is still alive at the end.
+# The guard first: a pid with no process behind it is left alone, and
+# so is a live pid that is not a managed web. Then the tree paths, each
+# with its own fake powershell and fake taskkill. The killing fake ends
+# the pid it is given (its second argument) and exits 1, so the
+# send-signal wait sees a dead pid; the no-op fake exits 0 without
+# ending anything, so the wait runs its full budget and the pid is
+# still alive at the end.
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     is( $M7_MANAGER->_stop_web_pid_as_its_watcher( 999999, undef, q{} ), undef,
         'watcher stop: a pid with no process behind it is left alone' );
+}
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    my $plain = _m7_spawn_sleep();
+    is( $M7_MANAGER->_stop_web_pid_as_its_watcher( $plain, undef, q{} ), undef,
+        'watcher stop: a live pid that is not a managed web is left alone' );
+    ok( $M7_MANAGER->_pid_is_running($plain),
+        'watcher stop: the non-web pid is still running after the refused stop' );
+    _m7_kill_child($plain);
 }
 {
     my $dir     = tempdir( CLEANUP => 1 );
@@ -1424,10 +1434,15 @@ sub _m7_read_file {
 
 # --- _run_web_lifetime_owner_watcher, guard (line 2584) ----------------
 # A non-numeric web pid is refused at once, before any loop runs.
+# A numeric pid below 1 is refused the same way: the pid is defined
+# and numeric, so the first half of the guard is false, and being
+# below 1 makes the second half true.
 {
     my $log_path = File::Spec->catfile( $M7_HOME, 'watcher-guard.log' );
     is( $M7_MANAGER->_run_web_lifetime_owner_watcher( 'abc', $log_path ), 0,
         'watcher run: a non-numeric web pid returns at once' );
+    is( $M7_MANAGER->_run_web_lifetime_owner_watcher( 0, $log_path ), 0,
+        'watcher run: a numeric web pid below 1 returns at once' );
 }
 
 # --- _send_signal, Windows wait (lines 3470-3474) ----------------------
