@@ -803,9 +803,10 @@ my $M7_MANAGER = Developer::Dashboard::RuntimeManager->new(
 my $M7_SLEEP_SCRIPT = File::Spec->catfile( $M7_HOME, 'm7-sleep-child.pl' );
 {
     open my $sfh, '>', $M7_SLEEP_SCRIPT or die "Unable to write $M7_SLEEP_SCRIPT: $!";
-    print {$sfh} "my (\$title, \$ignore) = \@ARGV;\n";
+    print {$sfh} "my (\$title, \$ignore, \$ready) = \@ARGV;\n";
     print {$sfh} "\$0 = \$title if defined \$title && length \$title;\n";
     print {$sfh} "\$SIG{TERM} = 'IGNORE' if \$ignore;\n";
+    print {$sfh} "if (defined \$ready && length \$ready) { open my \$rfh, '>', \$ready or die \"Unable to write \$ready: \$!\"; close \$rfh or die \"Unable to close \$ready: \$!\"; }\n";
     print {$sfh} "select undef, undef, undef, 30;\n";
     close $sfh or die "Unable to close $M7_SLEEP_SCRIPT: $!";
 }
@@ -821,16 +822,33 @@ my $M7_SLEEP_SCRIPT = File::Spec->catfile( $M7_HOME, 'm7-sleep-child.pl' );
 # too slowly for 0.3s to be enough.
 # Input: title string, env hash reference, ignore_term boolean.
 # Output: spawned process id.
+my $M7_SPAWN_SEQ = 0;
 sub _m7_spawn_sleep {
     my (%args) = @_;
     die 'a section-2 child cannot carry both a title and env markers'
       if defined $args{title} && length $args{title} && $args{env};
     my $title = $args{title} || '';
+    # The child writes this file once it has set $0 and installed
+    # its signal handling, so the caller can wait for the child to
+    # be truly ready instead of trusting a fixed sleep: under
+    # Devel::Cover a child starts too slowly for 0.3s, and a
+    # TERM-ignoring child that has not yet run its $SIG line still
+    # dies on TERM (the cover run proved it: the escalation block
+    # never ran because the child was already dead).
+    $M7_SPAWN_SEQ++;
+    my $ready = File::Spec->catfile( $M7_HOME, "m7-ready-$M7_SPAWN_SEQ" );
     my $pid = Developer::Dashboard::GoRoutine::spawn(
-        [ $^X, $M7_SLEEP_SCRIPT, $title, $args{ignore_term} ? 1 : 0 ],
+        [ $^X, $M7_SLEEP_SCRIPT, $title, $args{ignore_term} ? 1 : 0, $ready ],
         { $args{env} ? ( env => $args{env} ) : () },
     );
     die 'GoRoutine spawn failed' if !defined $pid;
+    {
+        my $deadline = time() + 5;
+        while ( time() < $deadline ) {
+            last if -f $ready;
+            Time::HiRes::sleep(0.05);
+        }
+    }
     # The settle matters: the markers and the title are only visible
     # once the child has execd, and a read in the same instant as the
     # spawn can still see the pre-exec state. A fixed 0.3s sleep is
@@ -841,6 +859,9 @@ sub _m7_spawn_sleep {
     # a bounded budget, and only then return. Where /proc is absent
     # the markers cannot be observed, so a plain child there keeps
     # the fixed sleep.
+    # The ready file already proves the child has set $0 and its
+    # signal handling; the title and marker polls below only
+    # confirm what the child exposes, and return at once now.
     my $deadline = time() + 5;
     if ( defined $args{title} && length $args{title} ) {
         while ( time() < $deadline ) {
@@ -858,12 +879,6 @@ sub _m7_spawn_sleep {
                 Time::HiRes::sleep(0.05);
             }
         }
-        else {
-            Time::HiRes::sleep(0.3);
-        }
-    }
-    else {
-        Time::HiRes::sleep(0.3);
     }
     return $pid;
 }
@@ -1704,4 +1719,1351 @@ SKIP: {
     my $web_state_file = $M7_FILES->web_state;
     unlink $web_state_file if -f $web_state_file;
     _m7_kill_child($listener);
+}
+
+# SECTION 3 - GoRoutine (R178).
+#
+# Cover #19 gaps for GoRoutine.pm: 34 branch cells, 17 condition
+# cells, 1 uncovered sub (__ANON__ at line 90, the CLONE_SKIP stub
+# _keep_spawn_handle installs - uncoverable, see below).
+# Deferred items in scope: GoRoutine 878 (the
+# _dispatch_routine false side - two waiters, close, first cancels
+# second); R144 line 990 (the END fork guard - uncoverable, see
+# below). Line 943 is a comment, not a gap. Lines 1029 and 1048
+# were already covered in #19, not gaps.
+#
+# PROBED UNCOVERABLE (evidence in /tmp/m7-probes, 27 Nov):
+# - B 172 true, C 172 l&&!r and l&&r: the enclosing if keys off
+#   $_REAL_OS_IS_WINDOWS, a load-time lexical that is false on Unix
+#   and cannot be localised. The condition still evaluates (C 172
+#   !l fires on every call) but the true side can never run here.
+# - B 182, C 182: inside the same dead Windows block; never
+#   evaluated on Unix at all.
+# - B 185 false: _wait_process_wrapper(undef) dies in the XS wait
+#   ("invalid GoRoutine child process identifier", probed) before
+#   the delete line runs, so the undefined-pid side is unreachable.
+# - B 763, C 763: the second validation loop in go() repeats the
+#   first loop's identical fileno computation on the same input, so
+#   an input that fails the second loop has already died in the
+#   first; the die can never fire there.
+# - B 990 true: the END fork guard needs $$ to differ from the
+#   load-time $_LOAD_PID, which needs a fork, and t/246 forbids
+#   fork() in t/. The false side fires on every process exit.
+# - B 892 false: the pump re-wait path needs _ev_wait to return
+#   early with nothing due before a routine deadline. Two probes
+#   (a child exiting at 0.05s for SIGCHLD, Time::HiRes::alarm at
+#   0.05s for SIGALRM, both with a 0.5s timeout) ran the pump to
+#   the deadline both times. The code comment says the path exists
+#   for the Windows coarse clock; on Linux it does not fire.
+# - B 1009 false, B 1013 true: DEFERRED to the FINAL section, not
+#   written here - the routine must still be pending at process
+#   exit, and any later section's pump would dispatch it first.
+#   Design (from the END source): an immediate routine created
+#   after the file's last pump, whose callback - dispatched during
+#   the drain's pump - registers a NEW repeating routine. The
+#   drain's next pass then sees the new repeating routine pending
+#   (B 1009 false, it is cancelled) and re-filters to an empty
+#   pending list (B 1013 true, the drain ends). The first END loop
+#   cancels every repeating routine that is already pending before
+#   the drain, so a pre-created repeating routine cannot do this.
+# - B 1015 true: needs the 30-second drain deadline to pass; not
+#   worth 30 seconds of suite time.
+# - B 1043 true, B 1062 true: the die-if before the first pump in
+#   each send loop. No code runs between the entry die-if (line
+#   1040) and the loop-body die-if that could close the channel,
+#   and on later iterations the die-if after the pump (1045/1064)
+#   fires first. The closed-during-pump side (1045) is covered.
+# - B 1135 false: a routine can only yield when it is not already
+#   registered - both wake paths (_wake_waiter and close) shift the
+#   waiter out of waiting_routines when they wake it, so the grep
+#   can never find it already present at the next yield.
+# - C 97 l&&!r: probed uncoverable (/tmp/m7-probes/f-dollarat.pl,
+#   27 Nov). A successful eval clears $@, so after the eval in
+#   _keep_spawn_handle returns a true $opened, $@ is always the
+#   empty string and `not $@` is always true. A failing inner eval
+#   inside the fake's Open cannot leave $@ set past the outer
+#   eval. The other two cells (l&&r) are covered in 3a.
+# - S __ANON__ at line 90: the CLONE_SKIP stub. It is installed by
+#   the first _keep_spawn_handle call (3a proves that) but never
+#   invoked: GoRoutine.pm line 45 says the redesign runs no cloned
+#   interpreters, and line 590 says nothing here uses fork,
+#   threads.pm, or perl_clone. The stub only runs during a clone.
+# - C 1140 !l&&r, B 1148 true, B 1151 (both sides): covered in 3o,
+#   not uncoverable. A sender queues to the sender queue only
+#   while receiver_waiting is 0; _wake_waiter clears the flag when
+#   a queue-filling send finds no live waiter, so a second sender
+#   falls through to the sender queue while the main thread is
+#   still in its loop. A watcher then closes the channel: the
+#   sender dies at its closed check, but close() never clears the
+#   sender queue, so the orphaned entry is what the main thread's
+#   loop check sees. A plain waiting sender with no watcher
+#   deadlocks instead (probed 27 Nov: the run hung in 3o until
+#   killed) and must not be used.
+# - C 993 !l: keys %ROUTINES guarantees the record exists at the
+#   fetch; nothing runs between the keys and the fetch.
+# - C 1217 !l&&!r: the // fallback is _ev_now(), epoch seconds,
+#   never false.
+# - C 1155/C 1255 !l&&r (CollectorRunner, noted here because the
+#   proof is in GoRoutine's _is_managed_loop): _is_managed_loop
+#   returns 1 whenever _state_confirms_managed_loop would, through
+#   its own state fallthrough, so the or-3 can never see the first
+#   term false and the second true. See section 4.
+#
+# DEVEL::COVER QUIRK (probed 27 Nov, /tmp/m7-probes/b-cover.t):
+# for a condition with three or more terms, the BRANCH row never
+# counts - the condition table does. A probe calling
+# _wait_process_wrapper and _find_running_loop moved the condition
+# cells (GoRoutine C 172 to 2,0,0; CollectorRunner C 1548 and
+# C 1555 to 1,0,0) while the branch rows stayed 0,0,0. So for B 172,
+# B 1145, B 1548 and B 1555 the condition table is the proof of
+# coverage, and the branch row is expected to stay put. One- and
+# two-term conditions count normally in both tables.
+
+# _m7_win32_fake_dir(): the fake Win32::Process used by the
+# _keep_spawn_handle tests. Its Open() reads the package variable
+# $Win32::Process::M7_OPEN_MODE: 'ok' returns a fake object,
+# 'fail' returns false (the or-die fires), 'dirty' returns the
+# object after a failing inner eval leaves $@ set. CLONE_SKIP is
+# deliberately NOT defined here, so the first call installs it.
+# Input: none.
+# Output: fake module directory path.
+my $M7_WIN32_FAKE_DIR;
+sub _m7_win32_fake_dir {
+    my ($dir) = @_;
+    return $dir if defined $dir;
+    return $M7_WIN32_FAKE_DIR if defined $M7_WIN32_FAKE_DIR;
+    my $fake = File::Spec->catdir( $M7_HOME, 'm7-fakewin32' );
+    my $win32 = File::Spec->catdir( $fake, 'Win32' );
+    mkdir $fake  or die "Unable to mkdir $fake: $!";
+    mkdir $win32 or die "Unable to mkdir $win32: $!";
+    my $pm = File::Spec->catfile( $win32, 'Process.pm' );
+    open my $fh, '>', $pm or die "Unable to write $pm: $!";
+    print {$fh} "package Win32::Process;\n";
+    print {$fh} "use strict;\nuse warnings;\n";
+    print {$fh} "our \$M7_OPEN_MODE = 'ok';\n";
+    print {$fh} "sub Open {\n";
+    print {$fh} "    my (\$obj, \$pid, \$flags) = \@_;\n";
+    print {$fh} "    return 0 if \$M7_OPEN_MODE eq 'fail';\n";
+    print {$fh} "    \$_[0] = bless {}, 'Win32::Process';\n";
+    print {$fh} "    eval { die \"inner dirty\\n\" } if \$M7_OPEN_MODE eq 'dirty';\n";
+    print {$fh} "    return 1;\n";
+    print {$fh} "}\n";
+    print {$fh} "1;\n";
+    close $fh or die "Unable to close $pm: $!";
+    $M7_WIN32_FAKE_DIR = $fake;
+    return $fake;
+}
+
+# _m7_orphan_sender_entry($value): an unbuffered channel whose
+# sender_queue holds one orphaned entry. A sender routine queues
+# the value, then a repeating watcher routine cancels the sender
+# and closes the channel, so the sender dies at its closed check
+# and the entry is never taken. The main thread can then receive
+# it through the top-of-receive sender_queue path (B 1118).
+# Input: value to send.
+# Output: the channel.
+sub _m7_orphan_sender_entry {
+    my ($value) = @_;
+    my $ch = Developer::Dashboard::GoRoutine::channel();
+    my $sender;
+    $sender = Developer::Dashboard::GoRoutine::go( sub { $ch->send($value); } );
+    my $watcher;
+    $watcher = Developer::Dashboard::GoRoutine::go(
+        sub {
+            return if !@{ $ch->{sender_queue} };
+            $sender->kill();
+            $ch->close();
+            $watcher->kill();
+            return;
+        },
+        { every => 0.01 }
+    );
+    Developer::Dashboard::GoRoutine::wait_all();
+    return $ch;
+}
+
+{
+    # 3a. _keep_spawn_handle: the Windows registry path, driven
+    # with a fake Win32::Process and a localised $^O. Four calls:
+    # ok (installs CLONE_SKIP, Open succeeds), dirty (Open
+    # succeeds with $@ set), fail (Open fails, the or-die fires),
+    # ok again (CLONE_SKIP already defined, skipped).
+    my $faked   = _m7_win32_fake_dir();
+    my $reg_pid = _m7_spawn_sleep();
+    {
+        local @INC = ( $faked, @INC );
+        local $^O  = 'MSWin32';
+        $Win32::Process::M7_OPEN_MODE = 'ok';
+        Developer::Dashboard::GoRoutine::_keep_spawn_handle($reg_pid);
+        ok( defined &Win32::Process::CLONE_SKIP,
+            'keep_spawn_handle: first call installs the CLONE_SKIP stub' );
+        is( Developer::Dashboard::GoRoutine::_process_running_wrapper($reg_pid),
+            1, 'keep_spawn_handle: the registered pid reads as running on Windows' );
+        $Win32::Process::M7_OPEN_MODE = 'dirty';
+        Developer::Dashboard::GoRoutine::_keep_spawn_handle($reg_pid);
+        is( Developer::Dashboard::GoRoutine::_process_running_wrapper($reg_pid),
+            1, 'keep_spawn_handle: a dirty dollar does not stop the registry entry' );
+        $Win32::Process::M7_OPEN_MODE = 'fail';
+        Developer::Dashboard::GoRoutine::_keep_spawn_handle($reg_pid);
+        is( Developer::Dashboard::GoRoutine::_process_running_wrapper($reg_pid),
+            1, 'keep_spawn_handle: a failed Open still records the pid' );
+        $Win32::Process::M7_OPEN_MODE = 'ok';
+        Developer::Dashboard::GoRoutine::_keep_spawn_handle($reg_pid);
+        is( Developer::Dashboard::GoRoutine::_process_running_wrapper($reg_pid),
+            1, 'keep_spawn_handle: a second call skips the installed CLONE_SKIP stub' );
+        Developer::Dashboard::GoRoutine::_keep_spawn_handle(undef);
+        ok( 1, 'keep_spawn_handle: an undefined pid returns at once' );
+    }
+    _m7_kill_child($reg_pid);
+}
+
+{
+    # 3b. _spawn_wrapper: the Windows env-merge condition with the
+    # first term true and the rest false (localised $^O, options a
+    # plain hash with no env key). The else branch spawns plainly.
+    my $pid;
+    {
+        local $^O = 'MSWin32';
+        $pid = Developer::Dashboard::GoRoutine::_spawn_wrapper( ['/bin/true'], {} );
+    }
+    ok( defined $pid && $pid > 0, 'spawn_wrapper: a plain hash option spawns without the env merge' );
+    is( _wait_for_exit( $pid, 5 ), 0, 'spawn_wrapper: the plain spawn exits cleanly' );
+    {
+        # The condition's middle cell: $^O is Windows but the
+        # options are not a hash, so the env merge is skipped and
+        # the native spawn dies on the missing hash.
+        local $^O = 'MSWin32';
+        my $err = eval { Developer::Dashboard::GoRoutine::_spawn_wrapper( [ '/bin/true' ], undef ); 1 } ? '' : $@;
+        like( $err, qr/not a HASH reference/,
+            'spawn_wrapper: a non-hash option dies on Windows' );
+    }
+}
+
+{
+    # 3c. _process_running_wrapper: undefined pid (the condition's
+    # first term false), a pid outside the registry, and the
+    # registry pid from 3a. The XS layer warns on undef, so the
+    # warning is swallowed for that one call.
+    my $reg_pid = _m7_spawn_sleep();
+    {
+        local @INC = ( _m7_win32_fake_dir(), @INC );
+        local $^O  = 'MSWin32';
+        $Win32::Process::M7_OPEN_MODE = 'ok';
+        Developer::Dashboard::GoRoutine::_keep_spawn_handle($reg_pid);
+        my $undef_result;
+        {
+            local $SIG{__WARN__} = sub { };
+            $undef_result = Developer::Dashboard::GoRoutine::_process_running_wrapper(undef);
+        }
+        is( $undef_result, 0, 'process_running_wrapper: an undefined pid reads as not running' );
+        is( Developer::Dashboard::GoRoutine::_process_running_wrapper(999999),
+            0, 'process_running_wrapper: a pid outside the registry falls through to the native check' );
+        is( Developer::Dashboard::GoRoutine::_process_running_wrapper($reg_pid),
+            1, 'process_running_wrapper: a registry pid reads as running' );
+    }
+    _m7_kill_child($reg_pid);
+}
+
+{
+    # 3d. _wait_process_wrapper: an exited child (the XS wait
+    # returns its code) and an undefined pid (the XS wait croaks
+    # before the delete line - B 185 false is unreachable).
+    my $pid = _m7_spawn_sleep();
+    kill 'TERM', $pid;
+    {
+        # Poll for the exit without reaping: the wrapper below is
+        # the one that reaps it, and a second wait would die.
+        my $deadline = time() + 5;
+        while ( time() < $deadline ) {
+            last if Developer::Dashboard::GoRoutine::process_exited($pid);
+            Time::HiRes::sleep(0.05);
+        }
+    }
+    is( Developer::Dashboard::GoRoutine::_wait_process_wrapper($pid),
+        143, 'wait_process_wrapper: an exited child returns its TERM exit code' );
+    my $err = eval { Developer::Dashboard::GoRoutine::_wait_process_wrapper(undef); 1 } ? '' : $@;
+    like( $err, qr/invalid GoRoutine child process identifier/,
+        'wait_process_wrapper: an undefined pid dies in the native wait' );
+}
+
+{
+    # 3e. _finish_routine on a bogus id returns at once, and
+    # _cancel_routine with no kind defaults it to killed.
+    Developer::Dashboard::GoRoutine::_finish_routine( 999999, 'done' );
+    ok( 1, 'finish_routine: a bogus id returns without dying' );
+    my $h = Developer::Dashboard::GoRoutine::go( sub { return; }, { after => 60 } );
+    is( Developer::Dashboard::GoRoutine::_cancel_routine( $h->{id} ),
+        1, 'cancel_routine: cancelling a pending routine with no kind returns true' );
+    is( $h->status, 'killed', 'cancel_routine: no kind defaults to killed' );
+}
+
+{
+    # 3f. go() trigger validation: a closed handle has no fileno
+    # (the first loop dies), and a plain fd number registers the
+    # trigger through the second loop.
+    pipe( my $pr, my $pw ) or die "Unable to pipe: $!";
+    close $pr;
+    my $err = eval {
+        Developer::Dashboard::GoRoutine::go( sub { return; }, { readable => $pr } );
+        1;
+    } ? '' : $@;
+    like( $err, qr/go\(\) readable trigger needs a filehandle/,
+        'go: a closed handle dies in the trigger validation' );
+    pipe( my $fr, my $fw ) or die "Unable to pipe: $!";
+    my $fired = 0;
+    my $h = Developer::Dashboard::GoRoutine::go( sub { $fired = 1; }, { readable => fileno($fr) } );
+    syswrite $fw, 'x';
+    Developer::Dashboard::GoRoutine::pump(1);
+    is( $fired, 1, 'go: a plain fd number registers a readable trigger' );
+    close $fr;
+    close $fw;
+    close $pw;
+}
+
+{
+    # 3g. _dispatch_routine with the record gone. A callback that
+    # destroys its own handle and finishes itself, then returns,
+    # exits, yields, or dies: the dispatch re-reads an undefined
+    # record and takes the no-record path in each branch.
+    my $gone_return;
+    $gone_return = Developer::Dashboard::GoRoutine::go( sub {
+        my $id = $gone_return->{id};
+        undef $gone_return;
+        Developer::Dashboard::GoRoutine::_finish_routine( $id, 'done' );
+        return;
+    } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    is( Developer::Dashboard::GoRoutine::_routine_record( $gone_return->{id} ),
+        undef, 'dispatch: a callback that deletes its own record and returns leaves no record' );
+
+    my $gone_exit;
+    $gone_exit = Developer::Dashboard::GoRoutine::go( sub {
+        my $id = $gone_exit->{id};
+        undef $gone_exit;
+        Developer::Dashboard::GoRoutine::_finish_routine( $id, 'done' );
+        exit(0);
+    } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    ok( 1, 'dispatch: a callback that deletes its own record and exits does not die' );
+
+    my $kept_exit = Developer::Dashboard::GoRoutine::go( sub { exit(0); } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    is( $kept_exit->status, 'exited', 'dispatch: a callback that exits with its record kept finishes as exited' );
+
+    my $gone_yield;
+    my $yield_ch = Developer::Dashboard::GoRoutine::channel();
+    $gone_yield = Developer::Dashboard::GoRoutine::go( sub {
+        my $id = $gone_yield->{id};
+        undef $gone_yield;
+        Developer::Dashboard::GoRoutine::_finish_routine( $id, 'done' );
+        $yield_ch->receive();
+        return;
+    } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    is( Developer::Dashboard::GoRoutine::_routine_record( $gone_yield->{id} ),
+        undef, 'dispatch: a callback that deletes its own record and yields leaves no record' );
+    $yield_ch->close();
+
+    my $kept_yield_ch = Developer::Dashboard::GoRoutine::channel();
+    my $kept_yield = Developer::Dashboard::GoRoutine::go( sub { $kept_yield_ch->receive(); return; } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    is( $kept_yield->status, 'pending', 'dispatch: a callback that yields with its record kept stays pending' );
+    $kept_yield_ch->close();
+    Developer::Dashboard::GoRoutine::pump(1);
+
+    my $gone_die;
+    $gone_die = Developer::Dashboard::GoRoutine::go( sub {
+        my $id = $gone_die->{id};
+        undef $gone_die;
+        Developer::Dashboard::GoRoutine::_finish_routine( $id, 'done' );
+        die "m7 gone die\n";
+    } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    is( Developer::Dashboard::GoRoutine::_routine_record( $gone_die->{id} ),
+        undef, 'dispatch: a callback that deletes its own record and dies leaves no record' );
+
+    my $kept_die = Developer::Dashboard::GoRoutine::go( sub { die "m7 kept die\n"; } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    is( $kept_die->status, 'failed', 'dispatch: a callback that dies with its record kept finishes as failed' );
+
+    my $poke_cancel;
+    $poke_cancel = Developer::Dashboard::GoRoutine::go( sub {
+        my $id = $poke_cancel->{id};
+        my $rec = Developer::Dashboard::GoRoutine::_routine_record($id);
+        $rec->{cancel_requested} = 1;
+        $rec->{cancel_kind}      = undef;
+        return;
+    } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    is( $poke_cancel->status, 'killed',
+        'dispatch: cancel requested with no kind finishes as killed' );
+}
+
+{
+    # 3h. Pump timeouts: a timeout already past when pump runs
+    # (the until rounds to zero and the Perl-side check finishes
+    # it), and a bounded pump whose routine timeout is farther
+    # than the bound (the bound is not the timeout).
+    my $past = Developer::Dashboard::GoRoutine::go( sub { return; }, { after => 60 } );
+    my $past_rec = Developer::Dashboard::GoRoutine::_routine_record( $past->{id} );
+    $past_rec->{timeout_at} = Developer::Dashboard::GoRoutine::_ev_now() - 1;
+    Developer::Dashboard::GoRoutine::pump(0);
+    is( $past->status, 'timed_out', 'pump: a routine whose timeout already passed finishes as timed out' );
+
+    my $far = Developer::Dashboard::GoRoutine::go( sub { return; }, { after => 60 } );
+    $far->timeout(30);
+    my $progress = Developer::Dashboard::GoRoutine::pump(0.1);
+    is( $progress, 0, 'pump: a bounded pump with a far-future timeout makes no progress' );
+    is( $far->status, 'pending', 'pump: the far-future routine stays pending' );
+    $far->kill();
+}
+
+{
+    # 3i. B 878: two waiters on one channel, closed together. The
+    # first waiter's callback cancels the second, so the pump's
+    # dispatch of the second finds it no longer pending.
+    my $ch = Developer::Dashboard::GoRoutine::channel();
+    my $second;
+    my $first = Developer::Dashboard::GoRoutine::go( sub {
+        $ch->receive();
+        $second->kill();
+        return;
+    } );
+    $second = Developer::Dashboard::GoRoutine::go( sub {
+        $ch->receive();
+        return;
+    } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    $ch->close();
+    Developer::Dashboard::GoRoutine::pump(1);
+    is( $first->status,  'done',   'dispatch: the first waiter runs when the channel closes' );
+    is( $second->status, 'killed', 'dispatch: the second waiter is cancelled before its dispatch' );
+}
+
+{
+    # 3j. B 952: wait_all with a pending routine that has no
+    # triggers at all. pump(undef) returns zero progress, the
+    # bounded fallback runs, and an alarm finishes the routine so
+    # the wait ends instead of hanging.
+    my $h = Developer::Dashboard::GoRoutine::go( sub { return; }, { after => 60 } );
+    my $id = $h->{id};
+    Developer::Dashboard::GoRoutine::_ev_cancel($id);
+    local $SIG{ALRM} = sub {
+        Developer::Dashboard::GoRoutine::_finish_routine( $id, 'done' );
+    };
+    Time::HiRes::alarm(0.2);
+    Developer::Dashboard::GoRoutine::wait_all();
+    Time::HiRes::alarm(0);
+    is( $h->status, 'done', 'wait_all: a triggerless routine finished by a signal ends the wait' );
+}
+
+{
+    # 3k. Channel send and receive paths: an orphaned sender
+    # entry taken in list and in scalar context, a buffered value
+    # landing while the main thread waits, and a close landing
+    # while the main thread waits in scalar context.
+    my $ch_list = _m7_orphan_sender_entry(42);
+    my ( $v_list, $ok_list ) = $ch_list->receive();
+    is( $v_list,  42, 'channel: an orphaned sender entry reads back in list context' );
+    is( $ok_list, 1,  'channel: an orphaned sender entry reports success in list context' );
+
+    my $ch_scalar = _m7_orphan_sender_entry(43);
+    my $v_scalar = $ch_scalar->receive();
+    is( $v_scalar, 43, 'channel: an orphaned sender entry reads back in scalar context' );
+
+    my $ch_buf = Developer::Dashboard::GoRoutine::channel(1);
+    my $buf_sender = Developer::Dashboard::GoRoutine::go( sub { $ch_buf->send(7); } );
+    my ( $v_buf, $ok_buf ) = $ch_buf->receive();
+    is( $v_buf,  7, 'channel: a buffered value landing during the main-thread wait reads back in list context' );
+    is( $ok_buf, 1, 'channel: a buffered value landing during the main-thread wait reports success' );
+
+    my $ch_close = Developer::Dashboard::GoRoutine::channel();
+    my $closer = Developer::Dashboard::GoRoutine::go( sub { $ch_close->close(); } );
+    my $v_close = $ch_close->receive();
+    is( $v_close, undef, 'channel: a close landing during the main-thread wait reads back as undef in scalar context' );
+}
+
+{
+    # 3l. Waiter skips: a yielded receiver whose record is gone
+    # (handle destroyed, then cancelled) is skipped by a buffered
+    # send, and by close; a yielded receiver cancelled with its
+    # handle kept is skipped by close as finished-but-present.
+    my $ch_wake = Developer::Dashboard::GoRoutine::channel(1);
+    my $wake_h;
+    $wake_h = Developer::Dashboard::GoRoutine::go( sub { $ch_wake->receive(); return; } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    my $wake_id = $wake_h->{id};
+    undef $wake_h;
+    Developer::Dashboard::GoRoutine::_cancel_routine($wake_id);
+    $ch_wake->send(9);
+    is( $ch_wake->size, 1, 'wake_waiter: a deleted waiter is skipped and the value stays queued' );
+
+    my $ch_close_gone = Developer::Dashboard::GoRoutine::channel();
+    my $gone_h;
+    $gone_h = Developer::Dashboard::GoRoutine::go( sub { $ch_close_gone->receive(); return; } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    my $gone_id = $gone_h->{id};
+    undef $gone_h;
+    Developer::Dashboard::GoRoutine::_cancel_routine($gone_id);
+    $ch_close_gone->close();
+    ok( $ch_close_gone->is_closed, 'close: a deleted waiter is skipped and the channel still closes' );
+
+    my $ch_close_kept = Developer::Dashboard::GoRoutine::channel();
+    my $kept_h = Developer::Dashboard::GoRoutine::go( sub { $ch_close_kept->receive(); return; } );
+    Developer::Dashboard::GoRoutine::pump(1);
+    $kept_h->kill();
+    $ch_close_kept->close();
+    is( $kept_h->status, 'killed', 'close: a finished-but-present waiter stays killed' );
+}
+
+{
+    # 3m. Routine handle guards: _rec and DESTROY called as plain
+    # functions with a non-reference and with a reference that
+    # carries no id, and age() on a routine that has not finished.
+    my $err_rec = eval {
+        Developer::Dashboard::GoRoutine::Routine::_rec('not-a-ref');
+        1;
+    } ? '' : $@;
+    like( $err_rec, qr/invalid go routine handle/,
+        'routine handle: _rec on a non-reference dies' );
+    my $err_rec_noid = eval {
+        Developer::Dashboard::GoRoutine::Routine::_rec( bless {}, 'Developer::Dashboard::GoRoutine::Routine' );
+        1;
+    } ? '' : $@;
+    like( $err_rec_noid, qr/invalid go routine handle/,
+        'routine handle: _rec on a reference without an id dies' );
+    Developer::Dashboard::GoRoutine::Routine::DESTROY('not-a-ref');
+    ok( 1, 'routine handle: DESTROY on a non-reference returns at once' );
+    Developer::Dashboard::GoRoutine::Routine::DESTROY(
+        bless {}, 'Developer::Dashboard::GoRoutine::Routine' );
+    ok( 1, 'routine handle: DESTROY on a reference without an id returns at once' );
+
+    my $age_h = Developer::Dashboard::GoRoutine::go( sub { return; }, { after => 60 } );
+    my $age = $age_h->age();
+    ok( defined $age && $age >= 0, 'routine handle: age on a pending routine reads the live clock' );
+    $age_h->kill();
+}
+
+# The two END-drain routines below stay registered until the test
+# process exits, so the END block itself is exercised: the pending
+# repeating routine is cancelled there, and the failed repeating
+# routine is skipped there as already finished.
+my $M7_END_REPEATING_PENDING = Developer::Dashboard::GoRoutine::go(
+    sub { return; }, { every => 60 } );
+my $M7_END_REPEATING_FAILED = Developer::Dashboard::GoRoutine::go(
+    sub { die "m7 end failed\n"; }, { every => 0.05 } );
+Developer::Dashboard::GoRoutine::pump(1);
+is( $M7_END_REPEATING_PENDING->status, 'pending',
+    'end drain: a repeating routine left pending stays pending until exit' );
+is( $M7_END_REPEATING_FAILED->status, 'failed',
+    'end drain: a repeating routine that dies stays failed until exit' );
+
+{
+    # 3o. Receive from the sender queue through the main-thread
+    # loop: the first sender queues to the queue while the main
+    # thread waits, a receiver routine takes that value (which
+    # clears the waiting flag), and a second sender then falls
+    # through to the sender queue. A watcher then closes the
+    # channel: the second sender dies at its closed check, but
+    # close() never clears the sender queue, so its entry stays
+    # orphaned. The main thread's loop check then sees an empty
+    # queue with a queued sender, so it leaves the loop and takes
+    # the orphaned value through the post-loop sender-queue
+    # return. Run once in list context and once in scalar context,
+    # for the two sides of that return. (A plain second sender
+    # with no watcher deadlocks here and must not be used: the
+    # sender blocks in its send loop waiting for its entry to be
+    # taken, while the main thread is stuck in the pump waiting
+    # for the sender to return - the cooperative re-entrancy
+    # deadlock. The close is what breaks it.)
+    for my $wantarray ( 1, 0 ) {
+        my $ch = Developer::Dashboard::GoRoutine::channel();
+        my $first_sender = Developer::Dashboard::GoRoutine::go( sub { $ch->send('m7-first'); } );
+        my $got_first;
+        my $taker = Developer::Dashboard::GoRoutine::go( sub { $got_first = $ch->receive(); } );
+        my $second_sender = Developer::Dashboard::GoRoutine::go( sub { $ch->send('m7-second'); } );
+        my $watcher = Developer::Dashboard::GoRoutine::go( sub { $ch->close(); } );
+        my ( $got_second, $ok );
+        if ($wantarray) {
+            ( $got_second, $ok ) = $ch->receive();
+        }
+        else {
+            $got_second = $ch->receive();
+            $ok = defined $got_second ? 1 : 0;
+        }
+        Developer::Dashboard::GoRoutine::wait_all();
+        is( $got_first, 'm7-first',
+            'receive: a receiver routine takes the queued value while the main thread waits' );
+        is( $got_second, 'm7-second',
+            'receive: the main thread takes a queued sender through the post-loop return' );
+        is( $ok, 1, 'receive: the post-loop sender-queue return reports success' );
+        is( $first_sender->status, 'done', 'receive: the first sender finishes' );
+        is( $second_sender->status, 'failed',
+            'receive: the second sender dies on the close and leaves its entry orphaned' );
+        is( $taker->status, 'done', 'receive: the taker finishes' );
+        is( $watcher->status, 'done', 'receive: the watcher finishes' );
+    }
+}
+
+{
+    # 3p. Buffered send: the buffer holds one value, so a second
+    # send from a routine waits in the loop until a receiver
+    # routine frees the slot. The die-if after the pump then
+    # reads the channel still open, and the send completes.
+    my $buf = Developer::Dashboard::GoRoutine::channel(1);
+    $buf->send('m7-first');
+    my $buf_sender = Developer::Dashboard::GoRoutine::go( sub { $buf->send('m7-second'); } );
+    my $buf_got;
+    my $buf_receiver = Developer::Dashboard::GoRoutine::go( sub { $buf_got = $buf->receive(); } );
+    Developer::Dashboard::GoRoutine::wait_all();
+    is( $buf_got, 'm7-first',
+        'buffered send: a receiver routine frees the slot while a sender waits' );
+    is( $buf_sender->status, 'done',
+        'buffered send: the waiting sender finishes once the slot frees' );
+    is( $buf_receiver->status, 'done', 'buffered send: the receiver finishes' );
+    is( $buf->receive(), 'm7-second',
+        'buffered send: the second value arrives after the first' );
+}
+
+# SECTION 4 - CollectorRunner (R178).
+#
+# Cover #19 gaps for CollectorRunner.pm: 23 branch cells, 16
+# condition cells, 1 uncovered sub (__ANON__ at line 1639, the
+# capture block in _read_process_title's Windows branch). The
+# success sides of B 837/838/839 were already covered in #19
+# (false=1 each); only the open-failure sides were missing.
+#
+# PROBED UNCOVERABLE (evidence in /tmp/m7-probes, 27 Nov):
+# - C 1155 !l&&r and C 1255 !l&&r: _is_managed_loop returns 1
+#   whenever _state_confirms_managed_loop would, through its own
+#   state fallthrough, so the or-3 can never see its first term
+#   false and its second true. The outer condition also gates on
+#   the same namespace the early return in _is_managed_loop
+#   checks, so no namespace trick separates them either. The
+#   both-false cells (!l&&!r) are covered here with a foreign pid.
+# - C 1447 l&&!r: the marker check in _is_managed_loop returns 1
+#   as soon as the marker equals the name, so the
+#   $marker_disagrees computation never sees a matching marker.
+# - C 1627 !l: _read_process_title(undef) returns at the B 1599
+#   guard before the Windows pid check is reached.
+# - C 1642 !l: the capture block always returns $? >> 8, an
+#   integer, so the exit code is never undefined.
+# - B 1643 true: Capture::Tiny always yields a defined stdout
+#   string (possibly empty), so the title is never undefined.
+# - B 1548 false, B 1555 false, B 1145 (either side): three-or-
+#   more-term conditions whose branch rows Devel::Cover never
+#   counts (see the section 3 quirk note). The condition tables
+#   are the proof: C 1548, C 1555 and C 1145 are covered here
+#   cell by cell, and the branch rows are expected to stay put.
+# - B 1448, B 1450, B 1452, B 1642, B 1645 are two-term
+#   conditions and count normally; both sides are covered here.
+
+{
+    package Local::CRFiles;
+    sub new {
+        my ( $class, $log ) = @_;
+        return bless { log => $log }, $class;
+    }
+    sub collector_log {
+        my ($self) = @_;
+        return $self->{log};
+    }
+    sub set_log {
+        my ( $self, $log ) = @_;
+        $self->{log} = $log;
+        return;
+    }
+    sub append {
+        my ( $self, $name, $message ) = @_;
+        open my $fh, '>>', $self->{log} or die "Unable to append to $self->{log}: $!";
+        print {$fh} $message;
+        close $fh or die "Unable to close $self->{log}: $!";
+        return 1;
+    }
+
+    package Local::CRCollectors;
+    sub new {
+        my ($class) = @_;
+        return bless { stopped => [], entries => [] }, $class;
+    }
+    sub mark_stopped {
+        my ( $self, $name ) = @_;
+        push @{ $self->{stopped} }, $name;
+        return 1;
+    }
+    sub append_log_entry {
+        my ( $self, $name, %args ) = @_;
+        push @{ $self->{entries} }, { name => $name, %args };
+        return 1;
+    }
+}
+
+# _m7_collector_runner($files): a CollectorRunner over the shared
+# M7 paths, with fake collectors and the given fake files object.
+# Input: fake files object.
+# Output: CollectorRunner object.
+my $M7_CR_COLLECTORS = Local::CRCollectors->new;
+sub _m7_collector_runner {
+    my ($files) = @_;
+    return Developer::Dashboard::CollectorRunner->new(
+        collectors => $M7_CR_COLLECTORS,
+        files      => $files,
+        paths      => $M7_PATHS,
+    );
+}
+
+# _m7_write_loop_state($runner, $name, $data): writes one loop
+# state file, making the collector directory first.
+# Input: runner, collector name, state hash reference.
+# Output: the written state hash reference.
+sub _m7_write_loop_state {
+    my ( $runner, $name, $data ) = @_;
+    my $dir = $M7_PATHS->collector_dir($name);
+    require File::Path;
+    File::Path::make_path($dir);
+    return $runner->_write_loop_state( $name, $data );
+}
+
+# _m7_save_handles(): duplicates the three standard handles so a
+# test that re-opens them (the _run_loop_worker opens) can put
+# them back afterwards. Returns the three saved handles.
+# _m7_restore_handles(@saved): puts them back.
+# Input/output: saved handle list.
+sub _m7_save_handles {
+    open my $in,  '<&', \*STDIN  or die "Unable to dup STDIN: $!";
+    open my $out, '>&', \*STDOUT or die "Unable to dup STDOUT: $!";
+    open my $err, '>&', \*STDERR or die "Unable to dup STDERR: $!";
+    return ( $in, $out, $err );
+}
+sub _m7_restore_handles {
+    my ( $in, $out, $err ) = @_;
+    open \*STDIN,  '<&', $in  or die "Unable to restore STDIN: $!";
+    open \*STDOUT, '>&', $out or die "Unable to restore STDOUT: $!";
+    open \*STDERR, '>&', $err or die "Unable to restore STDERR: $!";
+    return;
+}
+
+# _m7_fake_taskkill_dir($mode): a bin directory holding a fake
+# taskkill script. Mode 'always' kills its /PID argument at once;
+# mode 'second' kills only on its second invocation (a counter
+# file beside the script). The script ignores the /T and /F flags.
+# Input: mode string.
+# Output: bin directory path.
+sub _m7_fake_taskkill_dir {
+    my ($mode) = @_;
+    my $dir = tempdir( CLEANUP => 1 );
+    my $script = File::Spec->catfile( $dir, 'taskkill' );
+    open my $fh, '>', $script or die "Unable to write $script: $!";
+    print {$fh} "#!/bin/sh\n";
+    print {$fh} "# Wait for the killed pid to register as dead before\n";
+    print {$fh} "# exiting: SIGKILL is delivered at once, but the victim\n";
+    print {$fh} "# only becomes a zombie when it is next scheduled, and\n";
+    print {$fh} "# the liveness check right after this script returns\n";
+    print {$fh} "# would otherwise read it as still alive (a race the\n";
+    print {$fh} "# cover run showed: the check read true until the\n";
+    print {$fh} "# script spent a few milliseconds logging). Polling\n";
+    print {$fh} "# /proc until the state is Z makes the kill visible.\n";
+    print {$fh} "# Where /proc is absent the poll ends at once and the\n";
+    print {$fh} "# script degrades to kill-and-exit.\n";
+    print {$fh} "_m7_wait_dead() {\n";
+    print {$fh} "    n=0\n";
+    print {$fh} "    while [ \"\$n\" -lt 100 ]; do\n";
+    print {$fh} "        s=\$(cut -d' ' -f3 /proc/\"\$1\"/stat 2>/dev/null) || return 0\n";
+    print {$fh} "        [ \"\$s\" = \"Z\" ] && return 0\n";
+    print {$fh} "        sleep 0.01\n";
+    print {$fh} "        n=\$((n + 1))\n";
+    print {$fh} "    done\n";
+    print {$fh} "    return 0\n";
+    print {$fh} "}\n";
+    if ( $mode eq 'second' ) {
+        print {$fh} "count_file=\"\$(dirname \"\$0\")/count\"\n";
+        print {$fh} "c=\$(cat \"\$count_file\" 2>/dev/null || echo 0)\n";
+        print {$fh} "c=\$((c + 1))\n";
+        print {$fh} "echo \"\$c\" > \"\$count_file\"\n";
+        print {$fh} "if [ \"\$c\" -ge 2 ]; then kill -9 \"\$2\"; _m7_wait_dead \"\$2\"; fi\n";
+    }
+    else {
+        print {$fh} "kill -9 \"\$2\"\n";
+        print {$fh} "_m7_wait_dead \"\$2\"\n";
+    }
+    print {$fh} "exit 0\n";
+    close $fh or die "Unable to close $script: $!";
+    chmod 0755, $script or die "Unable to chmod $script: $!";
+    return $dir;
+}
+
+# _m7_fake_powershell_dir($mode): a bin directory holding a fake
+# powershell script. Mode 'fail' exits 1, 'silent' exits 0 with
+# no output, 'print' exits 0 printing a title line. The script
+# ignores its arguments.
+# Input: mode string.
+# Output: bin directory path.
+sub _m7_fake_powershell_dir {
+    my ($mode) = @_;
+    my $dir = tempdir( CLEANUP => 1 );
+    my $script = File::Spec->catfile( $dir, 'powershell' );
+    open my $fh, '>', $script or die "Unable to write $script: $!";
+    print {$fh} "#!/bin/sh\n";
+    if ( $mode eq 'fail' ) {
+        print {$fh} "exit 1\n";
+    }
+    elsif ( $mode eq 'print' ) {
+        print {$fh} "printf '%s\\n' 'C:\\fake\\perl.exe --dummy'\n";
+        print {$fh} "exit 0\n";
+    }
+    else {
+        print {$fh} "exit 0\n";
+    }
+    close $fh or die "Unable to close $script: $!";
+    chmod 0755, $script or die "Unable to chmod $script: $!";
+    return $dir;
+}
+
+{
+    # 4a. _run_loop_worker: the three open-or-die sides, each
+    # reached with a localised $OS_NAME so the Windows block runs.
+    # The opens redirect the test process handles, so each call
+    # runs with the handles saved and puts them back before any
+    # assertion. The die happens before run_once, so the job is
+    # never executed and the sub never reaches its exit.
+    my $cr_dir = tempdir( CLEANUP => 1 );
+    my $cr_log = File::Spec->catfile( $cr_dir, 'collector.log' );
+    my $cr_files = Local::CRFiles->new($cr_log);
+    my $runner = _m7_collector_runner($cr_files);
+    my $saved_title = $0;
+
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        local *File::Spec::devnull = sub { '/nonexistent/m7-devnull' };
+        my @saved = _m7_save_handles();
+        my $err = eval { $runner->_run_loop_worker( {}, 'm7w837', undef, undef ); 1 } ? '' : $@;
+        _m7_restore_handles(@saved);
+        like( $err, qr/No such file or directory/,
+            'run_loop_worker: a devnull that cannot open dies at the STDIN open' );
+    }
+    {
+        mkdir File::Spec->catdir( $cr_dir, 'logdir' ) or die 'Unable to mkdir logdir';
+        $cr_files->set_log( File::Spec->catdir( $cr_dir, 'logdir' ) );
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        my @saved = _m7_save_handles();
+        my $err = eval { $runner->_run_loop_worker( {}, 'm7w838', undef, undef ); 1 } ? '' : $@;
+        _m7_restore_handles(@saved);
+        like( $err, qr/Is a directory|Permission denied/,
+            'run_loop_worker: a collector log that is a directory dies at the STDOUT open' );
+    }
+    {
+        $cr_files->set_log($cr_log);
+        mkdir "$cr_log.stderr" or die 'Unable to mkdir log.stderr';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        my @saved = _m7_save_handles();
+        my $err = eval { $runner->_run_loop_worker( {}, 'm7w839', undef, undef ); 1 } ? '' : $@;
+        _m7_restore_handles(@saved);
+        like( $err, qr/Is a directory|Permission denied/,
+            'run_loop_worker: a stderr log that is a directory dies at the STDERR open' );
+    }
+    $0 = $saved_title;
+}
+
+{
+    # 4b. _waitpid_nonblocking: the Windows branch with a reaped
+    # child (reap_child returns the pid) and with a live child
+    # (reap_child returns false and the non-blocking waitpid
+    # answers zero).
+    my $cr_files = Local::CRFiles->new( File::Spec->catfile( $M7_HOME, 'm7-cr.log' ) );
+    my $runner = _m7_collector_runner($cr_files);
+
+    my $gone = _m7_spawn_sleep();
+    {
+        local @INC = ( _m7_win32_fake_dir(), @INC );
+        local $^O  = 'MSWin32';
+        $Win32::Process::M7_OPEN_MODE = 'ok';
+        Developer::Dashboard::GoRoutine::_keep_spawn_handle($gone);
+    }
+    kill 'TERM', $gone;
+    {
+        # Poll for the exit without reaping: reap_child inside
+        # _waitpid_nonblocking is the one that reaps it.
+        my $deadline = time() + 5;
+        while ( time() < $deadline ) {
+            last if Developer::Dashboard::GoRoutine::process_exited($gone);
+            Time::HiRes::sleep(0.05);
+        }
+    }
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_waitpid_nonblocking($gone), $gone,
+            'waitpid_nonblocking: a reaped Windows child returns its pid' );
+    }
+
+    my $live = _m7_spawn_sleep();
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_waitpid_nonblocking($live), 0,
+            'waitpid_nonblocking: a live child falls through to waitpid and answers zero' );
+    }
+    _m7_kill_child($live);
+}
+
+{
+    # 4c. _terminate_loop_workers: the false sides of the three
+    # Windows liveness checks. A fake taskkill that kills at once
+    # makes the first check read dead; a fake that kills only on
+    # its second call, with a TERM-ignoring worker, makes the
+    # escalation check read dead after the tree kill.
+    my $cr_files = Local::CRFiles->new( File::Spec->catfile( $M7_HOME, 'm7-cr.log' ) );
+    my $runner = _m7_collector_runner($cr_files);
+
+    my $bin_always = _m7_fake_taskkill_dir('always');
+    my $victim = _m7_spawn_sleep();
+    {
+        local $ENV{PATH} = join $Config{path_sep}, $bin_always, $ENV{PATH};
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_terminate_loop_workers( { $victim => 1 } ), 1,
+            'terminate_loop_workers: a worker killed by the tree kill stops' );
+    }
+    ok( !$runner->_pid_is_running($victim),
+        'terminate_loop_workers: the tree-killed worker reads as not running' );
+    kill 'KILL', $victim;
+    eval { Developer::Dashboard::GoRoutine::wait_process($victim) };
+
+    my $bin_second = _m7_fake_taskkill_dir('second');
+    my $stubborn = _m7_spawn_sleep( ignore_term => 1 );
+    {
+        local $ENV{PATH} = join $Config{path_sep}, $bin_second, $ENV{PATH};
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_terminate_loop_workers( { $stubborn => 1 } ), 1,
+            'terminate_loop_workers: a TERM-ignoring worker stops at the escalation kill' );
+    }
+    ok( !$runner->_pid_is_running($stubborn),
+        'terminate_loop_workers: the escalated worker reads as not running' );
+    kill 'KILL', $stubborn;
+    eval { Developer::Dashboard::GoRoutine::wait_process($stubborn) };
+}
+
+{
+    # 4d. stop_loop through the persisted state: a state pid that
+    # is not numeric (the condition's middle cell, and the if
+    # false), a live child named by a valid state (the ternary
+    # true side, the condition's last cell, and the if true), and
+    # a foreign pid from a pidfile with no state (both terms of
+    # the or-3 false).
+    my $cr_files = Local::CRFiles->new( File::Spec->catfile( $M7_HOME, 'm7-cr.log' ) );
+    my $runner = _m7_collector_runner($cr_files);
+
+    _m7_write_loop_state( $runner, 'm7abc',
+        { pid => 'abc', process_name => 'd2 collector: m7abc', status => 'running' } );
+    is( $runner->stop_loop('m7abc'), undef,
+        'stop_loop: a state pid that is not numeric stops nothing' );
+    $runner->_cleanup_loop_files('m7abc');
+
+    my $live = _m7_spawn_sleep();
+    _m7_write_loop_state( $runner, 'm7live',
+        { pid => $live, process_name => 'd2 collector: m7live', status => 'running' } );
+    is( $runner->stop_loop('m7live'), $live,
+        'stop_loop: a live child named by valid state stops and returns its pid' );
+    is( $M7_CR_COLLECTORS->{stopped}[-1], 'm7live',
+        'stop_loop: the stopped collector is recorded' );
+    # stop_loop reaped the child itself; waiting on it again
+    # would die, so nothing is cleaned up here.
+
+    my $foreign = _m7_spawn_sleep();
+    {
+        open my $pfh, '>', $runner->_pidfile('m7foreign') or die 'Unable to write pidfile';
+        print {$pfh} "$foreign\n";
+        close $pfh or die 'Unable to close pidfile';
+    }
+    is( $runner->stop_loop('m7foreign'), $foreign,
+        'stop_loop: a foreign pid from a pidfile returns its pid without signalling it' );
+    ok( $runner->_pid_is_running($foreign),
+        'stop_loop: the foreign pid is still running afterwards' );
+    _m7_kill_child($foreign);
+}
+
+{
+    # 4e. stop_loop with a TERM-ignoring loop: the grace expires
+    # with the pid still running, so the escalation kill runs.
+    my $cr_files = Local::CRFiles->new( File::Spec->catfile( $M7_HOME, 'm7-cr.log' ) );
+    my $runner = _m7_collector_runner($cr_files);
+    my $stubborn = _m7_spawn_sleep( ignore_term => 1 );
+    _m7_write_loop_state( $runner, 'm7stubborn',
+        { pid => $stubborn, process_name => 'd2 collector: m7stubborn', status => 'running' } );
+    {
+        # The escalation check sits inside the Windows branch: on
+        # Unix the group KILL above it runs first and the check is
+        # never evaluated, so the localised $OS_NAME is what reaches
+        # it with the loop still running.
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->stop_loop('m7stubborn'), $stubborn,
+            'stop_loop: a TERM-ignoring loop is killed at the escalation and returns its pid' );
+    }
+    # stop_loop reaped the child itself; waiting on it again
+    # would die, so nothing is cleaned up here.
+}
+
+{
+    # 4f. _is_managed_loop on Windows: the title and marker
+    # disagreement cells, and the pidfile read cells. The title
+    # agrees only when it carries the helper shape or the loop
+    # title as a token, never when it equals the title (that
+    # returns earlier). A zombie supplies the undefined title; a
+    # space title supplies the defined-but-empty one.
+    my $cr_files = Local::CRFiles->new( File::Spec->catfile( $M7_HOME, 'm7-cr.log' ) );
+    my $runner = _m7_collector_runner($cr_files);
+
+    my $zombie = Developer::Dashboard::GoRoutine::spawn( ['/bin/true'], {} );
+    select undef, undef, undef, 0.3;
+    {
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_is_managed_loop( $zombie, 'm7za' ), 0,
+            'is_managed_loop: a zombie with no title and no marker is not a loop' );
+    }
+    _wait_for_exit( $zombie, 5 );
+
+    my $blank = _m7_spawn_sleep( title => ' ' );
+    {
+        open my $pfh, '>', $runner->_pidfile('m7zb') or die 'Unable to write pidfile';
+        print {$pfh} "999999\n";
+        close $pfh or die 'Unable to close pidfile';
+    }
+    {
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_is_managed_loop( $blank, 'm7zb' ), 0,
+            'is_managed_loop: a blank title with a foreign pidfile pid is not a loop' );
+    }
+    $runner->_cleanup_loop_files('m7zb');
+    _m7_kill_child($blank);
+
+    my $plain = _m7_spawn_sleep();
+    {
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_is_managed_loop( $plain, 'm7zc' ), 0,
+            'is_managed_loop: a plain title that disagrees is not a loop' );
+    }
+    _m7_kill_child($plain);
+
+    my $token_pid = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, '-e', 'my $t = "d2 collector: m7zd"; select undef, undef, undef, 30;' ],
+        { env => { DEVELOPER_DASHBOARD_LOOP_NAME => 'other' } },
+    );
+    {
+        my $deadline = time() + 5;
+        while ( time() < $deadline ) {
+            my $seen = $M7_MANAGER->_read_process_env_marker( $token_pid, 'DEVELOPER_DASHBOARD_LOOP_NAME' );
+            last if defined $seen;
+            Time::HiRes::sleep(0.05);
+        }
+    }
+    {
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_is_managed_loop( $token_pid, 'm7zd' ), 0,
+            'is_managed_loop: a title that agrees with a disagreeing marker is not a loop' );
+    }
+    _m7_kill_child($token_pid);
+
+    my $named = _m7_spawn_sleep( title => 'x d2 collector: m7ze y' );
+    {
+        open my $pfh, '>', $runner->_pidfile('m7ze') or die 'Unable to write pidfile';
+        print {$pfh} "$named\n";
+        close $pfh or die 'Unable to close pidfile';
+    }
+    {
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_is_managed_loop( $named, 'm7ze' ), 1,
+            'is_managed_loop: a pidfile naming the pid confirms the loop on Windows' );
+    }
+    $runner->_cleanup_loop_files('m7ze');
+    _m7_kill_child($named);
+
+    my $badrec = _m7_spawn_sleep( title => 'x d2 collector: m7zf y' );
+    {
+        open my $pfh, '>', $runner->_pidfile('m7zf') or die 'Unable to write pidfile';
+        print {$pfh} "abc\n";
+        close $pfh or die 'Unable to close pidfile';
+    }
+    {
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_is_managed_loop( $badrec, 'm7zf' ), 0,
+            'is_managed_loop: a pidfile with a non-numeric pid does not confirm the loop' );
+    }
+    $runner->_cleanup_loop_files('m7zf');
+    _m7_kill_child($badrec);
+
+    my $empty = _m7_spawn_sleep( title => 'x d2 collector: m7zg y' );
+    mkdir $runner->_pidfile('m7zg') or die 'Unable to mkdir pidfile dir';
+    {
+        # A pidfile that is a directory slurps to undef without
+        # dying (the read fails, so the body is undef and no error
+        # is raised), so the pidfile read condition sees no error
+        # and no recorded pid. An empty pidfile does NOT do this:
+        # slurp_file returns an empty string for it, which is
+        # defined (probed 27 Nov, /tmp/m7-probes/h-slurp.pl).
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_is_managed_loop( $empty, 'm7zg' ), 0,
+            'is_managed_loop: a directory pidfile does not confirm the loop' );
+    }
+    rmdir $runner->_pidfile('m7zg') or die 'Unable to rmdir pidfile dir';
+    $runner->_cleanup_loop_files('m7zg');
+    _m7_kill_child($empty);
+}
+
+{
+    # 4g. _loop_runtime_matches: a runtime marker naming another
+    # runtime, a title that carries no runtime token, a title
+    # that cannot be read at all, and a title carrying this
+    # runtime's token.
+    my $cr_files = Local::CRFiles->new( File::Spec->catfile( $M7_HOME, 'm7-cr.log' ) );
+    my $runner = _m7_collector_runner($cr_files);
+    my $key = $runner->_runtime_state_key;
+
+    my $wrong = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, $M7_SLEEP_SCRIPT, '', 0 ],
+        { env => { DEVELOPER_DASHBOARD_LOOP_RUNTIME => 'wrongkey' } },
+    );
+    {
+        my $deadline = time() + 5;
+        while ( time() < $deadline ) {
+            my $seen = $M7_MANAGER->_read_process_env_marker( $wrong, 'DEVELOPER_DASHBOARD_LOOP_RUNTIME' );
+            last if defined $seen;
+            Time::HiRes::sleep(0.05);
+        }
+    }
+    is( $runner->_loop_runtime_matches( $wrong, 'm7r1' ), 0,
+        'loop_runtime_matches: a marker naming another runtime does not match' );
+    _m7_kill_child($wrong);
+
+    my $zombie = Developer::Dashboard::GoRoutine::spawn( ['/bin/true'], {} );
+    select undef, undef, undef, 0.3;
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_loop_runtime_matches( $zombie, 'm7r2' ), 0,
+            'loop_runtime_matches: a title that cannot be read does not match' );
+    }
+    _wait_for_exit( $zombie, 5 );
+
+    my $token = _m7_spawn_sleep( title => "loop --runtime $key" );
+SKIP: {
+        # The match needs the title read back, and on Windows the
+        # title comes from powershell, which is not on PATH here.
+        skip 'matching a runtime token needs a readable title, which Windows has not got here', 1
+          if $^O eq 'MSWin32';
+        is( $runner->_loop_runtime_matches( $token, 'm7r3' ), 1,
+            'loop_runtime_matches: a title carrying this runtime token matches' );
+    }
+    _m7_kill_child($token);
+}
+
+{
+    # 4h. _read_process_title on Windows: an undefined pid, a
+    # non-numeric pid, and the powershell fallback with a fake
+    # powershell that is absent, failing, silent, or printing.
+    # A zombie supplies the empty command line that reaches the
+    # Windows branch. The capture block is the CollectorRunner
+    # __ANON__ at line 1639.
+    my $cr_files = Local::CRFiles->new( File::Spec->catfile( $M7_HOME, 'm7-cr.log' ) );
+    my $runner = _m7_collector_runner($cr_files);
+
+    is( $runner->_read_process_title(undef), undef,
+        'read_process_title: an undefined pid reads as no title' );
+    {
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_read_process_title('abc'), undef,
+            'read_process_title: a non-numeric pid reads as no title on Windows' );
+    }
+
+    my $zombie = Developer::Dashboard::GoRoutine::spawn( ['/bin/true'], {} );
+    select undef, undef, undef, 0.3;
+    {
+        my $emptybin = tempdir( CLEANUP => 1 );
+        local $ENV{PATH} = $emptybin;
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_read_process_title($zombie), undef,
+            'read_process_title: no powershell on Windows reads as no title' );
+    }
+    {
+        my $bin = _m7_fake_powershell_dir('fail');
+        local $ENV{PATH} = join $Config{path_sep}, $bin, $ENV{PATH};
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_read_process_title($zombie), undef,
+            'read_process_title: a failing powershell reads as no title' );
+    }
+    {
+        my $bin = _m7_fake_powershell_dir('silent');
+        local $ENV{PATH} = join $Config{path_sep}, $bin, $ENV{PATH};
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_read_process_title($zombie), undef,
+            'read_process_title: a silent powershell reads as no title' );
+    }
+SKIP: {
+        # The printing fake is a shell script, which cmd cannot run.
+        skip 'the printing fake powershell is a shell script, which cmd cannot run', 1
+          if $^O eq 'MSWin32';
+        my $bin = _m7_fake_powershell_dir('print');
+        local $ENV{PATH} = join $Config{path_sep}, $bin, $ENV{PATH};
+        local $^O = 'MSWin32';
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        is( $runner->_read_process_title($zombie), 'C:\\fake\\perl.exe --dummy',
+            'read_process_title: a printing powershell reads back its title' );
+    }
+    _wait_for_exit( $zombie, 5 );
+}
+
+{
+    # 4i. _spawn_windows_background_command: no command at all
+    # (the options condition's first term false) and a plain
+    # command (the last argument is not a hash).
+    my $cr_files = Local::CRFiles->new( File::Spec->catfile( $M7_HOME, 'm7-cr.log' ) );
+    my $runner = _m7_collector_runner($cr_files);
+    my $err = eval { $runner->_spawn_windows_background_command(); 1 } ? '' : $@;
+    like( $err, qr/GoRoutine spawn requires a non-empty argv array/,
+        'spawn_windows_background_command: no command dies in the spawn' );
+    my $pid = $runner->_spawn_windows_background_command( $^X, '-e', '1;' );
+    ok( defined $pid && $pid > 0,
+        'spawn_windows_background_command: a plain command spawns' );
+    _wait_for_exit( $pid, 5 );
+}
+
+{
+    # 4j. _find_running_loop: a helper-shaped title that returns
+    # its pid, the same shape in a foreign namespace, a plain
+    # sleeper, a marker that names the collector, a marker that
+    # names another collector, and a blank title that the empty
+    # title cell skips.
+    my $cr_files = Local::CRFiles->new( File::Spec->catfile( $M7_HOME, 'm7-cr.log' ) );
+    my $runner = _m7_collector_runner($cr_files);
+    my $key = $runner->_runtime_state_key;
+
+    my $helper = _m7_spawn_sleep( title => "collector-loop-foreground --name m7fh --runtime $key" );
+SKIP: {
+        # The match needs the title read back from the real
+        # process table, and on Windows that comes from
+        # powershell, which is not on PATH here.
+        skip 'finding a loop by its title needs a readable title, which Windows has not got here', 1
+          if $^O eq 'MSWin32';
+        my $fakeroot = File::Spec->catdir( $M7_HOME, 'm7-fakeproc-helper' );
+        mkdir $fakeroot or die "Unable to mkdir $fakeroot: $!";
+        mkdir File::Spec->catdir( $fakeroot, $helper ) or die 'Unable to mkdir helper';
+        open my $cfh, '>', File::Spec->catfile( $fakeroot, $helper, 'cmdline' ) or die 'Unable to write cmdline';
+        print {$cfh} "collector-loop-foreground --name m7fh --runtime $key\0";
+        close $cfh or die 'Unable to close cmdline';
+        local $Developer::Dashboard::CollectorRunner::PROCFS_ROOT = $fakeroot;
+        is( $runner->_find_running_loop('m7fh'), $helper,
+            'find_running_loop: a helper-shaped title returns its pid' );
+    }
+    {
+        my $fakeroot = File::Spec->catdir( $M7_HOME, 'm7-fakeproc-foreign' );
+        mkdir $fakeroot or die "Unable to mkdir $fakeroot: $!";
+        mkdir File::Spec->catdir( $fakeroot, $helper ) or die 'Unable to mkdir helper';
+        open my $cfh, '>', File::Spec->catfile( $fakeroot, $helper, 'cmdline' ) or die 'Unable to write cmdline';
+        print {$cfh} "collector-loop-foreground --name m7fh --runtime $key\0";
+        close $cfh or die 'Unable to close cmdline';
+        my $real_ns = readlink '/proc/self/ns/pid';
+        mkdir File::Spec->catdir( $fakeroot, $$ ) or die 'Unable to mkdir self';
+        mkdir File::Spec->catdir( $fakeroot, $$, 'ns' ) or die 'Unable to mkdir self/ns';
+        symlink $real_ns, File::Spec->catfile( $fakeroot, $$, 'ns', 'pid' )
+          or die 'Unable to symlink self ns';
+        mkdir File::Spec->catdir( $fakeroot, $helper, 'ns' ) or die 'Unable to mkdir helper/ns';
+        symlink 'pid:[4026539999]', File::Spec->catfile( $fakeroot, $helper, 'ns', 'pid' )
+          or die 'Unable to symlink helper ns';
+        local $Developer::Dashboard::CollectorRunner::PROCFS_ROOT = $fakeroot;
+        local $Developer::Dashboard::ProcessSupervision::PROCFS_ROOT = $fakeroot;
+        is( $runner->_find_running_loop('m7fh'), undef,
+            'find_running_loop: a helper-shaped title in a foreign namespace returns nothing' );
+    }
+    _m7_kill_child($helper);
+
+    my $plain = _m7_spawn_sleep();
+    {
+        my $fakeroot = File::Spec->catdir( $M7_HOME, 'm7-fakeproc-plain' );
+        mkdir $fakeroot or die "Unable to mkdir $fakeroot: $!";
+        mkdir File::Spec->catdir( $fakeroot, $plain ) or die 'Unable to mkdir plain';
+        open my $cfh, '>', File::Spec->catfile( $fakeroot, $plain, 'cmdline' ) or die 'Unable to write cmdline';
+        print {$cfh} "sleep\0";
+        close $cfh or die 'Unable to close cmdline';
+        local $Developer::Dashboard::CollectorRunner::PROCFS_ROOT = $fakeroot;
+        is( $runner->_find_running_loop('m7plain'), undef,
+            'find_running_loop: a plain sleeper returns nothing' );
+    }
+    _m7_kill_child($plain);
+
+    my $marked = _m7_spawn_sleep();
+SKIP: {
+        # The marker path still reads the title first, and on
+        # Windows the title comes from powershell, which is not
+        # on PATH here.
+        skip 'finding a loop by its marker needs a readable title, which Windows has not got here', 1
+          if $^O eq 'MSWin32';
+        my $fakeroot = File::Spec->catdir( $M7_HOME, 'm7-fakeproc-marker' );
+        mkdir $fakeroot or die "Unable to mkdir $fakeroot: $!";
+        mkdir File::Spec->catdir( $fakeroot, $marked ) or die 'Unable to mkdir marked';
+        open my $cfh, '>', File::Spec->catfile( $fakeroot, $marked, 'cmdline' ) or die 'Unable to write cmdline';
+        print {$cfh} "sleep\0";
+        close $cfh or die 'Unable to close cmdline';
+        open my $efh, '>', File::Spec->catfile( $fakeroot, $marked, 'environ' ) or die 'Unable to write environ';
+        print {$efh} "DEVELOPER_DASHBOARD_LOOP_NAME=m7fm\0DEVELOPER_DASHBOARD_LOOP_RUNTIME=$key\0";
+        close $efh or die 'Unable to close environ';
+        local $Developer::Dashboard::CollectorRunner::PROCFS_ROOT = $fakeroot;
+        local $Developer::Dashboard::ProcessSupervision::PROCFS_ROOT = $fakeroot;
+        is( $runner->_find_running_loop('m7fm'), $marked,
+            'find_running_loop: a marker naming the collector returns its pid' );
+    }
+    {
+        my $fakeroot = File::Spec->catdir( $M7_HOME, 'm7-fakeproc-marker-other' );
+        mkdir $fakeroot or die "Unable to mkdir $fakeroot: $!";
+        mkdir File::Spec->catdir( $fakeroot, $marked ) or die 'Unable to mkdir marked';
+        open my $cfh, '>', File::Spec->catfile( $fakeroot, $marked, 'cmdline' ) or die 'Unable to write cmdline';
+        print {$cfh} "sleep\0";
+        close $cfh or die 'Unable to close cmdline';
+        open my $efh, '>', File::Spec->catfile( $fakeroot, $marked, 'environ' ) or die 'Unable to write environ';
+        print {$efh} "DEVELOPER_DASHBOARD_LOOP_NAME=other\0DEVELOPER_DASHBOARD_LOOP_RUNTIME=$key\0";
+        close $efh or die 'Unable to close environ';
+        local $Developer::Dashboard::CollectorRunner::PROCFS_ROOT = $fakeroot;
+        local $Developer::Dashboard::ProcessSupervision::PROCFS_ROOT = $fakeroot;
+        is( $runner->_find_running_loop('m7fm'), undef,
+            'find_running_loop: a marker naming another collector returns nothing' );
+    }
+    _m7_kill_child($marked);
+
+    my $blank = _m7_spawn_sleep( title => ' ' );
+    {
+        my $fakeroot = File::Spec->catdir( $M7_HOME, 'm7-fakeproc-blank' );
+        mkdir $fakeroot or die "Unable to mkdir $fakeroot: $!";
+        mkdir File::Spec->catdir( $fakeroot, $blank ) or die 'Unable to mkdir blank';
+        open my $cfh, '>', File::Spec->catfile( $fakeroot, $blank, 'cmdline' ) or die 'Unable to write cmdline';
+        print {$cfh} "x\0";
+        close $cfh or die 'Unable to close cmdline';
+        local $Developer::Dashboard::CollectorRunner::PROCFS_ROOT = $fakeroot;
+        is( $runner->_find_running_loop('m7blank'), undef,
+            'find_running_loop: a blank title is skipped' );
+    }
+    _m7_kill_child($blank);
+}
+
+{
+    # 4k. running_loops: a foreign pid from a pidfile with no
+    # state is not listed, and its pidfile is cleaned up.
+    my $cr_files = Local::CRFiles->new( File::Spec->catfile( $M7_HOME, 'm7-cr.log' ) );
+    my $runner = _m7_collector_runner($cr_files);
+    my $foreign = _m7_spawn_sleep();
+    {
+        open my $pfh, '>', $runner->_pidfile('m7rl') or die 'Unable to write pidfile';
+        print {$pfh} "$foreign\n";
+        close $pfh or die 'Unable to close pidfile';
+    }
+    my @running = $runner->running_loops();
+    my @named = grep { $_->{name} eq 'm7rl' } @running;
+    is( scalar @named, 0, 'running_loops: a foreign pid is not listed' );
+    ok( !-f $runner->_pidfile('m7rl'),
+        'running_loops: the foreign pidfile is cleaned up' );
+    _m7_kill_child($foreign);
 }
