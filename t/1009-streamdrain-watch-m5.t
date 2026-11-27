@@ -28,10 +28,12 @@
 # ORDER MATTERS. Watch caches a failed PeekNamedPipe import in
 # $_WINDOWS_PEEK_FAILED and never retries, and caches a successful
 # import in $_WINDOWS_PEEK. Both are lexical, so the test cannot reset
-# them. The import-failure test therefore runs in a FORKED CHILD,
-# first, before the parent ever calls _windows_peek_named_pipe; the
-# child poisons only its own copy. Every later test uses the one
-# consistent mock, whose Call reads live state.
+# them. The import-failure test therefore runs in a SPAWNED CHILD
+# (GoRoutine's native process API, R169: t/246 forbids a direct
+# fork() in t/), first, before the parent ever calls
+# _windows_peek_named_pipe; the child poisons only its own copy.
+# Every later test uses the one consistent mock, whose Call reads
+# live state.
 #
 # WRITE WITH SYSWRITE. A print to a pipe handle buffers: the bytes sit
 # in Perl's output buffer and never reach the pipe until the handle is
@@ -47,6 +49,8 @@
 use strict;
 use warnings;
 
+use Config;
+use File::Temp qw(tempdir);
 use FindBin qw($Bin);
 use File::Spec;
 use IO::Select;
@@ -56,6 +60,8 @@ use Test::More;
 use Time::HiRes ();
 
 use lib File::Spec->catdir( $Bin, '..', 'lib' );
+
+use Developer::Dashboard::GoRoutine ();
 
 require_ok('Developer::Dashboard::StreamDrain');
 require_ok('Developer::Dashboard::IndicatorStore::Watch');
@@ -118,6 +124,48 @@ if ( !$IS_WINDOWS ) {
     };
 }
 
+# _child_perl5lib($repo_root): the PERL5LIB a spawned child perl
+# needs to load the repo and its built XS bundle. A `use lib` line
+# in a child script cannot use @ARGV: use runs at compile time,
+# before the argv assignment executes, so the paths arrive as undef.
+# PERL5LIB is read at startup, before compilation, so it carries
+# them. The inherited PERL5LIB (the local CPAN lib) stays at the end.
+# Input: repository root directory.
+# Output: PERL5LIB string.
+sub _child_perl5lib {
+    my ($repo_root) = @_;
+    return join $Config{path_sep},
+      File::Spec->catdir( $repo_root, 'lib' ),
+      File::Spec->catdir( $repo_root, 'blib', 'lib' ),
+      File::Spec->catdir( $repo_root, 'blib', 'arch' ),
+      ( defined $ENV{PERL5LIB} ? $ENV{PERL5LIB} : () );
+}
+
+# _wait_for_exit($pid, $seconds): waits for a spawned child to exit,
+# bounded so a stuck child fails the test instead of hanging the
+# suite. Kills the child on timeout. Returns the exit code, or undef
+# on timeout.
+# Polls process_exited, not process_running: process_running is
+# kill(pid, 0), which answers true for a zombie, so an exited child
+# that has not been reaped yet would read as still running until
+# the timeout. process_exited notices the exit without reaping, and
+# wait_process then reaps it and returns the exit code.
+# Input: child process id and a bound in seconds.
+# Output: exit code integer, or undef on timeout.
+sub _wait_for_exit {
+    my ( $pid, $seconds ) = @_;
+    my $deadline = time() + $seconds;
+    while ( time() < $deadline ) {
+        if ( Developer::Dashboard::GoRoutine::process_exited($pid) ) {
+            return Developer::Dashboard::GoRoutine::wait_process($pid);
+        }
+        sleep 0.05;
+    }
+    kill 'KILL', $pid;
+    Developer::Dashboard::GoRoutine::wait_process($pid);
+    return undef;
+}
+
 # _loopback_socketpair()
 # Creates a connected loopback socket pair, the t/669 pattern: a real
 # socket answers getsockopt, which is what separates it from a pipe
@@ -149,32 +197,48 @@ sub _loopback_socketpair {
 # must fall back to the pre-existing can_read behaviour, never a new
 # failure. Given the import fails, when _handle_readable runs on a
 # pipe with data waiting, then it returns what can_read says.
-# This runs in a forked child FIRST, before the parent ever imports
-# the peek: the failed import is cached and never retried, so a
-# failure here would poison every later test in this process.
+# This runs in a spawned child FIRST (GoRoutine process API, R169:
+# t/246 forbids a direct fork() in t/), before the parent ever
+# imports the peek: the failed import is cached and never retried,
+# so a failure here would poison every later test in this process.
+# The child is a separate perl process, so it installs its own fake
+# Win32 modules and makes its own pipe; the parent keeps no pipe.
 SKIP: {
     skip 'import failure needs the fake Win32 modules', 2 if $IS_WINDOWS;
-    pipe( my $r, my $w ) or BAIL_OUT("cannot pipe: $!");
-    syswrite( $w, 'FALLBACK' ) or die "syswrite: $!";
-    my $sel = IO::Select->new($r);
-    my $pid = fork();
-    BAIL_OUT("cannot fork: $!") if !defined $pid;
-    if ( $pid == 0 ) {
-        my $ok = eval {
-            $FAKE_NEW_FAIL = 1;
-            local $^O = 'MSWin32';
-            my $got = Developer::Dashboard::IndicatorStore::Watch::_handle_readable( $sel, $r );
-            my $can = $sel->can_read(0) ? 1 : 0;
-            defined $got && $got == $can && $can == 1;
-        };
-        exit( $ok ? 0 : 1 );
+    my $dir = tempdir( CLEANUP => 1 );
+    my $child_script = File::Spec->catfile( $dir, 'import-failure-child.pl' );
+    {
+        open my $sfh, '>', $child_script or die "Unable to write $child_script: $!";
+        print {$sfh} "use strict;\n";
+        print {$sfh} "use warnings;\n";
+        print {$sfh} "use IO::Select;\n";
+        print {$sfh} "require Developer::Dashboard::IndicatorStore::Watch;\n";
+        print {$sfh} "# Fake Win32 modules: only Win32::API->new needs faking. The import\n";
+        print {$sfh} "# fails before Call or GetOsFHandle are ever reached, so they are not\n";
+        print {$sfh} "# modelled here; the failure is the whole point of this child.\n";
+        print {$sfh} "\$INC{'Win32/API.pm'} = 'fake-t1009-child';\n";
+        print {$sfh} "\$INC{'Win32API/File.pm'} = 'fake-t1009-child';\n";
+        print {$sfh} "no warnings qw(once redefine prototype);\n";
+        print {$sfh} "*Win32::API::new = sub { return undef; };\n";
+        print {$sfh} "*Win32API::File::GetOsFHandle = sub { return undef; };\n";
+        print {$sfh} "pipe( my \$r, my \$w ) or die \"cannot pipe: \$!\";\n";
+        print {$sfh} "syswrite( \$w, 'FALLBACK' ) or die \"syswrite: \$!\";\n";
+        print {$sfh} "my \$sel = IO::Select->new(\$r);\n";
+        print {$sfh} "local \$^O = 'MSWin32';\n";
+        print {$sfh} "my \$got = Developer::Dashboard::IndicatorStore::Watch::_handle_readable( \$sel, \$r );\n";
+        print {$sfh} "my \$can = \$sel->can_read(0) ? 1 : 0;\n";
+        print {$sfh} "exit( ( defined \$got && \$got == \$can && \$can == 1 ) ? 0 : 1 );\n";
+        close $sfh or die "Unable to close $child_script: $!";
     }
-    waitpid( $pid, 0 );
-    is( $? >> 8, 0, 'a failed PeekNamedPipe import falls back to can_read' );
+    my $pid = Developer::Dashboard::GoRoutine::spawn(
+        [ $^X, $child_script ],
+        { env => { PERL5LIB => _child_perl5lib( File::Spec->catdir( $Bin, '..' ) ) } },
+    );
+    BAIL_OUT('GoRoutine spawn failed') if !defined $pid;
+    my $rc = _wait_for_exit( $pid, 10 );
+    is( $rc, 0, 'a failed PeekNamedPipe import falls back to can_read' );
     my $peek = Developer::Dashboard::IndicatorStore::Watch::_windows_peek_named_pipe();
     ok( defined $peek, 'the parent peek cache is untouched by the child' );
-    close $w;
-    close $r;
 }
 
 # Feature: _drain_child_streams_windows drains both child pipes.
@@ -650,10 +714,11 @@ behaviour regressed.
 
     prove -v t/1009-streamdrain-watch-m5.t
 
-Two shapes need care. The import-failure test runs in a forked child
-first, before the parent ever imports the peek, because Watch caches
-a failed import and never retries; a failure there would poison
-every later test in the process. And the EINTR test arms a one-shot
+Two shapes need care. The import-failure test runs in a spawned child
+(GoRoutine process API) first, before the parent ever imports the
+peek, because Watch caches a failed import and never retries; a
+failure there would poison every later test in the process. And the
+EINTR test arms a one-shot
 lie in the fake peek (five bytes reported on an empty pipe) so the
 read blocks and the alarm interrupts it for real; the handler writes
 the payload, so the retry has something to find. The socket test
