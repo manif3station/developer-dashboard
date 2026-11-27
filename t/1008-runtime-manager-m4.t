@@ -1260,7 +1260,7 @@ CHILD
         is( $manager->_stop_web_pid_as_its_watcher( $web2, undef, '' ), $web2,
             'the wait loop returns the pid after the final kill' );
     }
-    ok( !kill( 0, $web2 ), 'the web is really gone even though liveness was stubbed' );
+    ok( !$manager->_pid_is_running($web2), 'the web is really gone even though liveness was stubbed' );
     _kill_child($web2);
 }
 
