@@ -1138,12 +1138,23 @@ CHILD
 # its pid to a file; the watcher stop ends both, and the tail of the
 # wait loop is driven by stubbing _pid_is_running to 1 (the t/46
 # pattern) so the web reads as still running after the kills.
+# The child must also be recognisable as a managed web on Windows
+# (R161): the WEB_SERVICE marker cannot be read there, because
+# _read_process_env_marker reads /proc/<pid>/environ and Windows
+# has no /proc, and the $0 title never changes the Windows
+# CommandLine, so _is_managed_web falls through to the persisted
+# state proof. The child therefore listens on a port (bound to
+# port 0, the OS assigns a free one) and writes the port to a
+# file, and the test writes web state naming the child pid as
+# running on that port before each stop. The socket stays open
+# for the child's whole life, so the listener table names it.
 SKIP: {
     skip 'the looks loop needs a real Windows process tree', 8
       unless is_windows();
 
     my $repo_root = File::Spec->catdir( $Bin, '..' );
     my $gc_file   = File::Spec->catfile( $test_cwd, 'grandchild-pid.txt' );
+    my $port_file = File::Spec->catfile( $test_cwd, 'looks-web-port.txt' );
     my $web_script = File::Spec->catfile( $test_cwd, 'looks-web-child.pl' );
     {
         open my $cfh, '>', $web_script or die "Unable to write $web_script: $!";
@@ -1151,8 +1162,23 @@ SKIP: {
 use strict;
 use warnings;
 use File::Spec;
-my ( $repo, $gc_file ) = @ARGV;
+use IO::Socket::INET;
+my ( $repo, $gc_file, $port_file ) = @ARGV;
 use Developer::Dashboard::GoRoutine ();
+# Listen first, so the port is known before the grandchild spawns.
+# The socket stays open for the child's whole life: the listener
+# table must name this pid on the saved port when the stop runs.
+my $listener = IO::Socket::INET->new(
+    LocalAddr => '127.0.0.1',
+    LocalPort => 0,
+    Proto     => 'tcp',
+    ReuseAddr => 1,
+    Listen    => 1,
+) or die "Unable to listen: $!";
+my $port = $listener->sockport();
+open my $pfh, '>', $port_file or die "Unable to write $port_file: $!";
+print {$pfh} "$port\n";
+close $pfh or die "Unable to close $port_file: $!";
 my $grandchild = Developer::Dashboard::GoRoutine::spawn(
     [ $^X, '-e', 'select undef, undef, undef, 30;' ], {} );
 die 'GoRoutine spawn failed' if !defined $grandchild;
@@ -1164,7 +1190,7 @@ CHILD
         close $cfh or die "Unable to close $web_script: $!";
     }
     my $web = Developer::Dashboard::GoRoutine::spawn(
-        [ $^X, $web_script, $repo_root, $gc_file ],
+        [ $^X, $web_script, $repo_root, $gc_file, $port_file ],
         { env => {
             PERL5LIB => _child_perl5lib($repo_root),
             DEVELOPER_DASHBOARD_WEB_SERVICE => '1',
@@ -1179,6 +1205,21 @@ CHILD
     ok( defined $grandchild && $grandchild =~ /^\d+$/,
         'the web child records its grandchild pid' );
     chomp $grandchild if defined $grandchild;
+    # The port file is polled the same way. No new check here: the
+    # block stays at 8 checks, and a missing port dies loudly, the
+    # same as a failed spawn above.
+    my $port;
+    for ( 1 .. 50 ) {
+        last if defined( $port = _read_file($port_file) );
+        sleep 0.1;
+    }
+    chomp $port if defined $port;
+    die 'looks-web child did not report a listener port'
+      if !defined $port || $port !~ /^\d+$/ || $port < 1;
+    # Write web state before the stop: on Windows this is the only
+    # proof _is_managed_web can use (no /proc marker, no title),
+    # and the state names this pid as running on its listener port.
+    $manager->_write_web_state( { pid => $web, status => 'running', port => $port } );
     select undef, undef, undef, 0.3;
     is( $manager->_stop_web_pid_as_its_watcher( $web, undef, '' ), $web,
         'the looks loop ends the web through its tree' );
@@ -1189,14 +1230,28 @@ CHILD
     # The wait-loop tail: the web is already dead, but _pid_is_running
     # is stubbed to 1, so the thirty polls run out and the final
     # _kill_exact_pids runs before the pid is returned.
+    # The port file is unlinked first, so the poll below waits for
+    # the second child's fresh port, not the first child's stale one.
+    unlink $port_file;
     my $web2 = Developer::Dashboard::GoRoutine::spawn(
-        [ $^X, $web_script, $repo_root, $gc_file ],
+        [ $^X, $web_script, $repo_root, $gc_file, $port_file ],
         { env => {
             PERL5LIB => _child_perl5lib($repo_root),
             DEVELOPER_DASHBOARD_WEB_SERVICE => '1',
         } },
     );
     ok( defined $web2 && $web2 > 0, 'the wait-tail web child spawns' );
+    my $port2;
+    for ( 1 .. 50 ) {
+        last if defined( $port2 = _read_file($port_file) );
+        sleep 0.1;
+    }
+    chomp $port2 if defined $port2;
+    die 'wait-tail web child did not report a listener port'
+      if !defined $port2 || $port2 !~ /^\d+$/ || $port2 < 1;
+    # Fresh state for the second child: the file still names the
+    # first (now dead) web, so _is_managed_web would not match.
+    $manager->_write_web_state( { pid => $web2, status => 'running', port => $port2 } );
     select undef, undef, undef, 0.3;
     {
         no warnings 'redefine';
