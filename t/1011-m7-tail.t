@@ -155,7 +155,10 @@ sub _make_executable {
 # _slurp_raw_file: a directory reads as undef, so the
 # defined-or-empty side (line 191 false) fires. An empty file
 # does NOT do it: in slurp mode readline returns '' for empty
-# input, so $contents is defined (probed).
+# input, so $contents is defined (probed). The fixture is written
+# raw: _slurp_raw_file reads raw bytes, so a text-mode write on
+# Windows stores CRLF and the read-back would not match
+# (proof #210, test 3: got 'hello\r\n').
 {
     my $dir = tempdir( CLEANUP => 1 );
     my $empty = File::Spec->catfile( $dir, 'empty.txt' );
@@ -163,7 +166,7 @@ sub _make_executable {
     close $fh or die "Unable to write $empty: $!";
     is( Developer::Dashboard::Platform::_slurp_raw_file($empty), '', 'slurp: empty file returns empty string' );
     my $full = File::Spec->catfile( $dir, 'full.txt' );
-    open $fh, '>', $full or die "Unable to write $full: $!";
+    open $fh, '>:raw', $full or die "Unable to write $full: $!";
     print $fh "hello\n" or die "Unable to write $full: $!";
     close $fh or die "Unable to write $full: $!";
     is( Developer::Dashboard::Platform::_slurp_raw_file($full), "hello\n", 'slurp: non-empty file returns its contents' );
@@ -403,8 +406,12 @@ sub _make_executable {
     my $file = File::Spec->catfile( $dir, 'file.txt' );
     open my $fh, '>', $file or die "Unable to write $file: $!";
     close $fh or die "Unable to write $file: $!";
-    is( Developer::Dashboard::Platform::windows_acl_is_owner_only($file), undef,
-        'acl is owner only: existing path returns undef off Windows' );
+    SKIP: {
+        skip 'windows_acl_is_owner_only runs the real ACL check on Windows and answers 0 or 1, not undef', 1
+          if $^O eq 'MSWin32';
+        is( Developer::Dashboard::Platform::windows_acl_is_owner_only($file), undef,
+            'acl is owner only: existing path returns undef off Windows' );
+    }
 }
 
 # windows_acl_set_owner_only: the guards and both grant shapes,
@@ -614,8 +621,14 @@ sub _make_executable {
     my $sh = File::Spec->catfile( $dir, 'run.sh' );
     _make_executable( $sh, "#!/bin/sh\necho hi\n" );
     my @argv = Developer::Dashboard::Platform::command_argv_for_path($sh);
-    is( $argv[1], $sh, 'argv for path: sh shebang routes through the POSIX shell' );
-    like( $argv[0], qr/sh\z/, 'argv for path: sh shebang uses a sh binary' );
+    # The shell receives the MSYS spelling on Windows (C:\... becomes
+    # /c/...); on Unix the spelling is unchanged, so the same expectation
+    # holds on every leg (proof #210, test 58: Windows got /c/...).
+    my $expected_sh = $sh;
+    $expected_sh =~ s{\\}{/}g;
+    $expected_sh =~ s{\A([A-Za-z]):}{'/' . lc($1)}e;
+    is( $argv[1], $expected_sh, 'argv for path: sh shebang routes through the POSIX shell' );
+    like( $argv[0], qr/sh(?:\.exe)?\z/, 'argv for path: sh shebang uses a sh binary' );
     my $py = File::Spec->catfile( $dir, 'run2.sh' );
     _make_executable( $py, "#!/usr/bin/env python\nprint(1)\n" );
     @argv = Developer::Dashboard::Platform::command_argv_for_path($py);
@@ -667,7 +680,7 @@ sub _make_executable {
 # behaviour it guards.
 {
     my $bash = Developer::Dashboard::Platform::_posix_shell_binary('bash');
-    like( $bash, qr/bash\z/, 'posix shell binary: bash on PATH resolves first' );
+    like( $bash, qr/bash(?:\.exe)?\z/, 'posix shell binary: bash on PATH resolves first' );
 }
 
 # _is_msys_shell: the undef and empty guards (line 805).
@@ -1340,8 +1353,8 @@ sub _m7_read_file {
     local $ENV{PATH} = join $Config{path_sep}, $fakebin, $ENV{PATH};
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     SKIP: {
-        skip 'the killing fake taskkill uses kill, which cmd cannot run', 3
-          if $^O eq 'MSWin32';
+        skip 'the killing fake taskkill uses kill, which cmd cannot run, and the managed-web proof here is the /proc env marker, which needs procfs', 3
+          if $^O eq 'MSWin32' || !$M7_MANAGER->_procfs_available;
         my $web = _m7_spawn_sleep(
             env => { DEVELOPER_DASHBOARD_WEB_SERVICE => '1' } );
         is( $M7_MANAGER->_stop_web_pid_as_its_watcher( $web, $log_path, undef ), $web,
@@ -1368,8 +1381,8 @@ sub _m7_read_file {
     local $ENV{PATH} = join $Config{path_sep}, $fakebin, $ENV{PATH};
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     SKIP: {
-        skip 'the tree fake uses printf and the killing fake uses kill, which cmd cannot run', 2
-          if $^O eq 'MSWin32';
+        skip 'the tree fake uses printf and the killing fake uses kill, which cmd cannot run, and the managed-web proof here is the /proc env marker, which needs procfs', 2
+          if $^O eq 'MSWin32' || !$M7_MANAGER->_procfs_available;
         my $web = _m7_spawn_sleep(
             env => { DEVELOPER_DASHBOARD_WEB_SERVICE => '1' } );
         is( $M7_MANAGER->_stop_web_pid_as_its_watcher( $web, $log_path, q{} ), $web,
@@ -1400,8 +1413,8 @@ sub _m7_read_file {
     local $ENV{PATH} = join $Config{path_sep}, $fakebin, $ENV{PATH};
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     SKIP: {
-        skip 'the tree fake uses shell arithmetic and printf, which cmd cannot run', 1
-          if $^O eq 'MSWin32';
+        skip 'the tree fake uses shell arithmetic and printf, which cmd cannot run, and the managed-web proof here is the /proc env marker, which needs procfs', 1
+          if $^O eq 'MSWin32' || !$M7_MANAGER->_procfs_available;
         my $web = _m7_spawn_sleep(
             env => { DEVELOPER_DASHBOARD_WEB_SERVICE => '1' } );
         my $child = _m7_spawn_sleep();
@@ -1431,8 +1444,8 @@ sub _m7_read_file {
     local $ENV{PATH} = join $Config{path_sep}, $fakebin, $ENV{PATH};
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     SKIP: {
-        skip 'the tree fake uses printf, which cmd cannot run', 2
-          if $^O eq 'MSWin32';
+        skip 'the tree fake uses printf, which cmd cannot run, and the managed-web proof here is the /proc env marker, which needs procfs', 2
+          if $^O eq 'MSWin32' || !$M7_MANAGER->_procfs_available;
         my $web = _m7_spawn_sleep(
             env => { DEVELOPER_DASHBOARD_WEB_SERVICE => '1' } );
         my $child = _m7_spawn_sleep();
