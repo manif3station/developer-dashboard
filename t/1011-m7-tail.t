@@ -535,25 +535,29 @@ sub _make_executable {
 }
 
 # command_in_path_direct on simulated Windows (lines 476-480):
-# the empty-dir and dot-dir skips, and the .exe return through
-# the PATHEXT expansion.
-# NOTE (uncoverable, Platform 476 cell 1, 624 false side, C 624
-# middle cell): File::Spec->path rewrites empty PATH entries to
-# '.' on Unix, so the !defined/empty $dir cell can never fire
-# (the probe below proves it: the empty entry arrives as '.', and
-# the dot skip fires twice). And the _path_candidates early-return
-# false side needs is_real_windows() true with is_windows()
-# false - probed directly (b624.pl): a simulated-Windows call
-# leaves B 624 at 0/0, because Devel::Cover only counts the
-# branch when the early return fires; the missing cell is the
-# is_real_windows side either way.
+# the empty-dir, dot-dir and canonpath-dot skips, and the .exe
+# return through the PATHEXT expansion. A './' entry is not the
+# string '.', but canonpath('./') is '.', so it fires the second
+# disjunct (C 477 !l&&r) instead of the first.
+# NOTE (uncoverable, Platform 476 cell 1, C 624 middle cell):
+# File::Spec->path rewrites empty PATH entries to '.' on Unix, so
+# the !defined/empty $dir cell can never fire (the probe below
+# proves it: the empty entry arrives as '.', and the dot skip
+# fires twice). B 624 false IS covered: the condition row
+# [358, 0, 91] proves is_windows() was true 358 times through the
+# OS_NAME localisation, so the early return was not taken 358
+# times; only the branch row under-counts it (a statement-modifier
+# unless counts the condition fully and the branch on one side
+# only). The _path_candidates early-return false side needs
+# is_real_windows() true with is_windows() false, which is the
+# C 624 !l&&r cell, and that stays uncoverable.
 {
     my $dir = tempdir( CLEANUP => 1 );
     _make_executable( File::Spec->catfile( $dir, 'wintool.exe' ), "echo hi\n" );
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
-    local $ENV{PATH} = join $Config{path_sep}, '', '.', $dir;
+    local $ENV{PATH} = join $Config{path_sep}, '', '.', './', $dir;
     is( Developer::Dashboard::Platform::command_in_path_direct('wintool'),
-        File::Spec->catfile( $dir, 'wintool.exe' ), 'command in path direct: empty and dot dirs skipped, exe found' );
+        File::Spec->catfile( $dir, 'wintool.exe' ), 'command in path direct: empty, dot and canonpath-dot dirs skipped, exe found' );
 }
 
 # _is_windows_runnable_candidate: the .go and .java returns
@@ -652,7 +656,15 @@ sub _make_executable {
 }
 
 # _posix_shell_binary: the first term of its fallback chain
-# (line 749 cell) - bash on PATH.
+# (line 749) - bash on PATH. The behaviour is driven here (bash
+# resolves first), but the C 749 l cell itself is a Devel::Cover
+# measurement artifact and never records: for an or-chain of four
+# or more terms the l cell stays at 0 even when the first operand
+# is true (probes /tmp/m7-oc/probe2.pl and probe3.pl: a 2-term
+# and a 3-term chain record l=1, a 4-term and a 5-term chain
+# record l=0 with the same true first operand). The cell is
+# therefore probed-uncoverable; the test below proves the
+# behaviour it guards.
 {
     my $bash = Developer::Dashboard::Platform::_posix_shell_binary('bash');
     like( $bash, qr/bash\z/, 'posix shell binary: bash on PATH resolves first' );
@@ -3321,7 +3333,11 @@ my $M7_WS_SERVER = bless {
     # code-ref entry, so the library-args grep skips both. The
     # owner pid is dead, so the watcher child exits once it has
     # seen the owner dead on two polls (about six seconds: the
-    # poll interval is five seconds).
+    # poll interval is five seconds). The wait bound is 40 seconds
+    # so the child still has headroom under Devel::Cover, where
+    # the forked child starts slowly and the plain 15 second
+    # bound was not enough; the wait returns as soon as the
+    # child exits, so the plain run is not slowed down.
     my $watcher;
     {
         local %ENV = %ENV;
@@ -3332,7 +3348,7 @@ my $M7_WS_SERVER = bless {
     }
     ok( defined $watcher && $watcher > 0,
         'watcher start: starts with no HOME and no log path' );
-    my $watcher_rc = _wait_for_exit( $watcher, 15 );
+    my $watcher_rc = _wait_for_exit( $watcher, 40 );
     ok( defined $watcher_rc,
         'watcher start: the watcher child exits once its owner is confirmed dead' );
     {
@@ -5134,3 +5150,1911 @@ SKIP: {
 
 # 9e: B 2235 true is probed-uncoverable (see the section header).
 # No test is written for it.
+
+# =====================================================================
+# SECTION 10 - Small modules: Collector, TimeUtils, Result, Config,
+# ActionRunner, Paths, Prompt (R178).
+#
+# Collector 2 branch cells, TimeUtils 1, Result 1, Config 1,
+# ActionRunner 1, Paths 2, Prompt 3 condition cells.
+#
+# 10a: Paths B 574 false is probed-uncoverable. The sub guards with
+# -f $file first, and _resolve_symlinks returns undef only for a
+# symlink loop (over 40 hops or a repeated target), which makes -f
+# fail first: a probe over a two-link loop gives resolve undef and -f
+# false together, so the ternary's false side cannot fire after the
+# -f guard. B 573 false is coverable: the lib entry is independent
+# of the file, so a loop in lib dies after the ternary fires.
+# =====================================================================
+
+require_ok('Developer::Dashboard::Collector');
+require_ok('Developer::Dashboard::TimeUtils');
+require_ok('Developer::Dashboard::Runtime::Result');
+require_ok('Developer::Dashboard::Config');
+require_ok('Developer::Dashboard::ActionRunner');
+require_ok('Developer::Dashboard::CLI::Paths');
+require_ok('Developer::Dashboard::Prompt');
+
+# 10a: Collector _normalize_log_text, the undef and non-empty sides.
+is( Developer::Dashboard::Collector::_normalize_log_text(undef), '',
+    'section 10: undef text normalizes to empty' );
+is( Developer::Dashboard::Collector::_normalize_log_text("a\n\n\n"), "a\n",
+    'section 10: trailing blank lines collapse to one newline' );
+
+# 10b: TimeUtils _now_iso8601, the negative-offset side. A POSIX zone
+# west of UTC makes localtime lag gmtime, so the sign is '-'.
+{
+    local $ENV{TZ} = 'EST5';
+    POSIX::tzset();
+    my $m7_local = Developer::Dashboard::TimeUtils::_now_iso8601( tz => 'local' );
+    like( $m7_local, qr/-0500\z/, 'section 10: a western zone gives a negative offset' );
+    POSIX::tzset();
+}
+
+# 10c: Result _open_channel_file, the chmod-failure side. The tempfile
+# call is intercepted in the Result namespace so the channel path does
+# not exist, and $OS_NAME is localised to MSWin32 so the path form of
+# the chmod runs; the chmod fails and the sub dies.
+{
+    local *Developer::Dashboard::Runtime::Result::tempfile = sub {
+        open my $fh, '<', File::Spec->devnull();
+        return ( $fh, '/nonexistent-m7-result-xyz' );
+    };
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    my $m7_died;
+    eval { Developer::Dashboard::Runtime::Result::_open_channel_file(); 1 }
+        or $m7_died = $@;
+    like( $m7_died, qr/Unable to chmod RESULT tempfile/,
+        'section 10: a failed chmod dies' );
+}
+
+# 10d: Config _normalize_home_path, the Windows fold side. The home
+# and the path arrive with backslashes and fold to one separator.
+{
+    my $m7_fake_paths = bless { home => 'C:\Users\test' },
+        'Developer::Dashboard::PathRegistry';
+    my $m7_config = bless { paths => $m7_fake_paths },
+        'Developer::Dashboard::Config';
+    local $^O = 'MSWin32';
+    is( Developer::Dashboard::Config::_normalize_home_path(
+            $m7_config, 'C:\Users\test\file.txt' ),
+        '$HOME/file.txt', 'section 10: backslashes fold on Windows' );
+}
+
+# 10e: ActionRunner _terminate_background_child, the Windows side.
+# The pid is not a real child, so the taskkill is a no-op and the
+# waitpid returns at once.
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    is( Developer::Dashboard::ActionRunner::_terminate_background_child(999999),
+        1, 'section 10: the Windows terminate path returns true' );
+}
+
+# 10f: Paths _load_skill_folder_module, the unresolvable-lib side.
+# The lib entry is a symlink loop, so _resolve_symlinks returns undef
+# and the sub dies after the ternary fires.
+{
+    my $m7_dir = tempdir( CLEANUP => 1 );
+    my $m7_loop = File::Spec->catdir( $m7_dir, 'looplib' );
+    mkdir $m7_loop;
+    symlink( 'b', File::Spec->catfile( $m7_loop, 'a' ) );
+    symlink( 'a', File::Spec->catfile( $m7_loop, 'b' ) );
+    my $m7_file = File::Spec->catfile( $m7_dir, 'Folder.pm' );
+    open my $m7_fh, '>', $m7_file or die "cannot write $m7_file: $!";
+    print {$m7_fh} "package M7TestSkill;\n1;\n";
+    close $m7_fh;
+    my $m7_died;
+    eval {
+        Developer::Dashboard::CLI::Paths::_load_skill_folder_module(
+            {   dir  => $m7_dir,
+                lib  => File::Spec->catfile( $m7_loop, 'a' ),
+                file => $m7_file,
+            }
+        );
+        1;
+    } or $m7_died = $@;
+    like( $m7_died, qr/Unable to resolve skill Folder\.pm/,
+        'section 10: an unresolvable lib dies' );
+}
+
+# 10g: Prompt render, the empty-home, undef-home and undef-cwd sides.
+# The fake paths object returns '' for the project root and whatever
+# home it was built with; the indicators object is never consulted
+# because no_indicators is set.
+{ package M7::FakePaths10;
+  sub new { my ( $class, %a ) = @_; bless \%a, $class; }
+  sub project_root_for { '' }
+  sub home { $_[0]->{home} }
+}
+{
+    my $m7_prompt_empty = Developer::Dashboard::Prompt->new(
+        indicators => 1,
+        paths      => M7::FakePaths10->new( home => '' ),
+    );
+    my $m7_out = $m7_prompt_empty->render( no_indicators => 1 );
+    ok( defined $m7_out, 'section 10: an empty home renders' );
+}
+{
+    my $m7_prompt_no_home = Developer::Dashboard::Prompt->new(
+        indicators => 1,
+        paths      => M7::FakePaths10->new(),
+    );
+    my $m7_out = $m7_prompt_no_home->render( no_indicators => 1 );
+    ok( defined $m7_out, 'section 10: an undef home renders' );
+}
+{
+    require Cwd;
+    my $m7_del_dir = tempdir( CLEANUP => 1 );
+    my $m7_saved_cwd = Cwd::getcwd();
+    chdir $m7_del_dir or die "cannot chdir: $!";
+    rmdir $m7_del_dir or die "cannot rmdir: $!";
+    my $m7_prompt_no_home = Developer::Dashboard::Prompt->new(
+        indicators => 1,
+        paths      => M7::FakePaths10->new(),
+    );
+    my $m7_out;
+    my $m7_died;
+    eval { $m7_out = $m7_prompt_no_home->render( no_indicators => 1 ); 1 }
+        or $m7_died = $@;
+    chdir $m7_saved_cwd or die "cannot chdir back: $!";
+    ok( !$m7_died, 'section 10: a deleted cwd renders' );
+    ok( defined $m7_out, 'section 10: a deleted cwd still renders a prompt' );
+}
+
+# =====================================================================
+# SECTION 11 - InternalCLI, Upgrade, Ask, EnvLoader (R178).
+#
+# InternalCLI 2 branch + 1 condition cells, Upgrade 2 branch + 2
+# condition cells, Ask 3 branch + 2 condition cells, EnvLoader 4
+# branch + 1 condition cells.
+#
+# 11a: Upgrade B 150 (system returns -1 after the startability check)
+# is reached with a CORE::GLOBAL::system override installed before
+# Upgrade.pm compiles: the override returns -1 for one sentinel
+# program and delegates to CORE::system for everything else, so the
+# compiled-in override is behaviour-identical outside the sentinel.
+# The override is removed right after the require, so only Upgrade.pm
+# is compiled with it.
+#
+# 11d2: Ask B 805 false (a path with no drive letter under a
+# localised Windows takes the false side of the drive-letter
+# substitution in _normalize_path_segments).
+# =====================================================================
+
+require_ok('Developer::Dashboard::InternalCLI');
+require_ok('Developer::Dashboard::CLI::Ask');
+require_ok('Developer::Dashboard::EnvLoader');
+require_ok('Developer::Dashboard::EnvAudit');
+
+# 11a: the system override must be installed before Upgrade.pm is
+# compiled, so it is set up here, ahead of the require_ok.
+my $m7_upgrade_sentinel;
+{
+    my $m7_up_dir = tempdir( CLEANUP => 1 );
+    $m7_upgrade_sentinel = File::Spec->catfile( $m7_up_dir, 'm7-installer' );
+    open my $m7_fh, '>', $m7_upgrade_sentinel
+        or die "cannot write $m7_upgrade_sentinel: $!";
+    print {$m7_fh} "#!/bin/sh\nexit 0\n";
+    close $m7_fh;
+    chmod 0755, $m7_upgrade_sentinel;
+    my $m7_sentinel = $m7_upgrade_sentinel;
+    *CORE::GLOBAL::system = sub {
+        if ( defined $_[0] && $_[0] eq $m7_sentinel ) {
+            $! = 2;
+            $? = -1;
+            return -1;
+        }
+        return CORE::system(@_);
+    };
+}
+require_ok('Developer::Dashboard::CLI::Upgrade');
+delete $CORE::GLOBAL::{system};
+
+# 11b: InternalCLI _helper_file_is_locked, the undef and empty sides,
+# and the failed-restore side (the rename is overridden so the first
+# rename "succeeds" and the restore fails, without moving the file).
+is( Developer::Dashboard::InternalCLI::_helper_file_is_locked(undef), 0,
+    'section 11: an undef target is not locked' );
+is( Developer::Dashboard::InternalCLI::_helper_file_is_locked(''), 0,
+    'section 11: an empty target is not locked' );
+{
+    my $m7_dir = tempdir( CLEANUP => 1 );
+    my $m7_target = File::Spec->catfile( $m7_dir, 'helper.pl' );
+    open my $m7_fh, '>', $m7_target or die "cannot write $m7_target: $!";
+    print {$m7_fh} "1;\n";
+    close $m7_fh;
+    my $m7_calls = 0;
+    local *Developer::Dashboard::InternalCLI::_rename_path = sub {
+        $m7_calls++;
+        return $m7_calls == 1 ? 1 : 0;
+    };
+    my $m7_died;
+    eval {
+        Developer::Dashboard::InternalCLI::_helper_file_is_locked($m7_target);
+        1;
+    } or $m7_died = $@;
+    like( $m7_died, qr/Unable to restore/,
+        'section 11: a failed restore dies' );
+}
+
+# 11c: Upgrade _program_is_startable, the empty, missing and
+# non-executable sides; and _run_command, the failed-spawn side.
+is( Developer::Dashboard::CLI::Upgrade::_program_is_startable(''), 0,
+    'section 11: an empty program is not startable' );
+is( Developer::Dashboard::CLI::Upgrade::_program_is_startable(
+        '/nonexistent/m7-prog' ),
+    0, 'section 11: a missing slashed program is not startable' );
+{
+    my $m7_dir = tempdir( CLEANUP => 1 );
+    my $m7_plain = File::Spec->catfile( $m7_dir, 'plain.txt' );
+    open my $m7_fh, '>', $m7_plain or die "cannot write $m7_plain: $!";
+    print {$m7_fh} "plain\n";
+    close $m7_fh;
+    is( Developer::Dashboard::CLI::Upgrade::_program_is_startable($m7_plain),
+        0, 'section 11: a non-executable file is not startable' );
+}
+{
+    my $m7_died;
+    eval {
+        Developer::Dashboard::CLI::Upgrade::_run_command(
+            [$m7_upgrade_sentinel] );
+        1;
+    } or $m7_died = $@;
+    like( $m7_died, qr/Unable to start Developer Dashboard installer/,
+        'section 11: a failed spawn dies' );
+}
+
+# 11d: Ask _normalize_path_segments, the Windows drive-letter side,
+# and _run_cli, the missing-command and resolvable-command sides.
+{
+    local $^O = 'MSWin32';
+    is( Developer::Dashboard::CLI::Ask::_normalize_path_segments(
+            'C:\dir\file.txt' ),
+        'C:/dir/file.txt', 'section 11: a Windows drive path normalizes' );
+}
+{
+    local $^O = 'MSWin32';
+    local *STDERR;
+    open STDERR, '>', File::Spec->devnull() or die "cannot open devnull: $!";
+    my ( $m7_out, $m7_err, $m7_exit )
+        = Developer::Dashboard::CLI::Ask::_run_cli( [undef] );
+    is( $m7_exit, -1, 'section 11: a missing command reports -1' );
+}
+{
+    local $^O = 'MSWin32';
+    my ( $m7_out, $m7_err, $m7_exit )
+        = Developer::Dashboard::CLI::Ask::_run_cli( [ 'perl', '-e', '1;' ] );
+    is( $m7_exit, 0, 'section 11: a resolvable command runs' );
+}
+
+{
+    # 11d2. Ask _normalize_path_segments, the no-drive-letter side:
+    # a Unix path under a localised Windows takes the false side of
+    # the drive-letter substitution and keeps its leading slash.
+    local $^O = 'MSWin32';
+    is( Developer::Dashboard::CLI::Ask::_normalize_path_segments('/unix/path'),
+        '/unix/path', 'section 11: a drive-less path keeps its leading slash on Windows' );
+}
+
+# 11e: EnvLoader _restore_overlay_key_case. The audit keys are
+# recorded explicitly (PATH is already uppercase, foo_VERSION is
+# mixed case), then forgotten again so the inventory is left as found.
+{
+    local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT};
+    local $^O = 'MSWin32';
+    ok( Developer::Dashboard::EnvLoader->_restore_overlay_key_case(
+            'not-a-hash' ),
+        'section 11: a non-hash overlay is a no-op' );
+    Developer::Dashboard::EnvAudit->record( 'PATH', 'x', '/tmp/m7-envfile' );
+    ok( Developer::Dashboard::EnvLoader->_restore_overlay_key_case( {} ),
+        'section 11: an uppercase key is left alone' );
+    Developer::Dashboard::EnvAudit->record(
+        'foo_VERSION', 'v', '/tmp/m7-envfile' );
+    my $m7_overlay = { foo_VERSION => 'v' };
+    ok( Developer::Dashboard::EnvLoader->_restore_overlay_key_case($m7_overlay),
+        'section 11: a present recorded spelling is left alone' );
+    ok( Developer::Dashboard::EnvLoader->_restore_overlay_key_case( {} ),
+        'section 11: an absent folded spelling is left alone' );
+    my $m7_moved = { FOO_VERSION => 'v' };
+    ok( Developer::Dashboard::EnvLoader->_restore_overlay_key_case($m7_moved),
+        'section 11: a folded spelling moves back' );
+    is( $m7_moved->{foo_VERSION}, 'v',
+        'section 11: the recorded spelling holds the value' );
+    ok( !exists $m7_moved->{FOO_VERSION},
+        'section 11: the folded spelling is gone' );
+    Developer::Dashboard::EnvAudit->forget('PATH');
+    Developer::Dashboard::EnvAudit->forget('foo_VERSION');
+}
+
+# =====================================================================
+# SECTION 12 - StreamDrain, Watch, PathIdentity, PerlEnv, PageStore,
+# OpenFileChooser (R178).
+#
+# Cover #19 gap for these modules (B/C/S): StreamDrain 1/2/0,
+# Watch 6/3/0, PathIdentity 7/3/0, PerlEnv 6/3/0, PageStore 5/6/0,
+# OpenFileChooser 5/1/0. Every cell is accounted for below as covered,
+# or as probed-uncoverable with the evidence. The gap file is the
+# authority for the cell list.
+#
+# COVERED HERE. StreamDrain: B 170 true (EINTR via alarm) and false
+# (sysread undef, not EINTR, on a directory handle), C 136 middle
+# (defined handle, fileno undef, from a closed handle), C 174 l
+# (sysread undef). Watch: B 157 true + false + C 157 !l + l&&!r +
+# l&&r (undef select, undef handle, a quiet pipe) and C 158 !l +
+# l&&!r + l&&r (plain, a non-IO::Select select-like object on a
+# localised Windows, a real IO::Select on a localised Windows),
+# all driven in 12b5 after the 12b4 re-require, plus B 183 true +
+# B 202 true + B 207 true + B 210 true (the PeekNamedPipe import
+# fails on a cold cache, then the failure is cached). PathIdentity:
+# B 43 false (the NOPE/.. trick: stat fails on the missing middle
+# component, so the identity comparison runs and differs), B 82
+# true + C 82 !l + l&&!r (undef and empty paths), B 96 true (a
+# forty-one-link cycle: a two-link loop exits at the repeated-target
+# guard first), B 99 false (a relative link target). PerlEnv:
+# B 158 true + C 160 l + B 161 true + B 163 true (a fake checkout
+# with local/lib/perl5 and its archname directory), B 161 false +
+# C 160 !l (the same checkout with archname emptied), B 163 false
+# (the same checkout with no archname directory), B 61 false +
+# C 60 l (a fake powershell on PATH under a localised Windows),
+# C 62 !l (no SystemRoot set, so the fallback root is C:\Windows),
+# B 260 true (path_sep => '') + false (path_sep => ':'). PageStore:
+# B 139 true + C 139 !l + l&&!r (undef and empty file), B 142 true +
+# C 142 !l (sysopen dies on a dying-stringification path; a failed
+# sysopen leaves $fh defined, so C 142 l&&!r is uncoverable, proved
+# by /tmp/m7-sysopen-probe.pl, and a missing file returns ''), C 148
+# !l&&r (invalid UTF-8: the CROAK decode dies and the DEFAULT decode
+# returns replacement text) + !l&&!r (an empty file), B 482 true + C 482 !l + l&&!r
+# (undef and empty path), B 484 true (a link loop). OpenFileChooser:
+# B 80 true + B 82 true (a piped STDIN on a localised Windows, with
+# and without waiting data), B 80 false (a character-device STDIN,
+# neither a file nor a pipe) + B 82 false (a piped STDIN whose
+# native check is unavailable), B 131 true + B 133 true + B 136 true +
+# C 136 !l (the PeekNamedPipe import fails, then GetOsFHandle fails).
+#
+# PROBED-UNCOVERABLE, with the evidence. StreamDrain: none. Watch:
+# B 344 is carve-out (4), the open that never fails. C 185 l is
+# uncoverable in the cover measurement: it needs a working peek
+# import, but the failing-import cells need a failing one, and one
+# compilation admits only one import outcome; the only reset is a
+# re-require, and a re-require discards every earlier cover row
+# for the module (probe /tmp/m7-rl/run.pl: five pre-reload calls
+# record nothing, the report shows the post-reload call only; the
+# two-path load in /tmp/m7-rl/run2.pl discards the same way). The
+# behaviour is verified by 12b3 (a dying GetOsFHandle returns
+# undef). The four failing-import cells are covered instead, and
+# the B 157 / C 157 / C 158 cells are driven after them in 12b5.
+# PathIdentity: B 43 true + C 43 l&&r are Windows-only. On Unix
+# any spelling whose identity matches the current directory is
+# caught by the stat comparison first (line 36), because a
+# spelling canonpath normalises to the directory (trailing slash,
+# '/.', doubled slashes) also stats successfully; a spelling
+# whose stat fails (a missing component, like NOPE/..) is one
+# canonpath does NOT collapse (probe /tmp/m7-c43-probe.pl: the
+# identity keeps the NOPE/.. spelling), so the comparison at
+# line 43 is false. The true side fires on Windows, where the
+# stat comparison is unreliable (see the comment at lines 37-39),
+# and the proof drives it for real on the Windows legs.
+# B 51 false: cwd() returns '' (not undef) when the working directory
+# is deleted (probe /tmp/m7-s12-probes3.pl: getcwd undef, cwd '');
+# B 88 true: File::Spec->splitpath never returns a non-empty volume
+# on Unix (probe /tmp/m7-s12-probes.pl: 'C:/foo/bar' gives volume
+# ''); C 87 !l: splitpath never returns an undef file on Unix
+# (same probe: trailing-slash and empty paths give file ''); C 43 !l:
+# _path_identity with empty_fallback returns canonpath($path) for any
+# non-empty path, so the identity is never '' there; B 98 true:
+# readlink never returns undef for a link that -l just confirmed
+# (same probe: loops and dangling links both read fine). PerlEnv:
+# C 60 !l&&r: native_shell_name returns 'pwsh' or 'powershell',
+# so the two command_in_path lookups cannot disagree (the first
+# is the name just resolved, the second is 'powershell' itself).
+# B 68 false: the dirname of a found executable is always an
+# existing directory. %Config IS localisable as a whole hash (the
+# t/79 pattern: local %Config::Config = %Config::Config, then
+# assign), which is what 12d3-12d5 use; localising one element
+# of the tied hash dies "read-only", which is all the earlier
+# probe tried. PageStore: B 146 true + C 146 !l + l&&!r: read() on a
+# sysopen'd handle never dies, and $raw is initialised to '' before
+# the read, so neither side can fire; C 213 !l: the disk read can only
+# fail if the file changes between the lstat and the read, which cannot
+# happen in a single-threaded test process, and the fingerprint gate
+# skips a changed file before the comparison runs. OpenFileChooser:
+# C 136 l&&!r: the eval dies when GetOsFHandle is false, so it never
+# returns a defined peek with an undef handle. CommandRunner C 107
+# l&&!r is UNCOVERABLE (noted here): $inline_perl_file is either
+# undef or a real tempfile path, never '' - it is only ever assigned
+# from _windows_perl_inline_command, which returns undef or a
+# tempfile name (CommandRunner.pm:42,53,119-130).
+#
+# The Watch peek cache: _windows_peek_named_pipe caches its import in
+# file lexicals, so the failing-import cells and the dying-GetOsFHandle
+# cell cannot both fire in one process without a reset. The module is
+# re-required between them (its top level is only use lines, a constant
+# and sub definitions, so a re-require is safe); the redefinition
+# warnings are swallowed by a local $SIG{__WARN__} guard. The failing
+# import is driven with a localised Win32::API::new returning undef,
+# the section-8 pattern.
+
+# M7::FixedPeek: a PeekNamedPipe that always reports a fixed byte
+# count, whether or not the pipe really holds data. The drain then
+# calls sysread even when the pipe is empty, so the read blocks until
+# a signal arrives. Input: fixed available count. Output: fake object.
+{
+    package M7::FixedPeek;
+    sub new {
+        my ( $class, $avail ) = @_;
+        return bless { avail => $avail }, $class;
+    }
+    sub Call {
+        my ($self) = @_;
+        $_[5] = pack 'L', $self->{avail};
+        return 1;
+    }
+}
+
+# M7::DyingString: a path string whose stringification dies on the
+# second call. The first call returns the real path (so the empty
+# check passes); the second call, inside sysopen, dies, so the eval
+# around it returns undef. Input: real path. Output: blessed object.
+{
+    package M7::DyingString;
+    use overload '""' => sub {
+        my ($self) = @_;
+        $self->{calls}++;
+        die "m7 dying stringification\n" if $self->{calls} > 1;
+        return $self->{path};
+    }, fallback => 1;
+    sub new {
+        my ( $class, $path ) = @_;
+        return bless { path => $path, calls => 0 }, $class;
+    }
+    sub calls { return $_[0]->{calls}; }
+}
+
+require Developer::Dashboard::StreamDrain;
+require Developer::Dashboard::IndicatorStore::Watch;
+require Developer::Dashboard::PathIdentity;
+require Developer::Dashboard::PerlEnv;
+require Developer::Dashboard::PageStore;
+require Developer::Dashboard::CLI::OpenFileChooser;
+
+{
+    # 12a1. B 170 true: EINTR via alarm. The fixed peek reports bytes
+    # available while the pipe holds nothing, so sysread blocks; the
+    # alarm fires, the handler writes the chunk and closes the pipe,
+    # sysread is interrupted with EINTR, the retry reads the chunk,
+    # and the next round reaches end of file. The stderr pipe is at
+    # end of file from the start.
+    pipe( my $m7_out_r, my $m7_out_w ) or die "Unable to pipe: $!";
+    pipe( my $m7_err_r, my $m7_err_w ) or die "Unable to pipe: $!";
+    close $m7_err_w or die "Unable to close: $!";
+    my @m7_chunks;
+    my $m7_sd = bless {}, 'Developer::Dashboard::StreamDrain';
+    my $m7_result;
+    {
+        no warnings qw(once redefine prototype);
+        local *Win32::API::new = sub { return M7::FixedPeek->new(5); };
+        local $SIG{ALRM} = sub {
+            syswrite( $m7_out_w, 'm7-eintr' ) == 8 or die "Unable to write: $!";
+            close $m7_out_w or die "Unable to close: $!";
+        };
+        alarm(1);
+        $m7_result = $m7_sd->_drain_child_streams_windows(
+            $m7_out_r, $m7_err_r,
+            sub { push @m7_chunks, [ $_[0], $_[1] ] },
+            undef,
+        );
+        alarm(0);
+    }
+    is( $m7_result, 1, 'section 12: the EINTR drain finishes' );
+    is( scalar @m7_chunks, 1, 'section 12: the EINTR drain delivers one chunk' );
+    is( $m7_chunks[0][1], 'm7-eintr', 'section 12: the EINTR chunk holds the written bytes' );
+    close $m7_out_r or die "Unable to close: $!";
+    close $m7_err_r or die "Unable to close: $!";
+}
+
+{
+    # 12a2. B 170 false + C 174 l: sysread fails on a directory
+    # handle, which is not EINTR, so the warn fires and the read
+    # counts as undef. The stderr pipe is at end of file.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    open my $m7_dir_fh, '<', $m7_tmp or die "Unable to open $m7_tmp: $!";
+    pipe( my $m7_err_r, my $m7_err_w ) or die "Unable to pipe: $!";
+    close $m7_err_w or die "Unable to close: $!";
+    my $m7_warned = '';
+    my $m7_sd     = bless {}, 'Developer::Dashboard::StreamDrain';
+    my $m7_result;
+    {
+        no warnings qw(once redefine prototype);
+        local *Win32::API::new = sub { return M7::FixedPeek->new(5); };
+        local $SIG{__WARN__} = sub { $m7_warned .= $_[0]; };
+        $m7_result = $m7_sd->_drain_child_streams_windows(
+            $m7_dir_fh, $m7_err_r, sub { return }, undef,
+        );
+    }
+    is( $m7_result, 1, 'section 12: the failed-read drain finishes' );
+    like( $m7_warned, qr/reading a child handle failed/, 'section 12: the failed read warns' );
+    close $m7_dir_fh or die "Unable to close: $!";
+    close $m7_err_r or die "Unable to close: $!";
+}
+
+{
+    # 12a3. C 136 middle: a defined handle whose fileno is undef (it
+    # was opened and closed) ends the drain at once with 0.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_file = File::Spec->catfile( $m7_tmp, 'f' );
+    open my $m7_w, '>', $m7_file or die "Unable to write $m7_file: $!";
+    close $m7_w or die "Unable to close: $!";
+    open my $m7_closed, '<', $m7_file or die "Unable to open $m7_file: $!";
+    close $m7_closed or die "Unable to close: $!";
+    pipe( my $m7_err_r, my $m7_err_w ) or die "Unable to pipe: $!";
+    close $m7_err_w or die "Unable to close: $!";
+    my $m7_sd = bless {}, 'Developer::Dashboard::StreamDrain';
+    my $m7_result = $m7_sd->_drain_child_streams_windows(
+        $m7_closed, $m7_err_r, sub { return }, undef,
+    );
+    is( $m7_result, 0, 'section 12: a closed handle ends the drain with 0' );
+    close $m7_err_r or die "Unable to close: $!";
+}
+
+{
+    # 12b1. B 157 true + C 157 !l + l&&!r: _handle_readable with an
+    # undef select, then with an undef handle, returns 0 both times.
+    pipe( my $m7_r, my $m7_w ) or die "Unable to pipe: $!";
+    my $m7_select = IO::Select->new($m7_r);
+    is( Developer::Dashboard::IndicatorStore::Watch::_handle_readable( undef, $m7_r ),
+        0, 'section 12: an undef select is not readable' );
+    is( Developer::Dashboard::IndicatorStore::Watch::_handle_readable( $m7_select, undef ),
+        0, 'section 12: an undef handle is not readable' );
+    is( Developer::Dashboard::IndicatorStore::Watch::_handle_readable( $m7_select, $m7_r ),
+        0, 'section 12: a quiet pipe is not readable' );
+    close $m7_w or die "Unable to close: $!";
+    close $m7_r or die "Unable to close: $!";
+}
+
+{
+    # 12b2. C 158 middle: a localised Windows with a select-like
+    # object that is not a genuine IO::Select falls through to
+    # can_read instead of the Windows peek path.
+    pipe( my $m7_r, my $m7_w ) or die "Unable to pipe: $!";
+    my $m7_like = bless {}, 'M7::SelectLike';
+    {
+        package M7::SelectLike;
+        sub can_read { return (); }
+    }
+    my $m7_readable;
+    {
+        local $^O = 'MSWin32';
+        $m7_readable = Developer::Dashboard::IndicatorStore::Watch::_handle_readable( $m7_like, $m7_r );
+    }
+    is( $m7_readable, 0, 'section 12: a non-IO::Select keeps its own can_read on Windows' );
+    close $m7_w or die "Unable to close: $!";
+    close $m7_r or die "Unable to close: $!";
+}
+
+{
+    # 12b3. C 185 l: GetOsFHandle dies inside the eval, so $@ is set
+    # and _windows_handle_readable returns undef. The peek import
+    # succeeds here, which sets the cache; the failing-import cells
+    # below need the re-require in 12b4. The handle is a pipe, so
+    # getsockopt says it is not a socket and the peek path runs.
+    pipe( my $m7_r, my $m7_w ) or die "Unable to pipe: $!";
+    my $m7_select = IO::Select->new($m7_r);
+    my $m7_readable;
+    {
+        no warnings qw(once redefine prototype);
+        local *Win32API::File::GetOsFHandle = sub { die "m7 getosfhandle\n"; };
+        $m7_readable = Developer::Dashboard::IndicatorStore::Watch::_windows_handle_readable( $m7_select, $m7_r );
+    }
+    is( $m7_readable, undef, 'section 12: a dying GetOsFHandle makes the handle unreadable' );
+    close $m7_w or die "Unable to close: $!";
+    close $m7_r or die "Unable to close: $!";
+}
+
+{
+    # 12b4. B 207 true + B 210 true + B 202 true + B 183 true: the
+    # PeekNamedPipe import fails on a cold cache. The module is
+    # re-required first so the cache from 12b3 is gone; the
+    # redefinition warnings are swallowed by the local warn guard.
+    # The first call dies inside the eval (B 207) and caches the
+    # failure (B 210); the second call takes the cached-failure
+    # return (B 202); a _windows_handle_readable call then finds
+    # no peek at all (B 183).
+    delete $INC{'Developer/Dashboard/IndicatorStore/Watch.pm'};
+    {
+        local $SIG{__WARN__} = sub {
+            my ($warning) = @_;
+            return if $warning =~ /Subroutine \S+ redefined/;
+            warn $warning;
+        };
+        require Developer::Dashboard::IndicatorStore::Watch;
+    }
+    pipe( my $m7_r, my $m7_w ) or die "Unable to pipe: $!";
+    my $m7_select = IO::Select->new($m7_r);
+    my ( $m7_peek1, $m7_peek2, $m7_readable );
+    {
+        no warnings qw(once redefine prototype);
+        local *Win32::API::new = sub { return undef; };
+        $m7_peek1 = Developer::Dashboard::IndicatorStore::Watch::_windows_peek_named_pipe();
+        $m7_peek2 = Developer::Dashboard::IndicatorStore::Watch::_windows_peek_named_pipe();
+        $m7_readable = Developer::Dashboard::IndicatorStore::Watch::_windows_handle_readable( $m7_select, $m7_r );
+    }
+    is( $m7_peek1, undef, 'section 12: a failed PeekNamedPipe import returns undef' );
+    is( $m7_peek2, undef, 'section 12: a failed PeekNamedPipe import stays failed' );
+    is( $m7_readable, undef, 'section 12: no peek means the handle is unreadable' );
+    close $m7_w or die "Unable to close: $!";
+    close $m7_r or die "Unable to close: $!";
+}
+
+{
+    # 12b5. B 157 true + false, C 157 !l + l&&!r + l&&r, C 158 !l +
+    # l&&!r + l&&r: _handle_readable, driven AFTER the failing-import
+    # test in 12b4. The re-require there discards every pre-reload
+    # cover row for Watch (probe /tmp/m7-rl/run.pl: five pre-reload
+    # calls record nothing, the report shows the post-reload call
+    # only), so the same assertions in 12b1-12b2 verify behaviour
+    # but count nothing; this block drives the cells in the final
+    # compilation. The peek cache is poisoned by 12b4, so the
+    # Windows branch here finds no peek and falls back to can_read.
+    pipe( my $m7_r, my $m7_w ) or die "Unable to pipe: $!";
+    my $m7_select = IO::Select->new($m7_r);
+    is( Developer::Dashboard::IndicatorStore::Watch::_handle_readable( undef, $m7_r ),
+        0, 'section 12: an undef select is not readable after the reload' );
+    is( Developer::Dashboard::IndicatorStore::Watch::_handle_readable( $m7_select, undef ),
+        0, 'section 12: an undef handle is not readable after the reload' );
+    is( Developer::Dashboard::IndicatorStore::Watch::_handle_readable( $m7_select, $m7_r ),
+        0, 'section 12: a quiet pipe is not readable after the reload' );
+    my $m7_like = bless {}, 'M7::SelectLike';
+    my $m7_readable;
+    {
+        local $^O = 'MSWin32';
+        $m7_readable = Developer::Dashboard::IndicatorStore::Watch::_handle_readable( $m7_like, $m7_r );
+    }
+    is( $m7_readable, 0, 'section 12: a non-IO::Select keeps its own can_read on Windows after the reload' );
+    my $m7_win_readable;
+    {
+        local $^O = 'MSWin32';
+        $m7_win_readable = Developer::Dashboard::IndicatorStore::Watch::_handle_readable( $m7_select, $m7_r );
+    }
+    is( $m7_win_readable, 0, 'section 12: a Windows handle with no peek falls back to can_read' );
+    close $m7_w or die "Unable to close: $!";
+    close $m7_r or die "Unable to close: $!";
+}
+
+{
+    # 12c1. B 43 false: the NOPE/.. trick. The logical PWD names a
+    # missing middle component, so stat fails and the identity
+    # comparison runs, but canonpath does not collapse the '..'
+    # (proved by /tmp/m7-c43-probe.pl: the identity keeps the
+    # NOPE/.. spelling), so the identities differ and the logical
+    # spelling is NOT kept; the fall-through returns the physical
+    # directory. B 43 true + C 43 l&&r are Windows-only: on Unix
+    # any spelling whose identity matches is caught by the stat
+    # comparison first (see the section header).
+    my $m7_real = tempdir( CLEANUP => 1 );
+    my $m7_orig = Cwd::getcwd();
+    chdir $m7_real or die "Unable to chdir $m7_real: $!";
+    my $m7_logical = File::Spec->catdir( $m7_real, 'NOPE', '..' );
+    my $m7_found;
+    {
+        local $ENV{PWD} = $m7_logical;
+        $m7_found = Developer::Dashboard::PathIdentity::current_working_directory();
+    }
+    chdir $m7_orig or die "Unable to chdir $m7_orig: $!";
+    is( $m7_found, $m7_real, 'section 12: a logical PWD through a missing component falls back to the physical directory' );
+}
+
+{
+    # 12c2. B 96 true: a forty-one-link cycle runs past forty hops
+    # and the resolver gives up with undef. A two-link loop will
+    # not do it: the repeated-target guard at line 107 fires first
+    # (after three hops), so every hop must name a fresh target.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    for my $m7_n ( 1 .. 41 ) {
+        my $m7_next = $m7_n == 41 ? 1 : $m7_n + 1;
+        symlink sprintf( 'm7-l%02d', $m7_next ),
+            File::Spec->catfile( $m7_tmp, sprintf( 'm7-l%02d', $m7_n ) )
+            or die "Unable to link: $!";
+    }
+    my $m7_resolved = Developer::Dashboard::PathIdentity::_resolve_symlinks(
+        File::Spec->catfile( $m7_tmp, 'm7-l01', 'x' ) );
+    is( $m7_resolved, undef, 'section 12: a long symlink loop resolves to undef' );
+}
+
+{
+    # 12c3. B 99 false: a link with a relative target takes the
+    # parent-directory branch and resolves against it.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_target = File::Spec->catfile( $m7_tmp, 'target.txt' );
+    open my $m7_w, '>', $m7_target or die "Unable to write $m7_target: $!";
+    close $m7_w or die "Unable to close: $!";
+    symlink 'target.txt', File::Spec->catfile( $m7_tmp, 'm7-link' ) or die "Unable to link: $!";
+    my $m7_resolved = Developer::Dashboard::PathIdentity::_resolve_symlinks(
+        File::Spec->catfile( $m7_tmp, 'm7-link' ) );
+    is( $m7_resolved, $m7_target, 'section 12: a relative link target resolves against its parent' );
+}
+
+{
+    # 12c4. B 82 true + C 82 !l + l&&!r: _resolve_symlinks returns its
+    # argument at once for an undef path and for an empty path.
+    is( Developer::Dashboard::PathIdentity::_resolve_symlinks(undef),
+        undef, 'section 12: an undef path resolves to undef' );
+    is( Developer::Dashboard::PathIdentity::_resolve_symlinks(''),
+        '', 'section 12: an empty path resolves to empty' );
+}
+
+{
+    # 12d1. B 158 true + C 160 l + B 161 true + B 163 true: a fake
+    # checkout with a local lib and its archname directory makes
+    # perl5lib_list list both.
+    my $m7_co = tempdir( CLEANUP => 1 );
+    my $m7_lib = File::Spec->catdir( $m7_co, 'lib' );
+    my $m7_dd = File::Spec->catdir( $m7_lib, 'Developer' );
+    File::Path::make_path($m7_dd) or die "Unable to make $m7_dd: $!";
+    my $m7_pm = File::Spec->catfile( $m7_dd, 'Dashboard.pm' );
+    open my $m7_w, '>', $m7_pm or die "Unable to write $m7_pm: $!";
+    close $m7_w or die "Unable to close: $!";
+    my $m7_local = File::Spec->catdir( $m7_co, 'local', 'lib', 'perl5' );
+    my $m7_arch = File::Spec->catdir( $m7_local, $Config::Config{archname} );
+    File::Path::make_path($m7_arch) or die "Unable to make $m7_arch: $!";
+    my @m7_paths = Developer::Dashboard::PerlEnv->perl5lib_list(
+        dashboard_lib => $m7_lib, env => {},
+    );
+    ok( ( grep { $_ eq $m7_local } @m7_paths ), 'section 12: the fake checkout local lib is listed' );
+    ok( ( grep { $_ eq $m7_arch } @m7_paths ), 'section 12: the fake checkout arch lib is listed' );
+}
+
+{
+    # 12d2. B 260 true: bootstrap_perl5lib with an empty path
+    # separator takes the fallback and still writes PERL5LIB.
+    my %m7_env;
+    my $m7_value = Developer::Dashboard::PerlEnv->bootstrap_perl5lib( env => \%m7_env, path_sep => '' );
+    ok( defined $m7_env{PERL5LIB}, 'section 12: an empty path separator still writes PERL5LIB' );
+    is( $m7_value, $m7_env{PERL5LIB}, 'section 12: bootstrap returns the PERL5LIB it wrote' );
+}
+
+{
+    # 12d3. B 61 false + C 60 l: a fake powershell on PATH, found
+    # through the Windows fallback. %Config is localised as a whole
+    # hash (the t/79 pattern: localising one element of the tied
+    # hash dies "read-only", copying it does not), so the configured
+    # shell names a Unix path that does not exist here, and the
+    # localised $OS_NAME takes the Windows branch.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_ps = File::Spec->catfile( $m7_tmp, 'powershell' );
+    _make_executable( $m7_ps, "#!/bin/sh\nexit 0\n" );
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    local %Config::Config = %Config::Config;
+    $Config::Config{sh} = '/nonexistent-perlenv-xyz/foo/sh';
+    local $ENV{PATH} = $m7_tmp;
+    is( Developer::Dashboard::PerlEnv::current_shell_bin_dir(),
+        File::Spec->canonpath($m7_tmp),
+        'section 12: a powershell on PATH is the Windows shell bin dir' );
+}
+
+{
+    # 12d4. C 62 !l: with no SystemRoot set and no powershell on
+    # PATH, the fallback root is the literal C:\Windows, no
+    # powershell is found under it here, and the bin dir is empty.
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    local %Config::Config = %Config::Config;
+    $Config::Config{sh} = '/nonexistent-perlenv-xyz/foo/sh';
+    local $ENV{SystemRoot} = '';
+    local $ENV{PATH} = tempdir( CLEANUP => 1 );
+    is( Developer::Dashboard::PerlEnv::current_shell_bin_dir(), '',
+        'section 12: no Windows shell resolves without a SystemRoot' );
+}
+
+{
+    # 12d5. B 161 false + C 160 !l + B 163 false: a fake checkout
+    # whose local lib exists but whose archname directory does not.
+    # With archname emptied (same %Config copy as 12d3) the arch
+    # branch is skipped; with the real archname the arch dir is
+    # missing, so the arch lib is not listed.
+    my $m7_co = tempdir( CLEANUP => 1 );
+    my $m7_lib = File::Spec->catdir( $m7_co, 'lib' );
+    my $m7_dd = File::Spec->catdir( $m7_lib, 'Developer' );
+    File::Path::make_path($m7_dd) or die "Unable to make $m7_dd: $!";
+    my $m7_pm = File::Spec->catfile( $m7_dd, 'Dashboard.pm' );
+    open my $m7_w, '>', $m7_pm or die "Unable to write $m7_pm: $!";
+    close $m7_w or die "Unable to close: $!";
+    my $m7_local = File::Spec->catdir( $m7_co, 'local', 'lib', 'perl5' );
+    File::Path::make_path($m7_local) or die "Unable to make $m7_local: $!";
+    my $m7_arch = File::Spec->catdir( $m7_local, $Config::Config{archname} );
+    my @m7_no_arch;
+    {
+        local %Config::Config = %Config::Config;
+        $Config::Config{archname} = '';
+        @m7_no_arch = Developer::Dashboard::PerlEnv->perl5lib_list(
+            dashboard_lib => $m7_lib, env => {},
+        );
+    }
+    ok( ( grep { $_ eq $m7_local } @m7_no_arch ), 'section 12: the local lib is listed without an archname' );
+    ok( !( grep { $_ eq $m7_arch } @m7_no_arch ), 'section 12: no arch lib is listed without an archname' );
+    my @m7_paths = Developer::Dashboard::PerlEnv->perl5lib_list(
+        dashboard_lib => $m7_lib, env => {},
+    );
+    ok( ( grep { $_ eq $m7_local } @m7_paths ), 'section 12: the local lib is listed with a real archname' );
+    ok( !( grep { $_ eq $m7_arch } @m7_paths ), 'section 12: a missing arch dir is not listed' );
+}
+
+{
+    # 12d6. B 260 false: bootstrap_perl5lib with a given separator
+    # keeps it instead of taking the fallback.
+    my %m7_env;
+    my $m7_value = Developer::Dashboard::PerlEnv->bootstrap_perl5lib( env => \%m7_env, path_sep => ':' );
+    like( $m7_value, qr/:/, 'section 12: a given path separator is kept by bootstrap' );
+    is( $m7_value, $m7_env{PERL5LIB}, 'section 12: bootstrap returns the PERL5LIB it wrote with a separator' );
+}
+
+{
+    # 12e1. B 139 true + C 139 !l + l&&!r: the disk body read returns
+    # at once for an undef path and for an empty path.
+    my $m7_ps = bless {}, 'Developer::Dashboard::PageStore';
+    is( $m7_ps->_nav_fragment_disk_body(undef),
+        undef, 'section 12: an undef fragment path reads as undef' );
+    is( $m7_ps->_nav_fragment_disk_body(''),
+        undef, 'section 12: an empty fragment path reads as undef' );
+}
+
+{
+    # 12e2. B 142 false + C 142 l&&r: a missing fragment. Note the real
+    # behaviour pinned here: a failed sysopen leaves $fh a defined but
+    # closed handle (proved by /tmp/m7-sysopen-probe.pl: opened=1,
+    # fh=defined, err=ENOENT), so the guard does not fire, read on the
+    # closed handle warns (suppressed here) and returns undef, and the
+    # function returns '' rather than undef. C 142 l&&!r is therefore
+    # UNCOVERABLE: $fh is never undef after a successful eval. B 142
+    # true is covered by 12e3 below.
+    my $m7_ps = bless {}, 'Developer::Dashboard::PageStore';
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_missing_body;
+    {
+        local $SIG{__WARN__} = sub { };
+        $m7_missing_body = $m7_ps->_nav_fragment_disk_body( File::Spec->catfile( $m7_tmp, 'missing.tt' ) );
+    }
+    is( $m7_missing_body, '', 'section 12: a missing fragment reads as an empty string' );
+}
+
+{
+    # 12e3. C 142 !l: sysopen dies inside the eval when the path
+    # stringification dies, so the eval returns undef and the read
+    # returns undef. The path stringifies to a real file on the first
+    # call (the empty check) and dies on the second (inside sysopen).
+    my $m7_ps = bless {}, 'Developer::Dashboard::PageStore';
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_file = File::Spec->catfile( $m7_tmp, 'real.tt' );
+    open my $m7_w, '>', $m7_file or die "Unable to write $m7_file: $!";
+    print $m7_w "m7 body\n" or die "Unable to write: $!";
+    close $m7_w or die "Unable to close: $!";
+    my $m7_dying = M7::DyingString->new($m7_file);
+    is( $m7_ps->_nav_fragment_disk_body($m7_dying),
+        undef, 'section 12: a dying path stringification reads as undef' );
+    ok( $m7_dying->calls >= 2, 'section 12: the dying path was stringified twice' );
+}
+
+{
+    # 12e4. C 148 !l&&r: invalid UTF-8 bytes make the CROAK decode
+    # die, so the DEFAULT decode runs and returns replacement text.
+    my $m7_ps = bless {}, 'Developer::Dashboard::PageStore';
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_file = File::Spec->catfile( $m7_tmp, 'bad.tt' );
+    open my $m7_w, '>', $m7_file or die "Unable to write $m7_file: $!";
+    binmode $m7_w or die "Unable to binmode: $!";
+    syswrite( $m7_w, "\xff\xfe" ) == 2 or die "Unable to write: $!";
+    close $m7_w or die "Unable to close: $!";
+    my $m7_body = $m7_ps->_nav_fragment_disk_body($m7_file);
+    ok( defined $m7_body, 'section 12: invalid UTF-8 still decodes' );
+    like( $m7_body, qr/\x{FFFD}/, 'section 12: invalid UTF-8 becomes replacement text' );
+}
+
+{
+    # 12e5. C 148 !l&&!r: an empty file decodes to an empty body
+    # through both decodes.
+    my $m7_ps = bless {}, 'Developer::Dashboard::PageStore';
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_file = File::Spec->catfile( $m7_tmp, 'empty.tt' );
+    open my $m7_w, '>', $m7_file or die "Unable to write $m7_file: $!";
+    close $m7_w or die "Unable to close: $!";
+    is( $m7_ps->_nav_fragment_disk_body($m7_file),
+        '', 'section 12: an empty fragment reads as empty' );
+}
+
+{
+    # 12e6. B 482 true + C 482 !l + l&&!r + B 484 true: the
+    # containment realpath returns at once for an undef path and
+    # for an empty path, and returns undef for a symlink loop.
+    is( Developer::Dashboard::PageStore::_containment_realpath(undef),
+        undef, 'section 12: an undef containment path is undef' );
+    is( Developer::Dashboard::PageStore::_containment_realpath(''),
+        undef, 'section 12: an empty containment path is undef' );
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    symlink 'm7-loop2', File::Spec->catfile( $m7_tmp, 'm7-loop1' ) or die "Unable to link: $!";
+    symlink 'm7-loop1', File::Spec->catfile( $m7_tmp, 'm7-loop2' ) or die "Unable to link: $!";
+    is( Developer::Dashboard::PageStore::_containment_realpath(
+            File::Spec->catfile( $m7_tmp, 'm7-loop1', 'x' ) ),
+        undef, 'section 12: a containment path through a loop is undef' );
+}
+
+{
+    # 12f1. B 80 true + B 82 true: STDIN is a pipe on a localised
+    # Windows, so the pipe check runs. With data waiting the native
+    # check answers at once; with nothing waiting and no time left
+    # it answers 0. Both answers are defined, so the ready branch
+    # fires either way.
+    pipe( my $m7_r, my $m7_w ) or die "Unable to pipe: $!";
+    syswrite( $m7_w, 'm7' ) == 2 or die "Unable to write: $!";
+    my $m7_ready;
+    {
+        local *STDIN = $m7_r;
+        local $^O = 'MSWin32';
+        $m7_ready = Developer::Dashboard::CLI::OpenFileChooser::_stdin_has_pending_input(0.5);
+    }
+    is( $m7_ready, 1, 'section 12: a piped STDIN with data is ready on Windows' );
+    close $m7_w or die "Unable to close: $!";
+    close $m7_r or die "Unable to close: $!";
+    pipe( my $m7_r2, my $m7_w2 ) or die "Unable to pipe: $!";
+    my $m7_ready2;
+    {
+        local *STDIN = $m7_r2;
+        local $^O = 'MSWin32';
+        $m7_ready2 = Developer::Dashboard::CLI::OpenFileChooser::_stdin_has_pending_input(0);
+    }
+    is( $m7_ready2, 0, 'section 12: a quiet piped STDIN is not ready on Windows' );
+    close $m7_w2 or die "Unable to close: $!";
+    close $m7_r2 or die "Unable to close: $!";
+}
+
+{
+    # 12f2. B 131 true + B 133 true + B 136 true + C 136 !l: the
+    # STDIN pipe readiness check fails twice over. First the
+    # PeekNamedPipe import returns undef, so the eval gives no peek
+    # and no handle; then the import works but GetOsFHandle returns
+    # undef, so the eval dies the same way. Both return undef.
+    my $m7_ready1;
+    {
+        no warnings qw(once redefine prototype);
+        local *Win32::API::new = sub { return undef; };
+        $m7_ready1 = Developer::Dashboard::CLI::OpenFileChooser::_windows_stdin_pipe_ready(0.5);
+    }
+    is( $m7_ready1, undef, 'section 12: a failed PeekNamedPipe import means no readiness check' );
+    my $m7_ready2;
+    {
+        no warnings qw(once redefine prototype);
+        local *Win32API::File::GetOsFHandle = sub { return undef; };
+        $m7_ready2 = Developer::Dashboard::CLI::OpenFileChooser::_windows_stdin_pipe_ready(0.5);
+    }
+    is( $m7_ready2, undef, 'section 12: an unresolvable STDIN handle means no readiness check' );
+}
+
+{
+    # 12f3. B 80 false: STDIN is a character device, neither a file
+    # nor a pipe, on a localised Windows, so the Windows answers do
+    # not fire and the IO::Select fallback runs. B 82 false: STDIN
+    # is a pipe but the PeekNamedPipe import fails, so the native
+    # check answers undef and the ordinary blocking read is used.
+    # Both fall back to ready.
+    my $m7_ready;
+    {
+        open my $m7_null, '<', File::Spec->devnull() or die "Unable to open devnull: $!";
+        local *STDIN = $m7_null;
+        local $^O = 'MSWin32';
+        $m7_ready = Developer::Dashboard::CLI::OpenFileChooser::_stdin_has_pending_input(0);
+        close $m7_null or die "Unable to close: $!";
+    }
+    is( $m7_ready, 1, 'section 12: a character-device STDIN is ready on Windows' );
+    pipe( my $m7_r, my $m7_w ) or die "Unable to pipe: $!";
+    my $m7_ready2;
+    {
+        no warnings qw(once redefine prototype);
+        local *Win32::API::new = sub { return undef; };
+        local *STDIN = $m7_r;
+        local $^O = 'MSWin32';
+        $m7_ready2 = Developer::Dashboard::CLI::OpenFileChooser::_stdin_has_pending_input(0.5);
+    }
+    is( $m7_ready2, 1, 'section 12: an unavailable native pipe check falls back to ready' );
+    close $m7_w or die "Unable to close: $!";
+    close $m7_r or die "Unable to close: $!";
+}
+
+# Section 13: Which, DockerCompose, Ticket, ActionRunner, RuntimeControl,
+# Paths (M7 tail, R178).
+# Which: B 279 true (a bare entrypoint that resolves on PATH) + false
+# (an unresolvable bare entrypoint), B 281 true (a non-executable $0)
+# + false (an executable $0) with C 281 l&&!r (executable $0) + l&&r
+# (non-executable $0), B 282 true (an executable $0) + false (a
+# missing $0). Which _command_exec: B 294 true + B 303 true (a
+# bad-interpreter command on a localised Windows dies before exit).
+# B 303 false, B 304 and C 304 are UNCOVERABLE in-process: any
+# non-minus-1 system result reaches exit(), which ends the test
+# process, and a forked child does not count toward coverage.
+# DockerCompose _rewrite_exec_dashboard_command: C 56 l (undef args)
+# + !l&&r (fewer than three args), C 62 l (an undef token) + !l&&r
+# (an empty token) + !l&&!r (a dash token), C 63 l (a --name=value
+# token) + !l&&r (a -pVALUE token) + !l&&!r (another dash token),
+# C 73 l (flags run past the end) + !l&&r (a non-exec operation) +
+# !l&&!r (the exec token), B 73 true + false, B 79 true (a token
+# that ends the exec-flag scan) + false (a dash token), B 80 true
+# (an exec flag that takes a value) + false (a --flag=value token),
+# B 91 true (the dashboard token follows the service) + false (the
+# service is last, or the next token is not dashboard), C 79 l (an
+# undef token) + !l&&r (an empty token) + !l&&!r (a plain token),
+# C 91 !l (no token follows the service) + l&&!r (the next token is
+# undef) + l&&r (the next token is dashboard). _materialized_command:
+# B 1166 true (a fake docker prints canned config, then the tempfile
+# call is stubbed to die; a nonexistent TMPDIR alone does NOT fail
+# tempfile, because File::Temp falls back to /tmp). B 1175 is
+# UNCOVERABLE: binmode on a tempfile handle never fails, because the
+# handle comes from tempfile and is always open (section 12 probe).
+# Ticket _exec_tmux: B 274 true (localised Windows) + B 288 true
+# (tmux unresolvable with an emptied PATH) + false (a bad-interpreter
+# fake tmux resolves) + B 299 true + C 299 l (system returns -1).
+# C 299 !l&&r is UNCOVERABLE: block-form system() never leaves $!
+# set when it returns non-minus-1 (probe /tmp/m7-syswarn-probe.pl:
+# good rc=0 err= empty). C 299 !l&&!r is UNCOVERABLE in-process: the
+# success path calls exit(). S __ANON__@295 is UNCOVERABLE: the
+# $SIG{__WARN__} handler inside the block is only ever called by a
+# warning from block-form system(), which never warns (same probe:
+# bad-interpreter rc=-1 warned=0). Ticket home: B 482 true + false
+# + C 482 !l (HOME undef) + l&&!r (HOME empty) + l&&r (HOME set),
+# B 486 true + false + C 486 !l + l&&!r + l&&r (USERPROFILE the same
+# way), B 491 true + false + C 491 !l + l&&!r + l&&r (HOMEDRIVE and
+# HOMEPATH the same way), C 519 !l (no home resolves, so the walk
+# runs to the filesystem root). C 196 and C 197 !l&&!r are
+# UNCOVERABLE: the or-3 right operand is a ternary whose arms are
+# always truthy strings ('/tmp', '/dev/shm', or File::Spec->tmpdir,
+# which on the loaded Unix class returns '/tmp' even under a
+# localised $^O), so the falsy side can never fire.
+# ActionRunner: B 249 true (terminate_command_process on a fake pid
+# under a localised $OS_NAME; taskkill is not found on Unix, so the
+# system call fails harmlessly and the pid is not a spawn child).
+# RuntimeControl: B 179 true (a stubbed _read_log_sources plus a
+# localised $^O makes _run_log_command hit the STDOUT binmode) and
+# B 291 true (a stubbed _read_log_sources returning new content plus
+# a localised $^O makes the follow loop hit its STDOUT binmode; an
+# alarm dies inside an eval to stop the infinite loop).
+# Paths: B 573 false (a symlink loop as the skill lib makes
+# _resolve_symlinks return undef and the load die). B 574 false is
+# UNCOVERABLE: _resolve_symlinks returns undef only past forty hops,
+# on an unreadable link, or on a repeated target, and each of those
+# also makes the -f guard fail, so a file that passes -f always
+# resolves (probe /tmp/m7-hop-probe.pl: a forty-link chain passes
+# both checks, a forty-one-link chain and a loop fail both).
+
+require Developer::Dashboard::CLI::Which;
+require Developer::Dashboard::DockerCompose;
+require Developer::Dashboard::CLI::Ticket;
+require Developer::Dashboard::CommandRunner;
+require Developer::Dashboard::CLI::RuntimeControl;
+require Developer::Dashboard::CLI::Paths;
+require Capture::Tiny;
+
+{
+    package M7::FakePaths;
+    sub runtime_layers { return (); }
+}
+
+{
+    # 13a1. B 279 true: a bare entrypoint that resolves on PATH.
+    local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = 'perl';
+    my @m7_cmd = Developer::Dashboard::CLI::Which::_dashboard_entry_command();
+    is( scalar @m7_cmd, 1, 'section 13: a resolving entrypoint returns one command' );
+    ok( -x $m7_cmd[0], 'section 13: a resolving entrypoint returns an executable' );
+}
+
+{
+    # 13a2. B 279 false + B 281 false + B 282 false: an unresolvable
+    # bare entrypoint and a missing $0 fall through to the entrypoint.
+    local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = 'm7-no-such-entrypoint';
+    local $0 = '/nonexistent/m7-self';
+    my @m7_cmd = Developer::Dashboard::CLI::Which::_dashboard_entry_command();
+    is_deeply( \@m7_cmd, ['m7-no-such-entrypoint'],
+        'section 13: an unresolvable entrypoint with a missing self returns the entrypoint' );
+}
+
+{
+    # 13a3. B 281 true + C 281 l&&r: an unresolvable bare entrypoint
+    # and a non-executable $0 return the Perl interpreter plus $0.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_self = File::Spec->catfile( $m7_tmp, 'm7-self.pl' );
+    open my $m7_w, '>', $m7_self or die "Unable to write $m7_self: $!";
+    print {$m7_w} "1;\n";
+    close $m7_w or die "Unable to close: $!";
+    local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = 'm7-no-such-entrypoint';
+    local $0 = $m7_self;
+    my @m7_cmd = Developer::Dashboard::CLI::Which::_dashboard_entry_command();
+    is_deeply( \@m7_cmd, [ $^X, $m7_self ],
+        'section 13: an unresolvable entrypoint with a plain self returns perl plus self' );
+}
+
+{
+    # 13a4. B 281 false (C 281 l&&!r) + B 282 true: an unresolvable
+    # bare entrypoint and an executable $0 return $0 itself.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_self = File::Spec->catfile( $m7_tmp, 'm7-self.pl' );
+    open my $m7_w, '>', $m7_self or die "Unable to write $m7_self: $!";
+    print {$m7_w} "#!$^X\n1;\n";
+    close $m7_w or die "Unable to close: $!";
+    chmod 0755, $m7_self or die "Unable to chmod $m7_self: $!";
+    local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = 'm7-no-such-entrypoint';
+    local $0 = $m7_self;
+    my @m7_cmd = Developer::Dashboard::CLI::Which::_dashboard_entry_command();
+    is_deeply( \@m7_cmd, [$m7_self],
+        'section 13: an unresolvable entrypoint with an executable self returns self' );
+}
+
+{
+    # 13b1. B 294 true + B 303 true: on a localised Windows a
+    # bad-interpreter command makes system return -1 and the sub die.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_bad = File::Spec->catfile( $m7_tmp, 'm7-badinterp' );
+    open my $m7_w, '>', $m7_bad or die "Unable to write $m7_bad: $!";
+    print {$m7_w} "#!/nonexistent/m7-interp\n";
+    close $m7_w or die "Unable to close: $!";
+    chmod 0755, $m7_bad or die "Unable to chmod $m7_bad: $!";
+    local $^O = 'MSWin32';
+    my $m7_died = eval { Developer::Dashboard::CLI::Which::_command_exec($m7_bad); 1 };
+    ok( !$m7_died, 'section 13: a bad-interpreter command dies instead of exiting' );
+    like( $@, qr/Unable to run command/, 'section 13: the bad-interpreter die names the command' );
+}
+
+{
+    # 13c1. C 56 l: undef args return at once.
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command(undef);
+    ok( 1, 'section 13: undef compose args rewrite to nothing' );
+}
+
+{
+    # 13c2. C 56 !l&&r: fewer than three args return at once.
+    my @m7_args = ( '-f', 'x' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is_deeply( \@m7_args, [ '-f', 'x' ], 'section 13: short compose args are left alone' );
+}
+
+{
+    # 13c3. C 62 l: an undef token ends the global-flag scan.
+    my @m7_args = ( undef, 'exec', 'svc', 'dashboard' );
+    {
+        local $SIG{__WARN__} = sub { };
+        Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    }
+    is_deeply( \@m7_args, [ undef, 'exec', 'svc', 'dashboard' ],
+        'section 13: an undef global token leaves the args alone' );
+}
+
+{
+    # 13c4. C 62 !l&&r: an empty token ends the global-flag scan.
+    my @m7_args = ( '', 'exec', 'svc', 'dashboard' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is_deeply( \@m7_args, [ '', 'exec', 'svc', 'dashboard' ],
+        'section 13: an empty global token leaves the args alone' );
+}
+
+{
+    # 13c5. C 63 l + C 73 !l&&!r + B 73 false + B 79 true + C 79 !l&&!r
+    # + B 91 true + C 91 l&&r: a --name=value global flag, then exec,
+    # a service, and dashboard, which is rewritten to d2.
+    my @m7_args = ( '--project-name=foo', 'exec', 'svc', 'dashboard' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is( $m7_args[3], 'd2', 'section 13: dashboard after a valued global flag becomes d2' );
+}
+
+{
+    # 13c6. C 63 !l&&r: a -pVALUE global flag, then the same rewrite.
+    my @m7_args = ( '-pfoo', 'exec', 'svc', 'dashboard' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is( $m7_args[3], 'd2', 'section 13: dashboard after a -p flag becomes d2' );
+}
+
+{
+    # 13c7. C 63 !l&&!r: another dash flag, then the same rewrite.
+    my @m7_args = ( '-x', 'exec', 'svc', 'dashboard' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is( $m7_args[3], 'd2', 'section 13: dashboard after an unknown flag becomes d2' );
+}
+
+{
+    # 13c8. C 73 l: flags run past the end of the args.
+    my @m7_args = ( '-f', 'x', '-p' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is_deeply( \@m7_args, [ '-f', 'x', '-p' ], 'section 13: flags past the end leave the args alone' );
+}
+
+{
+    # 13c9. C 73 !l&&r + B 73 true: a non-exec operation returns.
+    my @m7_args = ( '-f', 'x', 'up' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is_deeply( \@m7_args, [ '-f', 'x', 'up' ], 'section 13: a non-exec operation is left alone' );
+}
+
+{
+    # 13c10. C 79 l: an undef token ends the exec-flag scan.
+    my @m7_args = ( 'exec', undef, 'svc', 'dashboard' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is_deeply( \@m7_args, [ 'exec', undef, 'svc', 'dashboard' ],
+        'section 13: an undef exec token leaves the args alone' );
+}
+
+{
+    # 13c11. C 79 !l&&r: an empty token ends the exec-flag scan.
+    my @m7_args = ( 'exec', '', 'svc', 'dashboard' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is_deeply( \@m7_args, [ 'exec', '', 'svc', 'dashboard' ],
+        'section 13: an empty exec token leaves the args alone' );
+}
+
+{
+    # 13c12. B 80 true: an exec flag that takes a value is skipped
+    # with its value, then dashboard is rewritten.
+    my @m7_args = ( 'exec', '-e', 'FOO=1', 'svc', 'dashboard' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is( $m7_args[4], 'd2', 'section 13: dashboard after a valued exec flag becomes d2' );
+}
+
+{
+    # 13c13. B 80 false: a --flag=value exec flag is skipped alone,
+    # then dashboard is rewritten.
+    my @m7_args = ( 'exec', '--env=FOO=1', 'svc', 'dashboard' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is( $m7_args[3], 'd2', 'section 13: dashboard after a valued exec flag spelling becomes d2' );
+}
+
+{
+    # 13c14. C 91 !l: the service is the last token, so there is no
+    # command to rewrite. The args must still number three or more:
+    # a two-token call returns at the count guard before line 91,
+    # so the service sits last after a valued exec flag instead.
+    my @m7_args = ( 'exec', '-e', 'FOO=1', 'svc' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is_deeply( \@m7_args, [ 'exec', '-e', 'FOO=1', 'svc' ],
+        'section 13: a trailing service is left alone' );
+}
+
+{
+    # 13c15. C 91 l&&!r: the token after the service is undef.
+    my @m7_args = ( 'exec', 'svc', undef );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is_deeply( \@m7_args, [ 'exec', 'svc', undef ],
+        'section 13: an undef command after the service is left alone' );
+}
+
+{
+    # 13c16. C 62 !l&&!r: a flag that takes a value is skipped with
+    # its value, then dashboard is rewritten.
+    my @m7_args = ( '-f', 'x', 'exec', 'svc', 'dashboard' );
+    Developer::Dashboard::DockerCompose::_rewrite_exec_dashboard_command( \@m7_args );
+    is( $m7_args[4], 'd2', 'section 13: dashboard after a file flag becomes d2' );
+}
+
+{
+    # 13d1. B 1166 true: a fake docker prints canned config, then the
+    # tempfile call is stubbed to die for the merged-compose template
+    # (delegating other calls to the real tempfile, so the Capture::Tiny
+    # capture inside the same sub keeps working), and the sub dies
+    # naming the temporary file.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_bin = File::Spec->catdir( $m7_tmp, 'bin' );
+    File::Path::make_path($m7_bin) or die "Unable to make $m7_bin: $!";
+    my $m7_docker = File::Spec->catfile( $m7_bin, 'docker' );
+    open my $m7_w, '>', $m7_docker or die "Unable to write $m7_docker: $!";
+    print {$m7_w} "#!/bin/sh\nprintf 'services:\\n  web:\\n    image: m7-test\\n'\nexit 0\n";
+    close $m7_w or die "Unable to close: $!";
+    chmod 0755, $m7_docker or die "Unable to chmod $m7_docker: $!";
+    my $m7_base = File::Spec->catfile( $m7_tmp, 'compose.yml' );
+    open my $m7_b, '>', $m7_base or die "Unable to write $m7_base: $!";
+    print {$m7_b} "services:\n  web:\n    image: m7-test\n";
+    close $m7_b or die "Unable to close: $!";
+    my $m7_dc = bless {
+        config => {},
+        paths  => bless( {}, 'M7::FakePaths' ),
+    }, 'Developer::Dashboard::DockerCompose';
+    my $m7_resolved = {
+        command       => [ 'docker', 'compose', 'up' ],
+        compose_args  => [],
+        compose_root  => $m7_tmp,
+        project_root  => $m7_tmp,
+        base_files    => [$m7_base],
+        project_files => [],
+        service_files => [],
+        addon_files   => [],
+        mode_files    => [],
+        service_map   => {},
+        modes         => [],
+        env           => {},
+    };
+    local $ENV{PATH} = "$m7_bin:$ENV{PATH}";
+    my $m7_orig_tempfile = \&File::Temp::tempfile;
+    local *File::Temp::tempfile = sub {
+        die "m7-tempfile-fail\n" if defined $_[0] && $_[0] =~ /merged-compose/;
+        return $m7_orig_tempfile->(@_);
+    };
+    my $m7_ok = eval { $m7_dc->_materialized_command($m7_resolved); 1 };
+    ok( !$m7_ok, 'section 13: a missing TMPDIR dies while materializing compose' );
+    like( $@, qr/Unable to create temporary merged Compose file/,
+        'section 13: the materialize die names the temporary file' );
+}
+
+{
+    # 13e1. B 274 true + B 288 true: on a localised Windows with an
+    # emptied PATH, tmux does not resolve and the exec returns false.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    local $^O = 'MSWin32';
+    local $ENV{PATH} = $m7_tmp;
+    local $SIG{__WARN__} = sub { };
+    my $m7_rc = Developer::Dashboard::CLI::Ticket::_exec_tmux( 'attach-session', '-t', 'm7' );
+    is( $m7_rc, 0, 'section 13: an unresolvable tmux returns false' );
+}
+
+{
+    # 13e2. B 288 false + B 299 true + C 299 l: a bad-interpreter fake
+    # tmux resolves, system returns -1, and the exec returns false.
+    # The fake must carry a Windows extension (.bat): under a localised
+    # $^O, command_in_path_direct only returns .com/.exe/.bat/.cmd
+    # candidates, so an extensionless fake never resolves.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_bin = File::Spec->catdir( $m7_tmp, 'bin' );
+    File::Path::make_path($m7_bin) or die "Unable to make $m7_bin: $!";
+    my $m7_tmux = File::Spec->catfile( $m7_bin, 'tmux.bat' );
+    open my $m7_w, '>', $m7_tmux or die "Unable to write $m7_tmux: $!";
+    print {$m7_w} "#!/nonexistent/m7-interp\n";
+    close $m7_w or die "Unable to close: $!";
+    chmod 0755, $m7_tmux or die "Unable to chmod $m7_tmux: $!";
+    local $^O = 'MSWin32';
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    local $ENV{PATH} = "$m7_bin:$ENV{PATH}";
+    local $SIG{__WARN__} = sub { };
+    my $m7_rc = Developer::Dashboard::CLI::Ticket::_exec_tmux( 'attach-session', '-t', 'm7' );
+    is( $m7_rc, 0, 'section 13: a bad-interpreter tmux returns false' );
+}
+
+{
+    # 13f1. C 482 !l: HOME undef falls through to USERPROFILE.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    local $ENV{HOME};
+    local $ENV{USERPROFILE} = $m7_tmp;
+    is( Developer::Dashboard::CLI::Ticket::_workspace_env_home(),
+        Developer::Dashboard::EnvLoader->_path_identity($m7_tmp),
+        'section 13: an unset HOME falls through to USERPROFILE' );
+}
+
+{
+    # 13f2. C 482 l&&!r: an empty HOME falls through to USERPROFILE.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = '';
+    local $ENV{USERPROFILE} = $m7_tmp;
+    is( Developer::Dashboard::CLI::Ticket::_workspace_env_home(),
+        Developer::Dashboard::EnvLoader->_path_identity($m7_tmp),
+        'section 13: an empty HOME falls through to USERPROFILE' );
+}
+
+{
+    # 13f3. C 486 !l + B 491 true + C 491 l&&r: HOME and USERPROFILE
+    # unset, HOMEDRIVE and HOMEPATH set, so the drive path is used.
+    my $m7_home = File::Spec->catdir( 'C:', '\Users\m7' );
+    local $ENV{HOME};
+    local $ENV{USERPROFILE};
+    local $ENV{HOMEDRIVE} = 'C:';
+    local $ENV{HOMEPATH} = '\Users\m7';
+    is( Developer::Dashboard::CLI::Ticket::_workspace_env_home(),
+        Developer::Dashboard::EnvLoader->_path_identity($m7_home),
+        'section 13: unset HOME and USERPROFILE fall through to the drive path' );
+}
+
+{
+    # 13f4. C 486 l&&!r: an empty USERPROFILE falls through to the
+    # drive path.
+    my $m7_home = File::Spec->catdir( 'C:', '\Users\m7' );
+    local $ENV{HOME};
+    local $ENV{USERPROFILE} = '';
+    local $ENV{HOMEDRIVE} = 'C:';
+    local $ENV{HOMEPATH} = '\Users\m7';
+    is( Developer::Dashboard::CLI::Ticket::_workspace_env_home(),
+        Developer::Dashboard::EnvLoader->_path_identity($m7_home),
+        'section 13: an empty USERPROFILE falls through to the drive path' );
+}
+
+{
+    # 13f5. C 491 !l: HOMEDRIVE unset, so no home resolves.
+    local $ENV{HOME};
+    local $ENV{USERPROFILE};
+    local $ENV{HOMEDRIVE};
+    local $ENV{HOMEPATH} = '\Users\m7';
+    is( Developer::Dashboard::CLI::Ticket::_workspace_env_home(), '',
+        'section 13: an unset HOMEDRIVE resolves no home' );
+}
+
+{
+    # 13f6. C 491 l&&!r: an empty HOMEDRIVE, so no home resolves.
+    local $ENV{HOME};
+    local $ENV{USERPROFILE};
+    local $ENV{HOMEDRIVE} = '';
+    local $ENV{HOMEPATH} = '\Users\m7';
+    is( Developer::Dashboard::CLI::Ticket::_workspace_env_home(), '',
+        'section 13: an empty HOMEDRIVE resolves no home' );
+}
+
+{
+    # 13f7. C 519 !l: no home resolves, so the env-file walk runs to
+    # the filesystem root and still finds the .env in the cwd.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_dir = Developer::Dashboard::EnvLoader->_path_identity($m7_tmp);
+    my $m7_env = File::Spec->catfile( $m7_dir, '.env' );
+    open my $m7_w, '>', $m7_env or die "Unable to write $m7_env: $!";
+    print {$m7_w} "M7_TEST=1\n";
+    close $m7_w or die "Unable to close: $!";
+    local $ENV{HOME};
+    local $ENV{USERPROFILE};
+    local $ENV{HOMEDRIVE};
+    local $ENV{HOMEPATH};
+    my @m7_files = Developer::Dashboard::CLI::Ticket::_workspace_env_files( cwd => $m7_dir );
+    ok( ( grep { $_ eq $m7_env } @m7_files ),
+        'section 13: with no home the walk still finds the cwd env file' );
+}
+
+{
+    # 13g1. B 249 true: terminate_command_process on a fake pid under
+    # a localised $OS_NAME takes the Windows branch; taskkill is not
+    # found on Unix, the pid is not a spawn child, and it returns 1.
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    is( Developer::Dashboard::CommandRunner::terminate_command_process(999999), 1,
+        'section 13: terminating a fake pid on Windows returns true' );
+}
+
+{
+    # 13h1. B 179 true: a stubbed _read_log_sources plus a localised
+    # $^O makes _run_log_command hit the STDOUT binmode.
+    local *Developer::Dashboard::CLI::RuntimeControl::_read_log_sources = sub {
+        return { web => "m7 log line\n" };
+    };
+    local $^O = 'MSWin32';
+    my $m7_rc;
+    my ( $m7_out, $m7_err ) = Capture::Tiny::capture( sub {
+        $m7_rc = Developer::Dashboard::CLI::RuntimeControl::_run_log_command(
+            args => [], runtime => undef, config => undef, collectors => undef,
+        );
+    } );
+    is( $m7_rc, 0, 'section 13: the stubbed log command returns zero' );
+    like( $m7_out, qr/m7 log line/, 'section 13: the stubbed log command prints the log line' );
+}
+
+{
+    # 13h2. B 291 true: a stubbed _read_log_sources returning new
+    # content plus a localised $^O makes the follow loop hit its
+    # STDOUT binmode; an alarm dies inside an eval to stop the loop.
+    local *Developer::Dashboard::CLI::RuntimeControl::_read_log_sources = sub {
+        return { web => "m7 follow line\n" };
+    };
+    local $^O = 'MSWin32';
+    local $SIG{ALRM} = sub { die "m7-follow-done\n" };
+    my $m7_err;
+    my ( $m7_out, $m7_warn ) = Capture::Tiny::capture( sub {
+        eval {
+            alarm(1);
+            Developer::Dashboard::CLI::RuntimeControl::_follow_log_sources(
+                sources => { web => '' }, scope => 'all', name => undef,
+                runtime => undef, config => undef, collectors => undef,
+                timestamps => 0,
+            );
+            alarm(0);
+        };
+        $m7_err = $@;
+    } );
+    like( $m7_err, qr/m7-follow-done/, 'section 13: the follow loop stops on the alarm' );
+    like( $m7_out, qr/m7 follow line/, 'section 13: the follow loop prints the new log line' );
+}
+
+{
+    # 13i1. B 573 false: a symlink loop as the skill lib makes the
+    # load die because the lib path does not resolve.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_file = File::Spec->catfile( $m7_tmp, 'Folder.pm' );
+    open my $m7_w, '>', $m7_file or die "Unable to write $m7_file: $!";
+    print {$m7_w} "1;\n";
+    close $m7_w or die "Unable to close: $!";
+    my $m7_loop_a = File::Spec->catfile( $m7_tmp, 'loop-a' );
+    my $m7_loop_b = File::Spec->catfile( $m7_tmp, 'loop-b' );
+    symlink $m7_loop_b, $m7_loop_a or die "Unable to link $m7_loop_a: $!";
+    symlink $m7_loop_a, $m7_loop_b or die "Unable to link $m7_loop_b: $!";
+    my $m7_ok = eval {
+        Developer::Dashboard::CLI::Paths::_load_skill_folder_module( {
+            dir  => $m7_tmp,
+            lib  => $m7_loop_a,
+            file => $m7_file,
+        } );
+        1;
+    };
+    ok( !$m7_ok, 'section 13: a looped skill lib dies instead of loading' );
+    like( $@, qr/Unable to resolve skill Folder\.pm/,
+        'section 13: the looped lib die names the skill file' );
+}
+
+# Section 14: OpenFile, OpenFileGrep, PathRegistry, Web/App, Prompt,
+# GoRoutine END drain (M7 tail, R178).
+# Windows simulation in this section localises
+# $Developer::Dashboard::Platform::OS_NAME, which is what
+# is_windows() reads. Localising $^O alone does NOT move it ($OS_NAME
+# is a package variable initialised from $^O at load time), and the
+# first 14a run proved it: a bare $^O localisation let _exec_raw take
+# the Unix branch and run the real tmux, which exited the test
+# process. Code that reads $^O directly (Watch, OpenFileChooser,
+# RuntimeControl, _native_windows_paths) still uses local $^O.
+# OpenFile: B 319 false (a File::Find scope of '.' keeps the './'
+# prefix on matches, so canonpath is skipped), B 549 true (a bare
+# unresolvable editor) + false (a bad-interpreter .bat editor
+# resolves under a localised $^O; the fake must carry a Windows
+# extension, because command_in_path_direct only returns
+# .com/.exe/.bat/.cmd candidates there), B 562 true + C 562 l
+# (system returns -1), C 501 l&&!r (file-descriptor exhaustion makes
+# the shebang open fail while -f still passes; this VM runs as root,
+# so a chmod-000 file opens fine and cannot drive this cell). S
+# __ANON__@558 and C 562 !l&&r + !l&&!r and B 562 false are
+# UNCOVERABLE: block-form system() never warns (probe
+# /tmp/m7-syswarn-probe.pl) and never leaves $! set on a
+# non-minus-1 return, and the success path calls exit() - B 562
+# false IS the success path (rc != -1 and $! empty), so
+# evaluating it ends the test process; the or-3 remainder is
+# carve-out (2).
+# OpenFileGrep: C 303 !l&&r and C 382 l&&!r are UNCOVERABLE. C 303:
+# $positional_pattern_seen is set only on the same branch that pushes
+# a pattern (OpenFileGrep.pm:303-305), so patterns can never be empty
+# while the flag is true. C 382: stat never returns a partial result
+# (dev defined, ino undef is impossible; section 12 probe).
+# PathRegistry: B 1833 + S __ANON__@1832 are UNCOVERABLE in this
+# file (the helpers are already loaded before section 14, so the
+# reload path cannot run; proved by a truncated run of sections 1-13),
+# B 1968 true + C 1968 l + !l&&r + !l&&!r
+# (secure_path_permissions with undef, an empty string, and a missing
+# path), C 831 l (a stubbed directory inventory with skills_root 'C:'
+# _native_windows_paths true in _write_state_metadata on an existing
+# file). B 1860, B 1861, B 1886 and B 1887 are UNCOVERABLE on Unix:
+# is_real_windows reads a load-time lexical, so the Windows ACL
+# branches never run here; they run for real on the Windows legs.
+# C 831 !l&&r is UNCOVERABLE: the name regex captures one or more
+# non-slash characters, so $name is never an empty string.
+# Web/App: B 3267 true (readdir on a closed handle sets $!), B 3277
+# true (closedir on a closed handle fails), B 4419 true + B 4427 true
+# + false + B 4428 true + false (a localised is_windows with public
+# roots '/' and a temp dir; the file lives in the second root, so the
+# '/' root fires B 4427 false and B 4428 true, and the temp root
+# fires B 4427 true and B 4428 false). C 4169, C 4206 and C 4250
+# !l&&r are UNCOVERABLE: command_in_path returns undef or a real
+# path, never an empty string.
+# Prompt: C 49 + C 59 l&&!r (a fake paths object whose home returns
+# undef). C 48 is UNCOVERABLE: current_working_directory never
+# returns undef; it falls back to Cwd::cwd, which returns an empty
+# string when getcwd fails (probe /tmp/m7-cwd-probe.pl). C 59 !l is
+# UNCOVERABLE: $home_for_match is "$home // ''", always defined.
+# GoRoutine END drain: B 1009 false + B 1013 true (an immediate
+# routine registered after the last pump, whose callback, dispatched
+# during the drain's pump, registers a new repeating routine; the
+# drain's next pass cancels it and re-filters to empty). The pump
+# bound is computed before the callback runs, so the new routine is
+# still pending when the next pass sees it.
+# Which B 304 and C 304 (section 13) stay open: the exit ternary
+# cannot be evaluated in-process without ending the test run. Flagged
+# to Faye with the section 14 report.
+
+require Developer::Dashboard::CLI::OpenFile;
+require Developer::Dashboard::CLI::OpenFileGrep;
+require Developer::Dashboard::Web::App;
+require Developer::Dashboard::Prompt;
+
+{
+    package M7::FakePromptPaths;
+    sub project_root_for { return undef; }
+    sub home { return undef; }
+}
+
+{
+    # 14a1. B 319 false: a File::Find scope of '.' visits files whose
+    # names start with './', so canonpath is skipped and the leading
+    # dot is kept on the match.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_home = File::Spec->catdir( $m7_tmp, 'home' );
+    File::Path::make_path($m7_home) or die "Unable to make $m7_home: $!";
+    for my $m7_name (qw(m7-a.txt m7-b.txt)) {
+        open my $m7_w, '>', File::Spec->catfile( $m7_tmp, $m7_name )
+          or die "Unable to write $m7_name: $!";
+        print {$m7_w} "m7\n";
+        close $m7_w or die "Unable to close: $!";
+    }
+    my $m7_paths = Developer::Dashboard::PathRegistry->new( home => $m7_home );
+    my $m7_orig = Developer::Dashboard::PathIdentity::current_working_directory();
+    my ( $m7_line, @m7_found );
+    my $m7_err = '';
+    chdir $m7_tmp or die "Unable to chdir $m7_tmp: $!";
+    eval {
+        ( $m7_line, @m7_found ) = Developer::Dashboard::CLI::OpenFile::_resolve_open_file_matches(
+            paths => $m7_paths, args => ['.'],
+        );
+        1;
+    } or $m7_err = $@;
+    chdir $m7_orig or die "Unable to chdir $m7_orig: $!";
+    ok( !$m7_err, 'section 14: a dot scope resolves without dying' ) or diag($m7_err);
+    ok( ( grep { $_ eq './m7-a.txt' } @m7_found ),
+        'section 14: a dot scope keeps the leading dot on matches' );
+}
+
+{
+    # 14a2. B 549 true: a bare unresolvable editor makes the raw exec
+    # return false on a localised Windows.
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    local $SIG{__WARN__} = sub { };
+    is( Developer::Dashboard::CLI::OpenFile::_exec_raw('m7-no-such-editor'), 0,
+        'section 14: an unresolvable editor returns false' );
+}
+
+{
+    # 14a3. B 549 false + B 562 true + C 562 l: a bad-interpreter
+    # .bat editor resolves, system returns -1, and the raw exec
+    # returns false.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_bin = File::Spec->catdir( $m7_tmp, 'bin' );
+    File::Path::make_path($m7_bin) or die "Unable to make $m7_bin: $!";
+    my $m7_editor = File::Spec->catfile( $m7_bin, 'm7-editor.bat' );
+    open my $m7_w, '>', $m7_editor or die "Unable to write $m7_editor: $!";
+    print {$m7_w} "#!/nonexistent/m7-interp\n";
+    close $m7_w or die "Unable to close: $!";
+    chmod 0755, $m7_editor or die "Unable to chmod $m7_editor: $!";
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    local $ENV{PATH} = "$m7_bin:$ENV{PATH}";
+    local $SIG{__WARN__} = sub { };
+    is( Developer::Dashboard::CLI::OpenFile::_exec_raw('m7-editor'), 0,
+        'section 14: a bad-interpreter editor returns false' );
+}
+
+{
+    # 14a4. C 501 l&&!r: with every file descriptor held, the shebang
+    # open fails while -f still passes, so _command_exec dies after
+    # the raw exec returns false.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_cmd = File::Spec->catfile( $m7_tmp, 'm7-cmd.txt' );
+    open my $m7_w, '>', $m7_cmd or die "Unable to write $m7_cmd: $!";
+    print {$m7_w} "hello\n";
+    close $m7_w or die "Unable to close: $!";
+    my @m7_held;
+    while (1) {
+        my $m7_ok = open my $m7_fh, '<', '/dev/null';
+        last if !$m7_ok;
+        push @m7_held, $m7_fh;
+    }
+    my $m7_died = '';
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        local $SIG{__WARN__} = sub { };
+        $m7_died = eval { Developer::Dashboard::CLI::OpenFile::_command_exec($m7_cmd); 1 } ? '' : $@;
+    }
+    close $_ for @m7_held;
+    like( $m7_died, qr/Unable to run command/,
+        'section 14: a command with no readable shebang dies instead of exiting' );
+}
+
+{
+    # 14c1. B 1833 + S __ANON__@1832 are UNCOVERABLE in this file.
+    # The handler only runs when Platform->can('is_real_windows') is
+    # false AND the helpers are not yet loaded, but the helpers are
+    # already loaded before section 14: the import in
+    # _load_platform_helpers has run, so
+    # PathRegistry::is_real_windows is defined. Proved by a truncated
+    # run of sections 1-13 (/tmp/m7-trunc.t): defined
+    # PathRegistry::is_real_windows was 1 after section 13. The
+    # reload path needs a process that calls _load_platform_helpers
+    # before anything else loads the helpers; this file is not one.
+    # This test pins that premise so the claim stays checked.
+    ok( defined &Developer::Dashboard::PathRegistry::is_real_windows,
+        'section 14: the platform helpers are already loaded before section 14' );
+}
+
+{
+    # 14c2. C 831 l: a stubbed directory inventory with skills_root
+    # 'C:' and names [''] yields a root with no extractable name, so
+    # the nested entry is skipped.
+    local *Developer::Dashboard::PathRegistry::_installed_skill_directory_inventory = sub {
+        return ( { skills_root => 'C:', names => [''] } );
+    };
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_paths = Developer::Dashboard::PathRegistry->new( home => $m7_tmp );
+    my @m7_entries = $m7_paths->nested_skill_entries();
+    is( scalar @m7_entries, 0, 'section 14: a root with no name yields no nested skill entries' );
+}
+
+{
+    # 14c3. B 1968 true + C 1968 l + !l&&r + !l&&!r:
+    # secure_path_permissions returns an undef, empty, or missing
+    # path at once.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_paths = Developer::Dashboard::PathRegistry->new( home => $m7_tmp );
+    is( $m7_paths->secure_path_permissions(undef), undef,
+        'section 14: an undef path is returned at once' );
+    is( $m7_paths->secure_path_permissions(''), '',
+        'section 14: an empty path is returned at once' );
+    is( $m7_paths->secure_path_permissions('/nonexistent/m7-path'), '/nonexistent/m7-path',
+        'section 14: a missing path is returned at once' );
+}
+
+{
+    # 14c4. C 1186 l: a localised $^O makes _native_windows_paths
+    # true in _write_state_metadata on an existing file, so the
+    # stored content is read and the file returned.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_home = File::Spec->catdir( $m7_tmp, 'home' );
+    File::Path::make_path($m7_home) or die "Unable to make $m7_home: $!";
+    my $m7_paths = Developer::Dashboard::PathRegistry->new( home => $m7_home );
+    my $m7_dir = File::Spec->catdir( $m7_tmp, 'state' );
+    my $m7_file = File::Spec->catfile( $m7_dir, 'runtime.json' );
+    my $m7_first = $m7_paths->_write_state_metadata( $m7_dir, $m7_tmp );
+    is( $m7_first, $m7_file, 'section 14: the first metadata write returns the file' );
+    local $^O = 'MSWin32';
+    my $m7_second = $m7_paths->_write_state_metadata( $m7_dir, $m7_tmp );
+    is( $m7_second, $m7_file, 'section 14: the metadata write on Windows returns the existing file' );
+}
+
+{
+    # 14d1. B 3267 true: readdir on a closed handle sets $!, so the
+    # read dies.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_app = bless {}, 'Developer::Dashboard::Web::App';
+    opendir my $m7_dh, $m7_tmp or die "Unable to open $m7_tmp: $!";
+    closedir $m7_dh or die "Unable to close: $!";
+    my $m7_died = '';
+    {
+        local $SIG{__WARN__} = sub { };
+        $m7_died = eval { $m7_app->_read_nav_directory_entries( $m7_dh, $m7_tmp ); 1 } ? '' : $@;
+    }
+    like( $m7_died, qr/Unable to read saved navigation directory/,
+        'section 14: reading a closed navigation directory dies' );
+}
+
+{
+    # 14d2. B 3277 true: closedir on a closed handle fails, so the
+    # close dies.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_app = bless {}, 'Developer::Dashboard::Web::App';
+    opendir my $m7_dh, $m7_tmp or die "Unable to open $m7_tmp: $!";
+    closedir $m7_dh or die "Unable to close: $!";
+    my $m7_died = '';
+    {
+        local $SIG{__WARN__} = sub { };
+        $m7_died = eval { $m7_app->_close_nav_directory( $m7_dh, $m7_tmp ); 1 } ? '' : $@;
+    }
+    like( $m7_died, qr/Unable to close saved navigation directory/,
+        'section 14: closing a closed navigation directory dies' );
+}
+
+{
+    # 14d3. B 4419 true + B 4427 true + false + B 4428 true + false:
+    # on a localised Windows, public roots '/' and a temp dir, with
+    # the file in the second root. The '/' root fires B 4427 false
+    # and B 4428 true (its prefix check needs a '//' that never
+    # matches), and the temp root fires B 4427 true and B 4428 false
+    # and serves the file.
+    my $m7_tmp = tempdir( CLEANUP => 1 );
+    my $m7_file = File::Spec->catfile( $m7_tmp, 'm7-file.txt' );
+    open my $m7_w, '>', $m7_file or die "Unable to write $m7_file: $!";
+    print {$m7_w} "m7-static\n";
+    close $m7_w or die "Unable to close: $!";
+    my $m7_app = bless {}, 'Developer::Dashboard::Web::App';
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    my $m7_res = $m7_app->_serve_static_file_from_roots( 'js', 'm7-file.txt', '/', $m7_tmp );
+    is( $m7_res->[0], 200, 'section 14: a static file in the second root serves' );
+    is( $m7_res->[2], "m7-static\n", 'section 14: the served static file holds its content' );
+}
+
+{
+    # 14e1. C 49 + C 59 l&&!r: a fake paths object whose home returns
+    # undef makes the prompt use the empty home for matching.
+    my $m7_prompt = Developer::Dashboard::Prompt->new(
+        indicators => {},
+        paths      => bless( {}, 'M7::FakePromptPaths' ),
+    );
+    my $m7_cwd = Developer::Dashboard::PathIdentity::current_working_directory();
+    my $m7_text = $m7_prompt->render( no_indicators => 1 );
+    like( $m7_text, qr/\[\Q$m7_cwd\E\]/,
+        'section 14: a prompt with no home shows the working directory' );
+}
+
+{
+    # 14f1. B 1009 false + B 1013 true: an immediate routine
+    # registered after the last pump, whose callback, dispatched
+    # during the END drain's pump, registers a new repeating routine;
+    # the drain's next pass cancels it and re-filters to empty. This
+    # is the last test action in the file: no pump runs between here
+    # and process exit, so the routine is still pending when the END
+    # block drains it.
+    Developer::Dashboard::GoRoutine::go( sub {
+        Developer::Dashboard::GoRoutine::go( sub { return; }, { every => 0.05 } );
+    } );
+    ok( 1, 'section 14: the END-drain routine is registered' );
+}
+
+done_testing();
+
+__END__
+
+=head1 NAME
+
+t/1011-m7-tail.t - M7 tail coverage for the Developer Dashboard (R178)
+
+=head1 PURPOSE
+
+Cover every uncovered branch cell, condition cell, and uncovered sub
+left by cover run 19 across the tail modules, so branch and condition
+coverage reach 98.0. The file is the last M7 test file: sections 1 to
+9 cover the first groups, sections 10 and 11 the Collector, TimeUtils,
+Result, Config, InternalCLI, Upgrade, Ask, and EnvLoader groups,
+section 12 the StreamDrain, Watch, PathIdentity, PerlEnv, PageStore,
+and OpenFileChooser groups, section 13 the Which, DockerCompose,
+Ticket, ActionRunner, RuntimeControl, and Paths groups, and section
+14 the OpenFile, OpenFileGrep, PathRegistry, Web/App, Prompt, and
+GoRoutine END-drain groups. Cells that cannot be reached in-process
+are documented in the section headers with probe evidence instead of
+being faked: the five carve-outs, the exit paths in Which and
+OpenFile, the warn handlers that block-form system() never calls, the
+empty-string results command_in_path never returns, and the
+load-time Windows checks that only run on the Windows legs.
+
+=head1 WHY IT EXISTS
+
+Cover run 19 left 330 uncovered branch cells, 177 uncovered condition
+cells, and 14 uncovered subs across 35 modules, and the gate reads
+only the ARM64 report, so the Windows-only cells in that list still
+need a Unix-side proof or a documented reason they cannot fire here.
+Without these tests the tail stays uncovered and the gate stays below
+98.0. The tests pin the exact triggers (a bad-interpreter executable
+for the -1 paths, a symlink loop for the unresolvable paths, a deleted
+working directory for the cwd fallback, file-descriptor exhaustion
+for the unreadable shebang) so a later change that breaks a trigger
+fails here instead of silently dropping coverage.
+
+=head1 WHEN TO USE
+
+When a cover run shows a tail cell uncovered again, when a module in
+sections 12 to 14 changes its branching, or when a new carve-out is
+proposed and needs probe evidence before it is accepted. Also when
+the Windows legs report a cell this file claims is uncoverable on
+Unix, to check the claim still holds.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/1011-m7-tail.t> while iterating,
+then keep it green under C<prove -lr t> before release. It runs
+in-process only: no child process counts toward coverage, so every
+cell is driven inside the test process with localised variables,
+stubbed subs, fake executables on a prepended PATH, and temp
+directories. The local run recipe is C<perl -Ilib -Iblib/lib
+-Iblib/arch t/1011-m7-tail.t> with PERL5LIB holding both the user
+CPAN lib and the checkout local lib. The local cover recipe is
+C<PERL5OPT=-MDevel::Cover PERL5LIB=&lt;repo&gt;/local/lib/perl5 perl
+-Ilib -Iblib/lib -Iblib/arch t/1011-m7-tail.t> followed by
+C<PERL5LIB=&lt;repo&gt;/local/lib/perl5 ./local/bin/cover -report text
+-coverage branch -coverage condition>, then a union check against the
+cover 19 console for every remaining gap cell.
+
+=head1 WHAT USES IT
+
+It is used by the M7 coverage programme (R178) and the Jenkins cover
+job, which gates branch and condition coverage at 98.0, and by anyone
+changing the tail modules who needs to know the uncovered cells still
+hold.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/1011-m7-tail.t
+
+Run the tail checks by themselves while changing a trigger.
+
+Example 2:
+
+  PERL5OPT=-MDevel::Cover PERL5LIB=$PWD/local/lib/perl5 perl -Ilib -Iblib/lib -Iblib/arch t/1011-m7-tail.t
+
+Run the file under Devel::Cover to measure which tail cells it hits.
+
+Example 3:
+
+  prove -lr t
+
+Run the whole suite after the focused check to keep the tail aligned
+with the rest of the tests.
+
+=cut
