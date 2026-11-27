@@ -539,6 +539,62 @@ SKIP: {
     close $r;
 }
 
+# Feature: _linux_backend initialize pins the dup failure (R164).
+#
+# Scenario: R164 ruled Watch line 344 (the inotify open-or-die)
+# stands for M7 because it is unreachable, and in its place the dup
+# failure at line 341 is pinned. Given a mocked _xs_inotify_init,
+# when initialize runs with an invalid fd, then it dies with the
+# wrap diagnostic; when it runs with a valid fd, then it returns a
+# handle wrapping that fd. The backend is fetched first, because
+# _linux_backend runs the HtmlEscape bootstrap that installs the real
+# _xs_inotify_init, and a mock installed before that is overwritten.
+# The mock is restored afterwards so nothing later sees it.
+{
+    my $backend = Developer::Dashboard::IndicatorStore::Watch::_linux_backend();
+    SKIP: {
+        skip '_linux_backend unavailable on this platform', 5
+          if !defined $backend;
+        my $real_xs_init =
+          Developer::Dashboard::IndicatorStore::Watch->can('_xs_inotify_init');
+        my $mock_fd;
+        {
+            no warnings qw(once redefine prototype);
+            no strict 'refs';
+            *{'Developer::Dashboard::IndicatorStore::Watch::_xs_inotify_init'} =
+              sub () { return $mock_fd; };
+        }
+        $mock_fd = 99999;
+        my @warnings;
+        my $lived;
+        my $err;
+        {
+            local $SIG{__WARN__} = sub { push @warnings, $_[0]; };
+            $lived = eval { $backend->{initialize}->(); 1 };
+            $err = $@;
+        }
+        ok( !$lived, 'initialize dies on an invalid inotify fd' );
+        like( $err, qr/Unable to wrap inotify descriptor 99999: Bad file descriptor/,
+            'the die carries the wrap diagnostic' );
+        is( scalar @warnings, 0,
+            'the failed dup raised no warning: it died at once, not through the close' );
+        pipe( my $r, my $w ) or BAIL_OUT("cannot pipe: $!");
+        $mock_fd = fileno($r);
+        my $handle = eval { $backend->{initialize}->() };
+        $err = $@;
+        ok( !$err && defined $handle, 'initialize returns a handle for a valid fd' );
+        is( fileno($handle), fileno($r), 'the handle wraps the same fd' );
+        close $handle;
+        close $w;
+        {
+            no warnings qw(once redefine prototype);
+            no strict 'refs';
+            *{'Developer::Dashboard::IndicatorStore::Watch::_xs_inotify_init'} =
+              $real_xs_init;
+        }
+    }
+}
+
 done_testing();
 
 __END__
@@ -558,7 +614,8 @@ first, before any implementation change, as the M5 milestone
 requires. Watch line 344 (the inotify open-or-die) is NOT covered
 here: it is unreachable, because the dup probe closes its duplicate
 before the open, so any state where the dup succeeds also lets the
-open succeed; see the R163 item 5 blocker reported to Ryan.
+open succeed; R164 ruled it stands for M7, and in its place this
+file pins the dup failure at line 341 with an invalid fd.
 
 =head1 WHY IT EXISTS
 
