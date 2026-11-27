@@ -1733,8 +1733,17 @@ SKIP: {
         local $Developer::Dashboard::ProcessSupervision::PROCFS_ROOT = $fakeroot;
         is( $M7_MANAGER->_web_runtime_ready( 999999, $p2 ), 1,
             'web runtime ready: a dead pid in a foreign namespace reads ready when its port listens' );
-        is( $M7_MANAGER->_same_pid_namespace(999999), 0,
-            'web runtime ready: the fake tree makes the dead pid foreign' );
+        SKIP: {
+            # The fake tree needs a real /proc namespace id for the
+            # current process, and macOS has no /proc, so the
+            # current id reads empty and _same_pid_namespace
+            # answers 1 (unknown reads as same) instead of 0.
+            # Proof #211 test 151: got 1, expected 0.
+            skip 'the fake namespace tree needs a real /proc, which macOS does not have', 1
+              if !$M7_MANAGER->_procfs_available;
+            is( $M7_MANAGER->_same_pid_namespace(999999), 0,
+                'web runtime ready: the fake tree makes the dead pid foreign' );
+        }
     }
     $M7_MANAGER->_write_web_state( { pid => 111111, port => $p1, host => '127.0.0.1', status => 'running' } );
     is( $M7_MANAGER->_web_runtime_ready( $$, $p2 ), 1,
@@ -3002,8 +3011,18 @@ SKIP: {
           or die 'Unable to symlink helper ns';
         local $Developer::Dashboard::CollectorRunner::PROCFS_ROOT = $fakeroot;
         local $Developer::Dashboard::ProcessSupervision::PROCFS_ROOT = $fakeroot;
-        is( $runner->_find_running_loop('m7fh'), undef,
-            'find_running_loop: a helper-shaped title in a foreign namespace returns nothing' );
+        SKIP: {
+            # Same fake tree as the section 2 test, and the same
+            # macOS shape: with no /proc the current id reads
+            # empty, the helper reads as same-namespace and is
+            # returned instead of undef. It never ran on macOS in
+            # proof #211 (macOS stopped at test 151), so this is
+            # fixed before the re-proof, not after it.
+            skip 'the fake namespace tree needs a real /proc, which macOS does not have', 1
+              if !$M7_MANAGER->_procfs_available;
+            is( $runner->_find_running_loop('m7fh'), undef,
+                'find_running_loop: a helper-shaped title in a foreign namespace returns nothing' );
+        }
     }
     _m7_kill_child($helper);
 
