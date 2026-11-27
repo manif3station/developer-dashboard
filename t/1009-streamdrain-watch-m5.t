@@ -159,7 +159,7 @@ sub _wait_for_exit {
         if ( Developer::Dashboard::GoRoutine::process_exited($pid) ) {
             return Developer::Dashboard::GoRoutine::wait_process($pid);
         }
-        sleep 0.05;
+        Time::HiRes::sleep(0.05);
     }
     kill 'KILL', $pid;
     Developer::Dashboard::GoRoutine::wait_process($pid);
