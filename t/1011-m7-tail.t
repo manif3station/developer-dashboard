@@ -3067,3 +3067,1026 @@ SKIP: {
         'running_loops: the foreign pidfile is cleaned up' );
     _m7_kill_child($foreign);
 }
+
+# ======================================================================
+# SECTION 5 - Web/Server (R178).
+#
+# Cover #19 gap for lib/Developer/Dashboard/Web/Server.pm: 25
+# branch cells + 18 condition cells + 0 subs. Every cell is
+# accounted for below as covered, or as probed-uncoverable with
+# the evidence. The gap file is the authority for the cell list;
+# two of its entries correct the pre-work mapping: B 752 is the
+# read-below-zero finish (its missing side is TRUE, the EOF case,
+# not the data case), and B 676 / B 803 are the done-guard returns
+# (their missing sides are TRUE, a state already done).
+#
+# COVERED HERE. B 124 false (log path undef, no HOME), B 132
+# false + C 132 !l + l&&!r (undef and code-ref @INC entries),
+# B 620 true + C 620 !l&&r (an error that stringifies to empty),
+# B 659 true (blocking(0) on a real backend socket), B 676 true
+# (proxy on a done state), B 696 true (flush with a full send
+# buffer), B 699 true + B 700 true/false + C 700 l + !l&&!r
+# (syswrite undef, EAGAIN then EBADF), B 704 false (partial
+# write), B 720 true + B 721 true/false + C 721 l + !l&&!r
+# (read_head sysread undef, EAGAIN then EBADF), B 744 true
+# (read head with nothing readable), B 747 true + B 748
+# true/false + C 748 l + !l&&!r (proxy read sysread undef,
+# EAGAIN then EBADF), B 752 true (proxy read at end of file),
+# B 758 true + C 758 l&&r (incomplete head), C 758 !l (head at
+# the 16K cap) + l&&!r (complete head), B 778 true (redirect
+# with a full send buffer), B 781 true + B 782 true/false +
+# C 782 l + !l&&!r (redirect syswrite undef, EAGAIN then EBADF),
+# B 787 false (partial redirect write), B 803 true (finish on a
+# done state) + C 806 !l (finish with no client), B 938
+# true/false + C 938 l&&r + l&&!r (stop backend, reaped and not),
+# B 966 true (unusable backend pid), C 966 and-3 !l + l&&!r
+# (undef and non-numeric pid) + or-3 !l&&r (pid 0), B 1001
+# false (undef @INC entry in the watchdog library args),
+# C 93 and-3 !l (undef web pid) + or-3 !l&&r (pid 0), C 147
+# l&&!r is already covered by the suite, C 166 l&&!r (empty log
+# path), C 167 !l (undef text), C 657 l&&!r (backend connected),
+# C 376 !l&&r (socket readable) + !l&&!r (socket idle).
+#
+# PROBED-UNCOVERABLE, with the evidence. B 402 false: the
+# listener-close error is a fresh lexical (declared line 352,
+# assigned only at line 402, read at line 408) and the guarded
+# block runs once per call, so it is always undef at the guard.
+# B 659 false: a fresh IO::Socket::INET always has can(blocking)
+# true (probe /tmp/m7-probes/s56-tie.pl), and the backend is
+# built by IO::Socket::INET->new in the same sub, so there is
+# no injection point. C 147 !l and C 620 l: $@ is never undef
+# after eval (probe /tmp/m7-probes/s56-probes.pl: die empty
+# leaves 45 chars, die undef leaves 46, a successful eval leaves
+# a defined empty string). C 700 / C 721 / C 748 / C 782 !l&&r:
+# both disjuncts are the same comparison ($! == 11 or $! == 11),
+# EAGAIN is EWOULDBLOCK on Linux, so the second can never fire
+# while the first does not. C 966 or-3 l fires on the undef
+# call: Devel::Cover counts the first || operand's truth
+# (!defined $backend_pid) as the or-3 left cell, the same
+# attribution that gives C 93 or-3 l=1 in #19; the written
+# first disjunct can never be true as a whole, but the cell is
+# covered by the undef call (local cover run: or-3 2 1 3).
+#
+# HOW THE CELLS ARE REACHED. The error cells use a tied handle
+# (M7::TieProbe) whose FILENO returns a real socket fd, so
+# IO::Select works on it while READ/WRITE return undef with a
+# chosen errno, or die with a chosen exception. The die is
+# decided by a defined check, not a truth check: an exception
+# that stringifies to empty is false in boolean context, and a
+# truth check would swallow it. The buffer-full cells fill a
+# real socket send buffer with non-blocking syswrites. The
+# partial-write cells use the same tied handle with a short
+# count: those bytes really go to the socket and the short
+# count is returned, so the caller takes its partial branch.
+# A real fill cannot pin the offset: freeing 100 bytes from the
+# peer let a later 1000-byte write through whole on this host,
+# so the fill/free route is not deterministic. The frontend
+# loop cells use a test-local subclass (M7::WS::Server) that returns a
+# pre-made listener and a ready backend, a mocked
+# GoRoutine::spawn that answers only the watchdog spawn, and
+# an alarm that stops the loop after two seconds (the probe
+# /tmp/m7-probes/s56-serve-frontend.pl proved the loop returns
+# in ~2s this way). The previous TERM handler is localised to a
+# no-op first: the loop re-runs the previous handler, and a
+# DEFAULT there would re-kill TERM and recurse. All coverage
+# cells are hit in the test process; the only spawned children
+# are the real backend sleep child (stopped by the loop itself)
+# and the lifetime watcher child (which exits after about six
+# seconds, once it has seen its dead owner on two polls).
+# ======================================================================
+
+require Developer::Dashboard::Web::Server;
+require IO::Select;
+require IO::Socket::INET;
+
+{
+    package M7::TieProbe;
+    sub TIEHANDLE {
+        my ( $class, %args ) = @_;
+        return bless {
+            fd      => $args{fd},
+            errno   => $args{errno} || 11,
+            die     => $args{die},
+            partial => $args{partial},
+            real    => $args{real},
+        }, $class;
+    }
+    sub FILENO { return $_[0]->{fd}; }
+    sub READ {
+        my ($self) = @_;
+        die $self->{die} if defined $self->{die};
+        $! = $self->{errno};
+        return undef;
+    }
+    sub WRITE {
+        my ( $self, $buf, $len, $offset ) = @_;
+        die $self->{die} if defined $self->{die};
+        if ( defined $self->{partial} ) {
+            # A genuine short write: this many bytes really go to
+            # the socket, and the short count is returned, so the
+            # caller takes its partial-write branch. A defined
+            # check, not a truth check, decides the die: an
+            # exception that stringifies to empty is still a
+            # defined exception, and a truth check would miss it.
+            my $n = $len < $self->{partial} ? $len : $self->{partial};
+            return syswrite( $self->{real}, substr( $buf, $offset || 0, $n ) );
+        }
+        $! = $self->{errno};
+        return undef;
+    }
+    sub CLOSE { return 1; }
+}
+
+{
+    package M7::EmptyExc;
+    use overload q{""} => sub { return ''; }, fallback => 1;
+    sub new { return bless {}, shift; }
+}
+
+{
+    package M7::WS::Daemon;
+    sub new { my ( $class, $port ) = @_; return bless { port => $port }, $class; }
+    sub sockhost         { return '127.0.0.1'; }
+    sub sockport         { return $_[0]->{port}; }
+    sub internal_sockhost { return '127.0.0.1'; }
+    sub internal_sockport { return $_[0]->{port}; }
+}
+
+{
+    package M7::WS::Server;
+    our @ISA = ('Developer::Dashboard::Web::Server');
+    sub _wait_for_ssl_backend_ready { return 1; }
+    sub _open_ssl_frontend_listener_or_die {
+        my ($self) = @_;
+        return $self->{m7_listener};
+    }
+}
+
+# _m7_tcp_pair(): one connected TCP pair on loopback, for the
+# client states below. The listener is closed; the two ends are
+# returned.
+# Input: none.
+# Output: (client socket, peer socket).
+sub _m7_tcp_pair {
+    my $listener = IO::Socket::INET->new(
+        LocalAddr => '127.0.0.1', LocalPort => 0, Proto => 'tcp',
+        Listen    => 128,         ReuseAddr => 1,
+    ) or die "Unable to listen for a test pair: $!";
+    my $client = IO::Socket::INET->new(
+        PeerAddr => '127.0.0.1', PeerPort => $listener->sockport, Proto => 'tcp',
+    ) or die "Unable to connect a test pair: $!";
+    my $peer = $listener->accept or die "Unable to accept a test pair: $!";
+    close $listener;
+    return ( $client, $peer );
+}
+
+# _m7_fill_socket($sock): fills one socket send buffer with
+# non-blocking syswrites until EAGAIN, so a later write or a
+# can_write probe finds it full. The socket is left non-blocking.
+# Input: socket handle.
+# Output: bytes written.
+sub _m7_fill_socket {
+    my ($sock) = @_;
+    $sock->blocking(0);
+    my $chunk = 'x' x 65536;
+    my $total = 0;
+    while (1) {
+        my $written = syswrite( $sock, $chunk );
+        last if !defined $written;
+        last if $written == 0;
+        $total += $written;
+    }
+    return $total;
+}
+
+# _m7_ws_state(%over): a frontend client state hash with sane
+# defaults; the caller overrides the fields its sub needs.
+# The caller owns the sockets (owns_sockets 0) unless it says
+# otherwise, so finish never closes a handle the test still
+# holds.
+# Input: field overrides.
+# Output: state hash reference.
+sub _m7_ws_state {
+    my (%over) = @_;
+    my $state = {
+        client       => undef,
+        backend      => undef,
+        daemon       => undef,
+        worker_server => undef,
+        phase        => 'READ_HEAD',
+        head         => '',
+        write_buf    => '',
+        write_off    => 0,
+        buf_c2b      => '',
+        off_c2b      => 0,
+        buf_b2c      => '',
+        off_b2c      => 0,
+        done         => 0,
+        errors       => [],
+        routine      => undef,
+        owns_sockets => 0,
+    };
+    @{$state}{ keys %over } = values %over;
+    return $state;
+}
+
+my $M7_WS_LISTENER = IO::Socket::INET->new(
+    LocalAddr => '127.0.0.1', LocalPort => 0, Proto => 'tcp',
+    Listen    => 128,         ReuseAddr => 1,
+) or die "Unable to listen for the Web/Server tests: $!";
+my $M7_WS_DAEMON = M7::WS::Daemon->new( $M7_WS_LISTENER->sockport );
+my $M7_WS_SERVER = bless {
+    host                  => '127.0.0.1',
+    ssl_subject_alt_names => [],
+}, 'Developer::Dashboard::Web::Server';
+
+{
+    # 5a. Log-path guard cells: an undef web pid, a zero pid, a
+    # non-numeric pid, and a usable pid.
+    is( Developer::Dashboard::Web::Server::_web_lifetime_owner_watcher_log_path(undef),
+        undef, 'log path: undef web pid gives no log path' );
+    is( Developer::Dashboard::Web::Server::_web_lifetime_owner_watcher_log_path(0),
+        undef, 'log path: web pid 0 gives no log path' );
+    is( Developer::Dashboard::Web::Server::_web_lifetime_owner_watcher_log_path('abc'),
+        undef, 'log path: non-numeric web pid gives no log path' );
+    like( Developer::Dashboard::Web::Server::_web_lifetime_owner_watcher_log_path(12345),
+        qr/web-lifetime-owner-watcher-12345\.log\z/,
+        'log path: a usable web pid gives its log path' );
+}
+
+{
+    # 5b. Watcher start with no HOME: the log-path eval dies
+    # (PathRegistry has no home), so the push is skipped and the
+    # watcher still starts. The @INC carries an undef entry and a
+    # code-ref entry, so the library-args grep skips both. The
+    # owner pid is dead, so the watcher child exits once it has
+    # seen the owner dead on two polls (about six seconds: the
+    # poll interval is five seconds).
+    my $watcher;
+    {
+        local %ENV = %ENV;
+        delete @ENV{qw(HOME USERPROFILE HOMEDRIVE HOMEPATH)};
+        $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID} = 999999;
+        local @INC = ( undef, sub { }, @INC );
+        $watcher = Developer::Dashboard::Web::Server::_start_lifetime_owner_watcher();
+    }
+    ok( defined $watcher && $watcher > 0,
+        'watcher start: starts with no HOME and no log path' );
+    my $watcher_rc = _wait_for_exit( $watcher, 15 );
+    ok( defined $watcher_rc,
+        'watcher start: the watcher child exits once its owner is confirmed dead' );
+    {
+        local %ENV = %ENV;
+        delete $ENV{DEVELOPER_DASHBOARD_LIFETIME_PID};
+        is( Developer::Dashboard::Web::Server::_start_lifetime_owner_watcher(),
+            0, 'watcher start: no opted-in owner pid starts nothing' );
+    }
+}
+
+{
+    # 5c. Watcher-start log writer: an empty log path, an undef
+    # text, and a line that is written and read back.
+    my $m7_log = File::Spec->catfile( $M7_HOME, 'm7-watcher.log' );
+    is( Developer::Dashboard::Web::Server::_log_lifetime_owner_watcher_start( '', 'some text' ),
+        undef, 'watcher log: an empty log path writes nothing' );
+    is( Developer::Dashboard::Web::Server::_log_lifetime_owner_watcher_start( $m7_log, undef ),
+        undef, 'watcher log: undef text writes nothing' );
+    is( Developer::Dashboard::Web::Server::_log_lifetime_owner_watcher_start( $m7_log, 'm7 log line' ),
+        1, 'watcher log: a line is written' );
+    like( _m7_read_file($m7_log), qr/m7 log line/, 'watcher log: the line is in the log' );
+}
+
+{
+    # 5d. Client step error path: the read dies with an exception
+    # that stringifies to empty, so the step records the
+    # unknown-error text; and a read that dies with a message,
+    # which is recorded as-is.
+    my ( $sock, $peer ) = _m7_tcp_pair();
+    syswrite( $peer, 'x' );
+    open my $th, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$th, 'M7::TieProbe', fd => fileno($sock), die => M7::EmptyExc->new;
+    my $state = _m7_ws_state(
+        client => $th, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+        phase => 'READ_HEAD',
+    );
+    is( Developer::Dashboard::Web::Server::_ssl_frontend_client_step($state),
+        1, 'client step: returns 1 after the read dies' );
+    is( $state->{errors}[0], 'unknown client error',
+        'client step: an empty error becomes the unknown-error text' );
+    ok( $state->{done}, 'client step: the client is finished after the error' );
+    untie *$th;
+    close $th;
+    close $sock;
+    close $peer;
+
+    my ( $sock2, $peer2 ) = _m7_tcp_pair();
+    syswrite( $peer2, 'x' );
+    open my $th2, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$th2, 'M7::TieProbe', fd => fileno($sock2), die => 'm7 boom';
+    my $state2 = _m7_ws_state(
+        client => $th2, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+        phase => 'READ_HEAD',
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_step($state2);
+    like( $state2->{errors}[0], qr/m7 boom/,
+        'client step: a message error is recorded as-is' );
+    untie *$th2;
+    close $th2;
+    close $sock2;
+    close $peer2;
+}
+
+{
+    # 5e. Wait-for-first-byte: a TLS first byte routes to PROXY
+    # with a connected backend, and a plain first byte routes to
+    # READ_HEAD.
+    my ( $client, $peer ) = _m7_tcp_pair();
+    syswrite( $peer, chr(22) );
+    my $state = _m7_ws_state(
+        client => $client, daemon => $M7_WS_DAEMON, phase => 'WAIT_FIRST',
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_wait_first($state);
+    is( $state->{phase}, 'PROXY', 'wait first: a TLS first byte routes to PROXY' );
+    ok( defined $state->{backend} && $state->{backend}->connected,
+        'wait first: the backend is connected' );
+    my $accepted = $M7_WS_LISTENER->accept;
+    close $accepted if $accepted;
+    close $state->{backend} if $state->{backend};
+    close $client;
+    close $peer;
+
+    my ( $client2, $peer2 ) = _m7_tcp_pair();
+    syswrite( $peer2, 'G' );
+    my $state2 = _m7_ws_state(
+        client => $client2, daemon => $M7_WS_DAEMON, phase => 'WAIT_FIRST',
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_wait_first($state2);
+    is( $state2->{phase}, 'READ_HEAD', 'wait first: a plain first byte routes to READ_HEAD' );
+    is( $state2->{head}, '', 'wait first: a plain first byte clears the head' );
+    close $client2;
+    close $peer2;
+}
+
+{
+    # 5f. Proxy pump: a done state returns at once; an idle
+    # state returns at the read check; end of file finishes the
+    # client; data is read into the buffer.
+    my ( $c1, $p1 ) = _m7_tcp_pair();
+    my ( $c2, $p2 ) = _m7_tcp_pair();
+    my $done_state = _m7_ws_state(
+        client => $c1, backend => $c2, done => 1,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_proxy($done_state);
+    is( $done_state->{buf_c2b}, '', 'proxy: a done state pumps nothing' );
+    is( $done_state->{done}, 1, 'proxy: a done state stays done' );
+
+    my $idle_state = _m7_ws_state( client => $c1, backend => $c2 );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_proxy($idle_state);
+    is( $idle_state->{buf_c2b}, '', 'proxy: an idle state reads nothing' );
+    is( $idle_state->{done}, 0, 'proxy: an idle state stays open' );
+
+    my ( $c3, $p3 ) = _m7_tcp_pair();
+    close $p3;
+    my $eof_state = _m7_ws_state(
+        client => $c3, worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_proxy_dir(
+        $eof_state, $c3, $c2, 'buf_c2b', 'off_c2b' );
+    ok( $eof_state->{done}, 'proxy: end of file finishes the client' );
+
+    my ( $c4, $p4 ) = _m7_tcp_pair();
+    syswrite( $p4, 'm7-data' );
+    my $data_state = _m7_ws_state(
+        client => $c4, worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_proxy_dir(
+        $data_state, $c4, $c2, 'buf_c2b', 'off_c2b' );
+    is( $data_state->{buf_c2b}, 'm7-data', 'proxy: a chunk is read into the buffer' );
+    is( $data_state->{off_c2b}, 0, 'proxy: a fresh chunk starts at offset 0' );
+    close $c1; close $p1; close $c2; close $p2;
+    close $c3; close $c4; close $p4;
+}
+
+{
+    # 5f continued. Flush with a full send buffer returns at
+    # once; a partial write leaves the offset short of the
+    # buffer; a failed syswrite returns on EAGAIN and dies on
+    # any other errno; a failed read returns on EAGAIN and
+    # finishes the client on any other errno.
+    my ( $c1, $p1 ) = _m7_tcp_pair();
+    my ( $c2, $p2 ) = _m7_tcp_pair();
+    _m7_fill_socket($c1);
+    my $full_state = _m7_ws_state(
+        client => $c1, backend => $c2, buf_c2b => 'hello', off_c2b => 0,
+        worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_proxy_dir(
+        $full_state, $c2, $c1, 'buf_c2b', 'off_c2b' );
+    is( $full_state->{buf_c2b}, 'hello', 'proxy flush: a full send buffer leaves the buffer' );
+    is( $full_state->{off_c2b}, 0, 'proxy flush: a full send buffer moves the offset nowhere' );
+
+    my ( $c3, $p3 ) = _m7_tcp_pair();
+    my ( $c4, $p4 ) = _m7_tcp_pair();
+    open my $thp, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$thp, 'M7::TieProbe', fd => fileno($c3), partial => 100, real => $c3;
+    my $big = 'y' x 1000;
+    my $part_state = _m7_ws_state(
+        client => $c3, backend => $c4, buf_c2b => $big, off_c2b => 0,
+        worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_proxy_dir(
+        $part_state, $c4, $thp, 'buf_c2b', 'off_c2b' );
+    is( $part_state->{off_c2b}, 100,
+        'proxy flush: a partial write leaves the offset short of the buffer' );
+    my $got = '';
+    sysread( $p3, $got, 100 );
+    is( $got, 'y' x 100, 'proxy flush: the short write really moved its bytes' );
+    untie *$thp;
+    close $thp;
+
+    my ( $c5, $p5 ) = _m7_tcp_pair();
+    my ( $c6, $p6 ) = _m7_tcp_pair();
+    open my $th, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$th, 'M7::TieProbe', fd => fileno($c5), errno => 11;
+    my $eagain_state = _m7_ws_state(
+        client => $c6, backend => $c5, buf_b2c => 'hello', off_b2c => 0,
+        worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_proxy_dir(
+        $eagain_state, $c6, $th, 'buf_b2c', 'off_b2c' );
+    is( $eagain_state->{buf_b2c}, 'hello', 'proxy flush: EAGAIN leaves the buffer' );
+    is( $eagain_state->{done}, 0, 'proxy flush: EAGAIN leaves the client open' );
+    untie *$th;
+    close $th;
+
+    open my $th2, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$th2, 'M7::TieProbe', fd => fileno($c5), errno => 9;
+    my $ebadf_state = _m7_ws_state(
+        client => $c6, backend => $c5, buf_b2c => 'hello', off_b2c => 0,
+        worker_server => $M7_WS_SERVER,
+    );
+    my $died = eval {
+        Developer::Dashboard::Web::Server::_ssl_frontend_client_proxy_dir(
+            $ebadf_state, $c6, $th2, 'buf_b2c', 'off_b2c' );
+        1;
+    };
+    ok( !$died && $@ =~ /Unable to proxy SSL frontend bytes/,
+        'proxy flush: a bad file descriptor dies' );
+    untie *$th2;
+    close $th2;
+
+    my ( $c7, $p7 ) = _m7_tcp_pair();
+    syswrite( $p7, 'x' );
+    open my $th3, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$th3, 'M7::TieProbe', fd => fileno($c7), errno => 11;
+    my $read_eagain = _m7_ws_state(
+        client => $c7, backend => $c6, worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_proxy_dir(
+        $read_eagain, $th3, $c6, 'buf_c2b', 'off_c2b' );
+    is( $read_eagain->{done}, 0, 'proxy read: EAGAIN leaves the client open' );
+    is( $read_eagain->{buf_c2b}, '', 'proxy read: EAGAIN reads nothing' );
+    untie *$th3;
+    close $th3;
+
+    open my $th4, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$th4, 'M7::TieProbe', fd => fileno($c7), errno => 9;
+    my $read_ebadf = _m7_ws_state(
+        client => $c7, backend => $c6, worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_proxy_dir(
+        $read_ebadf, $th4, $c6, 'buf_c2b', 'off_c2b' );
+    ok( $read_ebadf->{done}, 'proxy read: a bad file descriptor finishes the client' );
+    untie *$th4;
+    close $th4;
+    close $c1; close $p1; close $c2; close $p2;
+    close $c3; close $p3; close $c4; close $p4;
+    close $c5; close $p5; close $c6; close $p6;
+    close $c7; close $p7;
+}
+
+{
+    # 5g. Read head: an incomplete head stays in READ_HEAD; a
+    # complete head builds the redirect; a head at the 16K cap
+    # builds the redirect too; an unreadable client returns at
+    # once; a failed sysread returns on EAGAIN and finishes the
+    # client on any other errno; end of file finishes the client.
+    my ( $c1, $p1 ) = _m7_tcp_pair();
+    syswrite( $p1, "GET / HTTP/1.1\r\nHost: example.com\r\n" );
+    my $state = _m7_ws_state(
+        client => $c1, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_read_head($state);
+    is( $state->{phase}, 'READ_HEAD', 'read head: an incomplete head stays reading' );
+    like( $state->{head}, qr/GET \/ HTTP\/1\.1/, 'read head: an incomplete head is kept' );
+
+    my ( $c2, $p2 ) = _m7_tcp_pair();
+    my $state2 = _m7_ws_state(
+        client => $c2, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+        head => "GET /path?x=1 HTTP/1.1\r\nHost: example.com\r\n",
+    );
+    syswrite( $p2, "\r\n" );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_read_head($state2);
+    is( $state2->{phase}, 'WRITE_REDIRECT', 'read head: a complete head moves to the redirect' );
+    like( $state2->{write_buf}, qr/Location: https:\/\/127\.0\.0\.1:/,
+        'read head: the redirect names the daemon host' );
+
+    my ( $c3, $p3 ) = _m7_tcp_pair();
+    my $state3 = _m7_ws_state(
+        client => $c3, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+        head => 'x' x 16383,
+    );
+    syswrite( $p3, 'y' );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_read_head($state3);
+    is( $state3->{phase}, 'WRITE_REDIRECT', 'read head: a head at the cap moves to the redirect' );
+    ok( defined $state3->{write_buf} && length( $state3->{write_buf} ) > 0,
+        'read head: a head at the cap builds a redirect' );
+
+    my ( $c4, $p4 ) = _m7_tcp_pair();
+    syswrite( $p4, 'x' );
+    open my $th, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$th, 'M7::TieProbe', fd => fileno($c4), errno => 11;
+    my $state4 = _m7_ws_state(
+        client => $th, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_read_head($state4);
+    is( $state4->{phase}, 'READ_HEAD', 'read head: EAGAIN stays reading' );
+    is( $state4->{head}, '', 'read head: EAGAIN reads nothing' );
+    untie *$th;
+    close $th;
+
+    open my $th2, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$th2, 'M7::TieProbe', fd => fileno($c4), errno => 9;
+    my $state5 = _m7_ws_state(
+        client => $th2, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_read_head($state5);
+    ok( $state5->{done}, 'read head: a bad file descriptor finishes the client' );
+    untie *$th2;
+    close $th2;
+
+    my ( $c6, $p6 ) = _m7_tcp_pair();
+    close $p6;
+    my $state6 = _m7_ws_state(
+        client => $c6, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_read_head($state6);
+    ok( $state6->{done}, 'read head: end of file finishes the client' );
+
+    my ( $c7, $p7 ) = _m7_tcp_pair();
+    my $state7 = _m7_ws_state(
+        client => $c7, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_read_head($state7);
+    is( $state7->{phase}, 'READ_HEAD', 'read head: an unreadable client stays reading' );
+    is( $state7->{head}, '', 'read head: an unreadable client reads nothing' );
+    close $c1; close $p1; close $c2; close $p2;
+    close $c3; close $p3; close $c4; close $p4; close $c6; close $c7; close $p7;
+}
+
+{
+    # 5h. Write redirect: a full send buffer returns at once; a
+    # failed syswrite returns on EAGAIN and finishes the client
+    # on any other errno; a partial write leaves the offset short;
+    # a full write finishes the client.
+    my ( $c1, $p1 ) = _m7_tcp_pair();
+    _m7_fill_socket($c1);
+    my $state = _m7_ws_state(
+        client => $c1, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+        write_buf => 'x' x 100, write_off => 0,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_write_redirect($state);
+    is( $state->{write_off}, 0, 'write redirect: a full send buffer writes nothing' );
+
+    my ( $c2, $p2 ) = _m7_tcp_pair();
+    open my $th, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$th, 'M7::TieProbe', fd => fileno($c2), errno => 11;
+    my $state2 = _m7_ws_state(
+        client => $th, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+        write_buf => 'hello', write_off => 0,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_write_redirect($state2);
+    is( $state2->{write_off}, 0, 'write redirect: EAGAIN writes nothing' );
+    untie *$th;
+    close $th;
+
+    open my $th2, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$th2, 'M7::TieProbe', fd => fileno($c2), errno => 9;
+    my $state3 = _m7_ws_state(
+        client => $th2, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+        write_buf => 'hello', write_off => 0,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_write_redirect($state3);
+    ok( $state3->{done}, 'write redirect: a bad file descriptor finishes the client' );
+    untie *$th2;
+    close $th2;
+
+    my ( $c4, $p4 ) = _m7_tcp_pair();
+    open my $thp, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
+    tie *$thp, 'M7::TieProbe', fd => fileno($c4), partial => 100, real => $c4;
+    my $big = 'z' x 1000;
+    my $state4 = _m7_ws_state(
+        client => $thp, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+        write_buf => $big, write_off => 0,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_write_redirect($state4);
+    is( $state4->{write_off}, 100,
+        'write redirect: a partial write leaves the offset short of the buffer' );
+    ok( !$state4->{done}, 'write redirect: a partial write leaves the client open' );
+    untie *$thp;
+    close $thp;
+
+    my ( $c5, $p5 ) = _m7_tcp_pair();
+    my $state5 = _m7_ws_state(
+        client => $c5, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
+        write_buf => 'HTTP/1.1 307 Temporary Redirect', write_off => 0,
+    );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_write_redirect($state5);
+    ok( $state5->{done}, 'write redirect: a full write finishes the client' );
+    close $c1; close $p1; close $c2; close $p2;
+    close $c4; close $p4; close $c5; close $p5;
+}
+
+{
+    # 5i. Finish: a state already done returns at once, and a
+    # state with no client finishes without closing anything.
+    my $done_state = _m7_ws_state( done => 1 );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_finish($done_state);
+    is( $done_state->{done}, 1, 'finish: a done state stays done' );
+    my $no_client = _m7_ws_state( client => undef, owns_sockets => 1 );
+    Developer::Dashboard::Web::Server::_ssl_frontend_client_finish($no_client);
+    is( $no_client->{done}, 1, 'finish: a state with no client still finishes' );
+}
+
+{
+    # 5j. Stop backend: a pid already reaped returns at once, and
+    # a live child is terminated and reaped.
+    is( Developer::Dashboard::Web::Server::_stop_ssl_backend( 999999, { 999999 => 1 } ),
+        1, 'stop backend: a reaped pid returns at once' );
+    my $child = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'sleep 30' ], {} );
+    ok( $child && $child > 0, 'stop backend: a sleep child spawns' );
+    is( Developer::Dashboard::Web::Server::_stop_ssl_backend( $child, {} ),
+        1, 'stop backend: a live child is stopped' );
+    ok( !Developer::Dashboard::GoRoutine::process_running($child),
+        'stop backend: the stopped child is gone' );
+}
+
+{
+    # 5k. Watchdog guards: an undef pid, a non-numeric pid, and
+    # pid 0 all return 0; a usable pid with an undef @INC entry
+    # spawns the watchdog (mocked, so no child is started).
+    is( Developer::Dashboard::Web::Server::_start_ssl_backend_watchdog(undef),
+        0, 'watchdog: an undef backend pid starts nothing' );
+    is( Developer::Dashboard::Web::Server::_start_ssl_backend_watchdog('abc'),
+        0, 'watchdog: a non-numeric backend pid starts nothing' );
+    is( Developer::Dashboard::Web::Server::_start_ssl_backend_watchdog(0),
+        0, 'watchdog: backend pid 0 starts nothing' );
+    my $real_spawn = \&Developer::Dashboard::GoRoutine::spawn;
+    {
+        no warnings qw(redefine once);
+        local *Developer::Dashboard::GoRoutine::spawn = sub {
+            my ($argv) = @_;
+            return 424242 if grep { !ref $_ && $_ =~ /watcher/ } @{$argv};
+            return $real_spawn->(@_);
+        };
+        local @INC = ( undef, @INC );
+        is( Developer::Dashboard::Web::Server::_start_ssl_backend_watchdog(12345),
+            424242, 'watchdog: a usable backend pid spawns the watchdog' );
+    }
+}
+
+# _m7_run_frontend($with_client): runs _serve_ssl_frontend once
+# on a fresh listener (the loop closes the listener it is given,
+# so a second call needs a new one), with a mocked watchdog
+# spawn and an alarm that stops the loop after two seconds.
+# With a client connected first, the accept runs; without one
+# the loop idles.
+# Input: boolean, whether to connect a client first.
+# Output: boolean true when the frontend returned.
+sub _m7_run_frontend {
+    my ($with_client) = @_;
+    my $listener = IO::Socket::INET->new(
+        LocalAddr => '127.0.0.1', LocalPort => 0, Proto => 'tcp',
+        Listen    => 128,         ReuseAddr => 1,
+    ) or die "Unable to listen for the frontend loop: $!";
+    my $server = bless {
+        host                  => '127.0.0.1',
+        ssl_subject_alt_names => [],
+        ssl_backend_command_builder => sub { return [ $^X, '-e', 'sleep 30' ]; },
+        m7_listener => $listener,
+    }, 'M7::WS::Server';
+    my $client;
+    if ($with_client) {
+        $client = IO::Socket::INET->new(
+            PeerAddr => '127.0.0.1', PeerPort => $listener->sockport, Proto => 'tcp',
+        ) or die "Unable to connect to the frontend loop: $!";
+    }
+    my $real_spawn = \&Developer::Dashboard::GoRoutine::spawn;
+    my $rc;
+    {
+        no warnings qw(redefine once);
+        local *Developer::Dashboard::GoRoutine::spawn = sub {
+            my ($argv) = @_;
+            return 424242 if grep { !ref $_ && $_ =~ /watcher/ } @{$argv};
+            return $real_spawn->(@_);
+        };
+        local $SIG{TERM} = sub { };
+        local $SIG{ALRM} = sub { kill 'TERM', $$; };
+        alarm(2);
+        $rc = eval { $server->_serve_ssl_frontend($M7_WS_DAEMON); 1 };
+        alarm(0);
+    }
+    close $client if $client;
+    close $listener;
+    return $rc;
+}
+
+{
+    # 5l. Frontend loop: with no client waiting the loop idles
+    # until the alarm stops it, and with a client waiting the
+    # accept runs and the loop still stops on the alarm. The
+    # backend is a real sleep child, stopped by the loop; the
+    # watchdog spawn is mocked.
+    ok( _m7_run_frontend(0), 'frontend loop: returns when the alarm stops an idle loop' );
+    ok( _m7_run_frontend(1), 'frontend loop: returns when the alarm stops a loop with a client waiting' );
+}
+
+close $M7_WS_LISTENER;
+
+# ======================================================================
+# SECTION 6 - SkillManager (R178).
+#
+# Cover #19 gap for lib/Developer/Dashboard/SkillManager.pm: 21
+# branch cells + 12 condition cells + 0 subs. Every cell is
+# accounted for below as covered, or as probed-uncoverable with
+# the evidence.
+#
+# COVERED HERE. B 277 true (uninstall over a skills root whose
+# realpath is undef), B 460 true + C 460 l (a file:// URL with
+# no name), B 500 true (resolve depth past 40), B 501 true +
+# C 501 l + !l&&r (resolve of undef and of empty), B 504 false
+# + C 504 l&&!r (a trailing slash leaves the file part empty),
+# B 505 false (a relative path), B 511 true (a dot-dot part),
+# B 519 false (a relative link target) + B 523 true (a link in
+# the middle of the path), B 540 true + C 540 l + !l&&r
+# (strict directory of undef and of empty), B 549 true (a
+# dot-dot part), B 575 true (a symlink loop refuses the path),
+# B 584 true (the Windows branch of the contained check),
+# B 1506 true (the Windows drain) + B 1511 true/false (with and
+# without a timeout) + B 1517 true/false (stdout and stderr
+# chunks) + B 1526 false (the drain succeeds, no fallback),
+# B 1935 false (the Windows side of the protected argument),
+# B 1936 true/false + C 1936 l + !l&&r + !l&&!r (undef, quoted
+# and plain arguments), B 1937 true/false (no shell character,
+# and one), C 612 !l&&r (a backslash path with no drive
+# letter), C 1675 / C 1688 / C 1700 l&&!r (an empty OS
+# override).
+#
+# PROBED-UNCOVERABLE, with the evidence. B 518 true: readlink
+# after a successful -l never returns undef in normal use (a
+# probe over 200 symlinks, /tmp/m7-probes/s56-readlink.pl,
+# found 0 undef); only a link deleted between the check and
+# the read could do it. C 504 !l and C 543 !l: splitpath never
+# returns an undef file on Unix (probe: splitpath('/a/b/') and
+# splitpath('') both give a defined empty file). C 510 l and
+# C 548 l: the walked parts are splitdir strings plus a file
+# guarded by defined-and-nonempty, so no part is ever undef.
+# C 460 !l&&r: the name regex needs one or more non-slash
+# characters, so a name is either undef or non-empty, never
+# an empty string.
+#
+# HOW THE CELLS ARE REACHED. The uninstall root list is
+# injected through the PathRegistry scope hash (a test setup
+# on an object this file built, the same class as the fake
+# /proc roots in section 4): runtime_layers returns the scope
+# list directly, so the bogus root sorts first and its
+# realpath is undef. The Windows drain uses the t/1009 fake
+# Win32 modules (M7 names here) with FIONREAD byte counts on
+# the real open3 pipes, and a localised $^O. The symlink
+# fixtures live under a tempdir and are removed by it.
+# ======================================================================
+
+require Developer::Dashboard::SkillManager;
+
+my $M7_SM = Developer::Dashboard::SkillManager->new( paths => $M7_PATHS );
+
+{
+    # 6a. Uninstall: the skills roots carry a bogus root first,
+    # whose realpath is undef, so the loop skips it and removes
+    # the skill from the real root.
+    my $sm_home = tempdir( CLEANUP => 1 );
+    my $real_root = File::Spec->catdir( $sm_home, 'skills-real' );
+    my $real_skills = File::Spec->catdir( $real_root, 'skills' );
+    my $skill_dir = File::Spec->catdir( $real_skills, 'm7skill' );
+    mkdir $real_root or die "Unable to mkdir $real_root: $!";
+    mkdir $real_skills or die "Unable to mkdir $real_skills: $!";
+    mkdir $skill_dir or die "Unable to mkdir $skill_dir: $!";
+    my $bogus_root = File::Spec->catdir( $sm_home, 'skills-bogus' );
+    my $paths = Developer::Dashboard::PathRegistry->new( home => $sm_home );
+    $paths->{_runtime_layer_candidate_scope} = { runtime_layers => [ $real_root, $bogus_root ] };
+    my $sm = Developer::Dashboard::SkillManager->new( paths => $paths );
+    my $r = $sm->uninstall('m7skill');
+    is( $r->{success}, 1, 'uninstall: a skill under a real root uninstalls' );
+    ok( !-d $skill_dir, 'uninstall: the skill directory is removed' );
+    is( $r->{repo_name}, 'm7skill', 'uninstall: the result names the skill' );
+}
+
+{
+    # 6b. Repo name extraction: a file:// URL with no name, a
+    # plain file URL, and an SSH URL.
+    is( Developer::Dashboard::SkillManager::_extract_repo_name('file://'),
+        undef, 'extract name: a bare file URL has no name' );
+    is( Developer::Dashboard::SkillManager::_extract_repo_name('file:///tmp/foo.git'),
+        'foo', 'extract name: a file URL gives its name without .git' );
+    is( Developer::Dashboard::SkillManager::_extract_repo_name('git@github.com:user/repo-name.git'),
+        'repo-name', 'extract name: an SSH URL gives its name' );
+}
+
+{
+    # 6c. Symlink resolution: depth, empty inputs, a trailing
+    # slash, a relative path, a dot-dot part, and relative and
+    # absolute link targets.
+    is( Developer::Dashboard::SkillManager::_resolve_path_symlinks( '/x', 41 ),
+        undef, 'resolve: depth past 40 gives undef' );
+    is( Developer::Dashboard::SkillManager::_resolve_path_symlinks(undef),
+        undef, 'resolve: undef gives undef' );
+    is( Developer::Dashboard::SkillManager::_resolve_path_symlinks(''),
+        '', 'resolve: empty gives empty' );
+    is( Developer::Dashboard::SkillManager::_resolve_path_symlinks('/a/b/'),
+        '/a/b', 'resolve: a trailing slash drops the empty file part' );
+    require Cwd;
+    is( Developer::Dashboard::SkillManager::_resolve_path_symlinks('a/b'),
+        File::Spec->catdir( Cwd::getcwd(), 'a', 'b' ),
+        'resolve: a relative path starts at the working directory' );
+    is( Developer::Dashboard::SkillManager::_resolve_path_symlinks('/tmp/../tmp'),
+        '/tmp', 'resolve: a dot-dot part steps up' );
+    my $dir = tempdir( CLEANUP => 1 );
+    my $target = File::Spec->catdir( $dir, 'target' );
+    mkdir $target or die "Unable to mkdir $target: $!";
+    symlink 'target', File::Spec->catfile( $dir, 'link' )
+        or die "Unable to symlink a relative target: $!";
+    symlink $target, File::Spec->catfile( $dir, 'link2' )
+        or die "Unable to symlink an absolute target: $!";
+    is( Developer::Dashboard::SkillManager::_resolve_path_symlinks( File::Spec->catfile( $dir, 'link', 'file' ) ),
+        File::Spec->catfile( $dir, 'target', 'file' ),
+        'resolve: a relative link target resolves' );
+    is( Developer::Dashboard::SkillManager::_resolve_path_symlinks( File::Spec->catfile( $dir, 'link2', 'file' ) ),
+        File::Spec->catfile( $dir, 'target', 'file' ),
+        'resolve: an absolute link target resolves' );
+}
+
+{
+    # 6d. Strict directory: undef, empty, a dot-dot part, a real
+    # directory, and a missing path.
+    is( Developer::Dashboard::SkillManager::_strict_directory(undef),
+        0, 'strict: undef is not a directory' );
+    is( Developer::Dashboard::SkillManager::_strict_directory(''),
+        0, 'strict: empty is not a directory' );
+    is( Developer::Dashboard::SkillManager::_strict_directory('/tmp/../tmp'),
+        1, 'strict: a dot-dot part steps up' );
+    is( Developer::Dashboard::SkillManager::_strict_directory('/tmp'),
+        1, 'strict: tmp is a directory' );
+    is( Developer::Dashboard::SkillManager::_strict_directory('/tmp/nonexistent-m7-xyz'),
+        0, 'strict: a missing path is not a directory' );
+}
+
+{
+    # 6e. Install path contained: a symlink loop is refused, the
+    # Windows branch still contains a real path, and the plain
+    # contained and outside cases behave.
+    my $dir = tempdir( CLEANUP => 1 );
+    symlink File::Spec->catfile( $dir, 'b' ), File::Spec->catfile( $dir, 'a' )
+        or die "Unable to symlink the loop: $!";
+    symlink File::Spec->catfile( $dir, 'a' ), File::Spec->catfile( $dir, 'b' )
+        or die "Unable to symlink the loop: $!";
+    is( $M7_SM->_install_path_contained( File::Spec->catfile( $dir, 'a', 'file' ), $dir ),
+        0, 'contained: a symlink loop is refused' );
+    my $root = File::Spec->catdir( $dir, 'root' );
+    my $skill = File::Spec->catdir( $root, 'skill' );
+    mkdir $root or die "Unable to mkdir $root: $!";
+    mkdir $skill or die "Unable to mkdir $skill: $!";
+    is( $M7_SM->_install_path_contained( $skill, $root ),
+        1, 'contained: a path under the root is contained' );
+    is( $M7_SM->_install_path_contained( File::Spec->catdir( $dir, 'outside' ), $root ),
+        0, 'contained: a path outside the root is not contained' );
+    {
+        local $^O = 'MSWin32';
+        is( $M7_SM->_install_path_contained( $skill, $root ),
+            1, 'contained: the Windows branch still contains a real path' );
+    }
+}
+
+{
+    # 6f. Install source normalisation: a backslash path with no
+    # drive letter, and a drive-letter path.
+    is( $M7_SM->_normalize_install_source('file://foo\\bar'),
+        'file:///foo/bar', 'normalize: a backslash path is rewritten' );
+    is( $M7_SM->_normalize_install_source('file://localhost/C:/x'),
+        'file:///C:/x', 'normalize: a drive path is rewritten' );
+}
+
+{
+    # 6g. OS detection overrides: an empty override value is
+    # defined but not '0', so the check falls through. Debian
+    # answers from /etc/debian_version on this host, so only its
+    # boolean shape is asserted; Alpine and Fedora have no
+    # release file here, so they answer 0.
+    {
+        local $ENV{DD_TEST_DEBIAN_LIKE} = '';
+        my $deb = $M7_SM->_is_debian_like;
+        ok( $deb == 0 || $deb == 1, 'debian: an empty override returns a boolean' );
+    }
+    {
+        local $ENV{DD_TEST_ALPINE} = '';
+        is( $M7_SM->_is_alpine, 0, 'alpine: an empty override is not alpine' );
+    }
+    {
+        local $ENV{DD_TEST_FEDORA} = '';
+        is( $M7_SM->_is_fedora, 0, 'fedora: an empty override is not fedora' );
+    }
+}
+
+{
+    # 6h. Protected argument: undef, quoted, plain and
+    # shell-character arguments on Windows, and a plain
+    # argument off Windows.
+    {
+        local $^O = 'MSWin32';
+        is( Developer::Dashboard::SkillManager::_cmd_protected_argument(undef),
+            undef, 'protected: undef stays undef' );
+        is( Developer::Dashboard::SkillManager::_cmd_protected_argument('a"b'),
+            'a"b', 'protected: a quoted argument stays as-is' );
+        is( Developer::Dashboard::SkillManager::_cmd_protected_argument('abc'),
+            'abc', 'protected: a plain argument stays as-is' );
+        is( Developer::Dashboard::SkillManager::_cmd_protected_argument('^1.2.3'),
+            '"^1.2.3"', 'protected: a shell character earns quotes' );
+    }
+    is( Developer::Dashboard::SkillManager::_cmd_protected_argument('x'),
+        'x', 'protected: a plain argument stays as-is off Windows' );
+}
+
+{
+    # 6i. Streaming command on Windows: the drain is driven by
+    # fake Win32 modules (the t/1009 pattern, M7 names) that
+    # report real byte counts via FIONREAD on the open3 pipes.
+    # The fake is installed only off Windows; on Windows the
+    # real modules run. Both streams are drained, with a
+    # timeout and without one.
+    my %M7_FAKE_FH_FOR_HANDLE;
+    my $M7_FIONREAD = $^O eq 'darwin' ? 0x4004667F : 0x541B;
+    if ( !$IS_WINDOWS ) {
+        $INC{'Win32/API.pm'}     = 'fake-t1011';
+        $INC{'Win32API/File.pm'} = 'fake-t1011';
+        no warnings qw(once redefine prototype);
+        *Win32::API::new = sub {
+            my ( $class, @args ) = @_;
+            return bless {}, 'M7::FakePeek';
+        };
+        *M7::FakePeek::Call = sub {
+            my ( $self, $handle, $buffer, $n, $bytes_read, $total_avail, $bytes_left ) = @_;
+            my $fh = $M7_FAKE_FH_FOR_HANDLE{$handle};
+            return 0 if !defined $fh;
+            my $sel = IO::Select->new($fh);
+            my @ready = $sel->can_read(0);
+            if ( !@ready ) {
+                $_[5] = pack 'L', 0;
+                return 1;
+            }
+            my $packed = pack 'L', 0;
+            my $ok = ioctl( $fh, $M7_FIONREAD, $packed );
+            return 0 if !$ok;
+            my $count = unpack 'L', $packed;
+            return 0 if $count == 0;
+            $_[5] = pack 'L', $count;
+            return 1;
+        };
+        *Win32API::File::GetOsFHandle = sub {
+            my ($fh) = @_;
+            return undef if !defined $fh || !defined fileno($fh);
+            my $handle = fileno($fh);
+            $M7_FAKE_FH_FOR_HANDLE{$handle} = $fh;
+            return $handle;
+        };
+    }
+    my $r1;
+    {
+        local $^O = 'MSWin32';
+        $r1 = $M7_SM->_run_streaming_command(
+            command => [ $^X, '-e', 'print "m7-out\n"; print STDERR "m7-err\n";' ],
+            timeout_ms => 5000,
+        );
+    }
+    is( $r1->{stdout}, "m7-out\n", 'streaming: stdout is drained on Windows' );
+    is( $r1->{stderr}, "m7-err\n", 'streaming: stderr is drained on Windows' );
+    is( $r1->{exit}, 0, 'streaming: the child exits cleanly' );
+    is( $r1->{timed_out}, 0, 'streaming: the child does not time out' );
+    my $r2;
+    {
+        local $^O = 'MSWin32';
+        $r2 = $M7_SM->_run_streaming_command(
+            command => [ $^X, '-e', 'print "m7-out2\n";' ],
+        );
+    }
+    is( $r2->{stdout}, "m7-out2\n", 'streaming: stdout is drained without a timeout' );
+    is( $r2->{exit}, 0, 'streaming: the child without a timeout exits cleanly' );
+}
