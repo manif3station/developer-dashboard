@@ -6164,9 +6164,14 @@ require Developer::Dashboard::CLI::OpenFileChooser;
 # (non-executable $0), B 282 true (an executable $0) + false (a
 # missing $0). Which _command_exec: B 294 true + B 303 true (a
 # bad-interpreter command on a localised Windows dies before exit).
-# B 303 false, B 304 and C 304 are UNCOVERABLE in-process: any
-# non-minus-1 system result reaches exit(), which ends the test
-# process, and a forked child does not count toward coverage.
+# B 303 false, B 304 true + false and C 304 l + !l (the exit ternary):
+# any non-minus-1 system result reaches exit(), so the test uses the
+# section 9 exit override (test 9b) and sets the file-scoped
+# $M7_EXIT_OVERRIDE flag around the calls: the exit code is caught as
+# a die instead of ending the test process. The override is installed
+# before Which.pm is compiled (its require runs at section 13), so
+# the exit in _command_exec resolves to it. The signal-death case
+# (C 304 !l) is skipped on real Windows, where SIGHUP has no meaning.
 # DockerCompose _rewrite_exec_dashboard_command: C 56 l (undef args)
 # + !l&&r (fewer than three args), C 62 l (an undef token) + !l&&r
 # (an empty token) + !l&&!r (a dash token), C 63 l (a --name=value
@@ -6295,6 +6300,36 @@ require Capture::Tiny;
     my $m7_died = eval { Developer::Dashboard::CLI::Which::_command_exec($m7_bad); 1 };
     ok( !$m7_died, 'section 13: a bad-interpreter command dies instead of exiting' );
     like( $@, qr/Unable to run command/, 'section 13: the bad-interpreter die names the command' );
+}
+
+{
+    # 13b2. B 303 false + B 304 true + false + C 304 l + !l: on a
+    # localised Windows a command that runs reaches exit(), so the
+    # section 9 exit override catches the code as a die instead of
+    # ending the test process. rc 0 exits 0, rc 256 (exit 1) exits 1,
+    # and a signal death (status 1, so $rc >> 8 is 0) exits 1 by
+    # the || 1. The flag is set and reset around the calls, the
+    # section 9 pattern; the error strings are captured before it
+    # is reset.
+    my $m7_real_os = $^O;
+    local $^O = 'MSWin32';
+    $M7_EXIT_OVERRIDE = 1;
+    my $m7_ok0 = eval { Developer::Dashboard::CLI::Which::_command_exec( $^X, '-e', 'exit 0' ); 1 };
+    my $m7_err0 = $@;
+    my $m7_ok1 = eval { Developer::Dashboard::CLI::Which::_command_exec( $^X, '-e', 'exit 1' ); 1 };
+    my $m7_err1 = $@;
+    SKIP: {
+        skip 'SIGHUP has no meaning on real Windows', 2 if $m7_real_os eq 'MSWin32';
+        my $m7_ok_sig = eval { Developer::Dashboard::CLI::Which::_command_exec( $^X, '-e', 'kill 1, $$' ); 1 };
+        my $m7_err_sig = $@;
+        ok( !$m7_ok_sig, 'section 13: a signal death reaches exit instead of dying' );
+        is( $m7_err_sig, "M7-EXIT:1\n", 'section 13: a signal death exits 1 by the fallback' );
+    }
+    $M7_EXIT_OVERRIDE = 0;
+    ok( !$m7_ok0, 'section 13: a clean command reaches exit instead of dying' );
+    is( $m7_err0, "M7-EXIT:0\n", 'section 13: a clean command exits 0' );
+    ok( !$m7_ok1, 'section 13: a failing command reaches exit instead of dying' );
+    is( $m7_err1, "M7-EXIT:1\n", 'section 13: a failing command exits 1' );
 }
 
 {
@@ -6987,8 +7022,8 @@ Ticket, ActionRunner, RuntimeControl, and Paths groups, and section
 14 the OpenFile, OpenFileGrep, PathRegistry, Web/App, Prompt, and
 GoRoutine END-drain groups. Cells that cannot be reached in-process
 are documented in the section headers with probe evidence instead of
-being faked: the five carve-outs, the exit paths in Which and
-OpenFile, the warn handlers that block-form system() never calls, the
+being faked: the five carve-outs, the exit path in OpenFile,
+the warn handlers that block-form system() never calls, the
 empty-string results command_in_path never returns, and the
 load-time Windows checks that only run on the Windows legs.
 
