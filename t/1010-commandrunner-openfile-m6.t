@@ -18,7 +18,11 @@
 # every Windows branch below on Unix, and the Jenkins proof drives
 # them for real on the Windows legs. The mock spawn in this file is
 # installed only on non-Windows, so on a real Windows leg the real
-# spawn_windows_command runs against the real powershell.
+# spawn_windows_command runs against the real powershell. The
+# spawn-count assertions are therefore guarded to non-Windows: with
+# no mock installed nothing is recorded there, and the proof on a
+# real Windows leg is the $out the child really printed (R175: proof
+# #208 failed both Windows legs on the unguarded count).
 #
 # THE MOCK. On Unix, spawn_windows_command cannot run: its body is
 # `system 1, @argv`, the Windows-only asynchronous spawn form, and on
@@ -45,9 +49,13 @@
 # call ends in exit(), which would replace the test process. The
 # _command_exec open-failure test must run in a child because its
 # only honest mechanism is exhausting the file-descriptor table, which
-# must not be done to the test process itself. Each child is a
-# separate perl process, so it installs its own localisation and its
-# own _exec_raw stub and reports back by exit code only.
+# must not be done to the test process itself. The child is spawned
+# through sh, which lowers the child's own NOFILE limit to 128 first:
+# on a leg with a high limit the open loop cannot exhaust the table
+# inside the 10s wait bound (R175: proof #208 timed out on both Linux
+# legs). Each child is a separate perl process, so it installs its own
+# localisation and its own _exec_raw stub and reports back by exit
+# code only.
 #
 # WRITE WITH SYSWRITE. A print to a pipe handle buffers: the bytes sit
 # in Perl's output buffer and never reach the pipe until the handle is
@@ -210,7 +218,10 @@ sub _read_file {
     );
     is( $exit,      0, 'run_command on Windows returns exit 0 for a rewritten perl -e command' );
     is( $timed_out, 0, 'run_command on Windows does not time out for a rewritten perl -e command' );
-    is( scalar @SPAWN_ARGV_SEEN, $before + 1, 'the Windows path spawned exactly once' );
+    SKIP: {
+        skip 'the spawn count is only recorded by the Unix mock', 1 if $IS_WINDOWS;
+        is( scalar @SPAWN_ARGV_SEEN, $before + 1, 'the Windows path spawned exactly once' );
+    }
     if ($IS_WINDOWS) {
         like( $out, qr/42/, 'on real Windows the rewritten script really ran and printed 42' );
     }
@@ -247,7 +258,10 @@ sub _read_file {
     );
     is( $exit,      0, 'run_command on Windows returns exit 0 for a plain command' );
     is( $timed_out, 0, 'run_command on Windows does not time out for a plain command' );
-    is( scalar @SPAWN_ARGV_SEEN, $before + 1, 'the Windows path spawned exactly once for a plain command' );
+    SKIP: {
+        skip 'the spawn count is only recorded by the Unix mock', 1 if $IS_WINDOWS;
+        is( scalar @SPAWN_ARGV_SEEN, $before + 1, 'the Windows path spawned exactly once for a plain command' );
+    }
     if ($IS_WINDOWS) {
         like( $out, qr/hello/, 'on real Windows the plain command really ran' );
     }
@@ -515,12 +529,18 @@ SKIP: {
         print {$sfh} "exit( \$ok ? 0 : 1 );\n";
         close $sfh or die "Unable to close $child_script: $!";
     }
+    # Lower the child's own NOFILE limit before perl starts: sh sets
+    # it, then execs perl, and the limit is inherited across the exec.
+    # 128 leaves ample room for perl startup and the requires, and
+    # the open loop then exhausts in about a hundred opens on any
+    # leg, however high its inherited limit is.
     my $pid = Developer::Dashboard::GoRoutine::spawn(
-        [ $^X, $child_script ],
+        [ '/bin/sh', '-c', 'ulimit -n 128; exec "$@"', 'sh', $^X, $child_script ],
         { env => { PERL5LIB => _child_perl5lib( File::Spec->catdir( $Bin, '..' ) ) } },
     );
     BAIL_OUT('GoRoutine spawn failed') if !defined $pid;
     my $rc = _wait_for_exit( $pid, 10 );
+    BAIL_OUT('open-failure child did not exit') if !defined $rc;
     is( $rc, 0, 'a shebang open failure leaves the command alone' );
 }
 
@@ -596,6 +616,7 @@ SKIP: {
     );
     BAIL_OUT('GoRoutine spawn failed') if !defined $pid;
     my $rc = _wait_for_exit( $pid, 10 );
+    BAIL_OUT('exec-raw child did not exit') if !defined $rc;
     is( $rc, 3, 'a successful Windows system call exits with the child status' );
     ok( -f $marker, 'the resolved vim.bat really ran' );
     is( -f $marker ? _read_file($marker) : '', "ran\n", 'the resolved vim.bat wrote its marker' );
