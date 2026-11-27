@@ -160,11 +160,14 @@ SKIP: {
     my $pid = fork();
     BAIL_OUT("cannot fork: $!") if !defined $pid;
     if ( $pid == 0 ) {
-        $FAKE_NEW_FAIL = 1;
-        local $^O = 'MSWin32';
-        my $got = Developer::Dashboard::IndicatorStore::Watch::_handle_readable( $sel, $r );
-        my $can = $sel->can_read(0) ? 1 : 0;
-        exit( ( defined $got && $got == $can && $can == 1 ) ? 0 : 1 );
+        my $ok = eval {
+            $FAKE_NEW_FAIL = 1;
+            local $^O = 'MSWin32';
+            my $got = Developer::Dashboard::IndicatorStore::Watch::_handle_readable( $sel, $r );
+            my $can = $sel->can_read(0) ? 1 : 0;
+            defined $got && $got == $can && $can == 1;
+        };
+        exit( $ok ? 0 : 1 );
     }
     waitpid( $pid, 0 );
     is( $? >> 8, 0, 'a failed PeekNamedPipe import falls back to can_read' );
@@ -407,6 +410,15 @@ SKIP: {
     {
         local $^O = 'MSWin32';
         syswrite( $peer, 'SOCK-DATA' ) or die "syswrite: $!";
+        # macOS TCP loopback has a tiny delay before written data
+        # becomes visible to the reader, so wait until the select
+        # reports readable (bounded) before asserting. This is the
+        # R142 pattern: pump until done, with a bound.
+        my $deadline = Time::HiRes::time() + 1;
+        while ( Time::HiRes::time() < $deadline ) {
+            last if $sel->can_read(0);
+            Time::HiRes::sleep(0.01);
+        }
         is( Developer::Dashboard::IndicatorStore::Watch::_handle_readable( $sel, $reader ),
             1, 'a socket with data reads 1 under MSWin32' );
         my $buf = '';
@@ -585,6 +597,7 @@ SKIP: {
         ok( !$err && defined $handle, 'initialize returns a handle for a valid fd' );
         is( fileno($handle), fileno($r), 'the handle wraps the same fd' );
         close $handle;
+        close $r;
         close $w;
         {
             no warnings qw(once redefine prototype);
@@ -643,7 +656,10 @@ a failed import and never retries; a failure there would poison
 every later test in the process. And the EINTR test arms a one-shot
 lie in the fake peek (five bytes reported on an empty pipe) so the
 read blocks and the alarm interrupts it for real; the handler writes
-the payload, so the retry has something to find. Writes to test
+the payload, so the retry has something to find. The socket test
+waits (bounded, one second) for the select to report readable after
+the write, because macOS TCP loopback delays visibility (R167); the
+wait polls, so a genuinely missing write still fails the assertion. Writes to test
 pipes use syswrite, never print: print buffers, and a peek taken
 before the flush sees an empty pipe while a sysread on it blocks
 forever.
