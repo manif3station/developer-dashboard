@@ -4090,3 +4090,1047 @@ my $M7_SM = Developer::Dashboard::SkillManager->new( paths => $M7_PATHS );
     is( $r2->{stdout}, "m7-out2\n", 'streaming: stdout is drained without a timeout' );
     is( $r2->{exit}, 0, 'streaming: the child without a timeout exits cleanly' );
 }
+
+# ======================================================================
+# SECTION 7 - ProcessSupervision (R178).
+#
+# Cover #19 gap for lib/Developer/Dashboard/ProcessSupervision.pm: 15
+# branch cells + 4 condition cells + 0 subs. Every cell is
+# accounted for below as covered, or as probed-uncoverable with
+# the evidence.
+#
+# COVERED HERE. B 91 true (a GoRoutine child that has exited is
+# reaped through the native process API), B 194 true (the in-place
+# overwrite succeeds after a stubbed rename failure over an
+# unmovable source), B 452 true (a System32 taskkill.exe is
+# present under a fake SystemRoot), B 522 true (the second call
+# returns the cached import) and false (the first call imports),
+# B 527 / B 529 / B 531 / B 533 false (the import succeeding),
+# B 541 false (the import succeeds), B 572 true /
+# false (OpenProcess returning a falsy and a real handle),
+# B 576 true / false (GetExitCodeProcess succeeding and failing),
+# B 578 true / false (a wrong and a matching real pid) + C 578
+# !l, l&&!r and l&&r (an undef, a wrong and a matching real pid),
+# B 579 true / false (no exit code and one), B 580 true / false
+# (STILL_ACTIVE and an exited code), C 449 l&&!r (an empty
+# command resolution), C 450 l (a SystemRoot is set).
+#
+# PROBED-UNCOVERABLE, with the evidence. B 265 true: the restore
+# rename in _source_is_movable can only fail if the filesystem
+# changes between the two adjacent renames, and there is no
+# interposition point between them; a probe over a real file, a
+# directory and a missing source (/tmp/m7-probes/s79-probes2.pl,
+# run under Devel::Cover) left the true side at 0 while the
+# false side counted 1. C 309 !l&&r: Perl's '<&' and '>&' dups
+# are symmetric - both succeed exactly when the descriptor is
+# valid - so a descriptor that fails the read dup but passes the
+# write dup does not exist on Linux; a probe battery over
+# write-only files, O_PATH descriptors, directory handles,
+# socketpairs (including shutdown halves) and both pipe ends
+# (/tmp/m7-probes/s79-probes2.pl) found every descriptor duping
+# both ways, and the #19 counts (8,0,1016) show the cell never
+# firing across the whole suite. B 527 / B 529 / B 531 / B 533
+# true: each kernel32 import failing in turn does make the
+# import return undef - an isolated probe proves all four
+# guards fire - but in the cover run only the last compilation
+# of a reloaded file is reported, and a failed import sets the
+# poison flag, so the four guard variants need four reloads and
+# only the last variant's data survives. A minimal reload probe
+# (/tmp/m7-reload-test/run.pl) proves the mechanism: two calls
+# before a reload and two after it, yet the report shows only
+# the two post-reload evaluations. The guard tests below still
+# verify the behaviour (each failing import returns undef);
+# the true sides cannot be recorded in the cover measurement.
+#
+# HOW THE CELLS ARE REACHED. B 91 polls process_exited directly
+# instead of _wait_for_exit, because _wait_for_exit reaps the
+# child through wait_process and deletes the registry entry
+# reap_child needs. B 194 stubs _rename_path on the RuntimeManager
+# (the wrapper the module documents as the seam for simulating
+# platform rename failures) and blocks the movability probe with
+# a non-empty directory at the probe path, so the source is
+# genuinely unmovable while still readable. The taskkill tests
+# localise $OS_NAME and $ENV{PATH} to an empty directory, and
+# stub command_in_path in the ProcessSupervision stash for the
+# empty resolution (command_in_path can only return undef or a
+# non-empty path: its candidates are catfile joins and empty PATH
+# entries are skipped). The Windows API tests reload
+# ProcessSupervision for fresh file lexicals before each import
+# variant, because a failed import sets the poison flag and
+# blocks every retry in the same process, and the earlier
+# sections already called _pid_is_running with $OS_NAME
+# localised, so the flag is very likely already set in this
+# process. All API calls after a reload are fully qualified as
+# Developer::Dashboard::ProcessSupervision::... because the
+# RuntimeManager-imported copies still point at the pre-reload
+# code. The _process_exists_windows variants drive one cached
+# fake API whose Call behaviour is scripted through the
+# %M7::FakeApiFn::BEHAVIOUR hash, so no reload is needed
+# between them.
+# ======================================================================
+
+# M7::FakeApiFn: one scripted Win32::API function object. Call
+# returns the behaviour recorded for its function name, calling
+# it when it is a code reference (so GetExitCodeProcess can write
+# its code into the caller's buffer, as the real function does).
+{
+    package M7::FakeApiFn;
+    our %BEHAVIOUR;
+    sub new {
+        my ( $class, $name ) = @_;
+        return bless { name => $name }, $class;
+    }
+    sub Call {
+        my $self = shift;
+        my $value = $BEHAVIOUR{ $self->{name} };
+        # Pass @_ through untouched, never copied into a fresh list:
+        # a code behaviour writes its result into the caller's buffer
+        # through the alias, and a copy would swallow that write.
+        return ref($value) eq 'CODE' ? $value->(@_) : $value;
+    }
+}
+
+# _m7_reload_process_supervision(): reloads ProcessSupervision so
+# its file lexicals ($_WINDOWS_PROCESS_API and the poison flag)
+# start fresh. The earlier sections already called
+# _pid_is_running with $OS_NAME localised, which poisons the
+# import in this process, so the API tests cannot run without it.
+# Input: none. Output: none.
+sub _m7_reload_process_supervision {
+    delete $INC{'Developer/Dashboard/ProcessSupervision.pm'};
+    local $SIG{__WARN__} = sub { };
+    no warnings qw(redefine prototype);
+    require Developer::Dashboard::ProcessSupervision;
+}
+
+# _m7_windows_api_with_fail($fail_name): reloads ProcessSupervision,
+# installs a Win32::API::new that returns scripted fake function
+# objects (undef for the named function, when given), and returns
+# whatever _windows_process_api builds, or undef when the import
+# fails. Input: function name to fail, or undef for a clean import.
+# Output: API hash reference, or undef.
+sub _m7_windows_api_with_fail {
+    my ($fail_name) = @_;
+    _m7_reload_process_supervision();
+    my $api;
+    {
+        no warnings qw(redefine prototype);
+        local *Win32::API::new = sub {
+            my ( $class, $dll, $name ) = @_;
+            return undef if defined $fail_name && $name eq $fail_name;
+            return M7::FakeApiFn->new($name);
+        };
+        $api = Developer::Dashboard::ProcessSupervision::_windows_process_api();
+    }
+    return $api;
+}
+
+# 7b: B 194 true - the in-place overwrite succeeds after the
+# rename fails over an unmovable source. The rename is stubbed
+# to fail (the module documents _rename_path as the seam for
+# simulating platform rename failures), and the source is made
+# genuinely unmovable by a non-empty directory at the probe path
+# _source_is_movable renames to, so the real CORE::rename in the
+# probe fails while the source itself stays readable.
+{
+    my $m7_ps_dir = tempdir( CLEANUP => 1 );
+    my $m7_ps_source = File::Spec->catfile( $m7_ps_dir, 'state.json' );
+    my $m7_ps_target = File::Spec->catfile( $m7_ps_dir, 'state-final.json' );
+    open my $m7_ps_fh, '>', $m7_ps_source or die "Unable to write $m7_ps_source: $!";
+    print {$m7_ps_fh} "M7 state\n" or die "Unable to print: $!";
+    close $m7_ps_fh or die "Unable to close $m7_ps_source: $!";
+    my $m7_ps_probe = $m7_ps_source . '.movable-probe';
+    mkdir $m7_ps_probe or die "Unable to mkdir $m7_ps_probe: $!";
+    open my $m7_ps_probe_fh, '>', File::Spec->catfile( $m7_ps_probe, 'keep.txt' )
+      or die "Unable to write the probe keep file: $!";
+    close $m7_ps_probe_fh or die "Unable to close the probe keep file: $!";
+    my $m7_ps_replaced;
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        no warnings qw(redefine prototype);
+        local *Developer::Dashboard::RuntimeManager::_rename_path = sub { 0 };
+        $m7_ps_replaced = $M7_MANAGER->_replace_state_file( $m7_ps_source, $m7_ps_target );
+    }
+    is( $m7_ps_replaced, 1, 'section 7: an unmovable source is replaced in place on Windows' );
+    is( _m7_read_file($m7_ps_target), "M7 state\n", 'section 7: the in-place overwrite copies the source content' );
+    ok( !-e $m7_ps_source, 'section 7: the source is unlinked after the in-place overwrite' );
+}
+
+# 7c: B 265 true and C 309 !l&&r are probed-uncoverable (see the
+# section header). No test is written for either cell.
+
+# 7d: B 452 true, C 449 l&&!r, C 450 l - _taskkill_command on a
+# simulated Windows. The PATH is localised to an empty directory
+# so command_in_path finds nothing, and the empty resolution is
+# fed by a stub in the ProcessSupervision stash.
+{
+    my $m7_ps_empty = tempdir( CLEANUP => 1 );
+    my $m7_ps_root  = tempdir( CLEANUP => 1 );
+    my $m7_ps_cmd;
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        local $ENV{PATH} = $m7_ps_empty;
+        delete local $ENV{SystemRoot};
+        $m7_ps_cmd = Developer::Dashboard::ProcessSupervision::_taskkill_command();
+    }
+    is( $m7_ps_cmd, 'taskkill', 'section 7: no taskkill anywhere falls back to the bare name' );
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        local $ENV{SystemRoot} = $m7_ps_root;
+        no warnings qw(redefine prototype);
+        local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { '' };
+        $m7_ps_cmd = Developer::Dashboard::ProcessSupervision::_taskkill_command();
+    }
+    is( $m7_ps_cmd, 'taskkill', 'section 7: an empty taskkill resolution falls back to the bare name' );
+    my $m7_ps_system32 = File::Spec->catdir( $m7_ps_root, 'System32' );
+    mkdir $m7_ps_system32 or die "Unable to mkdir $m7_ps_system32: $!";
+    my $m7_ps_exe = File::Spec->catfile( $m7_ps_system32, 'taskkill.exe' );
+    open my $m7_ps_exe_fh, '>', $m7_ps_exe or die "Unable to write $m7_ps_exe: $!";
+    close $m7_ps_exe_fh or die "Unable to close $m7_ps_exe: $!";
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        local $ENV{PATH}       = $m7_ps_empty;
+        local $ENV{SystemRoot} = $m7_ps_root;
+        $m7_ps_cmd = Developer::Dashboard::ProcessSupervision::_taskkill_command();
+    }
+    is( $m7_ps_cmd, $m7_ps_exe, 'section 7: a System32 taskkill.exe is returned when present' );
+}
+
+# 7e: B 522 true/false, B 527 / B 529 / B 531 / B 533 true/false,
+# B 541 false - _windows_process_api imports the four kernel32
+# functions once and caches them, and each failing import in turn
+# makes the import return undef. Each variant reloads the module
+# for fresh lexicals, because one failed import poisons retries.
+{
+    my $m7_ps_api = _m7_windows_api_with_fail(undef);
+    ok( defined $m7_ps_api, 'section 7: the Windows process API imports cleanly' );
+    my $m7_ps_api2 = Developer::Dashboard::ProcessSupervision::_windows_process_api();
+    is( $m7_ps_api2, $m7_ps_api, 'section 7: the second import returns the cached API' );
+    for my $m7_ps_fn ( qw(OpenProcess GetExitCodeProcess GetProcessId CloseHandle) ) {
+        my $m7_ps_failed = _m7_windows_api_with_fail($m7_ps_fn);
+        ok( !defined $m7_ps_failed, "section 7: the import fails when $m7_ps_fn cannot be imported" );
+    }
+}
+
+# 7f: B 572 true/false, B 576 true/false, B 578 true/false,
+# B 579 true/false, B 580 true/false, C 578 !l / l&&!r / l&&r -
+# _process_exists_windows over one cached fake API whose Call
+# behaviour is scripted per variant. No reload is needed between
+# variants: only the behaviour hash changes.
+{
+    my $m7_ps_api = _m7_windows_api_with_fail(undef);
+    ok( defined $m7_ps_api, 'section 7: the fake API is ready for the liveness variants' );
+    my $m7_ps_pid = $$;
+    my $m7_ps_exists;
+    {
+        local %M7::FakeApiFn::BEHAVIOUR = (
+            OpenProcess => 0,
+        );
+        $m7_ps_exists = Developer::Dashboard::ProcessSupervision::_process_exists_windows($m7_ps_pid);
+    }
+    is( $m7_ps_exists, 0, 'section 7: a falsy OpenProcess handle means the process does not exist' );
+    {
+        local %M7::FakeApiFn::BEHAVIOUR = (
+            OpenProcess         => 1234,
+            GetProcessId        => undef,
+            GetExitCodeProcess  => sub { $_[1] = pack 'L', 259; return 1; },
+            CloseHandle         => 1,
+        );
+        $m7_ps_exists = Developer::Dashboard::ProcessSupervision::_process_exists_windows($m7_ps_pid);
+    }
+    is( $m7_ps_exists, 0, 'section 7: an undef real pid means the process does not exist' );
+    {
+        local %M7::FakeApiFn::BEHAVIOUR = (
+            OpenProcess         => 1234,
+            GetProcessId        => $m7_ps_pid + 4,
+            GetExitCodeProcess  => sub { $_[1] = pack 'L', 259; return 1; },
+            CloseHandle         => 1,
+        );
+        $m7_ps_exists = Developer::Dashboard::ProcessSupervision::_process_exists_windows($m7_ps_pid);
+    }
+    is( $m7_ps_exists, 0, 'section 7: a mismatched real pid means the process does not exist' );
+    {
+        local %M7::FakeApiFn::BEHAVIOUR = (
+            OpenProcess         => 1234,
+            GetProcessId        => $m7_ps_pid,
+            GetExitCodeProcess  => sub { $_[1] = pack 'L', 259; return 1; },
+            CloseHandle         => 1,
+        );
+        $m7_ps_exists = Developer::Dashboard::ProcessSupervision::_process_exists_windows($m7_ps_pid);
+    }
+    is( $m7_ps_exists, 1, 'section 7: STILL_ACTIVE means the process exists' );
+    {
+        local %M7::FakeApiFn::BEHAVIOUR = (
+            OpenProcess         => 1234,
+            GetProcessId        => $m7_ps_pid,
+            GetExitCodeProcess  => sub { $_[1] = pack 'L', 0; return 1; },
+            CloseHandle         => 1,
+        );
+        $m7_ps_exists = Developer::Dashboard::ProcessSupervision::_process_exists_windows($m7_ps_pid);
+    }
+    is( $m7_ps_exists, 0, 'section 7: an exited code means the process does not exist' );
+    {
+        local %M7::FakeApiFn::BEHAVIOUR = (
+            OpenProcess         => 1234,
+            GetProcessId        => $m7_ps_pid,
+            GetExitCodeProcess  => sub { return 0; },
+            CloseHandle         => 1,
+        );
+        $m7_ps_exists = Developer::Dashboard::ProcessSupervision::_process_exists_windows($m7_ps_pid);
+    }
+    is( $m7_ps_exists, 0, 'section 7: a failed exit-code read means the process does not exist' );
+}
+
+# 7a: B 91 true - a GoRoutine child that has exited is reaped
+# through the native process API. The poll uses process_exited
+# directly, never _wait_for_exit: _wait_for_exit calls
+# wait_process, which deletes the registry entry reap_child
+# needs, so the reap would always report false afterwards.
+# This block runs AFTER 7f on purpose: the 7e/7f reloads
+# discard Devel::Cover data for ProcessSupervision, so a
+# reap before the last reload would never be recorded.
+# It runs in the final compilation, after the last reload.
+{
+    # PERL5OPT is cleared for the child: under Devel::Cover the
+    # parent inherits -MDevel::Cover, and a child that loads it
+    # takes seconds to start, longer than a short poll bound.
+    # $^O is localised to MSWin32 around the spawn: the
+    # registry keep in GoRoutine keys off runtime $^O (not
+    # $OS_NAME), so only a spawn under a localised $^O
+    # records the child, and only a recorded child lets
+    # reap_child return true (B 91 true). Without it the
+    # reap falls through to waitpid and the branch never
+    # fires. The comment in GoRoutine.pm names this as the
+    # designed test seam.
+    my $m7_ps_pid;
+    {
+        local $^O = 'MSWin32';
+        $m7_ps_pid = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', '1' ], { env => { PERL5OPT => '' } } );
+    }
+    ok( defined $m7_ps_pid, 'section 7: the GoRoutine child spawns' );
+    my $m7_ps_exited = 0;
+    my $m7_ps_deadline = time() + 30;
+    while ( time() < $m7_ps_deadline ) {
+        last if Developer::Dashboard::GoRoutine::process_exited($m7_ps_pid);
+        Time::HiRes::sleep(0.05);
+    }
+    $m7_ps_exited = Developer::Dashboard::GoRoutine::process_exited($m7_ps_pid);
+    ok( $m7_ps_exited, 'section 7: the GoRoutine child has exited' );
+    BAIL_OUT('section 7: the GoRoutine child never exited') if !$m7_ps_exited;
+    my $m7_ps_reaped;
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        $m7_ps_reaped = $M7_MANAGER->_reap_child_process($m7_ps_pid);
+    }
+    is( $m7_ps_reaped, 1, 'section 7: an exited GoRoutine child is reaped on Windows' );
+    ok( !Developer::Dashboard::GoRoutine::is_spawn_child($m7_ps_pid), 'section 7: the reaped child leaves the spawn registry' );
+}
+
+# ======================================================================
+# SECTION 8 - PageRuntime (R178).
+#
+# Cover #19 gap for lib/Developer/Dashboard/PageRuntime.pm: 15
+# branch cells + 3 condition cells + 0 subs. Every cell is
+# accounted for below as covered, or as probed-uncoverable with
+# the evidence.
+#
+# COVERED HERE. B 845 true + C 845 !l and l&&!r (an undef handle
+# and a closed one), B 846 true (a defined peek), B 848 true (a
+# GetOsFHandle that returns undef) and false (a real handle),
+# B 854 true (a peek Call that returns 0) and false (a real
+# count), B 858 true (a tied handle whose FILENO turns undef),
+# B 897 true (a localised $^O) and false (the plain path),
+# B 901 true (a PeekNamedPipe import that returns undef) and
+# false (a real fake peek), B 927 true (a closed handle in the
+# stream loop), C 969 l (a non-empty broken list, from 8c2: one
+# broken handle and one live one), B 982 true
+# (a writer that dies in the post-exit drain) and false (a writer
+# that returns), B 986 true (a writer that returns false in the
+# post-exit drain) and false (a writer that returns true),
+# B 992 true (a peek Call that dies) and false (a clean stream),
+# B 999 true (a fatal error with no termination yet) + C 999
+# l&&r (a defined fatal error and no termination), B 1005 true
+# (a fatal error is rethrown) and false (a clean return).
+#
+# PROBED-UNCOVERABLE, with the evidence. B 972 false: the
+# assignment to $saved_status sits inside the child-exited block,
+# which always ends in last STREAM, and it is the only write to
+# that fresh lexical in the sub, so the guard can never see it
+# already defined; the child-exited tests below fire the true
+# side and the false side stays at 0. C 999 l&&!r: a defined
+# fatal error and an already-terminated stream cannot co-occur -
+# $terminated is only set when $disconnected or $stream_error is
+# set, and those are only set on paths that exit the loop cleanly
+# (last STREAM), while a fatal error only arises when the outer
+# eval dies, which bypasses those assignments; no path sets both.
+# B 862 true: select never returns undef for the call this code
+# makes - a closed descriptor returns -1 and an out-of-range bit
+# returns 0 (probes: select on a closed fd gives -1, on a
+# 999999 fd gives 0, both defined), and the zero timeout leaves
+# no window for an interrupting signal, so the guard is defensive
+# dead code.
+#
+# HOW THE CELLS ARE REACHED. The readiness helper is called
+# directly for its own cells, with a tied handle for the FILENO
+# cases (its FILENO returns a defined descriptor first and undef
+# second, so the two fileno calls in the helper see different
+# answers). The stream tests localise $^O to MSWin32 and drive
+# the section-6i fake peek for the real byte counts, a lying
+# peek (Call reports zero available while the pipes hold data)
+# for the post-exit drain cells - the data must be invisible to
+# the readiness poll but present for the drain - and a dying
+# peek for the fatal path. The worker pid is a GoRoutine child
+# that has already exited, polled through process_exited without
+# reaping so the child-exited check sees it. The write ends of
+# the pipes are closed before each stream call, so a sysread can
+# only return buffered bytes or end of file, never block.
+# ======================================================================
+
+require Developer::Dashboard::PageRuntime;
+
+my $M7_PR = Developer::Dashboard::PageRuntime->new( paths => $M7_PATHS );
+
+# M7::TiedFh: a tied handle whose FILENO answers from a list, so
+# successive fileno calls can disagree (defined, then undef).
+{
+    package M7::TiedFh;
+    sub TIEHANDLE {
+        my ( $class, @values ) = @_;
+        return bless { values => \@values, n => 0 }, $class;
+    }
+    sub FILENO {
+        my ($self) = @_;
+        return $self->{values}[ $self->{n}++ ];
+    }
+}
+
+# M7::LyingPeek: a PeekNamedPipe that always reports zero bytes
+# available, while the real pipes hold data. The post-exit drain
+# then sees the data the readiness poll could not.
+{
+    package M7::LyingPeek;
+    sub new {
+        my ($class) = @_;
+        return bless {}, $class;
+    }
+    sub Call {
+        my ($self) = @_;
+        $_[5] = pack 'L', 0;
+        return 1;
+    }
+}
+
+# M7::DyingPeek: a PeekNamedPipe whose Call dies, for the fatal
+# stream path.
+{
+    package M7::DyingPeek;
+    sub new {
+        my ($class) = @_;
+        return bless {}, $class;
+    }
+    sub Call { die "M7 fatal peek\n"; }
+}
+
+# _m7_ajax_pipes_with_data($out_text, $err_text): two pipes holding
+# the given bytes with their write ends closed, plus a GoRoutine
+# worker that has already exited (polled, never reaped, so the
+# child-exited check sees it). Input: stdout and stderr bytes.
+# Output: stdout read end, stderr read end, worker pid.
+sub _m7_ajax_pipes_with_data {
+    my ( $out_text, $err_text ) = @_;
+    pipe( my $out_r, my $out_w ) or die "Unable to pipe: $!";
+    pipe( my $err_r, my $err_w ) or die "Unable to pipe: $!";
+    # syswrite, never print: a print is buffered and the bytes would
+    # not be in the kernel pipe yet when the peek counts them.
+    syswrite( $out_w, $out_text ) == length($out_text) or die "Unable to write: $!";
+    syswrite( $err_w, $err_text ) == length($err_text) or die "Unable to write: $!";
+    close $out_w or die "Unable to close: $!";
+    close $err_w or die "Unable to close: $!";
+    # PERL5OPT is cleared for the child: under Devel::Cover the
+    # parent inherits -MDevel::Cover, and a child that loads it
+    # takes seconds to start, longer than a short poll bound.
+    my $pid = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', '1' ], { env => { PERL5OPT => '' } } );
+    die 'GoRoutine spawn failed' if !defined $pid;
+    my $deadline = time() + 30;
+    while ( time() < $deadline ) {
+        last if Developer::Dashboard::GoRoutine::process_exited($pid);
+        Time::HiRes::sleep(0.05);
+    }
+    BAIL_OUT('section 8: the Ajax worker never exited')
+      if !Developer::Dashboard::GoRoutine::process_exited($pid);
+    return ( $out_r, $err_r, $pid );
+}
+
+# 8a: B 845 true + C 845 !l / l&&!r, B 846 true, B 848 true/false,
+# B 854 true/false, B 858 true - the readiness helper, called
+# directly. B 862 is probed-uncoverable (see the header).
+{
+    my $m7_pr_avail = $M7_PR->_saved_ajax_windows_pipe_available( undef, undef );
+    is( $m7_pr_avail, undef, 'section 8: an undef handle has no bytes available' );
+    open my $m7_pr_closed, '<', File::Spec->devnull() or die "Unable to open devnull: $!";
+    close $m7_pr_closed or die "Unable to close: $!";
+    $m7_pr_avail = $M7_PR->_saved_ajax_windows_pipe_available( undef, $m7_pr_closed );
+    is( $m7_pr_avail, undef, 'section 8: a closed handle has no bytes available' );
+    pipe( my $m7_pr_r, my $m7_pr_w ) or die "Unable to pipe: $!";
+    # syswrite, never print: a print is buffered and the bytes would
+    # not be in the kernel pipe yet when the peek counts them.
+    syswrite( $m7_pr_w, "M7 data\n" ) == 8 or die "Unable to write: $!";
+    my $m7_pr_peek = Win32::API->new( 'kernel32', 'PeekNamedPipe', 'QPIPPP', 'I' );
+    $m7_pr_avail = $M7_PR->_saved_ajax_windows_pipe_available( $m7_pr_peek, $m7_pr_r );
+    is( $m7_pr_avail, 8, 'section 8: the peek reports the bytes waiting in the pipe' );
+    close $m7_pr_w or die "Unable to close: $!";
+    {
+        no warnings qw(redefine prototype);
+        local *Win32API::File::GetOsFHandle = sub { return undef; };
+        $m7_pr_avail = $M7_PR->_saved_ajax_windows_pipe_available( $m7_pr_peek, $m7_pr_r );
+    }
+    is( $m7_pr_avail, undef, 'section 8: an unreachable handle has no bytes available' );
+    {
+        local %M7::FakeApiFn::BEHAVIOUR = ( PeekNamedPipe => 0 );
+        my $m7_pr_zero = M7::FakeApiFn->new('PeekNamedPipe');
+        $m7_pr_avail = $M7_PR->_saved_ajax_windows_pipe_available( $m7_pr_zero, $m7_pr_r );
+    }
+    is( $m7_pr_avail, undef, 'section 8: a failed peek call has no bytes available' );
+    # A package glob, not a lexical: tie *$scalar does not
+    # autovivify a glob from an undef scalar.
+    tie *M7::TiedFhHandle, 'M7::TiedFh', 3, undef;
+    $m7_pr_avail = $M7_PR->_saved_ajax_windows_pipe_available( undef, *M7::TiedFhHandle );
+    is( $m7_pr_avail, undef, 'section 8: a handle whose descriptor vanishes has no bytes available' );
+    close $m7_pr_r or die "Unable to close: $!";
+}
+
+# 8b: B 897 true, B 901 true - the PeekNamedPipe import fails on
+# a localised Windows.
+{
+    my ( $m7_pr_out, $m7_pr_err );
+    pipe( $m7_pr_out, my $m7_pr_w1 ) or die "Unable to pipe: $!";
+    pipe( $m7_pr_err, my $m7_pr_w2 ) or die "Unable to pipe: $!";
+    my $m7_pr_died;
+    {
+        local $^O = 'MSWin32';
+        no warnings qw(redefine prototype);
+        local *Win32::API::new = sub { return undef; };
+        my $ok = eval {
+            $M7_PR->_stream_saved_ajax_windows(
+                pid    => $$,
+                path   => 'm7.pl',
+                stdout => $m7_pr_out,
+                stderr => $m7_pr_err,
+            );
+            1;
+        };
+        $m7_pr_died = $@ if !$ok;
+    }
+    like( $m7_pr_died, qr/Could not import PeekNamedPipe/, 'section 8: a failed PeekNamedPipe import dies' );
+    close $m7_pr_w1 or die "Unable to close: $!";
+    close $m7_pr_w2 or die "Unable to close: $!";
+    close $m7_pr_out or die "Unable to close: $!";
+    close $m7_pr_err or die "Unable to close: $!";
+}
+
+# 8c: B 927 true - closed handles in the stream loop are
+# reported broken, drained as read errors, and retired. Both
+# handles are closed here, so @live empties and the loop leaves
+# at last STREAM before line 969; C 969 l needs the one-broken
+# one-live case in 8c2.
+{
+    pipe( my $m7_pr_out, my $m7_pr_w1 ) or die "Unable to pipe: $!";
+    pipe( my $m7_pr_err, my $m7_pr_w2 ) or die "Unable to pipe: $!";
+    close $m7_pr_w1 or die "Unable to close: $!";
+    close $m7_pr_w2 or die "Unable to close: $!";
+    close $m7_pr_out or die "Unable to close: $!";
+    close $m7_pr_err or die "Unable to close: $!";
+    my $m7_pr_pid = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', '1' ], {} );
+    die 'GoRoutine spawn failed' if !defined $m7_pr_pid;
+    my @m7_pr_read_errors;
+    my $m7_pr_result;
+    {
+        local $^O = 'MSWin32';
+        $m7_pr_result = $M7_PR->_stream_saved_ajax_windows(
+            pid           => $m7_pr_pid,
+            path          => 'm7.pl',
+            stdout        => $m7_pr_out,
+            stderr        => $m7_pr_err,
+            stdout_writer => sub { return 1; },
+            stderr_writer => sub { push @m7_pr_read_errors, $_[0]; return 1; },
+        );
+    }
+    is( $m7_pr_result->{disconnected}, 0, 'section 8: broken handles do not disconnect the stream' );
+    is( $m7_pr_result->{error}, '', 'section 8: broken handles leave no stream error' );
+    like( $m7_pr_read_errors[0] // '', qr/Unable to read ajax stream/, 'section 8: a broken handle reports its read error' );
+}
+
+# 8c2: C 969 l - one broken handle and one live handle reach
+# the next-STREAM check with @broken set. Only the stdout read
+# end is closed, so the drain reports its read error and returns
+# true, the stdout handle retires, but the stderr handle stays
+# live, so the loop does not leave at last STREAM and reaches
+# line 969 with @broken non-empty. The stderr pipe carries data
+# (not an empty EOF pipe: the fake peek returns 0 for a readable
+# pipe with zero bytes available, which would put stderr in
+# @broken as well), so it is ready, drains its chunk, and stays
+# live for the next-STREAM check. The next iteration finds the
+# worker already exited and the stream ends through the
+# post-exit drain.
+{
+    pipe( my $m7_pr_out, my $m7_pr_w1 ) or die "Unable to pipe: $!";
+    pipe( my $m7_pr_err, my $m7_pr_w2 ) or die "Unable to pipe: $!";
+    close $m7_pr_w1 or die "Unable to close: $!";
+    my $m7_pr_written = syswrite( $m7_pr_w2, "M7 err\n" );
+    die "Unable to write: $!" if !defined $m7_pr_written || $m7_pr_written != 7;
+    close $m7_pr_w2 or die "Unable to close: $!";
+    close $m7_pr_out or die "Unable to close: $!";
+    my $m7_pr_pid = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', '1' ], { env => { PERL5OPT => '' } } );
+    die 'GoRoutine spawn failed' if !defined $m7_pr_pid;
+    my @m7_pr_err_chunks;
+    my $m7_pr_result;
+    {
+        local $^O = 'MSWin32';
+        $m7_pr_result = $M7_PR->_stream_saved_ajax_windows(
+            pid           => $m7_pr_pid,
+            path          => 'm7.pl',
+            stdout        => $m7_pr_out,
+            stderr        => $m7_pr_err,
+            stdout_writer => sub { return 1; },
+            stderr_writer => sub { push @m7_pr_err_chunks, $_[0]; return 1; },
+        );
+    }
+    is( $m7_pr_result->{disconnected}, 0, 'section 8: one broken handle does not disconnect the stream' );
+    is( $m7_pr_result->{error}, '', 'section 8: one broken handle leaves no stream error' );
+    like( $m7_pr_err_chunks[0] // '', qr/Unable to read ajax stream/, 'section 8: one broken handle reports its read error' );
+    is( $m7_pr_err_chunks[1] // '', "M7 err\n", 'section 8: the live handle still delivers its chunk' );
+    close $m7_pr_err if defined fileno($m7_pr_err);
+}
+
+# 8d: B 982 true/false, B 986 true/false - the post-exit drain,
+# reached through a lying peek so the data is invisible to the
+# readiness poll but present for the drain.
+{
+    my ( $m7_pr_out, $m7_pr_err, $m7_pr_pid ) = _m7_ajax_pipes_with_data( "M7 ajax out\n", "M7 ajax err\n" );
+    my ( @m7_pr_out_chunks, @m7_pr_err_chunks );
+    my $m7_pr_result;
+    {
+        local $^O = 'MSWin32';
+        no warnings qw(redefine prototype);
+        local *Win32::API::new = sub { return M7::LyingPeek->new(); };
+        $m7_pr_result = $M7_PR->_stream_saved_ajax_windows(
+            pid           => $m7_pr_pid,
+            path          => 'm7.pl',
+            stdout        => $m7_pr_out,
+            stderr        => $m7_pr_err,
+            stdout_writer => sub { push @m7_pr_out_chunks, $_[0]; return 1; },
+            stderr_writer => sub { push @m7_pr_err_chunks, $_[0]; return 1; },
+        );
+    }
+    is( $m7_pr_result->{disconnected}, 0, 'section 8: a clean post-exit drain does not disconnect' );
+    is( join( '', @m7_pr_out_chunks ), "M7 ajax out\n", 'section 8: the post-exit drain delivers the stdout bytes' );
+    is( join( '', @m7_pr_err_chunks ), "M7 ajax err\n", 'section 8: the post-exit drain delivers the stderr bytes' );
+}
+{
+    my ( $m7_pr_out, $m7_pr_err, $m7_pr_pid ) = _m7_ajax_pipes_with_data( "M7 ajax out\n", "M7 ajax err\n" );
+    my $m7_pr_result;
+    {
+        local $^O = 'MSWin32';
+        no warnings qw(redefine prototype);
+        local *Win32::API::new = sub { return M7::LyingPeek->new(); };
+        $m7_pr_result = $M7_PR->_stream_saved_ajax_windows(
+            pid           => $m7_pr_pid,
+            path          => 'm7.pl',
+            stdout        => $m7_pr_out,
+            stderr        => $m7_pr_err,
+            stdout_writer => sub { return 0; },
+            stderr_writer => sub { return 1; },
+        );
+    }
+    is( $m7_pr_result->{disconnected}, 1, 'section 8: a writer that refuses disconnects the stream' );
+}
+{
+    my ( $m7_pr_out, $m7_pr_err, $m7_pr_pid ) = _m7_ajax_pipes_with_data( "M7 ajax out\n", "M7 ajax err\n" );
+    my $m7_pr_result;
+    {
+        local $^O = 'MSWin32';
+        no warnings qw(redefine prototype);
+        local *Win32::API::new = sub { return M7::LyingPeek->new(); };
+        $m7_pr_result = $M7_PR->_stream_saved_ajax_windows(
+            pid           => $m7_pr_pid,
+            path          => 'm7.pl',
+            stdout        => $m7_pr_out,
+            stderr        => $m7_pr_err,
+            stdout_writer => sub { die "M7 writer die\n"; },
+            stderr_writer => sub { return 1; },
+        );
+    }
+    is( $m7_pr_result->{disconnected}, 0, 'section 8: a dying writer ends the stream through its error, not a disconnect' );
+    like( $m7_pr_result->{error}, qr/M7 writer die/, 'section 8: a dying writer reports its error' );
+}
+
+# 8e: B 992 true, B 999 true + C 999 l&&r, B 1005 true - a peek
+# Call that dies is a fatal stream error, rethrown after the
+# worker is terminated.
+{
+    my ( $m7_pr_out, $m7_pr_err, $m7_pr_pid ) = _m7_ajax_pipes_with_data( "M7 ajax out\n", "M7 ajax err\n" );
+    my $m7_pr_died;
+    {
+        local $^O = 'MSWin32';
+        no warnings qw(redefine prototype);
+        local *Win32::API::new = sub { return M7::DyingPeek->new(); };
+        my $ok = eval {
+            $M7_PR->_stream_saved_ajax_windows(
+                pid    => $m7_pr_pid,
+                path   => 'm7.pl',
+                stdout => $m7_pr_out,
+                stderr => $m7_pr_err,
+            );
+            1;
+        };
+        $m7_pr_died = $@ if !$ok;
+    }
+    like( $m7_pr_died, qr/M7 fatal peek/, 'section 8: a dying peek is rethrown as a fatal stream error' );
+}
+
+# 8f: the happy path - the real fake peek reports the bytes, the
+# ready drain delivers them, and the post-exit drain retires the
+# handles at end of file.
+{
+    my ( $m7_pr_out, $m7_pr_err, $m7_pr_pid ) = _m7_ajax_pipes_with_data( "M7 ajax out\n", "M7 ajax err\n" );
+    my ( @m7_pr_out_chunks, @m7_pr_err_chunks );
+    my $m7_pr_result;
+    {
+        local $^O = 'MSWin32';
+        $m7_pr_result = $M7_PR->_stream_saved_ajax_windows(
+            pid           => $m7_pr_pid,
+            path          => 'm7.pl',
+            stdout        => $m7_pr_out,
+            stderr        => $m7_pr_err,
+            stdout_writer => sub { push @m7_pr_out_chunks, $_[0]; return 1; },
+            stderr_writer => sub { push @m7_pr_err_chunks, $_[0]; return 1; },
+        );
+    }
+    is( $m7_pr_result->{disconnected}, 0, 'section 8: a clean stream does not disconnect' );
+    is( join( '', @m7_pr_out_chunks ), "M7 ajax out\n", 'section 8: the ready drain delivers the stdout bytes' );
+    is( join( '', @m7_pr_err_chunks ), "M7 ajax err\n", 'section 8: the ready drain delivers the stderr bytes' );
+}
+
+# ======================================================================
+# SECTION 9 - SkillDispatcher (R178).
+#
+# Cover #19 gap for lib/Developer/Dashboard/SkillDispatcher.pm: 12
+# branch cells + 4 condition cells + 1 sub. Every cell is
+# accounted for below as covered, or as probed-uncoverable with
+# the evidence.
+#
+# COVERED HERE. B 401 true (the Windows drain runs under a
+# localised $^O) + S __ANON__@406 (the drain callback runs) +
+# B 407 true / false (stdout and stderr chunks) + B 418 false
+# (the drain succeeds, no select fallback), B 468 true (the
+# Windows replacement runs under a localised $^O) + B 479 true /
+# false (a status above 255 and one at zero), B 1136 true + C
+# 1136 l&&r (a cached page over an unsettled stat), B 1143 true
+# / false (a disk that differs, one that is unreadable, and one
+# that matches) + C 1143 or-3 !l / l&&!r / l&&r (an undef disk, a
+# matching disk, a differing disk) + C 1143 or-2 l / !l&&r (a
+# cached raw instruction present and absent), B 1249 false (no
+# high-resolution stat), B 1250 true / false (a non-array stat, a
+# stat without a timestamp, and a real one) + C 1250 l / !l&&r /
+# !l&&!r, B 1251 true / false (a recent and an old timestamp),
+# B 2100 true (an opendir under descriptor exhaustion).
+#
+# PROBED-UNCOVERABLE, with the evidence. B 2235 true: basename
+# never returns undef for a defined path (a probe over '', '/',
+ 'foo/',
+# 'foo', '.' and '..' all returned defined strings) and dies on
+# an undef one ("fileparse(): need a valid pathname"), so the
+# guard can never see an undef skill name; the false side is
+# covered and the true side is defensive dead code.
+#
+# HOW THE CELLS ARE REACHED. The child-command test localises
+# $^O and silences STDOUT and STDERR to devnull around the call
+# with the file's own save/restore helpers, so the callback
+# prints never reach the TAP stream; the return value proves the
+# callback told the streams apart. The replacement test installs an exit override (which dies with the exit code
+# while its flag is set, and is the real exit otherwise) and then
+# reloads SkillDispatcher, so the exit in _exec_replacement
+# resolves to the override; the reload is verified by comparing
+# the replacement sub before and after, and the test bails out
+# rather than ever calling a real exit. The child-command test
+# runs AFTER the replacement test on purpose: the reload
+# discards Devel::Cover data for SkillDispatcher, so a drain
+# before the reload would never be recorded. The nav-cache tests prime
+# the literal cache through _load_skill_page over a fixture skill
+# (dashboards/nav/file.tt, plain text, so it builds as a raw-nav-tt
+# page) with d_hires_stat localised to 0, so a just-written file
+# counts as unsettled; the differing-disk case is reached by
+# hand-priming a page whose raw instruction differs from the disk
+# (a real rewrite changes the stat fingerprint, so the cache is
+# dropped before the byte compare can run), and the unreadable-disk
+# case by a subclass whose _read_skill_page_instruction dies on its
+# second call only. The opendir test lowers the soft descriptor
+# limit through the setrlimit syscall (Linux numbers only, so the
+# test skips elsewhere) so the exhaustion stays bounded at about
+# a hundred handles, then restores the limit.
+# ======================================================================
+
+require Developer::Dashboard::PageDocument;
+require Developer::Dashboard::SkillDispatcher;
+
+my $M7_SD = Developer::Dashboard::SkillDispatcher->new( paths => $M7_PATHS );
+
+# 9b: B 468 true, B 479 true/false - the Windows replacement
+# runs system and exits with the child status. The exit override
+# dies with the exit code while its flag is set; SkillDispatcher
+# is reloaded after the override is installed, so the exit in
+# _exec_replacement resolves to it. The reload is verified first:
+# if the replacement sub did not change, the test bails out
+# rather than ever calling a real exit.
+my $M7_EXIT_OVERRIDE = 0;
+{
+    no warnings qw(redefine prototype);
+    *CORE::GLOBAL::exit = sub {
+        my ($code) = @_;
+        $code = 0 if !defined $code;
+        die "M7-EXIT:$code\n" if $M7_EXIT_OVERRIDE;
+        CORE::exit($code);
+    };
+}
+sub _m7_reload_skill_dispatcher {
+    delete $INC{'Developer/Dashboard/SkillDispatcher.pm'};
+    local $SIG{__WARN__} = sub { };
+    no warnings qw(redefine prototype);
+    require Developer::Dashboard::SkillDispatcher;
+}
+{
+    my $m7_sd_before = \&Developer::Dashboard::SkillDispatcher::_exec_replacement;
+    _m7_reload_skill_dispatcher();
+    my $m7_sd_after = \&Developer::Dashboard::SkillDispatcher::_exec_replacement;
+    ok( $m7_sd_before != $m7_sd_after, 'section 9: SkillDispatcher reloaded for the exit override' );
+    BAIL_OUT('section 9: SkillDispatcher did not reload') if $m7_sd_before == $m7_sd_after;
+    my $m7_sd_exec = Developer::Dashboard::SkillDispatcher->new( paths => $M7_PATHS );
+    my $m7_sd_died;
+    {
+        local $^O = 'MSWin32';
+        $M7_EXIT_OVERRIDE = 1;
+        my $ok = eval { $m7_sd_exec->_exec_replacement( [$^X], [ '-e', 'exit 1' ] ); 1; };
+        $m7_sd_died = $@ if !$ok;
+        $M7_EXIT_OVERRIDE = 0;
+    }
+    like( $m7_sd_died, qr/M7-EXIT:1/, 'section 9: a failing child exits with its status on Windows' );
+    {
+        local $^O = 'MSWin32';
+        $M7_EXIT_OVERRIDE = 1;
+        my $ok = eval { $m7_sd_exec->_exec_replacement( [$^X], [ '-e', 'exit 0' ] ); 1; };
+        $m7_sd_died = $@ if !$ok;
+        $M7_EXIT_OVERRIDE = 0;
+    }
+    like( $m7_sd_died, qr/M7-EXIT:0/, 'section 9: a clean child exits zero on Windows' );
+}
+
+# 9a: B 401 true, S __ANON__@406, B 407 true/false, B 418 false -
+# the Windows drain runs under a localised $^O and delivers both
+# streams through its callback. The callback prints to STDOUT and
+# STDERR, so those are silenced to devnull around the call (the
+# return value already proves the callback told the streams
+# apart); Capture::Tiny is not used here because it warns about
+# reopening STDIN under prove and pollutes the captured text.
+# This block runs AFTER 9b on purpose: 9b reloads
+# SkillDispatcher, and a reload discards Devel::Cover data
+# for the file, so a drain before the reload would never be
+# recorded. It runs in the final compilation, after the
+# last reload.
+{
+    my $m7_sd_result;
+    my ( $m7_sd_in, $m7_sd_out, $m7_sd_err ) = _m7_save_handles();
+    open STDOUT, '>', File::Spec->devnull() or die "Unable to silence STDOUT: $!";
+    open STDERR, '>', File::Spec->devnull() or die "Unable to silence STDERR: $!";
+    my $m7_sd_ok = eval {
+        local $^O = 'MSWin32';
+        $m7_sd_result = $M7_SD->_run_child_command_streaming(
+            command      => [$^X],
+            args         => [ '-e', 'print "OUT\n"; print STDERR "ERR\n";' ],
+            skill_layers => [],
+        );
+        1;
+    };
+    my $m7_sd_call_error = $@ if !$m7_sd_ok;
+    _m7_restore_handles( $m7_sd_in, $m7_sd_out, $m7_sd_err );
+    close $m7_sd_in;
+    close $m7_sd_out;
+    close $m7_sd_err;
+    die $m7_sd_call_error if !$m7_sd_ok;
+    is( $m7_sd_result->{stdout}, "OUT\n", 'section 9: the Windows drain collects the stdout text' );
+    is( $m7_sd_result->{stderr}, "ERR\n", 'section 9: the Windows drain collects the stderr text' );
+    is( $m7_sd_result->{exit_code}, 0, 'section 9: the Windows drain reports a clean exit' );
+}
+
+# 9c: B 1136 true + C 1136 l&&r, B 1143 true/false + C 1143 or-3
+# !l / l&&!r / l&&r + C 1143 or-2 l / !l&&r, B 1249 false,
+# B 1250 true/false + C 1250 l / !l&&r / !l&&!r, B 1251 true/false
+# - the literal-nav cache and the unsettled-stat check. The
+# fixture skill holds one plain-text nav fragment, which builds
+# as a raw-nav-tt page and is cached by the first load.
+{
+    no warnings qw(redefine prototype);
+    local *Time::HiRes::d_hires_stat = sub { 0 };
+    is( Developer::Dashboard::SkillDispatcher::_skill_nav_stat_is_unsettled(undef), 1, 'section 9: an undef stat is unsettled' );
+    is( Developer::Dashboard::SkillDispatcher::_skill_nav_stat_is_unsettled('not-an-array'), 1, 'section 9: a non-array stat is unsettled' );
+    is( Developer::Dashboard::SkillDispatcher::_skill_nav_stat_is_unsettled( [ (0) x 9, undef ] ), 1, 'section 9: a stat without a timestamp is unsettled' );
+    is( Developer::Dashboard::SkillDispatcher::_skill_nav_stat_is_unsettled( [ (0) x 9, time() ] ), 1, 'section 9: a recent stat is unsettled' );
+    is( Developer::Dashboard::SkillDispatcher::_skill_nav_stat_is_unsettled( [ (0) x 9, time() - 100 ] ), 0, 'section 9: an old stat is settled' );
+}
+my $M7_SD_HOME = tempdir( CLEANUP => 1 );
+my $M7_SD_ROOT = File::Spec->catdir( $M7_SD_HOME, 'm7skill' );
+my $M7_SD_NAV  = File::Spec->catdir( $M7_SD_ROOT, 'dashboards', 'nav' );
+mkdir $M7_SD_ROOT or die "Unable to mkdir $M7_SD_ROOT: $!";
+mkdir File::Spec->catdir( $M7_SD_ROOT, 'dashboards' ) or die "Unable to mkdir: $!";
+mkdir $M7_SD_NAV or die "Unable to mkdir $M7_SD_NAV: $!";
+my $M7_SD_FILE = File::Spec->catfile( $M7_SD_NAV, 'file.tt' );
+open my $m7_sd_fh, '>', $M7_SD_FILE or die "Unable to write $M7_SD_FILE: $!";
+print {$m7_sd_fh} "M7 literal nav fragment\n" or die "Unable to print: $!";
+close $m7_sd_fh or die "Unable to close $M7_SD_FILE: $!";
+my $M7_SD_ARGS = {
+    skill_name               => 'm7skill',
+    route_id                 => 'nav/file.tt',
+    layers                   => [$M7_SD_ROOT],
+    cache_literal_nav        => 1,
+    validated_route_segments => [ 'nav', 'file.tt' ],
+};
+{
+    my $m7_sd_disp = Developer::Dashboard::SkillDispatcher->new( paths => $M7_PATHS );
+    my $m7_sd_page1 = $m7_sd_disp->_load_skill_page(%$M7_SD_ARGS);
+    is( $m7_sd_page1->{meta}{raw_instruction}, "M7 literal nav fragment\n", 'section 9: the nav fragment loads as a raw page' );
+    my $m7_sd_page2;
+    {
+        no warnings qw(redefine prototype);
+        local *Time::HiRes::d_hires_stat = sub { 0 };
+        $m7_sd_page2 = $m7_sd_disp->_load_skill_page(%$M7_SD_ARGS);
+    }
+    ok( $m7_sd_page2 == $m7_sd_page1, 'section 9: an unchanged nav fragment is served from the cache' );
+    is( $m7_sd_page2->{meta}{raw_instruction}, "M7 literal nav fragment\n", 'section 9: the cached page carries the disk content' );
+}
+{
+    package Local::M7SkillDispatcherReadDie;
+    our @ISA = ('Developer::Dashboard::SkillDispatcher');
+    our $M7_READ_COUNT = 0;
+    sub _read_skill_page_instruction {
+        my ( $self, $file ) = @_;
+        $M7_READ_COUNT++;
+        die "M7 read die\n" if $M7_READ_COUNT == 2;
+        return $self->SUPER::_read_skill_page_instruction($file);
+    }
+}
+{
+    $Local::M7SkillDispatcherReadDie::M7_READ_COUNT = 0;
+    my $m7_sd_disp = Local::M7SkillDispatcherReadDie->new( paths => $M7_PATHS );
+    my $m7_sd_page1 = $m7_sd_disp->_load_skill_page(%$M7_SD_ARGS);
+    my $m7_sd_page2;
+    {
+        no warnings qw(redefine prototype);
+        local *Time::HiRes::d_hires_stat = sub { 0 };
+        $m7_sd_page2 = $m7_sd_disp->_load_skill_page(%$M7_SD_ARGS);
+    }
+    ok( $m7_sd_page2 != $m7_sd_page1, 'section 9: an unreadable disk drops the cached page' );
+    is( $m7_sd_page2->{meta}{raw_instruction}, "M7 literal nav fragment\n", 'section 9: the dropped page reloads from disk' );
+}
+{
+    my $m7_sd_disp = Developer::Dashboard::SkillDispatcher->new( paths => $M7_PATHS );
+    my ( $m7_sd_file, undef, $m7_sd_stat ) = $m7_sd_disp->_page_location(
+        'm7skill', 'nav/file.tt',
+        layers                   => [$M7_SD_ROOT],
+        validated_route_segments => [ 'nav', 'file.tt' ],
+    );
+    ok( defined $m7_sd_file, 'section 9: the nav fragment resolves to a file' );
+    my $m7_sd_key = join "\0", 'm7skill', 'nav/file.tt', $m7_sd_file, $M7_SD_ROOT;
+    my $m7_sd_fp = Developer::Dashboard::SkillDispatcher::_skill_nav_fingerprint($m7_sd_stat);
+    my $m7_sd_hp_page = Developer::Dashboard::PageDocument->new(
+        id     => 'm7skill/nav/file.tt',
+        title  => 'nav/file.tt',
+        layout => { body => 'M7 different content' },
+        meta   => { source_format => 'raw-nav-tt', raw_instruction => 'M7 different content' },
+    );
+    ok( $m7_sd_disp->_cache_literal_skill_nav_page( $m7_sd_key, $m7_sd_fp, $m7_sd_hp_page, length('M7 different content') ),
+        'section 9: a page with stale content is hand-primed into the cache' );
+    my $m7_sd_page2;
+    {
+        no warnings qw(redefine prototype);
+        local *Time::HiRes::d_hires_stat = sub { 0 };
+        $m7_sd_page2 = $m7_sd_disp->_load_skill_page(%$M7_SD_ARGS);
+    }
+    ok( $m7_sd_page2 != $m7_sd_hp_page, 'section 9: a differing disk drops the hand-primed page' );
+    is( $m7_sd_page2->{meta}{raw_instruction}, "M7 literal nav fragment\n", 'section 9: the differing disk reloads from disk' );
+}
+{
+    my $m7_sd_disp = Developer::Dashboard::SkillDispatcher->new( paths => $M7_PATHS );
+    my ( $m7_sd_file, undef, $m7_sd_stat ) = $m7_sd_disp->_page_location(
+        'm7skill', 'nav/file.tt',
+        layers                   => [$M7_SD_ROOT],
+        validated_route_segments => [ 'nav', 'file.tt' ],
+    );
+    my $m7_sd_key = join "\0", 'm7skill', 'nav/file.tt', $m7_sd_file, $M7_SD_ROOT;
+    my $m7_sd_fp = Developer::Dashboard::SkillDispatcher::_skill_nav_fingerprint($m7_sd_stat);
+    my $m7_sd_hp_page = Developer::Dashboard::PageDocument->new(
+        id     => 'm7skill/nav/file.tt',
+        title  => 'nav/file.tt',
+        layout => { body => 'M7 different content' },
+        meta   => { source_format => 'raw-nav-tt' },
+    );
+    ok( $m7_sd_disp->_cache_literal_skill_nav_page( $m7_sd_key, $m7_sd_fp, $m7_sd_hp_page, length('M7 different content') ),
+        'section 9: a page without a raw instruction is hand-primed into the cache' );
+    my $m7_sd_page2;
+    {
+        no warnings qw(redefine prototype);
+        local *Time::HiRes::d_hires_stat = sub { 0 };
+        $m7_sd_page2 = $m7_sd_disp->_load_skill_page(%$M7_SD_ARGS);
+    }
+    is( $m7_sd_page2->{meta}{raw_instruction}, "M7 literal nav fragment\n", 'section 9: a missing raw instruction reloads from disk' );
+}
+
+# 9d: B 2100 true - an opendir under descriptor exhaustion. The
+# soft limit is lowered through the setrlimit syscall first (Linux
+# numbers only, so the test skips elsewhere), which keeps the
+# exhaustion bounded at about a hundred handles; the limit is
+# restored before any assertion runs.
+my $M7_SD_RUN_EXHAUSTION = 0;
+my ( $M7_RL_SOFT, $M7_RL_HARD, $M7_RL_GET, $M7_RL_SET );
+if ( $^O eq 'linux' ) {
+    ( $M7_RL_GET, $M7_RL_SET ) = $Config{archname} =~ /aarch64/ ? ( 163, 167 )
+      : $Config{archname} =~ /x86_64/ ? ( 97, 160 ) : ( undef, undef );
+    if ( defined $M7_RL_GET ) {
+        my $m7_rl_buf = pack( 'Q Q', 0, 0 );
+        if ( syscall( $M7_RL_GET, 7, $m7_rl_buf ) == 0 ) {
+            ( $M7_RL_SOFT, $M7_RL_HARD ) = unpack( 'Q Q', $m7_rl_buf );
+            my $m7_rl_target = $M7_RL_SOFT > 256 ? 128 : $M7_RL_SOFT;
+            if ( $m7_rl_target == $M7_RL_SOFT
+                || syscall( $M7_RL_SET, 7, pack( 'Q Q', $m7_rl_target, $M7_RL_HARD ) ) == 0 )
+            {
+                $M7_SD_RUN_EXHAUSTION = 1;
+            }
+        }
+    }
+}
+SKIP: {
+    skip 'descriptor exhaustion needs Linux setrlimit syscall numbers', 3
+      if !$M7_SD_RUN_EXHAUSTION;
+    my $m7_sd_dir = tempdir( CLEANUP => 1 );
+    my $m7_sd_exhausted;
+    my @m7_sd_holds;
+    my $m7_sd_err;
+    eval {
+        while ( @m7_sd_holds < 10000 ) {
+            my $ok = open my $fh, '<', File::Spec->devnull();
+            last if !$ok;
+            push @m7_sd_holds, $fh;
+        }
+        $m7_sd_exhausted = Developer::Dashboard::SkillDispatcher::_skill_nav_directory_fingerprint($m7_sd_dir);
+        1;
+    } or $m7_sd_err = $@;
+    close $_ for @m7_sd_holds;
+    @m7_sd_holds = ();
+    syscall( $M7_RL_SET, 7, pack( 'Q Q', $M7_RL_SOFT, $M7_RL_HARD ) );
+    die $m7_sd_err if $m7_sd_err;
+    ok( defined $m7_sd_exhausted, 'section 9: a fingerprint is returned under descriptor exhaustion' );
+    ok( substr( $m7_sd_exhausted, -1 ) ne "\0", 'section 9: exhaustion returns the bare identity, without children' );
+    my $m7_sd_released = Developer::Dashboard::SkillDispatcher::_skill_nav_directory_fingerprint($m7_sd_dir);
+    ok( substr( $m7_sd_released, -1 ) eq "\0", 'section 9: a released descriptor table returns the identity with children' );
+}
+
+# 9e: B 2235 true is probed-uncoverable (see the section header).
+# No test is written for it.
