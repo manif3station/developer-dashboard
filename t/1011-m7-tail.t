@@ -2030,7 +2030,13 @@ sub _m7_orphan_sender_entry {
     # returns its code) and an undefined pid (the XS wait croaks
     # before the delete line - B 185 false is unreachable).
     my $pid = _m7_spawn_sleep();
-    kill 'TERM', $pid;
+    # Terminate through the product call, not builtin kill: on
+    # Windows builtin kill ends with exit code 0, while
+    # terminate_process passes 143 for TERM (GoRoutineProcess.xs)
+    # and the XS wait returns the raw exit code there, so only the
+    # product call makes the wait return 143 on all five legs
+    # (re-proof #220, test 166, R198).
+    Developer::Dashboard::GoRoutine::terminate_process( $pid, 'TERM' );
     {
         # Poll for the exit without reaping: the wrapper below is
         # the one that reaps it, and a second wait would die.
@@ -2070,10 +2076,24 @@ sub _m7_orphan_sender_entry {
     } ? '' : $@;
     like( $err, qr/go\(\) readable trigger needs a filehandle/,
         'go: a closed handle dies in the trigger validation' );
-    pipe( my $fr, my $fw ) or die "Unable to pipe: $!";
+    # On Windows a pipe fd is not a socket, and the Windows wait
+    # path is Winsock select(), which only works on sockets, so a
+    # pipe fd never reports readable there (re-proof #220, test 172,
+    # R198). The go() contract is fd on Unix, socket on Windows
+    # (GoRoutine.pm line 709), so on Windows the trigger fd comes
+    # from a TCP loopback pair instead of a pipe; the test still
+    # passes a plain fd number, not a handle.
+    my ( $fr, $fw );
+    if ( $^O eq 'MSWin32' ) {
+        ( $fw, $fr ) = _m7_tcp_pair();
+    }
+    else {
+        pipe( $fr, $fw ) or die "Unable to pipe: $!";
+    }
     my $fired = 0;
     my $h = Developer::Dashboard::GoRoutine::go( sub { $fired = 1; }, { readable => fileno($fr) } );
     syswrite $fw, 'x';
+    _m7_wait_readable($fr) if $^O eq 'MSWin32';
     Developer::Dashboard::GoRoutine::pump(1);
     is( $fired, 1, 'go: a plain fd number registers a readable trigger' );
     close $fr;
