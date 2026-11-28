@@ -3319,6 +3319,25 @@ sub _m7_tcp_pair {
     return ( $client, $peer );
 }
 
+# _m7_wait_readable($sock): waits until one socket is readable,
+# polling can_read(0.05) for up to about 2 seconds. A test that
+# writes to a TCP loopback pair and immediately calls a
+# can_read(0)-gated function races the loopback delivery: on macOS
+# the data may not have landed when the zero-timeout select runs,
+# so the function returns at once with nothing read (re-proof #218,
+# tests 300-303, R192). Waiting first makes the read deterministic.
+# Input: socket handle.
+# Output: nothing; dies loudly if the socket never becomes readable.
+sub _m7_wait_readable {
+    my ($sock) = @_;
+    my $select = IO::Select->new($sock);
+    my $deadline = Time::HiRes::time() + 2;
+    while ( Time::HiRes::time() < $deadline ) {
+        return if $select->can_read(0.05);
+    }
+    die "M7: socket never became readable";
+}
+
 # _m7_fill_socket($sock): fills one socket send buffer with
 # non-blocking syswrites until EAGAIN, so a later write or a
 # can_write probe finds it full. The socket is left non-blocking.
@@ -3654,8 +3673,12 @@ my $M7_WS_SERVER = bless {
     # builds the redirect too; an unreadable client returns at
     # once; a failed sysread returns on EAGAIN and finishes the
     # client on any other errno; end of file finishes the client.
+    # R192: the three real reads wait for readability first - a
+    # write followed at once by a can_read(0)-gated call races the
+    # loopback delivery on macOS (re-proof #218, tests 300-303).
     my ( $c1, $p1 ) = _m7_tcp_pair();
     syswrite( $p1, "GET / HTTP/1.1\r\nHost: example.com\r\n" );
+    _m7_wait_readable($c1);
     my $state = _m7_ws_state(
         client => $c1, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
     );
@@ -3669,6 +3692,7 @@ my $M7_WS_SERVER = bless {
         head => "GET /path?x=1 HTTP/1.1\r\nHost: example.com\r\n",
     );
     syswrite( $p2, "\r\n" );
+    _m7_wait_readable($c2);
     Developer::Dashboard::Web::Server::_ssl_frontend_client_read_head($state2);
     is( $state2->{phase}, 'WRITE_REDIRECT', 'read head: a complete head moves to the redirect' );
     like( $state2->{write_buf}, qr/Location: https:\/\/127\.0\.0\.1:/,
@@ -3680,6 +3704,7 @@ my $M7_WS_SERVER = bless {
         head => 'x' x 16383,
     );
     syswrite( $p3, 'y' );
+    _m7_wait_readable($c3);
     Developer::Dashboard::Web::Server::_ssl_frontend_client_read_head($state3);
     is( $state3->{phase}, 'WRITE_REDIRECT', 'read head: a head at the cap moves to the redirect' );
     ok( defined $state3->{write_buf} && length( $state3->{write_buf} ) > 0,
