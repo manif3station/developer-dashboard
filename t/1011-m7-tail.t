@@ -5935,7 +5935,9 @@ require Developer::Dashboard::CLI::OpenFileChooser;
     # spelling is NOT kept; the fall-through returns the physical
     # directory. B 43 true + C 43 l&&r are Windows-only: on Unix
     # any spelling whose identity matches is caught by the stat
-    # comparison first (see the section header).
+    # comparison first (see the section header). The expectation is
+    # built from Cwd::realpath($m7_real): on macOS /var is a symlink
+    # to /private/var, so the physical directory carries /private (R195).
     my $m7_real = tempdir( CLEANUP => 1 );
     my $m7_orig = Cwd::getcwd();
     chdir $m7_real or die "Unable to chdir $m7_real: $!";
@@ -5946,7 +5948,7 @@ require Developer::Dashboard::CLI::OpenFileChooser;
         $m7_found = Developer::Dashboard::PathIdentity::current_working_directory();
     }
     chdir $m7_orig or die "Unable to chdir $m7_orig: $!";
-    is( $m7_found, $m7_real, 'section 12: a logical PWD through a missing component falls back to the physical directory' );
+    is( $m7_found, Cwd::realpath($m7_real), 'section 12: a logical PWD through a missing component falls back to the physical directory' );
 }
 
 {
@@ -5968,7 +5970,9 @@ require Developer::Dashboard::CLI::OpenFileChooser;
 
 {
     # 12c3. B 99 false: a link with a relative target takes the
-    # parent-directory branch and resolves against it.
+    # parent-directory branch and resolves against it. The expectation
+    # is built from Cwd::realpath($m7_target): on macOS /var is a
+    # symlink to /private/var, so the resolved path carries /private (R195).
     my $m7_tmp = tempdir( CLEANUP => 1 );
     my $m7_target = File::Spec->catfile( $m7_tmp, 'target.txt' );
     open my $m7_w, '>', $m7_target or die "Unable to write $m7_target: $!";
@@ -5976,7 +5980,7 @@ require Developer::Dashboard::CLI::OpenFileChooser;
     symlink 'target.txt', File::Spec->catfile( $m7_tmp, 'm7-link' ) or die "Unable to link: $!";
     my $m7_resolved = Developer::Dashboard::PathIdentity::_resolve_symlinks(
         File::Spec->catfile( $m7_tmp, 'm7-link' ) );
-    is( $m7_resolved, $m7_target, 'section 12: a relative link target resolves against its parent' );
+    is( $m7_resolved, Cwd::realpath($m7_target), 'section 12: a relative link target resolves against its parent' );
 }
 
 {
