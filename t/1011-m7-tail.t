@@ -66,6 +66,7 @@ use strict;
 use warnings;
 
 use Config;
+use Errno qw(EAGAIN);
 use File::Spec;
 use File::Temp qw(tempdir tempfile);
 use FindBin qw($Bin);
@@ -1201,13 +1202,18 @@ sub _m7_read_file {
 # --- _windows_process_tree_rows (lines 2236-2253) ----------------------
 # _powershell_command returns "" on Unix even simulated, so the
 # empty-powershell side is reached by pointing PATH at an empty
-# directory. A fake powershell that exits 1 takes the failed-run
+# directory. R188: _powershell_command also falls back to the
+# WindowsPowerShell copy under $ENV{SystemRoot}, so SystemRoot is
+# pointed at the empty directory too, or the real powershell is
+# found on real Windows (proof #216 test 97).
+# A fake powershell that exits 1 takes the failed-run
 # side; one that prints tab-separated rows takes the parsed-rows
 # side. _process_started_not_before is driven directly: a parent
 # that is not all digits takes the undefined-parent side.
 {
     my $empty_dir = tempdir( CLEANUP => 1 );
     local $ENV{PATH} = $empty_dir;
+    local $ENV{SystemRoot} = $empty_dir;
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     is( $M7_MANAGER->_windows_process_tree_rows(), undef,
         'tree rows: no powershell means no listing' );
@@ -1306,13 +1312,23 @@ sub _m7_read_file {
 # --- _kill_exact_pids, not-found (line 2331) --------------------------
 # A fake taskkill that exits 1 while printing "not found" takes the
 # middle side of the exit-or-not-found condition: the pid counts as
-# ended even though taskkill failed.
+# ended even though taskkill failed. R188 (proof #216): the fake is
+# created by real OS. _path_candidates tries the bare name first,
+# so an extensionless sh script is returned on real Windows and
+# CreateProcess cannot run it; the Windows fake is a .bat, the
+# Unix fake stays a sh script.
 {
     my $dir     = tempdir( CLEANUP => 1 );
     my $fakebin = File::Spec->catdir( $dir, 'fakebin' );
     mkdir $fakebin or die "Unable to mkdir $fakebin: $!";
-    _make_executable( File::Spec->catfile( $fakebin, 'taskkill' ),
-        "#!/bin/sh\necho 'ERROR: The process \"999999\" not found.'\nexit 1\n" );
+    if ( $^O eq 'MSWin32' ) {
+        _make_executable( File::Spec->catfile( $fakebin, 'taskkill.bat' ),
+            "\@echo off\r\necho ERROR: The process \"999999\" not found.\r\nexit /b 1\r\n" );
+    }
+    else {
+        _make_executable( File::Spec->catfile( $fakebin, 'taskkill' ),
+            "#!/bin/sh\necho 'ERROR: The process \"999999\" not found.'\nexit 1\n" );
+    }
     local $ENV{PATH} = join $Config{path_sep}, $fakebin, $ENV{PATH};
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     is( $M7_MANAGER->_kill_exact_pids(999999), 1,
@@ -3225,7 +3241,10 @@ require IO::Socket::INET;
         my ( $class, %args ) = @_;
         return bless {
             fd      => $args{fd},
-            errno   => $args{errno} || 11,
+            # R188: EAGAIN is 11 on Linux but 35 on macOS, so use the
+            # Errno constant (fully qualified: this is package
+            # M7::TieProbe, the imported EAGAIN is not in scope).
+            errno   => $args{errno} || Errno::EAGAIN(),
             die     => $args{die},
             partial => $args{partial},
             real    => $args{real},
@@ -3571,7 +3590,7 @@ my $M7_WS_SERVER = bless {
     my ( $c5, $p5 ) = _m7_tcp_pair();
     my ( $c6, $p6 ) = _m7_tcp_pair();
     open my $th, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
-    tie *$th, 'M7::TieProbe', fd => fileno($c5), errno => 11;
+    tie *$th, 'M7::TieProbe', fd => fileno($c5), errno => EAGAIN;
     my $eagain_state = _m7_ws_state(
         client => $c6, backend => $c5, buf_b2c => 'hello', off_b2c => 0,
         worker_server => $M7_WS_SERVER,
@@ -3602,7 +3621,7 @@ my $M7_WS_SERVER = bless {
     my ( $c7, $p7 ) = _m7_tcp_pair();
     syswrite( $p7, 'x' );
     open my $th3, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
-    tie *$th3, 'M7::TieProbe', fd => fileno($c7), errno => 11;
+    tie *$th3, 'M7::TieProbe', fd => fileno($c7), errno => EAGAIN;
     my $read_eagain = _m7_ws_state(
         client => $c7, backend => $c6, worker_server => $M7_WS_SERVER,
     );
@@ -3669,7 +3688,7 @@ my $M7_WS_SERVER = bless {
     my ( $c4, $p4 ) = _m7_tcp_pair();
     syswrite( $p4, 'x' );
     open my $th, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
-    tie *$th, 'M7::TieProbe', fd => fileno($c4), errno => 11;
+    tie *$th, 'M7::TieProbe', fd => fileno($c4), errno => EAGAIN;
     my $state4 = _m7_ws_state(
         client => $th, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
     );
@@ -3724,7 +3743,7 @@ my $M7_WS_SERVER = bless {
 
     my ( $c2, $p2 ) = _m7_tcp_pair();
     open my $th, '+<', '/dev/null' or die "Unable to open a tied handle: $!";
-    tie *$th, 'M7::TieProbe', fd => fileno($c2), errno => 11;
+    tie *$th, 'M7::TieProbe', fd => fileno($c2), errno => EAGAIN;
     my $state2 = _m7_ws_state(
         client => $th, daemon => $M7_WS_DAEMON, worker_server => $M7_WS_SERVER,
         write_buf => 'hello', write_off => 0,
@@ -5151,11 +5170,14 @@ my $M7_SD_ARGS = {
 # soft limit is lowered through the setrlimit syscall first (Linux
 # numbers only, so the test skips elsewhere), which keeps the
 # exhaustion bounded at about a hundred handles; the limit is
-# restored before any assertion runs.
+# restored before any assertion runs. R188 (proof #216): the
+# aarch64 set number was 167 (prctl), corrected to 164, and the
+# limit is re-read after the set call so a limit that did not move
+# skips the block instead of asserting on a non-exhausted table.
 my $M7_SD_RUN_EXHAUSTION = 0;
 my ( $M7_RL_SOFT, $M7_RL_HARD, $M7_RL_GET, $M7_RL_SET );
 if ( $^O eq 'linux' ) {
-    ( $M7_RL_GET, $M7_RL_SET ) = $Config{archname} =~ /aarch64/ ? ( 163, 167 )
+    ( $M7_RL_GET, $M7_RL_SET ) = $Config{archname} =~ /aarch64/ ? ( 163, 164 )
       : $Config{archname} =~ /x86_64/ ? ( 97, 160 ) : ( undef, undef );
     if ( defined $M7_RL_GET ) {
         my $m7_rl_buf = pack( 'Q Q', 0, 0 );
@@ -5165,7 +5187,15 @@ if ( $^O eq 'linux' ) {
             if ( $m7_rl_target == $M7_RL_SOFT
                 || syscall( $M7_RL_SET, 7, pack( 'Q Q', $m7_rl_target, $M7_RL_HARD ) ) == 0 )
             {
-                $M7_SD_RUN_EXHAUSTION = 1;
+                # R188: re-read the limit after the set call. A wrong
+                # set number can return 0 without changing anything
+                # (proof #216: aarch64 167 is prctl, not setrlimit),
+                # so only run if the value really moved to the target.
+                my $m7_rl_check = pack( 'Q Q', 0, 0 );
+                if ( syscall( $M7_RL_GET, 7, $m7_rl_check ) == 0 ) {
+                    my ($m7_rl_now) = unpack( 'Q', $m7_rl_check );
+                    $M7_SD_RUN_EXHAUSTION = 1 if $m7_rl_now == $m7_rl_target;
+                }
             }
         }
     }
