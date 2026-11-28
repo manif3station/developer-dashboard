@@ -6348,7 +6348,10 @@ require Capture::Tiny;
     # section 9 exit override catches the code as a die instead of
     # ending the test process. rc 0 exits 0, rc 256 (exit 1) exits 1,
     # and a signal death (status 1, so $rc >> 8 is 0) exits 1 by
-    # the || 1. The flag is set and reset around the calls, the
+    # the || 1. The child resets SIGHUP to DEFAULT first: Jenkins
+    # ignores SIGHUP, so a bare kill is a no-op there and the child
+    # would exit 0 instead (proof #213). Probe /tmp/m7-sig-probe.pl.
+    # The flag is set and reset around the calls, the
     # section 9 pattern; the error strings are captured before it
     # is reset.
     my $m7_real_os = $^O;
@@ -6360,7 +6363,7 @@ require Capture::Tiny;
     my $m7_err1 = $@;
     SKIP: {
         skip 'SIGHUP has no meaning on real Windows', 2 if $m7_real_os eq 'MSWin32';
-        my $m7_ok_sig = eval { Developer::Dashboard::CLI::Which::_command_exec( $^X, '-e', 'kill 1, $$' ); 1 };
+        my $m7_ok_sig = eval { Developer::Dashboard::CLI::Which::_command_exec( $^X, '-e', '$SIG{HUP} = "DEFAULT"; kill 1, $$' ); 1 };
         my $m7_err_sig = $@;
         ok( !$m7_ok_sig, 'section 13: a signal death reaches exit instead of dying' );
         is( $m7_err_sig, "M7-EXIT:1\n", 'section 13: a signal death exits 1 by the fallback' );
