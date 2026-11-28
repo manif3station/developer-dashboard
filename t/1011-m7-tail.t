@@ -3988,7 +3988,10 @@ my $M7_SM = Developer::Dashboard::SkillManager->new( paths => $M7_PATHS );
 {
     # 6c. Symlink resolution: depth, empty inputs, a trailing
     # slash, a relative path, a dot-dot part, and relative and
-    # absolute link targets.
+    # absolute link targets. R190: the expectations are built from
+    # Cwd::realpath, because on macOS /tmp and /var are symlinks
+    # to /private, so the walk resolves them and the unresolved
+    # paths never match (proof #217 tests 339-341).
     is( Developer::Dashboard::SkillManager::_resolve_path_symlinks( '/x', 41 ),
         undef, 'resolve: depth past 40 gives undef' );
     is( Developer::Dashboard::SkillManager::_resolve_path_symlinks(undef),
@@ -4002,7 +4005,7 @@ my $M7_SM = Developer::Dashboard::SkillManager->new( paths => $M7_PATHS );
         File::Spec->catdir( Cwd::getcwd(), 'a', 'b' ),
         'resolve: a relative path starts at the working directory' );
     is( Developer::Dashboard::SkillManager::_resolve_path_symlinks('/tmp/../tmp'),
-        '/tmp', 'resolve: a dot-dot part steps up' );
+        Cwd::realpath('/tmp'), 'resolve: a dot-dot part steps up' );
     my $dir = tempdir( CLEANUP => 1 );
     my $target = File::Spec->catdir( $dir, 'target' );
     mkdir $target or die "Unable to mkdir $target: $!";
@@ -4011,10 +4014,10 @@ my $M7_SM = Developer::Dashboard::SkillManager->new( paths => $M7_PATHS );
     symlink $target, File::Spec->catfile( $dir, 'link2' )
         or die "Unable to symlink an absolute target: $!";
     is( Developer::Dashboard::SkillManager::_resolve_path_symlinks( File::Spec->catfile( $dir, 'link', 'file' ) ),
-        File::Spec->catfile( $dir, 'target', 'file' ),
+        File::Spec->catfile( Cwd::realpath($dir), 'target', 'file' ),
         'resolve: a relative link target resolves' );
     is( Developer::Dashboard::SkillManager::_resolve_path_symlinks( File::Spec->catfile( $dir, 'link2', 'file' ) ),
-        File::Spec->catfile( $dir, 'target', 'file' ),
+        File::Spec->catfile( Cwd::realpath($dir), 'target', 'file' ),
         'resolve: an absolute link target resolves' );
 }
 
