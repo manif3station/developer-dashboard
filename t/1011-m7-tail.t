@@ -1963,10 +1963,13 @@ sub _m7_orphan_sender_entry {
     # 3b. _spawn_wrapper: the Windows env-merge condition with the
     # first term true and the rest false (localised $^O, options a
     # plain hash with no env key). The else branch spawns plainly.
+    # The child is $^X, not /bin/true: /bin/true does not exist on
+    # macOS (true is /usr/bin/true there) or on Windows, and the
+    # macOS leg died on it in proofs 212-215 (R184).
     my $pid;
     {
         local $^O = 'MSWin32';
-        $pid = Developer::Dashboard::GoRoutine::_spawn_wrapper( ['/bin/true'], {} );
+        $pid = Developer::Dashboard::GoRoutine::_spawn_wrapper( [ $^X, '-e', 'exit 0' ], {} );
     }
     ok( defined $pid && $pid > 0, 'spawn_wrapper: a plain hash option spawns without the env merge' );
     is( _wait_for_exit( $pid, 5 ), 0, 'spawn_wrapper: the plain spawn exits cleanly' );
@@ -1975,7 +1978,7 @@ sub _m7_orphan_sender_entry {
         # options are not a hash, so the env merge is skipped and
         # the native spawn dies on the missing hash.
         local $^O = 'MSWin32';
-        my $err = eval { Developer::Dashboard::GoRoutine::_spawn_wrapper( [ '/bin/true' ], undef ); 1 } ? '' : $@;
+        my $err = eval { Developer::Dashboard::GoRoutine::_spawn_wrapper( [ $^X, '-e', 'exit 0' ], undef ); 1 } ? '' : $@;
         like( $err, qr/not a HASH reference/,
             'spawn_wrapper: a non-hash option dies on Windows' );
     }
@@ -2752,8 +2755,11 @@ sub _m7_fake_powershell_dir {
     my $cr_files = Local::CRFiles->new( File::Spec->catfile( $M7_HOME, 'm7-cr.log' ) );
     my $runner = _m7_collector_runner($cr_files);
 
-    my $zombie = Developer::Dashboard::GoRoutine::spawn( ['/bin/true'], {} );
-    select undef, undef, undef, 0.3;
+    # $^X, not /bin/true: see 3b (R184). The perl child starts
+    # slower than /bin/true, 0.43s worst under Devel::Cover on
+    # this VM, so the settle is 2s, not 0.3s.
+    my $zombie = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'exit 0' ], {} );
+    select undef, undef, undef, 2.0;
     {
         local $^O = 'MSWin32';
         local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
@@ -2880,8 +2886,9 @@ sub _m7_fake_powershell_dir {
         'loop_runtime_matches: a marker naming another runtime does not match' );
     _m7_kill_child($wrong);
 
-    my $zombie = Developer::Dashboard::GoRoutine::spawn( ['/bin/true'], {} );
-    select undef, undef, undef, 0.3;
+    # $^X, not /bin/true, settle 2s: see 3b (R184).
+    my $zombie = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'exit 0' ], {} );
+    select undef, undef, undef, 2.0;
     {
         local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
         is( $runner->_loop_runtime_matches( $zombie, 'm7r2' ), 0,
@@ -2920,8 +2927,9 @@ SKIP: {
             'read_process_title: a non-numeric pid reads as no title on Windows' );
     }
 
-    my $zombie = Developer::Dashboard::GoRoutine::spawn( ['/bin/true'], {} );
-    select undef, undef, undef, 0.3;
+    # $^X, not /bin/true, settle 2s: see 3b (R184).
+    my $zombie = Developer::Dashboard::GoRoutine::spawn( [ $^X, '-e', 'exit 0' ], {} );
+    select undef, undef, undef, 2.0;
     {
         my $emptybin = tempdir( CLEANUP => 1 );
         local $ENV{PATH} = $emptybin;
