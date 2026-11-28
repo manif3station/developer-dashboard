@@ -1703,8 +1703,16 @@ SKIP: {
         Time::HiRes::sleep(0.05);
     }
     die 'no P1 port' if !$p1;
+    # A wide backlog, not 1: every readiness probe opens a TCP
+    # connection to this port and nothing ever accepts one, so the
+    # probes sit unaccepted in the backlog. Listen => 1 fits one
+    # on macOS, and the second readiness call's probes then time
+    # out (proof #212 tests 152-153: got 0, expected 1, and the
+    # state pid stayed 111111 because no adoption ran). Probe
+    # /tmp/m7-p2-probe.pl: on Linux two unaccepted connects fit
+    # and the third times out after 1s; macOS fits one.
     my $self_listener = IO::Socket::INET->new(
-        LocalAddr => '127.0.0.1', LocalPort => 0, Listen => 1, Proto => 'tcp', ReuseAddr => 1,
+        LocalAddr => '127.0.0.1', LocalPort => 0, Listen => 128, Proto => 'tcp', ReuseAddr => 1,
     ) or die "self listen: $!";
     my $p2      = $self_listener->sockport;
     my $mapfile = File::Spec->catfile( $dir, 'map.txt' );
